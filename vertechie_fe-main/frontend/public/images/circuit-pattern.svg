@@ -1,0 +1,74 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="circuitGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#673AB7" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#3F51B5" stop-opacity="0.9" />
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="#F5F5F5" />
+  
+  <!-- Background gradient -->
+  <rect width="400" height="300" fill="url(#circuitGradient)" opacity="0.2" />
+  
+  <!-- Circuit lines -->
+  <g opacity="0.7" stroke="#3F51B5" stroke-width="2" fill="none">
+    <!-- Horizontal lines -->
+    <path d="M20,40 H380" />
+    <path d="M20,80 H150 M250,80 H380" />
+    <path d="M20,120 H100 M180,120 H300" />
+    <path d="M100,160 H380" />
+    <path d="M20,200 H300" />
+    <path d="M80,240 H200 M280,240 H380" />
+    
+    <!-- Vertical lines -->
+    <path d="M60,20 V60 M60,120 V280" />
+    <path d="M120,20 V120" />
+    <path d="M180,80 V200" />
+    <path d="M240,20 V60 M240,160 V280" />
+    <path d="M300,80 V240" />
+    <path d="M340,40 V160 M340,240 V280" />
+  </g>
+  
+  <!-- Circuit nodes -->
+  <g fill="#673AB7">
+    <circle cx="60" cy="40" r="5" />
+    <circle cx="60" cy="120" r="5" />
+    <circle cx="60" cy="200" r="5" />
+    <circle cx="60" cy="240" r="5" />
+    
+    <circle cx="120" cy="80" r="5" />
+    <circle cx="120" cy="120" r="5" />
+    
+    <circle cx="180" cy="80" r="5" />
+    <circle cx="180" cy="120" r="5" />
+    <circle cx="180" cy="200" r="5" />
+    
+    <circle cx="240" cy="40" r="5" />
+    <circle cx="240" cy="160" r="5" />
+    <circle cx="240" cy="240" r="5" />
+    
+    <circle cx="300" cy="80" r="5" />
+    <circle cx="300" cy="160" r="5" />
+    <circle cx="300" cy="240" r="5" />
+    
+    <circle cx="340" cy="40" r="5" />
+    <circle cx="340" cy="160" r="5" />
+    <circle cx="340" cy="240" r="5" />
+  </g>
+  
+  <!-- Data processing elements -->
+  <g fill="#673AB7" opacity="0.4">
+    <rect x="90" y="70" width="20" height="20" rx="2" />
+    <rect x="210" y="30" width="20" height="20" rx="2" />
+    <rect x="270" y="150" width="20" height="20" rx="2" />
+    <rect x="150" y="190" width="20" height="20" rx="2" />
+    <rect x="330" y="230" width="20" height="20" rx="2" />
+  </g>
+  
+  <!-- CPU-like element -->
+  <g transform="translate(140, 120)">
+    <rect x="0" y="0" width="60" height="60" rx="5" fill="#3F51B5" opacity="0.3" />
+    <rect x="10" y="10" width="40" height="40" rx="3" stroke="#673AB7" stroke-width="2" fill="none" />
+    <path d="M20,30 H40 M30,20 V40" stroke="#673AB7" stroke-width="2" />
+  </g>
+</svg> 

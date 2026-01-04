@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800px" height="600px" viewBox="0 0 800 600" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <title>Verification Process Illustration</title>
+  <defs>
+    <linearGradient x1="0%" y1="0%" x2="100%" y2="100%" id="linearGradient-1">
+      <stop stop-color="#0077B5" offset="0%"></stop>
+      <stop stop-color="#00395A" offset="100%"></stop>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5" />
+      <feOffset dx="2" dy="2" result="offsetblur" />
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.2" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <g stroke="none" fill="none">
+    <!-- Background -->
+    <rect width="800" height="600" fill="transparent"></rect>
+    
+    <!-- Circular progress track -->
+    <circle cx="400" cy="300" r="200" stroke="#E0E0E0" stroke-width="20" fill="none"></circle>
+    
+    <!-- Progress segments -->
+    <path d="M400,100 A200,200 0 0,1 566,200" stroke="#0077B5" stroke-width="20" fill="none" stroke-linecap="round"></path>
+    <path d="M566,200 A200,200 0 0,1 600,300" stroke="#0077B5" stroke-width="20" fill="none" stroke-linecap="round"></path>
+    <path d="M600,300 A200,200 0 0,1 566,400" stroke="#0077B5" stroke-width="20" fill="none" stroke-linecap="round"></path>
+    <path d="M566,400 A200,200 0 0,1 400,500" stroke="#0077B5" stroke-width="20" fill="none" stroke-linecap="round"></path>
+    <path d="M400,500 A200,200 0 0,1 234,400" stroke="#0077B5" stroke-width="20" fill="none" stroke-linecap="round"></path>
+    
+    <!-- Center badge -->
+    <circle cx="400" cy="300" r="100" fill="url(#linearGradient-1)" filter="url(#shadow)"></circle>
+    <path d="M360,300 L385,325 L440,270" stroke="white" stroke-width="10" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+    
+    <!-- Step 1: Identity Verification -->
+    <g transform="translate(400, 100)">
+      <circle cx="0" cy="0" r="40" fill="white" stroke="#0077B5" stroke-width="3"></circle>
+      <g transform="translate(-20, -20)">
+        <rect x="0" y="0" width="40" height="30" rx="2" fill="#0077B5"></rect>
+        <circle cx="20" cy="15" r="8" fill="white"></circle>
+        <rect x="0" y="30" width="40" height="10" rx="2" fill="#0077B5"></rect>
+      </g>
+      <text x="0" y="60" font-family="Arial" font-size="14" fill="#0A1929" text-anchor="middle">Identity</text>
+    </g>
+    
+    <!-- Step 2: Employment History -->
+    <g transform="translate(566, 200)">
+      <circle cx="0" cy="0" r="40" fill="white" stroke="#0077B5" stroke-width="3"></circle>
+      <g transform="translate(-20, -20)">
+        <rect x="0" y="0" width="40" height="40" rx="2" fill="#0077B5" opacity="0.2"></rect>
+        <path d="M5,5 L35,5 L35,35 L5,35 Z" stroke="#0077B5" stroke-width="2" fill="none"></path>
+        <path d="M10,15 L30,15 M10,20 L30,20 M10,25 L30,25" stroke="#0077B5" stroke-width="2" stroke-linecap="round"></path>
+      </g>
+      <text x="0" y="60" font-family="Arial" font-size="14" fill="#0A1929" text-anchor="middle">Employment</text>
+    </g>
+    
+    <!-- Step 3: Skills Assessment -->
+    <g transform="translate(600, 300)">
+      <circle cx="0" cy="0" r="40" fill="white" stroke="#0077B5" stroke-width="3"></circle>
+      <g transform="translate(-20, -20)">
+        <path d="M10,20 L20,30 L30,10" stroke="#0077B5" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+        <rect x="5" y="5" width="30" height="30" rx="2" stroke="#0077B5" stroke-width="2" fill="none"></rect>
+      </g>
+      <text x="0" y="60" font-family="Arial" font-size="14" fill="#0A1929" text-anchor="middle">Skills</text>
+    </g>
+    
+    <!-- Step 4: Education Verification -->
+    <g transform="translate(566, 400)">
+      <circle cx="0" cy="0" r="40" fill="white" stroke="#0077B5" stroke-width="3"></circle>
+      <g transform="translate(-20, -20)">
+        <path d="M20,5 L35,15 L20,25 L5,15 Z" fill="#0077B5"></path>
+        <path d="M20,25 L20,35 M5,15 L5,30 M35,15 L35,30" stroke="#0077B5" stroke-width="2" fill="none"></path>
+      </g>
+      <text x="0" y="60" font-family="Arial" font-size="14" fill="#0A1929" text-anchor="middle">Education</text>
+    </g>
+    
+    <!-- Step 5: Professional References -->
+    <g transform="translate(400, 500)">
+      <circle cx="0" cy="0" r="40" fill="white" stroke="#0077B5" stroke-width="3"></circle>
+      <g transform="translate(-20, -20)">
+        <circle cx="12" cy="15" r="8" fill="#0077B5"></circle>
+        <circle cx="28" cy="15" r="8" fill="#0077B5"></circle>
+        <path d="M20,40 C10,40 5,30 5,25 C5,20 10,20 20,20 C30,20 35,20 35,25 C35,30 30,40 20,40 Z" fill="#0077B5"></path>
+      </g>
+      <text x="0" y="60" font-family="Arial" font-size="14" fill="#0A1929" text-anchor="middle">References</text>
+    </g>
+    
+    <!-- Step 6: Verified Badge -->
+    <g transform="translate(234, 400)">
+      <circle cx="0" cy="0" r="40" fill="white" stroke="#0077B5" stroke-width="3"></circle>
+      <g transform="translate(-18, -18)">
+        <path d="M18,2 L32,10 L32,26 L18,34 L4,26 L4,10 Z" fill="#0077B5"></path>
+        <path d="M12,18 L16,22 L24,14" stroke="white" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+      </g>
+      <text x="0" y="60" font-family="Arial" font-size="14" fill="#0A1929" text-anchor="middle">Verified</text>
+    </g>
+    
+    <!-- Connecting lines -->
+    <path d="M400,140 L400,200" stroke="#0077B5" stroke-width="2" stroke-dasharray="5,5"></path>
+    <path d="M526,200 L566,200" stroke="#0077B5" stroke-width="2" stroke-dasharray="5,5"></path>
+    <path d="M560,240 L600,300" stroke="#0077B5" stroke-width="2" stroke-dasharray="5,5"></path>
+    <path d="M560,360 L566,400" stroke="#0077B5" stroke-width="2" stroke-dasharray="5,5"></path>
+    <path d="M526,400 L440,400" stroke="#0077B5" stroke-width="2" stroke-dasharray="5,5"></path>
+    <path d="M400,400 L400,460" stroke="#0077B5" stroke-width="2" stroke-dasharray="5,5"></path>
+    <path d="M360,460 L274,400" stroke="#0077B5" stroke-width="2" stroke-dasharray="5,5"></path>
+    <path d="M234,360 L234,300" stroke="#0077B5" stroke-width="2" stroke-dasharray="5,5"></path>
+    
+    <!-- Extra decorations -->
+    <g opacity="0.7">
+      <circle cx="300" cy="150" r="8" fill="#0077B5"></circle>
+      <circle cx="500" cy="150" r="5" fill="#0077B5"></circle>
+      <circle cx="500" cy="450" r="7" fill="#0077B5"></circle>
+      <circle cx="300" cy="450" r="6" fill="#0077B5"></circle>
+      <circle cx="150" cy="300" r="4" fill="#0077B5"></circle>
+      <circle cx="650" cy="300" r="5" fill="#0077B5"></circle>
+    </g>
+  </g>
+</svg> 

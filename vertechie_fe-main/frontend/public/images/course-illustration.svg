@@ -1,0 +1,99 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="screenGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E3F2FD" />
+      <stop offset="100%" stop-color="#BBDEFB" />
+    </linearGradient>
+    <linearGradient id="laptopGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0D47A1" />
+      <stop offset="100%" stop-color="#1976D2" />
+    </linearGradient>
+    <linearGradient id="bookGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E88E5" />
+      <stop offset="100%" stop-color="#42A5F5" />
+    </linearGradient>
+    <linearGradient id="certificateGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#43A047" />
+      <stop offset="100%" stop-color="#66BB6A" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background elements -->
+  <circle cx="320" cy="80" r="60" fill="#E3F2FD" opacity="0.6" />
+  <circle cx="80" cy="250" r="40" fill="#E3F2FD" opacity="0.6" />
+  <circle cx="200" cy="30" r="25" fill="#E3F2FD" opacity="0.6" />
+
+  <!-- Laptop -->
+  <g transform="translate(150, 140)">
+    <!-- Base -->
+    <rect x="0" y="60" width="120" height="10" rx="2" fill="url(#laptopGradient)" />
+    <path d="M-10,60 L10,70 L110,70 L130,60 Z" fill="#1565C0" />
+    
+    <!-- Screen -->
+    <rect x="15" y="0" width="90" height="60" rx="4" fill="url(#laptopGradient)" />
+    <rect x="20" y="5" width="80" height="50" rx="2" fill="url(#screenGradient)" />
+    
+    <!-- Code on screen -->
+    <rect x="25" y="10" width="50" height="3" rx="1" fill="#1976D2" opacity="0.7" />
+    <rect x="25" y="16" width="70" height="3" rx="1" fill="#1976D2" opacity="0.7" />
+    <rect x="25" y="22" width="40" height="3" rx="1" fill="#1976D2" opacity="0.7" />
+    <rect x="25" y="28" width="60" height="3" rx="1" fill="#1976D2" opacity="0.7" />
+    <rect x="25" y="34" width="55" height="3" rx="1" fill="#1976D2" opacity="0.7" />
+    <rect x="25" y="40" width="45" height="3" rx="1" fill="#1976D2" opacity="0.7" />
+    <rect x="25" y="46" width="65" height="3" rx="1" fill="#1976D2" opacity="0.7" />
+  </g>
+
+  <!-- Stack of books -->
+  <g transform="translate(70, 160)">
+    <!-- Book 1 -->
+    <rect x="0" y="0" width="60" height="15" rx="2" fill="url(#bookGradient)" />
+    <rect x="5" y="5" width="35" height="2" rx="1" fill="#ffffff" opacity="0.7" />
+    <rect x="5" y="9" width="25" height="2" rx="1" fill="#ffffff" opacity="0.7" />
+    
+    <!-- Book 2 -->
+    <rect x="-5" y="15" width="70" height="15" rx="2" fill="#42A5F5" />
+    <rect x="0" y="20" width="40" height="2" rx="1" fill="#ffffff" opacity="0.7" />
+    <rect x="0" y="24" width="30" height="2" rx="1" fill="#ffffff" opacity="0.7" />
+    
+    <!-- Book 3 -->
+    <rect x="5" y="30" width="55" height="15" rx="2" fill="#2196F3" />
+    <rect x="10" y="35" width="30" height="2" rx="1" fill="#ffffff" opacity="0.7" />
+    <rect x="10" y="39" width="20" height="2" rx="1" fill="#ffffff" opacity="0.7" />
+  </g>
+
+  <!-- Certificate -->
+  <g transform="translate(260, 170)">
+    <rect x="0" y="0" width="50" height="60" rx="2" fill="#ffffff" stroke="#1E88E5" stroke-width="2" />
+    <rect x="5" y="5" width="40" height="10" rx="1" fill="#E3F2FD" />
+    <rect x="15" y="20" width="20" height="5" rx="1" fill="#E3F2FD" />
+    <rect x="10" y="30" width="30" height="2" rx="1" fill="#E3F2FD" />
+    <rect x="10" y="35" width="30" height="2" rx="1" fill="#E3F2FD" />
+    <rect x="10" y="40" width="30" height="2" rx="1" fill="#E3F2FD" />
+    <rect x="10" y="45" width="30" height="2" rx="1" fill="#E3F2FD" />
+    
+    <!-- Certificate seal -->
+    <circle cx="25" cy="50" r="6" fill="url(#certificateGradient)" />
+    <circle cx="25" cy="50" r="4" fill="none" stroke="#ffffff" stroke-width="1" />
+    <path d="M25,54 L22,60 L25,58 L28,60 L25,54 Z" fill="url(#certificateGradient)" />
+  </g>
+
+  <!-- Floating elements -->
+  <g opacity="0.8">
+    <!-- Code brackets -->
+    <path d="M110,70 L100,90 L110,110" fill="none" stroke="#1E88E5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M130,70 L140,90 L130,110" fill="none" stroke="#1E88E5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+    
+    <!-- Progress circles -->
+    <circle cx="300" cy="120" r="15" fill="none" stroke="#1E88E5" stroke-width="3" />
+    <path d="M300,120 L300,105 A15,15 0 0,1 315,120 Z" fill="#1E88E5" />
+    
+    <!-- Check marks -->
+    <path d="M260,100 L270,110 L290,90" fill="none" stroke="#43A047" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- Text elements represented as rectangles -->
+  <g opacity="0.8">
+    <rect x="250" cy="60" width="40" height="6" rx="2" fill="#0D47A1" />
+    <rect x="240" cy="70" width="60" height="4" rx="2" fill="#1976D2" />
+  </g>
+</svg> 

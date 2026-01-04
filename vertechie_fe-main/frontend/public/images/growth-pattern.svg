@@ -1,0 +1,58 @@
+<svg width="300" height="600" viewBox="0 0 300 600" xmlns="http://www.w3.org/2000/svg">
+  <!-- Main upward growth line -->
+  <path d="M150,600 Q200,400 150,300 Q100,200 150,100 L150,0" 
+        fill="none" 
+        stroke="#0077B5" 
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-dasharray="1, 10" />
+  
+  <!-- Branches -->
+  <path d="M150,500 L200,450" 
+        fill="none" 
+        stroke="#0077B5" 
+        stroke-width="3"
+        stroke-linecap="round" />
+  
+  <path d="M150,400 L90,350" 
+        fill="none" 
+        stroke="#0077B5" 
+        stroke-width="3"
+        stroke-linecap="round" />
+  
+  <path d="M150,300 L220,270" 
+        fill="none" 
+        stroke="#0077B5" 
+        stroke-width="3"
+        stroke-linecap="round" />
+  
+  <path d="M150,200 L80,180" 
+        fill="none" 
+        stroke="#0077B5" 
+        stroke-width="3"
+        stroke-linecap="round" />
+  
+  <path d="M150,100 L230,80" 
+        fill="none" 
+        stroke="#0077B5" 
+        stroke-width="3"
+        stroke-linecap="round" />
+  
+  <!-- Nodes -->
+  <circle cx="150" cy="500" r="8" fill="#0077B5" />
+  <circle cx="200" cy="450" r="6" fill="#0077B5" />
+  
+  <circle cx="150" cy="400" r="8" fill="#0077B5" />
+  <circle cx="90" cy="350" r="6" fill="#0077B5" />
+  
+  <circle cx="150" cy="300" r="8" fill="#0077B5" />
+  <circle cx="220" cy="270" r="6" fill="#0077B5" />
+  
+  <circle cx="150" cy="200" r="8" fill="#0077B5" />
+  <circle cx="80" cy="180" r="6" fill="#0077B5" />
+  
+  <circle cx="150" cy="100" r="8" fill="#0077B5" />
+  <circle cx="230" cy="80" r="6" fill="#0077B5" />
+  
+  <circle cx="150" cy="0" r="10" fill="#0077B5" />
+</svg> 

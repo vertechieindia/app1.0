@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1584" height="396" viewBox="0 0 1584 396" xmlns="http://www.w3.org/2000/svg">
+    <!-- Background with gradient -->
+    <defs>
+        <linearGradient id="backgroundGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#000B18;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#001F3F;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="textGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#1E90FF;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#00BFFF;stop-opacity:1" />
+        </linearGradient>
+    </defs>
+
+    <!-- Background -->
+    <rect width="1584" height="396" fill="url(#backgroundGradient)" />
+
+    <!-- Decorative Elements -->
+    <path d="M0,100 Q396,0 792,100 T1584,100" stroke="rgba(30,144,255,0.1)" stroke-width="2" fill="none" />
+    <path d="M0,200 Q396,100 792,200 T1584,200" stroke="rgba(30,144,255,0.1)" stroke-width="2" fill="none" />
+    <path d="M0,300 Q396,200 792,300 T1584,300" stroke="rgba(30,144,255,0.1)" stroke-width="2" fill="none" />
+
+    <!-- Logo Group -->
+    <g transform="translate(642, 98)">
+        <!-- Logo Circle -->
+        <circle cx="150" cy="100" r="60" stroke="#1E90FF" stroke-width="4" fill="white"/>
+        <!-- Logo Paths -->
+        <path d="M110,140 L125,155" stroke="#1E90FF" stroke-width="6" fill="none" stroke-linecap="round"/>
+        <path d="M125,155 L157,115" stroke="#1E90FF" stroke-width="6" fill="none" stroke-linecap="round"/>
+        <path d="M157,115 L190,75" stroke="#1E90FF" stroke-width="6" fill="none" stroke-linecap="round"/>
+        <path d="M170,100 L170,155" stroke="#1E90FF" stroke-width="6" fill="none" stroke-linecap="round"/>
+    </g>
+
+    <!-- Company Name -->
+    <text x="792" y="240" text-anchor="middle" font-family="Arial, sans-serif" font-size="48" font-weight="bold" fill="url(#textGradient)">
+        VerTechie
+    </text>
+
+    <!-- Tagline -->
+    <text x="792" y="290" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#FFFFFF" opacity="0.9">
+        Built on Trust. Driven by Technology.
+    </text>
+</svg> 

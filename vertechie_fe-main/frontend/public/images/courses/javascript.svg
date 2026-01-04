@@ -1,0 +1,179 @@
+<svg width="800" height="450" viewBox="0 0 800 450" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2D2D30" />
+      <stop offset="100%" stop-color="#1E1E1E" />
+    </linearGradient>
+    <linearGradient id="jsGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F7DF1E" />
+      <stop offset="100%" stop-color="#F0DB4F" />
+    </linearGradient>
+    <linearGradient id="darkGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#252525" />
+      <stop offset="100%" stop-color="#1E1E1E" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#353535" stroke-width="1" />
+    </pattern>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="800" height="450" fill="url(#bgGradient)" />
+  <rect width="800" height="450" fill="url(#grid)" opacity="0.3" />
+  
+  <!-- Main JavaScript logo -->
+  <g transform="translate(200, 150)" filter="url(#glow)">
+    <rect x="-70" y="-70" width="140" height="140" fill="url(#jsGradient)" />
+    <text x="0" y="20" font-family="Arial, sans-serif" font-weight="bold" font-size="80" fill="#323330" text-anchor="middle">JS</text>
+  </g>
+  
+  <!-- Code editor -->
+  <g transform="translate(500, 200)">
+    <!-- Editor background -->
+    <rect x="-180" y="-150" width="360" height="300" rx="5" ry="5" fill="url(#darkGradient)" filter="url(#glow)" />
+    
+    <!-- Editor header -->
+    <rect x="-180" y="-150" width="360" height="30" rx="5" ry="5" fill="#3A3A3A" />
+    <text x="-160" y="-130" font-family="monospace" font-size="14" fill="#D4D4D4">advanced.js</text>
+    
+    <!-- Line numbers -->
+    <rect x="-180" y="-120" width="30" height="270" fill="#252525" />
+    <g font-family="monospace" font-size="12" fill="#6A9955" text-anchor="end">
+      <text x="-185" y="-100">1</text>
+      <text x="-185" y="-80">2</text>
+      <text x="-185" y="-60">3</text>
+      <text x="-185" y="-40">4</text>
+      <text x="-185" y="-20">5</text>
+      <text x="-185" y="0">6</text>
+      <text x="-185" y="20">7</text>
+      <text x="-185" y="40">8</text>
+      <text x="-185" y="60">9</text>
+      <text x="-185" y="80">10</text>
+      <text x="-185" y="100">11</text>
+      <text x="-185" y="120">12</text>
+    </g>
+    
+    <!-- Code content with syntax highlighting -->
+    <g font-family="monospace" font-size="14" text-anchor="start">
+      <!-- Line 1 -->
+      <text x="-140" y="-100" fill="#569CD6">class</text>
+      <text x="-100" y="-100" fill="#4EC9B0">TaskManager</text>
+      <text x="-10" y="-100" fill="#D4D4D4">{</text>
+      
+      <!-- Line 2 -->
+      <text x="-140" y="-80" fill="#569CD6">  constructor</text>
+      <text x="-65" y="-80" fill="#D4D4D4">() {</text>
+      
+      <!-- Line 3 -->
+      <text x="-140" y="-60" fill="#D4D4D4">    this.tasks = [];</text>
+      
+      <!-- Line 4 -->
+      <text x="-140" y="-40" fill="#D4D4D4">  }</text>
+      
+      <!-- Line 5 -->
+      <text x="-140" y="-20" fill="#569CD6">  async</text>
+      <text x="-95" y="-20" fill="#DCDCAA">fetchTasks</text>
+      <text x="-30" y="-20" fill="#D4D4D4">() {</text>
+      
+      <!-- Line 6 -->
+      <text x="-140" y="0" fill="#569CD6">    try</text>
+      <text x="-115" y="0" fill="#D4D4D4">{</text>
+      
+      <!-- Line 7 -->
+      <text x="-140" y="20" fill="#569CD6">      const</text>
+      <text x="-95" y="20" fill="#9CDCFE">response</text>
+      <text x="-40" y="20" fill="#D4D4D4">=</text>
+      <text x="-30" y="20" fill="#569CD6">await</text>
+      <text x="5" y="20" fill="#DCDCAA">fetch</text>
+      <text x="45" y="20" fill="#D4D4D4">(</text>
+      <text x="50" y="20" fill="#CE9178">'/api/tasks'</text>
+      <text x="120" y="20" fill="#D4D4D4">);</text>
+      
+      <!-- Line 8 -->
+      <text x="-140" y="40" fill="#569CD6">      const</text>
+      <text x="-95" y="40" fill="#9CDCFE">data</text>
+      <text x="-70" y="40" fill="#D4D4D4">=</text>
+      <text x="-60" y="40" fill="#569CD6">await</text>
+      <text x="-25" y="40" fill="#9CDCFE">response</text>
+      <text x="30" y="40" fill="#D4D4D4">.</text>
+      <text x="35" y="40" fill="#DCDCAA">json</text>
+      <text x="65" y="40" fill="#D4D4D4">();</text>
+      
+      <!-- Line 9 -->
+      <text x="-140" y="60" fill="#D4D4D4">      this.tasks = data;</text>
+      
+      <!-- Line 10 -->
+      <text x="-140" y="80" fill="#D4D4D4">    }</text>
+      <text x="-120" y="80" fill="#569CD6">catch</text>
+      <text x="-85" y="80" fill="#D4D4D4">(err) {</text>
+      
+      <!-- Line 11 -->
+      <text x="-140" y="100" fill="#DCDCAA">      console</text>
+      <text x="-85" y="100" fill="#D4D4D4">.</text>
+      <text x="-80" y="100" fill="#DCDCAA">error</text>
+      <text x="-45" y="100" fill="#D4D4D4">(err);</text>
+      
+      <!-- Line 12 -->
+      <text x="-140" y="120" fill="#D4D4D4">    }</text>
+    </g>
+    
+    <!-- Cursor animation -->
+    <rect x="-140" y="123" width="10" height="2" fill="#AEAFAD">
+      <animate attributeName="opacity" values="1;0;1" dur="1.2s" repeatCount="indefinite" />
+    </rect>
+  </g>
+  
+  <!-- Feature boxes -->
+  <g transform="translate(200, 320)">
+    <rect x="-100" y="-30" width="200" height="60" rx="5" ry="5" fill="#252525" filter="url(#glow)" />
+    <text x="0" y="5" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#F7DF1E" text-anchor="middle">PROMISES &amp; ASYNC/AWAIT</text>
+  </g>
+  
+  <g transform="translate(450, 320)">
+    <rect x="-100" y="-30" width="200" height="60" rx="5" ry="5" fill="#252525" filter="url(#glow)" />
+    <text x="0" y="5" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#F7DF1E" text-anchor="middle">DESIGN PATTERNS</text>
+  </g>
+  
+  <g transform="translate(300, 380)">
+    <rect x="-100" y="-30" width="200" height="60" rx="5" ry="5" fill="#252525" filter="url(#glow)" />
+    <text x="0" y="5" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#F7DF1E" text-anchor="middle">FUNCTIONAL PROGRAMMING</text>
+  </g>
+  
+  <g transform="translate(550, 380)">
+    <rect x="-100" y="-30" width="200" height="60" rx="5" ry="5" fill="#252525" filter="url(#glow)" />
+    <text x="0" y="5" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#F7DF1E" text-anchor="middle">PERFORMANCE OPTIMIZATION</text>
+  </g>
+  
+  <!-- Flowchart arrows -->
+  <g stroke="#F7DF1E" stroke-width="2" stroke-dasharray="5,5" opacity="0.6" fill="none">
+    <path d="M200,270 L200,320" />
+    <path d="M200,270 L450,320" />
+    <path d="M450,350 L300,380" />
+    <path d="M450,350 L550,380" />
+  </g>
+  
+  <!-- Course title -->
+  <g filter="url(#glow)">
+    <rect x="150" y="10" width="500" height="50" rx="5" ry="5" fill="#252525" opacity="0.9" />
+    <text x="400" y="45" font-family="Arial, sans-serif" font-weight="bold" font-size="28" fill="#FFFFFF" text-anchor="middle">ADVANCED JAVASCRIPT</text>
+  </g>
+  
+  <!-- VerTechie brand -->
+  <g transform="translate(60, 40)">
+    <rect x="-40" y="-20" width="120" height="40" rx="5" ry="5" fill="#252525" opacity="0.8" />
+    <text x="20" y="5" font-family="Arial, sans-serif" font-weight="bold" font-size="16" fill="#FFFFFF" text-anchor="middle">VerTechie</text>
+  </g>
+  
+  <!-- JS symbols scattered around -->
+  <g opacity="0.3" fill="#F7DF1E">
+    <text x="100" y="120" font-family="monospace" font-size="30" transform="rotate(-15, 100, 120)">{}</text>
+    <text x="700" y="150" font-family="monospace" font-size="30" transform="rotate(15, 700, 150)">()</text>
+    <text x="650" y="80" font-family="monospace" font-size="30" transform="rotate(-10, 650, 80)">=></text>
+    <text x="100" y="350" font-family="monospace" font-size="30" transform="rotate(10, 100, 350)">[]</text>
+    <text x="720" y="300" font-family="monospace" font-size="30" transform="rotate(-5, 720, 300)">;</text>
+  </g>
+</svg> 

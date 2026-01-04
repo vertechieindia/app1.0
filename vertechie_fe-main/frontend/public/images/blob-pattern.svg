@@ -1,0 +1,39 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="blobGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF5722" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#E91E63" stop-opacity="0.9" />
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="#FFF3E0" />
+  
+  <!-- Background blobs -->
+  <path d="M300,200 Q350,150 300,100 Q250,50 200,100 Q150,150 100,100 Q50,50 0,100 L0,300 L300,300 Z" 
+        fill="url(#blobGradient)" opacity="0.3" />
+  
+  <path d="M400,150 Q350,200 300,150 Q250,100 200,150 Q150,200 100,150 Q50,100 0,150 L0,300 L400,300 Z" 
+        fill="url(#blobGradient)" opacity="0.2" />
+  
+  <!-- Small decorative elements -->
+  <circle cx="100" cy="70" r="20" fill="#FF5722" opacity="0.2" />
+  <circle cx="300" cy="90" r="25" fill="#FF5722" opacity="0.15" />
+  <circle cx="200" cy="40" r="15" fill="#FF5722" opacity="0.25" />
+  
+  <!-- Shield-like graphics for security -->
+  <g transform="translate(70, 80)" opacity="0.7">
+    <path d="M40,0 L80,20 L80,60 C80,80 65,95 40,100 C15,95 0,80 0,60 L0,20 Z" 
+          fill="none" stroke="#E91E63" stroke-width="2" opacity="0.5" />
+    <path d="M40,10 L70,25 L70,55 C70,70 60,85 40,90 C20,85 10,70 10,55 L10,25 Z" 
+          fill="none" stroke="#E91E63" stroke-width="2" opacity="0.5" />
+    <circle cx="40" cy="45" r="15" fill="#E91E63" opacity="0.3" />
+    <path d="M35,45 L45,55 L60,35" fill="none" stroke="#E91E63" stroke-width="3" stroke-linecap="round" opacity="0.8" />
+  </g>
+  
+  <!-- Lock icon -->
+  <g transform="translate(240, 80)" opacity="0.7">
+    <rect x="10" y="25" width="40" height="30" rx="5" fill="#E91E63" opacity="0.3" />
+    <path d="M15,25 L15,15 C15,5 25,5 30,5 C35,5 45,5 45,15 L45,25" 
+          fill="none" stroke="#E91E63" stroke-width="2" opacity="0.5" />
+    <circle cx="30" cy="40" r="5" fill="#E91E63" opacity="0.5" />
+  </g>
+</svg> 

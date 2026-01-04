@@ -1,0 +1,160 @@
+<svg width="800" height="600" viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="nodeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0077B5" />
+      <stop offset="100%" stop-color="#5AC8FA" />
+    </linearGradient>
+    <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="rgba(0, 119, 181, 0.5)" />
+      <stop offset="100%" stop-color="rgba(90, 200, 250, 0.5)" />
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  
+  <!-- Background grid -->
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255, 255, 255, 0.03)" stroke-width="1" />
+  </pattern>
+  <rect x="0" y="0" width="100%" height="100%" fill="url(#grid)" />
+  
+  <!-- Network lines -->
+  <!-- Main network structure -->
+  <g class="connections">
+    <line x1="400" y1="300" x2="200" y2="150" stroke="url(#lineGradient)" stroke-width="1.5" />
+    <line x1="400" y1="300" x2="600" y2="150" stroke="url(#lineGradient)" stroke-width="1.5" />
+    <line x1="400" y1="300" x2="200" y2="450" stroke="url(#lineGradient)" stroke-width="1.5" />
+    <line x1="400" y1="300" x2="600" y2="450" stroke="url(#lineGradient)" stroke-width="1.5" />
+    <line x1="200" y1="150" x2="100" y2="100" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="200" y1="150" x2="150" y2="50" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="200" y1="150" x2="300" y2="80" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="600" y1="150" x2="700" y2="100" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="600" y1="150" x2="650" y2="50" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="600" y1="150" x2="500" y2="80" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="200" y1="450" x2="100" y2="500" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="200" y1="450" x2="150" y2="550" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="200" y1="450" x2="300" y2="520" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="600" y1="450" x2="700" y2="500" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="600" y1="450" x2="650" y2="550" stroke="url(#lineGradient)" stroke-width="1" />
+    <line x1="600" y1="450" x2="500" y2="520" stroke="url(#lineGradient)" stroke-width="1" />
+    
+    <!-- Cross connections -->
+    <line x1="200" y1="150" x2="600" y2="150" stroke="url(#lineGradient)" stroke-width="0.75" opacity="0.5" />
+    <line x1="200" y1="450" x2="600" y2="450" stroke="url(#lineGradient)" stroke-width="0.75" opacity="0.5" />
+    <line x1="200" y1="150" x2="600" y2="450" stroke="url(#lineGradient)" stroke-width="0.75" opacity="0.3" />
+    <line x1="200" y1="450" x2="600" y2="150" stroke="url(#lineGradient)" stroke-width="0.75" opacity="0.3" />
+    
+    <!-- Small cross connections -->
+    <line x1="100" y1="100" x2="150" y2="50" stroke="url(#lineGradient)" stroke-width="0.5" opacity="0.7" />
+    <line x1="150" y1="50" x2="300" y2="80" stroke="url(#lineGradient)" stroke-width="0.5" opacity="0.7" />
+    <line x1="300" y1="80" x2="500" y2="80" stroke="url(#lineGradient)" stroke-width="0.5" opacity="0.7" />
+    <line x1="500" y1="80" x2="650" y2="50" stroke="url(#lineGradient)" stroke-width="0.5" opacity="0.7" />
+    <line x1="650" y1="50" x2="700" y2="100" stroke="url(#lineGradient)" stroke-width="0.5" opacity="0.7" />
+    <line x1="100" y1="500" x2="150" y2="550" stroke="url(#lineGradient)" stroke-width="0.5" opacity="0.7" />
+    <line x1="150" y1="550" x2="300" y2="520" stroke="url(#lineGradient)" stroke-width="0.5" opacity="0.7" />
+    <line x1="300" y1="520" x2="500" y2="520" stroke="url(#lineGradient)" stroke-width="0.5" opacity="0.7" />
+    <line x1="500" y1="520" x2="650" y2="550" stroke="url(#lineGradient)" stroke-width="0.5" opacity="0.7" />
+    <line x1="650" y1="550" x2="700" y2="500" stroke="url(#lineGradient)" stroke-width="0.5" opacity="0.7" />
+  </g>
+  
+  <!-- Animated pulses moving along connections -->
+  <g class="pulses">
+    <circle r="3" fill="#5AC8FA" opacity="0.8" filter="url(#glow)">
+      <animateMotion path="M400,300 L200,150" dur="3s" repeatCount="indefinite" />
+    </circle>
+    <circle r="3" fill="#5AC8FA" opacity="0.8" filter="url(#glow)">
+      <animateMotion path="M400,300 L600,150" dur="4s" repeatCount="indefinite" />
+    </circle>
+    <circle r="3" fill="#5AC8FA" opacity="0.8" filter="url(#glow)">
+      <animateMotion path="M400,300 L200,450" dur="3.5s" repeatCount="indefinite" />
+    </circle>
+    <circle r="3" fill="#5AC8FA" opacity="0.8" filter="url(#glow)">
+      <animateMotion path="M400,300 L600,450" dur="4.5s" repeatCount="indefinite" />
+    </circle>
+    <circle r="2" fill="#5AC8FA" opacity="0.6" filter="url(#glow)">
+      <animateMotion path="M200,150 L300,80" dur="2s" repeatCount="indefinite" />
+    </circle>
+    <circle r="2" fill="#5AC8FA" opacity="0.6" filter="url(#glow)">
+      <animateMotion path="M600,150 L500,80" dur="2.5s" repeatCount="indefinite" />
+    </circle>
+    <circle r="2" fill="#5AC8FA" opacity="0.6" filter="url(#glow)">
+      <animateMotion path="M200,450 L300,520" dur="2.2s" repeatCount="indefinite" />
+    </circle>
+    <circle r="2" fill="#5AC8FA" opacity="0.6" filter="url(#glow)">
+      <animateMotion path="M600,450 L500,520" dur="2.7s" repeatCount="indefinite" />
+    </circle>
+  </g>
+  
+  <!-- Nodes (circles) -->
+  <g class="nodes">
+    <!-- Main node -->
+    <circle cx="400" cy="300" r="15" fill="url(#nodeGradient)" stroke="white" stroke-width="2" filter="url(#glow)">
+      <animate attributeName="r" values="15;17;15" dur="3s" repeatCount="indefinite" />
+    </circle>
+    
+    <!-- Secondary nodes -->
+    <circle cx="200" cy="150" r="10" fill="url(#nodeGradient)" stroke="white" stroke-width="1.5" filter="url(#glow)" />
+    <circle cx="600" cy="150" r="10" fill="url(#nodeGradient)" stroke="white" stroke-width="1.5" filter="url(#glow)" />
+    <circle cx="200" cy="450" r="10" fill="url(#nodeGradient)" stroke="white" stroke-width="1.5" filter="url(#glow)" />
+    <circle cx="600" cy="450" r="10" fill="url(#nodeGradient)" stroke="white" stroke-width="1.5" filter="url(#glow)" />
+    
+    <!-- Tertiary nodes -->
+    <circle cx="100" cy="100" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="150" cy="50" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="300" cy="80" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="500" cy="80" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="650" cy="50" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="700" cy="100" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="100" cy="500" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="150" cy="550" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="300" cy="520" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="500" cy="520" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="650" cy="550" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    <circle cx="700" cy="500" r="6" fill="url(#nodeGradient)" stroke="white" stroke-width="1" filter="url(#glow)" />
+    
+    <!-- Micro nodes (small dots) -->
+    <g fill="#5AC8FA" opacity="0.6">
+      <circle cx="120" cy="120" r="2" />
+      <circle cx="170" cy="90" r="2" />
+      <circle cx="230" cy="120" r="2" />
+      <circle cx="250" cy="180" r="2" />
+      <circle cx="320" cy="120" r="2" />
+      <circle cx="420" cy="90" r="2" />
+      <circle cx="470" cy="130" r="2" />
+      <circle cx="520" cy="150" r="2" />
+      <circle cx="550" cy="110" r="2" />
+      <circle cx="620" cy="120" r="2" />
+      <circle cx="670" cy="150" r="2" />
+      <circle cx="120" cy="420" r="2" />
+      <circle cx="170" cy="480" r="2" />
+      <circle cx="230" cy="400" r="2" />
+      <circle cx="250" cy="380" r="2" />
+      <circle cx="320" cy="420" r="2" />
+      <circle cx="420" cy="480" r="2" />
+      <circle cx="470" cy="430" r="2" />
+      <circle cx="520" cy="400" r="2" />
+      <circle cx="550" cy="480" r="2" />
+      <circle cx="620" cy="410" r="2" />
+      <circle cx="670" cy="430" r="2" />
+    </g>
+  </g>
+  
+  <!-- Check marks on verified nodes -->
+  <g class="verified-marks" fill="white">
+    <path d="M395,300 l5,5 l8,-8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M195,150 l5,5 l8,-8" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M595,150 l5,5 l8,-8" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M195,450 l5,5 l8,-8" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M595,450 l5,5 l8,-8" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  </g>
+  
+  <!-- X marks on removed/fake nodes -->
+  <g class="removed-marks" stroke="rgba(255,45,85,0.9)" stroke-width="1.5" stroke-linecap="round">
+    <path d="M325,105 l-5,-5 M320,100 l5,5" />
+    <path d="M475,105 l-5,-5 M470,100 l5,5" />
+    <path d="M95,525 l-5,-5 M90,520 l5,5" />
+    <path d="M695,525 l-5,-5 M690,520 l5,5" />
+  </g>
+</svg> 

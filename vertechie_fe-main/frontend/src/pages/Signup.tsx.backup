@@ -1,0 +1,3526 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Box,
+  Typography,
+  TextField,
+  Button,
+  Alert,
+  FormControlLabel,
+  Checkbox,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  CircularProgress,
+  Stepper,
+  Step,
+  StepLabel,
+  InputAdornment,
+  IconButton,
+  Link,
+  FormControl,
+  Select,
+  MenuItem,
+  InputLabel,
+  Grid,
+  Card,
+  CardContent,
+  Chip,
+  Divider,
+  ListSubheader,
+  Paper,
+  Container,
+  Fade,
+  Slide,
+  Grow,
+  Zoom,
+  useTheme,
+  useMediaQuery,
+  alpha,
+  Stack,
+  Avatar,
+  Tooltip,
+  Badge,
+  LinearProgress,
+} from '@mui/material';
+import {
+  SignupContainer,
+  SignupPaper,
+  FormSection,
+  StepTitle,
+  TermsBox,
+} from '../components/auth/SignupStyles';
+import RoleSelection from '../components/auth/RoleSelection';
+import { PublicUserRole } from '../types/auth';
+import { useAuth } from '../contexts/AuthContext';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import CameraAlt from '@mui/icons-material/CameraAlt';
+import PhotoCamera from '@mui/icons-material/PhotoCamera';
+import CheckCircle from '@mui/icons-material/CheckCircle';
+import Warning from '@mui/icons-material/Warning';
+import Info from '@mui/icons-material/Info';
+import Security from '@mui/icons-material/Security';
+import VerifiedUser from '@mui/icons-material/VerifiedUser';
+import School from '@mui/icons-material/School';
+import Work from '@mui/icons-material/Work';
+import Person from '@mui/icons-material/Person';
+import Email from '@mui/icons-material/Email';
+import Phone from '@mui/icons-material/Phone';
+import Lock from '@mui/icons-material/Lock';
+import Flag from '@mui/icons-material/Flag';
+
+const STEPS = ['Role Selection', 'Techie Disclaimer', 'Complete Profile', 'Photo Capture', 'Terms & Conditions'];
+
+interface SignupFormData {
+  firstName: string;
+  middleName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  countryCode: string;
+  password: string;
+  confirmPassword: string;
+  role: PublicUserRole;
+  termsAccepted: boolean;
+  // Techie-specific fields
+  visaStatus: string;
+  education: Array<{
+    degree: string;
+    institution: string;
+    fieldOfStudy: string;
+    graduationYear: string;
+    gpa?: string;
+  }>;
+  workExperience: Array<{
+    company: string;
+    position: string;
+    startDate: string;
+    endDate: string;
+    currentlyWorking: boolean;
+    description: string;
+    references: Array<{
+      fullName: string;
+      email: string;
+      phone: string;
+      linkedinUrl: string;
+      relationship: 'manager' | 'teamLead' | 'colleague';
+    }>;
+  }>;
+  showWorkExperience: boolean;
+  noExperience: boolean;
+  selfies: { photo?: string };
+}
+
+interface FormErrors {
+  email?: string;
+  password?: string;
+  confirmPassword?: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  phone?: string;
+  countryCode?: string;
+  role?: string;
+  terms?: string;
+  submit?: string;
+  visaStatus?: string;
+  education?: string;
+  workExperience?: string;
+  selfies?: string;
+}
+
+const Signup = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isTablet = useMediaQuery(theme.breakpoints.down('md'));
+  
+  const [activeStep, setActiveStep] = useState(0);
+  const [formData, setFormData] = useState<SignupFormData>({
+    firstName: '',
+    middleName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    countryCode: '+1',
+    password: '',
+    confirmPassword: '',
+    role: 'techie',
+    termsAccepted: false,
+    // Techie-specific fields
+    visaStatus: '',
+    education: [{
+      degree: '',
+      institution: '',
+      fieldOfStudy: '',
+      graduationYear: '',
+      gpa: ''
+    }],
+    workExperience: [{
+      company: '',
+      position: '',
+      startDate: '',
+      endDate: '',
+      currentlyWorking: false,
+      description: '',
+      references: [{
+        fullName: '',
+        email: '',
+        phone: '',
+        linkedinUrl: '',
+        relationship: 'manager'
+      }]
+    }],
+    showWorkExperience: true, // Default to showing work experience
+    noExperience: false,
+    selfies: {},
+  });
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
+  
+  // Camera and photo states
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [capturedPhotos, setCapturedPhotos] = useState<{ [key: string]: string }>({});
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [photoSuccess, setPhotoSuccess] = useState<string | null>(null);
+
+  // Camera refs
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Form management states
+  const [educationCount, setEducationCount] = useState(1);
+  const [workExperienceCount, setWorkExperienceCount] = useState(1);
+
+  // Ensure video element is connected to stream
+  useEffect(() => {
+    if (cameraStream && videoRef.current) {
+      videoRef.current.srcObject = cameraStream;
+      console.log('Video element connected to stream via useEffect');
+    }
+  }, [cameraStream]);
+  
+  // Monitor termsAccepted state changes
+  useEffect(() => {
+    console.log('🔄 termsAccepted state changed:', { 
+      termsAccepted: formData.termsAccepted, 
+      type: typeof formData.termsAccepted,
+      isStepComplete: isCurrentStepComplete(),
+      activeStep 
+    });
+    
+    // Force re-render when terms state changes
+    if (activeStep === 4) {
+      console.log('🔄 Forcing re-render for terms step');
+      setFormData(prev => ({ ...prev })); // Force re-render
+    }
+  }, [formData.termsAccepted, activeStep]);
+
+  // Connect video element to camera stream
+  useEffect(() => {
+    if (videoRef.current && cameraStream) {
+      videoRef.current.srcObject = cameraStream;
+      console.log('Video element connected to camera stream');
+    }
+  }, [cameraStream]);
+
+  // Cleanup camera when component unmounts or step changes
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        stopCamera();
+      }
+    };
+  }, [cameraStream]);
+
+  // Stop camera when changing steps
+  useEffect(() => {
+    if (cameraStream && activeStep !== 3) {
+      stopCamera();
+    }
+  }, [activeStep, cameraStream]);
+
+  // Scroll to top when step changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [activeStep]);
+
+  // Scroll to top when component first mounts
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // Clear phone number when country code changes
+  useEffect(() => {
+    setFormData(prev => ({ ...prev, phone: '' }));
+  }, [formData.countryCode]);
+
+  // Scroll to top utility function
+  const scrollToTop = () => {
+    window.scrollTo({ 
+      top: 0, 
+      behavior: 'smooth' 
+    });
+  };
+
+  // Navigate to specific step
+  const navigateToStep = (stepIndex: number) => {
+    // Only allow navigation to completed steps or current step
+    if (stepIndex <= activeStep) {
+      // If navigating to a previous step, show confirmation
+      if (stepIndex < activeStep) {
+        const confirmed = window.confirm(
+          `Are you sure you want to go back to "${STEPS[stepIndex]}"? Your current progress will be saved, but you'll need to complete this step again to continue.`
+        );
+        if (!confirmed) {
+          return;
+        }
+      }
+      
+      setActiveStep(stepIndex);
+      
+      // Scroll to top after step change
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }, 100);
+    }
+  };
+
+  // Check if a step is clickable (completed or current)
+  const isStepClickable = (stepIndex: number) => {
+    return stepIndex <= activeStep;
+  };
+
+  // Scroll position state for scroll to top button
+  const [showScrollToTop, setShowScrollToTop] = useState(false);
+
+  // Monitor scroll position
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      setShowScrollToTop(scrollTop > 300);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const navigate = useNavigate();
+  const { signUp } = useAuth();
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value, checked } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: e.target.type === 'checkbox' ? checked : value,
+    }));
+    setErrors((prev) => ({ ...prev, [name]: '' }));
+  };
+
+  const handleRoleSelect = (role: PublicUserRole) => {
+    setFormData((prev) => ({ ...prev, role: role }));
+    setErrors((prev) => ({ ...prev, role: '' }));
+  };
+
+  const validateForm = () => {
+    const newErrors: FormErrors = {};
+    
+    if (activeStep === 0) {
+      if (!formData.role) {
+        newErrors.role = 'Please select a role';
+      }
+    } else if (activeStep === 1) {
+      if (formData.role === 'techie') {
+        // Disclaimer step - no validation needed, just acknowledgment
+      }
+    } else if (activeStep === 2) {
+      // Complete Profile step - validate all basic info and techie profile
+      if (!formData.email) {
+        newErrors.email = 'Email is required';
+      } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+        newErrors.email = 'Invalid email format';
+      }
+      
+      if (!formData.password) {
+        newErrors.password = 'Password is required';
+      } else if (formData.password.length < 8) {
+        newErrors.password = 'Password must be at least 8 characters';
+      } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/.test(formData.password)) {
+        newErrors.password = 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)';
+      }
+      
+      if (!formData.confirmPassword) {
+        newErrors.confirmPassword = 'Please confirm your password';
+      } else if (formData.password !== formData.confirmPassword) {
+        newErrors.confirmPassword = 'Passwords do not match';
+      }
+
+      if (!formData.firstName) {
+        newErrors.firstName = 'First name is required';
+      }
+      if (!formData.lastName) {
+        newErrors.lastName = 'Last name is required';
+      }
+      if (!formData.phone) {
+        newErrors.phone = 'Phone is required';
+      }
+      
+      // Techie-specific validation
+      if (formData.role === 'techie') {
+        if (!formData.visaStatus) {
+          newErrors.visaStatus = 'Visa status is required';
+        }
+        if (formData.education.length === 0) {
+          newErrors.education = 'At least one education entry is required';
+        }
+        
+        // Work experience is optional for freshers
+        // Only validate if work experience is provided
+        if (formData.workExperience.length > 0) {
+          formData.workExperience.forEach((work, index) => {
+            if (!work.company.trim()) {
+              newErrors.workExperience = `Company name is required for work experience ${index + 1}`;
+            }
+            if (!work.position.trim()) {
+              newErrors.workExperience = `Position is required for work experience ${index + 1}`;
+            }
+            if (!work.startDate) {
+              newErrors.workExperience = `Start date is required for work experience ${index + 1}`;
+            }
+            if (!work.currentlyWorking && !work.endDate) {
+              newErrors.workExperience = `End date is required for work experience ${index + 1} if not currently working`;
+            }
+            if (!work.description.trim()) {
+              newErrors.workExperience = `Description is required for work experience ${index + 1}`;
+            }
+            
+            // Validate references for each work experience
+            if (work.references.length === 0) {
+              newErrors.workExperience = `At least one reference is required for work experience ${index + 1}`;
+            } else {
+              work.references.forEach((ref, refIndex) => {
+                if (!ref.fullName.trim()) {
+                  newErrors.workExperience = `Reference full name is required for work experience ${index + 1}, reference ${refIndex + 1}`;
+                }
+                if (!ref.email.trim()) {
+                  newErrors.workExperience = `Reference email is required for work experience ${index + 1}, reference ${refIndex + 1}`;
+                }
+                if (!ref.phone.trim()) {
+                  newErrors.workExperience = `Reference phone is required for work experience ${index + 1}, reference ${refIndex + 1}`;
+                }
+                if (!ref.linkedinUrl.trim()) {
+                  newErrors.workExperience = `Reference LinkedIn URL is required for work experience ${index + 1}, reference ${refIndex + 1}`;
+                }
+                if (!ref.relationship) {
+                  newErrors.workExperience = `Reference relationship is required for work experience ${index + 1}, reference ${refIndex + 1}`;
+                }
+              });
+            }
+          });
+        }
+        
+        // Validate each education entry
+        formData.education.forEach((edu, index) => {
+          if (!edu.degree.trim()) {
+            newErrors.education = `Degree is required for education entry ${index + 1}`;
+          }
+          if (!edu.institution.trim()) {
+            newErrors.education = `Institution is required for education entry ${index + 1}`;
+          }
+          if (!edu.fieldOfStudy.trim()) {
+            newErrors.education = `Field of study is required for education entry ${index + 1}`;
+          }
+          if (!edu.graduationYear.trim()) {
+            newErrors.education = `Graduation year is required for education entry ${index + 1}`;
+          }
+        });
+      }
+    } else if (activeStep === 3) {
+      if (formData.role === 'techie') {
+        if (!formData.selfies.photo) {
+          newErrors.selfies = 'Please capture a photo to verify your identity';
+        }
+      }
+    } else if (activeStep === 4) {
+      if (!formData.termsAccepted) {
+        newErrors.terms = 'You must accept the Terms of Service';
+      }
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // Check if current step is complete (for disabling Next button)
+  const isCurrentStepComplete = () => {
+    console.log('🔍 isCurrentStepComplete called:', { activeStep, formData: formData });
+    
+    if (activeStep === 0) {
+      const result = !!formData.role;
+      console.log('Step 0 result:', result);
+      return result;
+    } else if (activeStep === 1) {
+      console.log('Step 1 result: true (always complete)');
+      return true; // Disclaimer step is always complete
+    } else if (activeStep === 2) {
+      // Check basic fields
+      if (!formData.email || !formData.password || !formData.confirmPassword || 
+          !formData.firstName || !formData.lastName || !formData.phone) {
+        console.log('Step 2 result: false (basic fields missing)');
+        return false;
+      }
+      
+      // Check passwords match
+      if (formData.password !== formData.confirmPassword) {
+        console.log('Step 2 result: false (passwords don\'t match)');
+        return false;
+      }
+      
+      // Check techie-specific fields
+      if (formData.role === 'techie') {
+        if (!formData.visaStatus) {
+          console.log('Step 2 result: false (visa status missing)');
+          return false;
+        }
+        if (formData.education.length === 0) {
+          console.log('Step 2 result: false (education missing)');
+          return false;
+        }
+        
+        // Work experience is optional for freshers
+        // Only check if work experience is provided and not marked as "no experience"
+        if (formData.workExperience.length > 0 && !formData.noExperience) {
+          for (const work of formData.workExperience) {
+            if (!work.company.trim() || !work.position.trim() || 
+                !work.startDate || !work.description.trim()) {
+              console.log('Step 2 result: false (work experience incomplete)');
+              return false;
+            }
+            if (!work.currentlyWorking && !work.endDate) {
+              console.log('Step 2 result: false (work experience dates missing)');
+              return false;
+            }
+            if (work.references.length === 0) {
+              console.log('Step 2 result: false (work references missing)');
+              return false;
+            }
+            
+            // Check each reference
+            for (const ref of work.references) {
+              if (!ref.fullName.trim() || !ref.email.trim() || 
+                  !ref.phone.trim() || !ref.linkedinUrl.trim() || !ref.relationship) {
+                console.log('Step 2 result: false (work reference incomplete)');
+                return false;
+              }
+            }
+          }
+        }
+        
+        // Check each education entry
+        for (const edu of formData.education) {
+          if (!edu.degree.trim() || !edu.institution.trim() || 
+              !edu.fieldOfStudy.trim() || !edu.graduationYear.trim()) {
+            console.log('Step 2 result: false (education incomplete)');
+            return false;
+          }
+        }
+      }
+      
+      console.log('Step 2 result: true (all fields complete)');
+      return true;
+    } else if (activeStep === 3) {
+      if (formData.role === 'techie') {
+        const result = !!formData.selfies.photo;
+        console.log('Step 3 result:', result, 'photo:', formData.selfies.photo);
+        return result;
+      }
+      console.log('Step 3 result: true (non-techie)');
+      return true;
+    } else if (activeStep === 4) {
+      // BULLETPROOF validation for terms acceptance
+      console.log('🚨 BULLETPROOF Terms validation check:', { 
+        activeStep, 
+        termsAccepted: formData.termsAccepted, 
+        type: typeof formData.termsAccepted,
+        strictCheck: formData.termsAccepted === true,
+        booleanCheck: Boolean(formData.termsAccepted)
+      });
+      
+      // ABSOLUTE validation - no exceptions
+      if (!formData.termsAccepted) {
+        console.log('❌ Step 4 result: FALSE - Terms not accepted!');
+        console.log('❌ Validation details:', {
+          value: formData.termsAccepted,
+          type: typeof formData.termsAccepted,
+          isTruthy: Boolean(formData.termsAccepted)
+        });
+        return false;
+      }
+      
+      console.log('✅ Step 4 result: TRUE - Terms accepted!');
+      return true;
+    }
+    
+    console.log('❌ Default result: false (unknown step)');
+    return false;
+  };
+
+  const handleNext = async () => {
+    console.log('🚨 handleNext called:', { 
+      activeStep, 
+      termsAccepted: formData.termsAccepted, 
+      isStepComplete: isCurrentStepComplete() 
+    });
+    
+    // BULLETPROOF safety check for terms acceptance
+    if (activeStep === 4) {
+      if (!formData.termsAccepted) {
+        console.log('🚫 BLOCKED: Terms not accepted!');
+        setErrors(prev => ({ ...prev, terms: '🚫 BLOCKED: You must accept Terms & Conditions to proceed!' }));
+        alert('🚫 BLOCKED: You must accept the Terms & Conditions to proceed!');
+        return;
+      }
+      console.log('✅ Terms accepted, proceeding...');
+    }
+    
+    // Additional safety check for step completion
+    if (!isCurrentStepComplete()) {
+      console.log('🚫 BLOCKED: Step not complete!');
+      alert('🚫 BLOCKED: Please complete all required fields before proceeding!');
+      return;
+    }
+    
+    if (validateForm()) {
+      if (activeStep === STEPS.length - 1) {
+        // Final step - create account
+        try {
+          setLoading(true);
+          const { user, error } = await signUp(formData.email, formData.password, `${formData.firstName} ${formData.middleName} ${formData.lastName}`.trim(), formData.role);
+          
+          if (error) {
+            setErrors(prev => ({ 
+              ...prev, 
+              submit: error 
+            }));
+            return;
+          }
+          
+          navigate('/signup-success');
+        } catch (error: any) {
+          console.error('Signup error:', error);
+          setErrors(prev => ({ 
+            ...prev, 
+            submit: error.message || 'Failed to create account' 
+          }));
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        // Move to next step
+        console.log('🔄 Moving to next step...');
+        setActiveStep((prevStep) => prevStep + 1);
+        
+        // Scroll to top after step change
+        setTimeout(() => {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }, 100);
+      }
+    } else {
+      console.log('❌ Validation failed!');
+    }
+  };
+
+  const handleBack = () => {
+    setActiveStep((prev) => prev - 1);
+    
+    // Scroll to top after step change
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 100);
+  };
+
+  // Camera functions
+  const startCamera = async () => {
+    try {
+      setCameraLoading(true);
+      setCameraError(null);
+      
+      // Stop any existing camera first
+      if (cameraStream) {
+        stopCamera();
+      }
+      
+      // Request camera access
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false
+      });
+      
+      setCameraStream(stream);
+      setShowCamera(true);
+      
+      // Connect stream to video element
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().then(() => {
+          console.log('Video started playing');
+        }).catch(err => {
+          console.error('Error playing video:', err);
+        });
+      }
+      
+      console.log('Camera started successfully');
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      let errorMessage = 'Unknown error occurred';
+      
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError') {
+          errorMessage = 'Camera access denied. Please allow camera permissions and try again.';
+        } else if (error.name === 'NotFoundError') {
+          errorMessage = 'No camera found. Please check your device has a camera.';
+        } else if (error.name === 'NotReadableError') {
+          errorMessage = 'Camera is in use by another application. Please close other camera apps and try again.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      setCameraError(errorMessage);
+    } finally {
+      setCameraLoading(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => {
+        track.stop();
+        console.log('Camera track stopped:', track.kind);
+      });
+      setCameraStream(null);
+      setShowCamera(false);
+      setCameraError(null);
+      console.log('Camera stopped');
+    }
+  };
+
+  const capturePhoto = () => {
+    if (!cameraStream || !videoRef.current) {
+      alert('Camera is not active. Please start the camera first.');
+      return;
+    }
+    
+    const video = videoRef.current;
+    
+    // Check if video is ready
+    if (video.readyState < 2) {
+      alert('Camera is still loading. Please wait a moment and try again.');
+      return;
+    }
+    
+    try {
+      // Create canvas for photo capture
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        alert('Unable to create canvas context. Please try again.');
+        return;
+      }
+      
+      // Set canvas dimensions to match video
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      // Draw video frame to canvas
+      ctx.drawImage(video, 0, 0);
+      
+      // Convert to data URL
+      const photoData = canvas.toDataURL('image/jpeg', 0.8);
+      
+      // Update state
+      setCapturedPhotos(prev => ({ ...prev, photo: photoData }));
+      setFormData(prev => ({ 
+        ...prev, 
+        selfies: { ...prev.selfies, photo: photoData } 
+      }));
+      
+      console.log('Photo captured successfully');
+      
+      // Show success message
+      setPhotoSuccess('✅ Photo captured successfully!');
+      setTimeout(() => setPhotoSuccess(null), 3000);
+      
+    } catch (error) {
+      console.error('Error capturing photo:', error);
+      alert('Failed to capture photo. Please try again.');
+    }
+  };
+
+  const removePhoto = () => {
+    setCapturedPhotos(prev => {
+      const newPhotos = { ...prev };
+      delete newPhotos.photo;
+      return newPhotos;
+    });
+    setFormData(prev => {
+      const newSelfies = { ...prev.selfies };
+      delete newSelfies.photo;
+      return { ...prev, selfies: newSelfies };
+    });
+    console.log('Photo removed');
+  };
+
+  // Form management functions
+  const addEducation = () => {
+    setEducationCount(prev => prev + 1);
+    setFormData(prev => ({
+      ...prev,
+      education: [...prev.education, {
+        degree: '',
+        institution: '',
+        fieldOfStudy: '',
+        graduationYear: '',
+        gpa: ''
+      }]
+    }));
+  };
+
+  const removeEducation = (index: number) => {
+    setEducationCount(prev => prev - 1);
+    setFormData(prev => ({
+      ...prev,
+      education: prev.education.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateEducation = (index: number, field: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      education: prev.education.map((edu, i) => 
+        i === index ? { ...edu, [field]: value } : edu
+      )
+    }));
+  };
+
+  const addWorkExperience = () => {
+    setWorkExperienceCount(prev => prev + 1);
+    setFormData(prev => ({
+      ...prev,
+      workExperience: [...prev.workExperience, {
+        company: '',
+        position: '',
+        startDate: '',
+        endDate: '',
+        currentlyWorking: false,
+        description: '',
+        references: [{
+          fullName: '',
+          email: '',
+          phone: '',
+          linkedinUrl: '',
+          relationship: 'manager' as const
+        }]
+      }]
+    }));
+  };
+
+  const removeWorkExperience = (index: number) => {
+    setWorkExperienceCount(prev => prev - 1);
+    setFormData(prev => ({
+      ...prev,
+      workExperience: prev.workExperience.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateWorkExperience = (index: number, field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      workExperience: prev.workExperience.map((work, i) => 
+        i === index ? { ...work, [field]: value } : work
+      )
+    }));
+  };
+
+  const addReference = (workIndex: number) => {
+    setFormData(prev => ({
+      ...prev,
+      workExperience: prev.workExperience.map((work, i) => 
+        i === workIndex ? {
+          ...work,
+          references: [...work.references, {
+            fullName: '',
+            email: '',
+            phone: '',
+            linkedinUrl: '',
+            relationship: 'manager' as const
+          }]
+        } : work
+      )
+    }));
+  };
+
+  const removeReference = (workIndex: number, refIndex: number) => {
+    setFormData(prev => ({
+      ...prev,
+      workExperience: prev.workExperience.map((work, i) => 
+        i === workIndex ? {
+          ...work,
+          references: work.references.filter((_, j) => j !== refIndex)
+        } : work
+      )
+    }));
+  };
+
+  const updateReference = (workIndex: number, refIndex: number, field: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      workExperience: prev.workExperience.map((work, i) => 
+        i === workIndex ? {
+          ...work,
+          references: work.references.map((ref, j) => 
+            j === refIndex ? { ...ref, [field]: value } : ref
+          )
+        } : work
+      )
+    }));
+  };
+
+  // Phone number validation helpers based on country code
+  const getPhoneMaxLength = () => {
+    switch (formData.countryCode) {
+      case '+1': // USA/Canada
+        return 10;
+      case '+91': // India
+        return 10;
+      case '+44': // UK
+        return 10;
+      case '+61': // Australia
+        return 9;
+      case '+49': // Germany
+        return 11;
+      case '+33': // France
+        return 9;
+      case '+81': // Japan
+        return 10;
+      case '+86': // China
+        return 11;
+      case '+7': // Russia
+        return 10;
+      case '+55': // Brazil
+        return 11;
+      case '+39': // Italy
+        return 10;
+      case '+34': // Spain
+        return 9;
+      case '+31': // Netherlands
+        return 9;
+      case '+46': // Sweden
+        return 9;
+      case '+47': // Norway
+        return 8;
+      case '+45': // Denmark
+        return 8;
+      case '+41': // Switzerland
+        return 9;
+      case '+43': // Austria
+        return 10;
+      case '+32': // Belgium
+        return 9;
+      case '+30': // Greece
+        return 10;
+      case '+48': // Poland
+        return 9;
+      case '+36': // Hungary
+        return 9;
+      case '+420': // Czech Republic
+        return 9;
+      case '+380': // Ukraine
+        return 9;
+      case '+1-CA': // Canada (separate from USA)
+        return 10;
+      default:
+        return 15;
+    }
+  };
+
+  const getPhoneHelperText = () => {
+    switch (formData.countryCode) {
+      case '+1': // USA
+        return 'Enter 10 digits (e.g., 5551234567)';
+      case '+91': // India
+        return 'Enter 10 digits (e.g., 9876543210)';
+      case '+44': // UK
+        return 'Enter 10 digits (e.g., 7911123456)';
+      case '+61': // Australia
+        return 'Enter 9 digits (e.g., 412345678)';
+      case '+49': // Germany
+        return 'Enter 11 digits (e.g., 15123456789)';
+      case '+33': // France
+        return 'Enter 9 digits (e.g., 123456789)';
+      case '+81': // Japan
+        return 'Enter 10 digits (e.g., 9012345678)';
+      case '+86': // China
+        return 'Enter 11 digits (e.g., 13812345678)';
+      case '+7': // Russia
+        return 'Enter 10 digits (e.g., 9123456789)';
+      case '+55': // Brazil
+        return 'Enter 11 digits (e.g., 11987654321)';
+      case '+39': // Italy
+        return 'Enter 10 digits (e.g., 3123456789)';
+      case '+34': // Spain
+        return 'Enter 9 digits (e.g., 612345678)';
+      case '+31': // Netherlands
+        return 'Enter 9 digits (e.g., 612345678)';
+      case '+46': // Sweden
+        return 'Enter 9 digits (e.g., 701234567)';
+      case '+47': // Norway
+        return 'Enter 8 digits (e.g., 12345678)';
+      case '+45': // Denmark
+        return 'Enter 8 digits (e.g., 12345678)';
+      case '+41': // Switzerland
+        return 'Enter 9 digits (e.g., 761234567)';
+      case '+43': // Austria
+        return 'Enter 10 digits (e.g., 1234567890)';
+      case '+32': // Belgium
+        return 'Enter 9 digits (e.g., 123456789)';
+      case '+30': // Greece
+        return 'Enter 10 digits (e.g., 6912345678)';
+      case '+48': // Poland
+        return 'Enter 9 digits (e.g., 123456789)';
+      case '+36': // Hungary
+        return 'Enter 9 digits (e.g., 123456789)';
+      case '+420': // Czech Republic
+        return 'Enter 9 digits (e.g., 123456789)';
+      case '+380': // Ukraine
+        return 'Enter 9 digits (e.g., 123456789)';
+      case '+1-CA': // Canada
+        return 'Enter 10 digits (e.g., 7911123456)';
+      default:
+        return 'Enter phone number';
+    }
+  };
+
+  const getPhonePlaceholder = () => {
+    switch (formData.countryCode) {
+      case '+1': // USA
+        return '5551234567';
+      case '+91': // India
+        return '9876543210';
+      case '+44': // UK
+        return '7911123456';
+      case '+61': // Australia
+        return '412345678';
+      case '+49': // Germany
+        return '15123456789';
+      case '+33': // France
+        return '123456789';
+      case '+81': // Japan
+        return '9012345678';
+      case '+86': // China
+        return '13812345678';
+      case '+7': // Russia
+        return '9123456789';
+      case '+55': // Brazil
+        return '11987654321';
+      case '+39': // Italy
+        return '3123456789';
+      case '+34': // Spain
+        return '612345678';
+      case '+31': // Netherlands
+        return '612345678';
+      case '+46': // Sweden
+        return '701234567';
+      case '+47': // Norway
+        return '12345678';
+      case '+45': // Denmark
+        return '12345678';
+      case '+41': // Switzerland
+        return '761234567';
+      case '+43': // Austria
+        return '1234567890';
+      case '+32': // Belgium
+        return '123456789';
+      case '+30': // Greece
+        return '6912345678';
+      case '+48': // Poland
+        return '123456789';
+      case '+36': // Hungary
+        return '123456789';
+      case '+420': // Czech Republic
+        return '123456789';
+      case '+380': // Ukraine
+        return '123456789';
+      case '+1-CA': // Canada
+        return '5551234567';
+      default:
+        return 'Enter phone number';
+    }
+  };
+
+  // Password validation helper
+  const getPasswordHelperText = () => {
+    if (!formData.password) {
+      return 'Password must be at least 8 characters with uppercase, lowercase, number, and special character';
+    }
+    
+    const hasUppercase = /[A-Z]/.test(formData.password);
+    const hasLowercase = /[a-z]/.test(formData.password);
+    const hasNumber = /\d/.test(formData.password);
+    const hasSpecialChar = /[@$!%*?&]/.test(formData.password);
+    const hasMinLength = formData.password.length >= 8;
+    
+    if (hasUppercase && hasLowercase && hasNumber && hasSpecialChar && hasMinLength) {
+      return '✅ Password meets all requirements';
+    }
+    
+    return null; // Return null to use custom helper text display
+  };
+
+  // Confirm password validation helper
+  const getConfirmPasswordHelperText = () => {
+    if (!formData.confirmPassword) {
+      return 'Please confirm your password';
+    }
+    
+    if (formData.password !== formData.confirmPassword) {
+      return '❌ Passwords do not match';
+    }
+    
+    return '✅ Passwords match';
+  };
+
+  const renderStepContent = () => {
+    switch (activeStep) {
+      case 0:
+        return (
+          <>
+            <StepTitle variant="h6">Select Your Role</StepTitle>
+            <RoleSelection
+              selectedRole={formData.role}
+              onRoleSelect={handleRoleSelect}
+            />
+            {errors.role && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {errors.role}
+              </Alert>
+            )}
+          </>
+        );
+      case 1:
+        return formData.role === 'techie' ? (
+          <>
+            <StepTitle variant="h6">CRITICAL LEGAL DISCLOSURE & PATRIOTIC COMMITMENT</StepTitle>
+            
+            {/* Patriotic Header */}
+            <Box sx={{ 
+              backgroundColor: '#1e3a8a', 
+              color: 'white', 
+              borderRadius: '12px', 
+              padding: 3, 
+              margin: '16px 0',
+              textAlign: 'center'
+            }}>
+              <Typography variant="h5" gutterBottom>
+                🇺🇸 UNITED STATES OF AMERICA - VERIFICATION COMMITMENT 🇺🇸
+              </Typography>
+              <Typography variant="body1">
+                "We the People" - Committed to American Excellence and Integrity
+              </Typography>
+            </Box>
+
+            {/* Legal Disclaimer */}
+            <Paper elevation={6} sx={{ 
+              padding: 4, 
+              margin: '24px 0', 
+              border: '3px solid #dc2626',
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, #fef2f2 0%, #fecaca 100%)',
+              boxShadow: '0 20px 25px -5px rgba(220, 38, 38, 0.1), 0 10px 10px -5px rgba(220, 38, 38, 0.04)'
+            }}>
+              {/* Header with Icon */}
+              <Box sx={{ textAlign: 'center', mb: 3 }}>
+                <Box sx={{ 
+                  display: 'inline-flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  width: '80px',
+                  height: '80px',
+                  borderRadius: '50%',
+                  backgroundColor: '#dc2626',
+                  color: 'white',
+                  mb: 2,
+                  fontSize: '2rem'
+                }}>
+                  ⚖️
+                </Box>
+                <Typography variant="h5" color="error" gutterBottom sx={{ fontWeight: 'bold' }}>
+                  ⚠️ OFFICIAL LEGAL NOTICE - MANDATORY READING ⚠️
+                </Typography>
+                <Typography variant="body1" color="error" sx={{ fontWeight: 'bold' }}>
+                  This document contains legally binding terms that affect your immigration status
+                </Typography>
+              </Box>
+              
+              <Divider sx={{ margin: '24px 0', borderColor: '#dc2626', borderWidth: '2px' }} />
+              
+              <Typography variant="body1" paragraph sx={{ fontWeight: 'bold', fontSize: '1.1rem', textAlign: 'center', mb: 3 }}>
+                By proceeding with this application, you acknowledge and agree to the following <strong>LEGALLY BINDING</strong> terms:
+              </Typography>
+              
+              {/* Enhanced Content with Better Visual Hierarchy */}
+              <Box sx={{ 
+                backgroundColor: 'rgba(255, 255, 255, 0.8)', 
+                borderRadius: '12px', 
+                padding: 3,
+                mb: 3
+              }}>
+                <Box component="ul" sx={{ pl: 0, listStyle: 'none' }}>
+                  <Box component="li" sx={{ mb: 3 }}>
+                    <Card sx={{ 
+                      backgroundColor: '#f8fafc', 
+                      border: '2px solid #3b82f6',
+                      borderRadius: '12px'
+                    }}>
+                      <CardContent>
+                        <Typography variant="h6" color="primary" gutterBottom sx={{ fontWeight: 'bold' }}>
+                          🔍 FEDERAL COMPLIANCE & VERIFICATION
+                        </Typography>
+                        <Typography variant="body1" paragraph>
+                          The information you submit will be subject to a thorough review process. We will use a combination of authorized data services and direct outreach to relevant legal and professional entities to confirm the details you have provided.
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Box>
+                  
+                  <Box component="li" sx={{ mb: 3 }}>
+                    <Card sx={{ 
+                      backgroundColor: '#fef3c7', 
+                      border: '2px solid #f59e0b',
+                      borderRadius: '12px'
+                    }}>
+                      <CardContent>
+                        <Typography variant="h6" color="warning.main" gutterBottom sx={{ fontWeight: 'bold' }}>
+                          🚨 ANTI-FRAUD MEASURES & REPORTING
+                        </Typography>
+                        <Typography variant="body1" paragraph>
+                          Any false, misleading, or fraudulent information will result in immediate reporting to:
+                        </Typography>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} sm={6}>
+                            <Box sx={{ 
+                              backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                              padding: 2, 
+                              borderRadius: '8px',
+                              border: '1px solid #ef4444'
+                            }}>
+                              <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#dc2626' }}>
+                                United States Citizenship and Immigration Services (USCIS)
+                              </Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Box sx={{ 
+                              backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                              padding: 2, 
+                              borderRadius: '8px',
+                              border: '1px solid #ef4444'
+                            }}>
+                              <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#dc2626' }}>
+                                Department of Homeland Security (DHS)
+                              </Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Box sx={{ 
+                              backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                              padding: 2, 
+                              borderRadius: '8px',
+                              border: '1px solid #ef4444'
+                            }}>
+                              <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#dc2626' }}>
+                                Federal Bureau of Investigation (FBI)
+                              </Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Box sx={{ 
+                              backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                              padding: 2, 
+                              borderRadius: '8px',
+                              border: '1px solid #ef4444'
+                            }}>
+                              <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#dc2626' }}>
+                                All subscribed VerTechie vendors and clients
+                              </Typography>
+                            </Box>
+                          </Grid>
+                        </Grid>
+                      </CardContent>
+                    </Card>
+                  </Box>
+                  
+                  <Box component="li" sx={{ mb: 3 }}>
+                    <Card sx={{ 
+                      backgroundColor: '#fee2e2', 
+                      border: '2px solid #dc2626',
+                      borderRadius: '12px'
+                    }}>
+                      <CardContent>
+                        <Typography variant="h6" color="error" gutterBottom sx={{ fontWeight: 'bold' }}>
+                          ⚡ LEGAL CONSEQUENCES & ENFORCEMENT
+                        </Typography>
+                        <Typography variant="body1" paragraph>
+                          False statements may result in severe consequences:
+                        </Typography>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} sm={6}>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                              Criminal prosecution under 18 U.S.C. § 1001
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                              <strong>We will report to USCIS with evidence for deportation proceedings</strong>
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                              Permanent ineligibility for US entry
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                              Civil and criminal penalties up to $250,000
+                            </Typography>
+                          </Grid>
+                        </Grid>
+                      </CardContent>
+                    </Card>
+                  </Box>
+                  
+                  <Box component="li" sx={{ mb: 3 }}>
+                    <Card sx={{ 
+                      backgroundColor: '#ecfdf5', 
+                      border: '2px solid #10b981',
+                      borderRadius: '12px'
+                    }}>
+                      <CardContent>
+                        <Typography variant="h6" color="success.main" gutterBottom sx={{ fontWeight: 'bold' }}>
+                          🔐 BACKGROUND VERIFICATION CONSENT
+                        </Typography>
+                        <Typography variant="body1" paragraph>
+                          You consent to comprehensive background checks including:
+                        </Typography>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} sm={6}>
+                            <Typography variant="body2">Criminal record verification</Typography>
+                            <Typography variant="body2">Employment history validation</Typography>
+                            <Typography variant="body2">Educational credential verification</Typography>
+                            <Typography variant="body2">Visa status verification with legal entities</Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Typography variant="body2">Reference authentication</Typography>
+                            <Typography variant="body2">Social media and online presence review</Typography>
+                            <Typography variant="body2"><strong>Direct contact with institutions and employers</strong></Typography>
+                          </Grid>
+                        </Grid>
+                      </CardContent>
+                    </Card>
+                  </Box>
+                  
+                  <Box component="li" sx={{ mb: 3 }}>
+                    <Card sx={{ 
+                      backgroundColor: '#f0f9ff', 
+                      border: '2px solid #0ea5e9',
+                      borderRadius: '12px'
+                    }}>
+                      <CardContent>
+                        <Typography variant="h6" color="info.main" gutterBottom sx={{ fontWeight: 'bold' }}>
+                          💻 STRICT TECHNICAL EVALUATION & PROXY DETECTION
+                        </Typography>
+                        <Typography variant="body1" paragraph>
+                          All technical assessments and evaluations are conducted under strict monitoring protocols:
+                        </Typography>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} sm={6}>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#dc2626' }}>
+                              ⚠️ PROXY SUPPORT DETECTION
+                            </Typography>
+                            <Typography variant="body2" paragraph>
+                              Any attempt to use proxy services, VPNs, or remote assistance during technical evaluations will be immediately detected and flagged.
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#dc2626' }}>
+                              🚨 COMPLETE RECORDING SHARING
+                            </Typography>
+                            <Typography variant="body2">
+                              Full session recordings, including proxy detection evidence, will be shared with all subscribed VerTechie vendors and clients.
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                              🔍 MONITORING INCLUDES:
+                            </Typography>
+                            <Typography variant="body2">• Real-time screen recording</Typography>
+                            <Typography variant="body2">• Network traffic analysis</Typography>
+                            <Typography variant="body2">• IP address verification</Typography>
+                            <Typography variant="body2">• Browser fingerprinting</Typography>
+                            <Typography variant="body2">• Device behavior analysis</Typography>
+                            <Typography variant="body2">• Anti-cheating algorithms</Typography>
+                          </Grid>
+                        </Grid>
+                        <Box sx={{ 
+                          backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                          padding: 2, 
+                          borderRadius: '8px',
+                          border: '1px solid #ef4444',
+                          mt: 2
+                        }}>
+                          <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#dc2626', textAlign: 'center' }}>
+                            🚨 TECHNICAL INTEGRITY VIOLATIONS RESULT IN IMMEDIATE DISQUALIFICATION AND COMPLETE RECORDING SHARING WITH ALL PARTNERS
+                          </Typography>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Box>
+                </Box>
+              </Box>
+              
+              <Divider sx={{ margin: '24px 0', borderColor: '#dc2626', borderWidth: '2px' }} />
+              
+              {/* Enhanced Patriotic Section */}
+              <Box sx={{ 
+                backgroundColor: 'rgba(30, 58, 138, 0.1)', 
+                borderRadius: '12px', 
+                padding: 3,
+                border: '2px solid #1e3a8a'
+              }}>
+                <Typography variant="h6" paragraph sx={{ fontWeight: 'bold', color: '#1e3a8a', textAlign: 'center' }}>
+                  🇺🇸 PATRIOTIC COMMITMENT TO AMERICAN EXCELLENCE 🇺🇸
+                </Typography>
+                <Typography variant="body1" paragraph sx={{ fontWeight: 'bold', color: '#1e3a8a', textAlign: 'center' }}>
+                  As a professional seeking opportunities in the United States, you commit to upholding American values of honesty, integrity, and excellence. 
+                  <br /><br />
+                  <strong>Any attempt to deceive this system is a direct violation of American trust and will be met with the full force of federal law.</strong>
+                </Typography>
+                
+                <Box sx={{ textAlign: 'center', mt: 2 }}>
+                  <Typography variant="body2" sx={{ fontStyle: 'italic', color: '#1e3a8a', fontWeight: 'bold' }}>
+                    "In God We Trust" - United States of America
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#1e3a8a', mt: 1 }}>
+                    "We the People" - Committed to American Excellence and Integrity
+                  </Typography>
+                </Box>
+              </Box>
+            </Paper>
+
+
+          </>
+        ) : (
+          <>
+            <StepTitle variant="h6">Additional Information</StepTitle>
+            <Typography variant="body2" color="text.secondary">
+              Please provide any additional information relevant to your role.
+            </Typography>
+          </>
+        );
+      case 2:
+        return (
+          <>
+            <StepTitle variant="h6">Complete Profile</StepTitle>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              {formData.role === 'techie' 
+                ? 'Complete your profile with personal information and professional details' 
+                : 'Provide your basic information to create your account'
+              }
+            </Typography>
+            
+            {/* Basic Information Section */}
+            <FormSection>
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                mb: 3,
+                p: 2,
+                backgroundColor: alpha(theme.palette.primary.main, 0.05),
+                borderRadius: 2,
+                border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`
+              }}>
+                <Person sx={{ mr: 2, color: theme.palette.primary.main }} />
+                <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 600 }}>
+                  Basic Information
+                </Typography>
+              </Box>
+              
+              <Grid container spacing={3}>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="First Name *"
+                    name="firstName"
+                    value={formData.firstName}
+                    onChange={handleChange}
+                    error={!!errors.firstName}
+                    helperText={errors.firstName}
+                    margin="normal"
+                    required
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Person color="action" />
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: theme.palette.primary.main,
+                        },
+                      }
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Middle Name (Optional)"
+                    name="middleName"
+                    value={formData.middleName}
+                    onChange={handleChange}
+                    error={!!errors.middleName}
+                    margin="normal"
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Person color="action" />
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: theme.palette.primary.main,
+                        },
+                      }
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Last Name *"
+                    name="lastName"
+                    value={formData.lastName}
+                    onChange={handleChange}
+                    error={!!errors.lastName}
+                    helperText={errors.lastName}
+                    margin="normal"
+                    required
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Person color="action" />
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: theme.palette.primary.main,
+                        },
+                      }
+                    }}
+                  />
+                </Grid>
+                
+                {/* Contact Information */}
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 3 }}>
+                    <Chip 
+                      label="Contact Information" 
+                      icon={<Email />}
+                      sx={{ 
+                        backgroundColor: alpha(theme.palette.secondary.main, 0.1),
+                        color: theme.palette.secondary.main,
+                        fontWeight: 600
+                      }}
+                    />
+                  </Divider>
+                </Grid>
+                
+                <Grid item xs={12} sm={2}>
+                  <FormControl fullWidth margin="normal" required>
+                    <InputLabel sx={{ backgroundColor: 'white', px: 1 }}>Code</InputLabel>
+                    <Select
+                      value={formData.countryCode}
+                      onChange={(e) => setFormData(prev => ({ ...prev, countryCode: e.target.value }))}
+                      size="small"
+                      startAdornment={
+                        <InputAdornment position="start">
+                          <Flag color="action" />
+                        </InputAdornment>
+                      }
+                      sx={{
+                        borderRadius: 2,
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: theme.palette.primary.main,
+                        },
+                      }}
+                    >
+                      <MenuItem value="+1" sx={{ fontWeight: 'bold' }}>USA (+1)</MenuItem>
+                      <MenuItem value="+91" sx={{ fontWeight: 'bold' }}>India (+91)</MenuItem>
+                      <MenuItem value="+1-CA" sx={{ fontWeight: 'bold' }}>Canada (+1)</MenuItem>
+                      <Divider />
+                      <MenuItem value="+44">UK (+44)</MenuItem>
+                      <MenuItem value="+61">Australia (+61)</MenuItem>
+                      <MenuItem value="+49">Germany (+49)</MenuItem>
+                      <MenuItem value="+33">France (+33)</MenuItem>
+                      <MenuItem value="+81">Japan (+81)</MenuItem>
+                      <MenuItem value="+86">China (+86)</MenuItem>
+                      <MenuItem value="+7">Russia (+7)</MenuItem>
+                      <MenuItem value="+55">Brazil (+55)</MenuItem>
+                      <MenuItem value="+39">Italy (+39)</MenuItem>
+                      <MenuItem value="+34">Spain (+34)</MenuItem>
+                      <MenuItem value="+31">Netherlands (+31)</MenuItem>
+                      <MenuItem value="+46">Sweden (+46)</MenuItem>
+                      <MenuItem value="+47">Norway (+47)</MenuItem>
+                      <MenuItem value="+45">Denmark (+45)</MenuItem>
+                      <MenuItem value="+41">Switzerland (+41)</MenuItem>
+                      <MenuItem value="+43">Austria (+43)</MenuItem>
+                      <MenuItem value="+32">Belgium (+32)</MenuItem>
+                      <MenuItem value="+30">Greece (+30)</MenuItem>
+                      <MenuItem value="+48">Poland (+48)</MenuItem>
+                      <MenuItem value="+36">Hungary (+36)</MenuItem>
+                      <MenuItem value="+420">Czech Republic (+420)</MenuItem>
+                      <MenuItem value="+380">Ukraine (+380)</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Phone Number"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '');
+                      setFormData(prev => ({ ...prev, phone: value }));
+                    }}
+                    error={!!errors.phone}
+                    helperText={errors.phone || getPhoneHelperText()}
+                    margin="normal"
+                    required
+                    inputProps={{ 
+                      maxLength: getPhoneMaxLength(),
+                      placeholder: getPhonePlaceholder()
+                    }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Phone color="action" />
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: theme.palette.primary.main,
+                        },
+                      }
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Email"
+                    name="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    error={!!errors.email}
+                    helperText={errors.email}
+                    margin="normal"
+                    required
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Email color="action" />
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: theme.palette.primary.main,
+                        },
+                      }
+                    }}
+                  />
+                </Grid>
+                
+                {/* Security Section */}
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 3 }}>
+                    <Chip 
+                      label="Security" 
+                      icon={<Security />}
+                      sx={{ 
+                        backgroundColor: alpha(theme.palette.warning.main, 0.1),
+                        color: theme.palette.warning.main,
+                        fontWeight: 600
+                      }}
+                    />
+                  </Divider>
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    value={formData.password}
+                    onChange={handleChange}
+                    error={!!errors.password}
+                    helperText={errors.password || getPasswordHelperText()}
+                    margin="normal"
+                    required
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Lock color="action" />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            onClick={() => setShowPassword((show) => !show)}
+                            edge="end"
+                            tabIndex={-1}
+                          >
+                            {showPassword ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                      onCopy: (e) => e.preventDefault(),
+                      onPaste: (e) => e.preventDefault(),
+                      onCut: (e) => e.preventDefault(),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: theme.palette.primary.main,
+                        },
+                      }
+                    }}
+                  />
+                  {/* Custom password requirements display */}
+                  {formData.password && !errors.password && !getPasswordHelperText() && (
+                    <Box sx={{ mt: 1, ml: 1 }}>
+                      {!/[A-Z]/.test(formData.password) && (
+                        <Typography variant="caption" sx={{ color: 'error.main', display: 'block', mb: 0.5 }}>
+                          ❌ MISSING UPPERCASE LETTER
+                        </Typography>
+                      )}
+                      {!/[a-z]/.test(formData.password) && (
+                        <Typography variant="caption" sx={{ color: 'error.main', display: 'block', mb: 0.5 }}>
+                          ❌ MISSING LOWERCASE LETTER
+                        </Typography>
+                      )}
+                      {!/\d/.test(formData.password) && (
+                        <Typography variant="caption" sx={{ color: 'error.main', display: 'block', mb: 0.5 }}>
+                          ❌ MISSING NUMBER
+                        </Typography>
+                      )}
+                      {!/[@$!%*?&]/.test(formData.password) && (
+                        <Typography variant="caption" sx={{ color: 'error.main', display: 'block', mb: 0.5 }}>
+                          ❌ MISSING SPECIAL CHARACTER
+                        </Typography>
+                      )}
+                      {formData.password.length < 8 && (
+                        <Typography variant="caption" sx={{ color: 'error.main', display: 'block', mb: 0.5 }}>
+                          ❌ MISSING 8+ CHARACTERS
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Confirm Password"
+                    name="confirmPassword"
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                    error={!!errors.confirmPassword}
+                    helperText={errors.confirmPassword || getConfirmPasswordHelperText()}
+                    margin="normal"
+                    required
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Lock color="action" />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                            onClick={() => setShowConfirmPassword((show) => !show)}
+                            edge="end"
+                            tabIndex={-1}
+                          >
+                            {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                      onCopy: (e) => e.preventDefault(),
+                      onPaste: (e) => e.preventDefault(),
+                      onCut: (e) => e.preventDefault(),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: theme.palette.primary.main,
+                        },
+                      }
+                    }}
+                  />
+                </Grid>
+              </Grid>
+            </FormSection>
+
+            {/* Techie Profile Section - Only show if role is techie */}
+            {formData.role === 'techie' && (
+              <>
+                <Divider sx={{ my: 4 }} />
+                
+                {/* Visa Status */}
+                <FormSection>
+                  <Typography variant="h6" gutterBottom sx={{ color: 'text.primary', fontWeight: 600, mb: 2 }}>
+                    US Work Visa Status
+                  </Typography>
+                  <FormControl fullWidth margin="normal" required>
+                    <InputLabel sx={{ backgroundColor: 'white', px: 1 }}>Select Your Work Authorization</InputLabel>
+                    <Select
+                      value={formData.visaStatus}
+                      onChange={(e) => setFormData(prev => ({ ...prev, visaStatus: e.target.value }))}
+                      MenuProps={{
+                        PaperProps: {
+                          style: {
+                            maxHeight: 350,
+                            width: '45%',
+                            minWidth: '200px'
+                          }
+                        },
+                        anchorOrigin: {
+                          vertical: 'bottom',
+                          horizontal: 'left'
+                        },
+                        transformOrigin: {
+                          vertical: 'top',
+                          horizontal: 'left'
+                        }
+                      }}
+                    >
+                      <ListSubheader 
+                        sx={{ 
+                          backgroundColor: '#f8f9fa', 
+                          fontWeight: 'bold',
+                          color: '#1976d2',
+                          fontSize: '0.875rem',
+                          lineHeight: 1.5,
+                          padding: '8px 16px'
+                        }}
+                      >
+                        Primary Work Authorizations
+                      </ListSubheader>
+                      <MenuItem value="h1b" sx={{ padding: '8px 16px' }}>H-1B Visa (Specialty Occupation)</MenuItem>
+                      <MenuItem value="l1a" sx={{ padding: '8px 16px' }}>L-1A (Executive/Manager)</MenuItem>
+                      <MenuItem value="l1b" sx={{ padding: '8px 16px' }}>L-1B (Specialized Knowledge)</MenuItem>
+                      <MenuItem value="e3" sx={{ padding: '8px 16px' }}>E-3 (Australian Specialty Occupation)</MenuItem>
+                      <MenuItem value="tn" sx={{ padding: '8px 16px' }}>TN Visa (NAFTA Professional)</MenuItem>
+                      <MenuItem value="o1a" sx={{ padding: '8px 16px' }}>O-1A (Extraordinary Ability)</MenuItem>
+                      <MenuItem value="o1b" sx={{ padding: '8px 16px' }}>O-1B (Extraordinary Ability in Arts)</MenuItem>
+                      
+                      <ListSubheader 
+                        sx={{ 
+                          backgroundColor: '#f8f9fa', 
+                          fontWeight: 'bold',
+                          color: '#1976d2',
+                          fontSize: '0.875rem',
+                          lineHeight: 1.5,
+                          padding: '8px 16px',
+                          marginTop: '8px'
+                        }}
+                      >
+                        Student & Dependent Work Authorizations
+                      </ListSubheader>
+                      <MenuItem value="opt" sx={{ padding: '8px 16px' }}>OPT (Optional Practical Training)</MenuItem>
+                      <MenuItem value="cpt" sx={{ padding: '8px 16px' }}>CPT (Curricular Practical Training)</MenuItem>
+                      <MenuItem value="h4_ead" sx={{ padding: '8px 16px' }}>H-4 EAD (H-4 Dependent Work Authorization)</MenuItem>
+                      <MenuItem value="gc_ead" sx={{ padding: '8px 16px' }}>GC EAD (Green Card EAD)</MenuItem>
+                      
+                      <ListSubheader 
+                        sx={{ 
+                          backgroundColor: '#f8f9fa', 
+                          fontWeight: 'bold',
+                          color: '#1976d2',
+                          fontSize: '0.875rem',
+                          lineHeight: 1.5,
+                          padding: '8px 16px',
+                          marginTop: '8px'
+                        }}
+                      >
+                        Permanent Status
+                      </ListSubheader>
+                      <MenuItem value="green_card" sx={{ padding: '8px 16px' }}>Permanent Resident (Green Card)</MenuItem>
+                      <MenuItem value="citizen" sx={{ padding: '8px 16px' }}>US Citizen</MenuItem>
+                      
+                      <ListSubheader 
+                        sx={{ 
+                          backgroundColor: '#f8f9fa', 
+                          fontWeight: 'bold',
+                          color: '#1976d2',
+                          fontSize: '0.875rem',
+                          lineHeight: 1.5,
+                          padding: '8px 16px',
+                          marginTop: '8px'
+                        }}
+                      >
+                        Other Valid Authorizations
+                      </ListSubheader>
+                      <MenuItem value="asylee" sx={{ padding: '8px 16px' }}>Asylee</MenuItem>
+                      <MenuItem value="refugee" sx={{ padding: '8px 16px' }}>Refugee</MenuItem>
+                      <MenuItem value="employment_authorization" sx={{ padding: '8px 16px' }}>Employment Authorization Document (EAD)</MenuItem>
+                      <MenuItem value="other" sx={{ padding: '8px 16px' }}>Other (Please specify)</MenuItem>
+                    </Select>
+                  </FormControl>
+                  {errors.visaStatus && (
+                    <Alert severity="error" sx={{ mt: 1 }}>
+                      {errors.visaStatus}
+                    </Alert>
+                  )}
+                </FormSection>
+
+                {/* Education Section */}
+                <FormSection>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                    <Typography variant="h6" gutterBottom sx={{ color: 'text.primary', fontWeight: 600 }}>
+                      Education History
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={addEducation}
+                      sx={{ 
+                        textTransform: 'none',
+                        fontSize: '0.875rem',
+                        px: 2,
+                        py: 1
+                      }}
+                    >
+                      + Add Education
+                    </Button>
+                  </Box>
+                  
+                  {formData.education.map((edu, index) => (
+                    <Card key={index} sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Typography variant="subtitle1" fontWeight="bold">
+                          Education #{index + 1}
+                        </Typography>
+                        {formData.education.length > 1 && (
+                          <Button
+                            variant="outlined"
+                            color="error"
+                            size="small"
+                            onClick={() => removeEducation(index)}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </Box>
+                      
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} sm={6}>
+                          <FormControl fullWidth size="small" required>
+                            <InputLabel sx={{ backgroundColor: 'white', px: 1 }}>Degree</InputLabel>
+                            <Select
+                              value={edu.degree}
+                              onChange={(e) => updateEducation(index, 'degree', e.target.value)}
+                            >
+                              <MenuItem value="high_school">High School Diploma</MenuItem>
+                              <MenuItem value="associate">Associate Degree</MenuItem>
+                              <MenuItem value="bachelor">Bachelor's Degree</MenuItem>
+                              <MenuItem value="master">Master's Degree</MenuItem>
+                              <MenuItem value="doctorate">Doctorate/PhD</MenuItem>
+                              <MenuItem value="certification">Professional Certification</MenuItem>
+                              <MenuItem value="diploma">Technical Diploma</MenuItem>
+                              <MenuItem value="other">Other</MenuItem>
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            fullWidth
+                            label="Institution"
+                            value={edu.institution}
+                            onChange={(e) => updateEducation(index, 'institution', e.target.value)}
+                            required
+                            size="small"
+                          />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            fullWidth
+                            label="Field of Study"
+                            value={edu.fieldOfStudy}
+                            onChange={(e) => updateEducation(index, 'fieldOfStudy', e.target.value)}
+                            required
+                            size="small"
+                          />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <FormControl fullWidth size="small" required>
+                            <InputLabel sx={{ backgroundColor: 'white', px: 1 }}>Graduation Year</InputLabel>
+                            <Select
+                              value={edu.graduationYear}
+                              onChange={(e) => updateEducation(index, 'graduationYear', e.target.value)}
+                            >
+                              {Array.from({ length: 30 }, (_, i) => {
+                                const year = new Date().getFullYear() - i;
+                                return (
+                                  <MenuItem key={year} value={year.toString()}>
+                                    {year}
+                                  </MenuItem>
+                                );
+                              })}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            fullWidth
+                            label="GPA (Optional)"
+                            value={edu.gpa || ''}
+                            onChange={(e) => updateEducation(index, 'gpa', e.target.value)}
+                            size="small"
+                          />
+                        </Grid>
+                      </Grid>
+                    </Card>
+                  ))}
+                  {errors.education && (
+                    <Alert severity="error" sx={{ mt: 1 }}>
+                      {errors.education}
+                    </Alert>
+                  )}
+                </FormSection>
+
+                {/* Work Experience Section */}
+                <FormSection>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                    <Typography variant="h6" gutterBottom sx={{ color: 'text.primary', fontWeight: 600 }}>
+                      Work Experience
+                    </Typography>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={formData.noExperience}
+                          onChange={(e) => {
+                            const noExp = e.target.checked;
+                            setFormData(prev => ({ 
+                              ...prev, 
+                              noExperience: noExp,
+                              // Clear work experience if marking as no experience
+                              workExperience: noExp ? [] : prev.workExperience
+                            }));
+                          }}
+                        />
+                      }
+                      label={
+                        <Typography variant="body1" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                          Don't have work experience
+                        </Typography>
+                      }
+                    />
+                  </Box>
+                  
+                  {/* Work Experience Section - Only show if not marked as "no experience" */}
+                  {!formData.noExperience && (
+                    <>
+                      <Alert severity="info" sx={{ mb: 3, borderRadius: 1 }}>
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                          <strong>Note:</strong> Work experience is optional for freshers. You can skip this section if you don't have any work experience yet. 
+                          However, if you do add work experience, all fields including references are required.
+                        </Typography>
+                      </Alert>
+                      
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                        <Typography variant="h6" gutterBottom sx={{ color: 'text.primary', fontWeight: 600 }}>
+                          Work Experience Details
+                        </Typography>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={addWorkExperience}
+                          sx={{ 
+                            textTransform: 'none',
+                            fontSize: '0.875rem',
+                            px: 2,
+                            py: 1
+                          }}
+                        >
+                          + Add Work Experience
+                        </Button>
+                      </Box>
+                      
+                      {formData.workExperience.map((work, index) => (
+                    <Card key={index} sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Typography variant="subtitle1" fontWeight="bold">
+                          Work Experience #{index + 1}
+                        </Typography>
+                        {formData.workExperience.length > 1 && (
+                          <Button
+                            variant="outlined"
+                            color="error"
+                            size="small"
+                            onClick={() => removeWorkExperience(index)}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </Box>
+                      
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            fullWidth
+                            label="Company"
+                            value={work.company}
+                            onChange={(e) => updateWorkExperience(index, 'company', e.target.value)}
+                            required
+                            size="small"
+                          />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            fullWidth
+                            label="Position"
+                            value={work.position}
+                            onChange={(e) => updateWorkExperience(index, 'position', e.target.value)}
+                            required
+                            size="small"
+                          />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            fullWidth
+                            label="Start Date"
+                            type="date"
+                            value={work.startDate}
+                            onChange={(e) => updateWorkExperience(index, 'startDate', e.target.value)}
+                            required
+                            size="small"
+                            InputLabelProps={{ shrink: true }}
+                          />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            fullWidth
+                            label="End Date"
+                            type="date"
+                            value={work.endDate}
+                            onChange={(e) => updateWorkExperience(index, 'endDate', e.target.value)}
+                            required
+                            size="small"
+                            InputLabelProps={{ shrink: true }}
+                            disabled={work.currentlyWorking}
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={work.currentlyWorking}
+                                onChange={(e) => updateWorkExperience(index, 'currentlyWorking', e.target.checked)}
+                              />
+                            }
+                            label="I currently work here"
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <TextField
+                            fullWidth
+                            label="Job Description"
+                            value={work.description}
+                            onChange={(e) => updateWorkExperience(index, 'description', e.target.value)}
+                            required
+                            size="small"
+                            multiline
+                            rows={3}
+                          />
+                        </Grid>
+                      </Grid>
+
+                      {/* References Section for each work experience */}
+                      <Box sx={{ mt: 3 }}>
+                        <Typography variant="subtitle2" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+                          🔗 Professional References
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" paragraph>
+                          Provide at least one reference for this position
+                        </Typography>
+                        
+                        {work.references.map((ref, refIndex) => (
+                          <Card key={refIndex} sx={{ mb: 2, p: 2, backgroundColor: '#f8f9fa' }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                              <Typography variant="subtitle2" fontWeight="bold">
+                                Reference #{refIndex + 1}
+                              </Typography>
+                              {work.references.length > 1 && (
+                                <Button
+                                  variant="outlined"
+                                  color="error"
+                                  size="small"
+                                  onClick={() => removeReference(index, refIndex)}
+                                >
+                                  Remove
+                                </Button>
+                              )}
+                            </Box>
+                            
+                            <Grid container spacing={2}>
+                              <Grid item xs={12} sm={6}>
+                                <TextField
+                                  fullWidth
+                                  label="Full Name"
+                                  value={ref.fullName}
+                                  onChange={(e) => updateReference(index, refIndex, 'fullName', e.target.value)}
+                                  required
+                                  size="small"
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={6}>
+                                <FormControl fullWidth size="small" required sx={{ mt: 1 }}>
+                                  <InputLabel sx={{ backgroundColor: 'white', px: 1 }}>Relationship</InputLabel>
+                                  <Select
+                                    value={ref.relationship}
+                                    onChange={(e) => updateReference(index, refIndex, 'relationship', e.target.value)}
+                                    MenuProps={{
+                                      PaperProps: {
+                                        style: {
+                                          maxHeight: 120,
+                                          width: '40%',
+                                          minWidth: '140px'
+                                        }
+                                      },
+                                      anchorOrigin: {
+                                        vertical: 'bottom',
+                                        horizontal: 'left'
+                                      },
+                                      transformOrigin: {
+                                        vertical: 'top',
+                                        horizontal: 'left'
+                                      }
+                                    }}
+                                  >
+                                    <MenuItem value="manager">Manager</MenuItem>
+                                    <MenuItem value="teamLead">Team Lead</MenuItem>
+                                    <MenuItem value="colleague">Colleague</MenuItem>
+                                  </Select>
+                                </FormControl>
+                              </Grid>
+                              <Grid item xs={12} sm={6}>
+                                <TextField
+                                  fullWidth
+                                  label="Email"
+                                  type="email"
+                                  value={ref.email}
+                                  onChange={(e) => updateReference(index, refIndex, 'email', e.target.value)}
+                                  required
+                                  size="small"
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={6}>
+                                <TextField
+                                  fullWidth
+                                  label="Phone"
+                                  value={ref.phone}
+                                  onChange={(e) => updateReference(index, refIndex, 'phone', e.target.value)}
+                                  required
+                                  size="small"
+                                />
+                              </Grid>
+                              <Grid item xs={12}>
+                                <TextField
+                                  fullWidth
+                                  label="LinkedIn URL"
+                                  value={ref.linkedinUrl}
+                                  onChange={(e) => updateReference(index, refIndex, 'linkedinUrl', e.target.value)}
+                                  required
+                                  size="small"
+                                />
+                              </Grid>
+                            </Grid>
+                          </Card>
+                        ))}
+                        
+
+                      </Box>
+                    </Card>
+                  ))}
+                  {errors.workExperience && (
+                    <Alert severity="error" sx={{ mt: 1 }}>
+                      {errors.workExperience}
+                    </Alert>
+                  )}
+                    </>
+                  )}
+                </FormSection>
+              </>
+            )}
+          </>
+        );
+      
+      case 3:
+        return formData.role === 'techie' ? (
+          <>
+            <StepTitle variant="h6">Photo Capture</StepTitle>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Please capture a photo to verify your identity. One photo is required.
+            </Typography>
+            
+            {/* Camera Section */}
+            <FormSection>
+              <Box sx={{ textAlign: 'center', mb: 3 }}>
+                {!showCamera ? (
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    size="large"
+                    onClick={startCamera}
+                    sx={{ fontSize: '1.1rem', py: 1.5, px: 3 }}
+                  >
+                    Start Camera
+                  </Button>
+                ) : (
+                  <Box sx={{ mt: 2 }}>
+                    {/* Simple Status */}
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="h6" gutterBottom sx={{ color: 'text.primary', fontWeight: 600 }}>
+                        {formData.selfies.photo ? 'Photo Captured ✓' : 'Photo Required'}
+                      </Typography>
+                    </Box>
+                    
+                    {/* Camera Stream */}
+                    <Box sx={{ 
+                      width: '100%', 
+                      maxWidth: '600px', 
+                      margin: '0 auto',
+                      border: '3px solid #1976d2',
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+                      mb: 3,
+                      minHeight: '300px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      {cameraLoading ? (
+                        <Box sx={{ textAlign: 'center' }}>
+                          <CircularProgress size={40} />
+                          <Typography sx={{ mt: 2 }}>Starting camera...</Typography>
+                        </Box>
+                      ) : cameraError ? (
+                        <Box sx={{ textAlign: 'center', p: 3 }}>
+                          <Typography color="error" gutterBottom>{cameraError}</Typography>
+                          <Button 
+                            variant="contained" 
+                            onClick={startCamera}
+                            sx={{ mt: 1 }}
+                          >
+                            Try Again
+                          </Button>
+                        </Box>
+                      ) : (
+                        <video
+                          ref={videoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          style={{ width: '100%', height: 'auto' }}
+                        />
+                      )}
+                    </Box>
+                    
+                    {/* Camera Controls */}
+                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mb: 3 }}>
+                      <Button
+                        variant="outlined"
+                        onClick={() => setShowCamera(false)}
+                        sx={{ px: 3, py: 1 }}
+                      >
+                        Close Camera
+                      </Button>
+                      
+                      {!formData.selfies.photo && (
+                        <Button
+                          variant="contained"
+                          color="secondary"
+                          onClick={capturePhoto}
+                          sx={{ px: 4, py: 1, fontSize: '1.1rem' }}
+                        >
+                          Capture Photo
+                        </Button>
+                      )}
+                    </Box>
+                  </Box>
+                )}
+              </Box>
+              
+              {/* Captured Photo Display */}
+              {formData.selfies.photo && (
+                <Box sx={{ mt: 4 }}>
+                  <Typography variant="h6" gutterBottom sx={{ color: 'text.primary', fontWeight: 600, mb: 3 }}>
+                    Captured Photo
+                  </Typography>
+                  <Box sx={{ textAlign: 'center' }}>
+                    <Card sx={{ p: 2, border: '2px solid #e8f5e8', maxWidth: '400px', margin: '0 auto' }}>
+                      <img
+                        src={formData.selfies.photo}
+                        alt="Captured photo"
+                        style={{ 
+                          width: '100%', 
+                          height: '200px', 
+                          objectFit: 'cover',
+                          borderRadius: '8px'
+                        }}
+                      />
+                      <Typography variant="subtitle2" sx={{ display: 'block', mt: 2, fontWeight: 600 }}>
+                        Photo Captured ✓
+                      </Typography>
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={() => removePhoto()}
+                        sx={{ mt: 1 }}
+                      >
+                        Remove Photo
+                      </Button>
+                    </Card>
+                  </Box>
+                </Box>
+              )}
+              
+              {/* Success Message */}
+              {photoSuccess && (
+                <Alert severity="success" sx={{ mt: 2 }}>
+                  {photoSuccess}
+                </Alert>
+              )}
+              
+              {/* Error Display */}
+              {errors.selfies && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  {errors.selfies}
+                </Alert>
+              )}
+              
+              {/* Hidden canvas for photo capture */}
+              <canvas 
+                ref={canvasRef} 
+                style={{ display: 'none' }}
+              />
+            </FormSection>
+          </>
+        );
+
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Capture live photos in specific postures for identity verification
+            </Typography>
+
+            {/* Photo Requirements */}
+            <Alert severity="info" sx={{ mb: 3 }}>
+              <Typography variant="body2">
+                <strong>Required Photos:</strong> You must capture photos in all 6 postures below. 
+                Each photo will be used for identity verification and anti-fraud measures.
+              </Typography>
+            </Alert>
+
+            {/* Posture Selection */}
+            <FormSection>
+              <Typography variant="h6" gutterBottom>Select Posture & Capture Photo</Typography>
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                {[
+                  { key: 'hand', label: 'Show Hand', description: 'Hold your hand up to camera' },
+                  { key: 'left', label: 'Turn Left', description: 'Turn your face to the left' },
+                  { key: 'right', label: 'Turn Right', description: 'Turn your face to the right' },
+                  { key: 'up', label: 'Look Up', description: 'Tilt your head upward' },
+                  { key: 'down', label: 'Look Down', description: 'Tilt your head downward' },
+                  { key: 'center', label: 'Center', description: 'Look straight at camera' }
+                ].map((posture) => (
+                  <Grid item xs={12} sm={6} md={4} key={posture.key}>
+                    <Card 
+                      sx={{ 
+                        p: 2, 
+                        cursor: 'pointer',
+                        border: currentPosture === posture.key ? '2px solid #1976d2' : '1px solid #e0e0e0',
+                        backgroundColor: currentPosture === posture.key ? '#f3f6ff' : 'white'
+                      }}
+                      onClick={() => setCurrentPosture(posture.key)}
+                    >
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="subtitle1" fontWeight="bold">
+                          {posture.label}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {posture.description}
+                        </Typography>
+                        {capturedPhotos[posture.key] && (
+                          <Chip 
+                            label="✓ Captured" 
+                            color="success" 
+                            size="small" 
+                            sx={{ mt: 1 }}
+                          />
+                        )}
+                      </Box>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </FormSection>
+
+            {/* Camera Section */}
+            <FormSection>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6">Camera Controls</Typography>
+                <Box>
+                  {!showCamera ? (
+                    <Button
+                      variant="contained"
+                      startIcon={cameraLoading ? <CircularProgress size={20} color="inherit" /> : <CameraAlt />}
+                      onClick={startCamera}
+                      disabled={cameraLoading}
+                      sx={{
+                        px: 4,
+                        py: 1.5,
+                        borderRadius: 2,
+                        textTransform: 'none',
+                        fontSize: '1rem',
+                        fontWeight: 600,
+                        background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                        boxShadow: `0 4px 16px ${alpha(theme.palette.primary.main, 0.3)}`,
+                        '&:hover': {
+                          transform: 'translateY(-2px)',
+                          boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.4)}`,
+                        },
+                        transition: 'all 0.3s ease'
+                      }}
+                    >
+                      {cameraLoading ? 'Starting Camera...' : 'Start Camera'}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      onClick={stopCamera}
+                      sx={{
+                        px: 3,
+                        py: 1.5,
+                        borderRadius: 2,
+                        textTransform: 'none',
+                        fontSize: '1rem',
+                        fontWeight: 600,
+                        borderWidth: 2,
+                        '&:hover': {
+                          transform: 'translateY(-2px)',
+                          boxShadow: `0 8px 25px ${alpha(theme.palette.error.main, 0.3)}`,
+                        },
+                        transition: 'all 0.3s ease'
+                      }}
+                    >
+                      Stop Camera
+                    </Button>
+                  )}
+                </Box>
+              </Box>
+
+              {/* Camera Error Display */}
+              {cameraError && (
+                <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+                  <Typography variant="body2">
+                    {cameraError}
+                  </Typography>
+                  <Button 
+                    size="small" 
+                    onClick={() => setCameraError(null)}
+                    sx={{ mt: 1 }}
+                  >
+                    Dismiss
+                  </Button>
+                </Alert>
+              )}
+
+              {/* Photo Success Display */}
+              {photoSuccess && (
+                <Alert severity="success" sx={{ mb: 3, borderRadius: 2 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {photoSuccess}
+                  </Typography>
+                </Alert>
+              )}
+
+              {showCamera && (
+                <Box sx={{ textAlign: 'center' }}>
+                  {/* Camera Status */}
+                  <Box sx={{ 
+                    mb: 3, 
+                    p: 2, 
+                    backgroundColor: alpha(theme.palette.success.main, 0.1),
+                    borderRadius: 2,
+                    border: `1px solid ${alpha(theme.palette.success.main, 0.3)}`
+                  }}>
+                    <Typography variant="body2" color="success.main" sx={{ fontWeight: 600 }}>
+                      📹 Camera Active - Ready to capture photos
+                    </Typography>
+                  </Box>
+                  
+                  {/* Hidden canvas for photo capture */}
+                  <canvas
+                    ref={canvasRef}
+                    style={{ display: 'none' }}
+                  />
+                  
+                  {/* Video element */}
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    style={{
+                      width: '100%',
+                      maxWidth: '640px',
+                      height: 'auto',
+                      border: '2px solid #1976d2',
+                      borderRadius: '8px',
+                      backgroundColor: '#f0f0f0'
+                    }}
+                    onLoadedMetadata={() => {
+                      console.log('Video metadata loaded');
+                      if (videoRef.current) {
+                        console.log('Video dimensions:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight);
+                      }
+                    }}
+                    onCanPlay={() => {
+                      console.log('Video can play');
+                    }}
+                    onError={(e) => {
+                      console.error('Video error:', e);
+                    }}
+                  />
+                  
+                  {currentPosture && (
+                    <Box sx={{ mt: 3 }}>
+                      <Typography variant="h6" gutterBottom sx={{ color: 'text.primary', fontWeight: 600 }}>
+                        Current Pose: {currentPosture.charAt(0).toUpperCase() + currentPosture.slice(1)}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        {currentPosture === 'hand' && 'Show your hand clearly to the camera'}
+                        {currentPosture === 'left' && 'Turn your face to the LEFT side'}
+                        {currentPosture === 'right' && 'Turn your face to the RIGHT side'}
+                        {currentPosture === 'up' && 'Tilt your face UPWARD'}
+                        {currentPosture === 'down' && 'Tilt your face DOWNWARD'}
+                        {currentPosture === 'center' && 'Look straight at the camera'}
+                      </Typography>
+                      
+                      <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          startIcon={<PhotoCamera />}
+                          onClick={capturePhoto}
+                          sx={{
+                            px: 4,
+                            py: 1.5,
+                            borderRadius: 2,
+                            textTransform: 'none',
+                            fontSize: '1rem',
+                            fontWeight: 600,
+                            background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                            boxShadow: `0 4px 16px ${alpha(theme.palette.primary.main, 0.3)}`,
+                            '&:hover': {
+                              transform: 'translateY(-2px)',
+                              boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.4)}`,
+                            },
+                            transition: 'all 0.3s ease'
+                          }}
+                        >
+                          📸 Capture {currentPosture.charAt(0).toUpperCase() + currentPosture.slice(1)} Photo
+                        </Button>
+                        
+                        {capturedPhotos[currentPosture] && (
+                          <Button
+                            variant="outlined"
+                            color="error"
+                            onClick={() => removePhoto()}
+                            sx={{
+                              px: 3,
+                              py: 1.5,
+                              borderRadius: 2,
+                              textTransform: 'none',
+                              fontSize: '1rem',
+                              fontWeight: 600,
+                              borderWidth: 2,
+                              '&:hover': {
+                                transform: 'translateY(-2px)',
+                                boxShadow: `0 8px 25px ${alpha(theme.palette.error.main, 0.3)}`,
+                              },
+                              transition: 'all 0.3s ease'
+                            }}
+                          >
+                            🔄 Retake Photo
+                          </Button>
+                        )}
+                      </Box>
+                    </Box>
+                  )}
+                </Box>
+              )}
+
+              {/* Captured Photos Display */}
+              {Object.keys(capturedPhotos).length > 0 && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="h6" gutterBottom>Captured Photos</Typography>
+                  <Grid container spacing={2}>
+                    {Object.entries(capturedPhotos).map(([posture, photoData]) => (
+                      <Grid item xs={12} sm={6} md={4} key={posture}>
+                        <Card>
+                          <CardContent>
+                            <Typography variant="subtitle2" gutterBottom>
+                              {posture.charAt(0).toUpperCase() + posture.slice(1)} Posture
+                            </Typography>
+                            <img
+                              src={photoData}
+                              alt={`${posture} posture`}
+                              style={{
+                                width: '100%',
+                                height: '120px',
+                                objectFit: 'cover',
+                                borderRadius: '4px'
+                              }}
+                            />
+                            <Button
+                              variant="outlined"
+                              color="error"
+                              size="small"
+                              onClick={() => removePhoto()}
+                              sx={{ mt: 1 }}
+                              fullWidth
+                            >
+                              Remove
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              )}
+
+              {errors.selfies && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  {errors.selfies}
+                </Alert>
+              )}
+            </FormSection>
+          </>
+        ) : (
+          <>
+            <StepTitle variant="h6">Additional Information</StepTitle>
+            <Typography variant="body2" color="text.secondary">
+              Please provide any additional information relevant to your role.
+            </Typography>
+          </>
+        );
+      case 4:
+        return (
+          <>
+            <StepTitle variant="h6">Terms & Conditions</StepTitle>
+            <FormSection>
+              <Paper elevation={2} sx={{ p: 3, mb: 3, maxHeight: '400px', overflow: 'auto' }}>
+                <Typography variant="h6" gutterBottom>VerTechie Terms of Service</Typography>
+                <Typography variant="body2" paragraph>
+                  By using VerTechie, you agree to the following terms and conditions:
+                </Typography>
+                
+                <Box component="ul" sx={{ pl: 2 }}>
+                  <Box component="li" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      You must provide accurate and truthful information during registration
+                    </Typography>
+                  </Box>
+                  <Box component="li" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      Your photo will be used for identity verification purposes only
+                    </Typography>
+                  </Box>
+                  <Box component="li" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      You agree to comply with all applicable laws and regulations
+                    </Typography>
+                  </Box>
+                  <Box component="li" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      VerTechie reserves the right to modify these terms at any time
+                    </Typography>
+                  </Box>
+                  <Box component="li" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      Your account may be permanently blacklisted for false information
+                    </Typography>
+                  </Box>
+                  <Box component="li" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      Employers may verify your background through our system
+                    </Typography>
+                  </Box>
+                  <Box component="li" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      You consent to background verification and reference checks
+                    </Typography>
+                  </Box>
+                  <Box component="li" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      All information provided must be current and verifiable
+                    </Typography>
+                  </Box>
+                </Box>
+                
+                <Typography variant="body2" paragraph sx={{ mt: 3, fontWeight: 'bold' }}>
+                  For complete terms and privacy policy, visit our website.
+                </Typography>
+              </Paper>
+                              <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={formData.termsAccepted}
+                      onChange={(e) => setFormData(prev => ({ ...prev, termsAccepted: e.target.checked }))}
+                      color="primary"
+                    />
+                  }
+                                  label={
+                    <Typography variant="body1">
+                      I have read and agree to the <strong>Terms of Service</strong> and <strong>Privacy Policy</strong>
+                    </Typography>
+                  }
+              />
+              {errors.terms && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  {errors.terms}
+                </Alert>
+              )}
+            </FormSection>
+          </>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Fade in timeout={800}>
+        <Paper 
+          elevation={8} 
+          sx={{ 
+            p: { xs: 3, md: 6 }, 
+            borderRadius: 3,
+            background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.02)} 0%, ${alpha(theme.palette.background.paper, 1)} 100%)`,
+            border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
+            position: 'relative',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Background Pattern */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '4px',
+              background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main}, ${theme.palette.primary.main})`,
+              backgroundSize: '200% 100%',
+              animation: 'shimmer 3s ease-in-out infinite',
+              '@keyframes shimmer': {
+                '0%': { backgroundPosition: '200% 0' },
+                '100%': { backgroundPosition: '-200% 0' }
+              }
+            }}
+          />
+          
+          {/* Header */}
+          <Box sx={{ textAlign: 'center', mb: 6 }}>
+            <Avatar
+              sx={{
+                width: 80,
+                height: 80,
+                mx: 'auto',
+                mb: 3,
+                background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+                boxShadow: `0 8px 32px ${alpha(theme.palette.primary.main, 0.3)}`
+              }}
+            >
+              <VerifiedUser sx={{ fontSize: 40 }} />
+            </Avatar>
+            <Typography 
+              variant="h3" 
+              component="h1" 
+              gutterBottom
+              sx={{ 
+                fontWeight: 700,
+                background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+                backgroundClip: 'text',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                mb: 1
+              }}
+            >
+              Create Your Account
+            </Typography>
+            <Typography 
+              variant="h6" 
+              color="text.secondary"
+              sx={{ fontWeight: 400, maxWidth: 600, mx: 'auto' }}
+            >
+              Join VerTechie and unlock opportunities in the tech industry
+            </Typography>
+          </Box>
+
+          {/* Enhanced Stepper */}
+          <Box sx={{ mb: 6 }}>
+            {/* Step Navigation Instructions */}
+            <Box sx={{ 
+              textAlign: 'center', 
+              mb: 3,
+              p: 2,
+              backgroundColor: alpha(theme.palette.info.main, 0.1),
+              borderRadius: 2,
+              border: `1px solid ${alpha(theme.palette.info.main, 0.3)}`
+            }}>
+              <Typography variant="body2" color="info.main" sx={{ fontWeight: 600 }}>
+                💡 Tip: You can click on any completed step to navigate back to it
+              </Typography>
+            </Box>
+            
+            <Stepper 
+              activeStep={activeStep} 
+              alternativeLabel
+              sx={{
+                '& .MuiStepLabel-root': {
+                  '& .MuiStepLabel-label': {
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    color: theme.palette.text.secondary
+                  }
+                },
+                '& .MuiStepLabel-root.Mui-active .MuiStepLabel-label': {
+                  color: theme.palette.primary.main,
+                  fontWeight: 700
+                },
+                '& .MuiStepLabel-root.Mui-completed .MuiStepLabel-label': {
+                  color: theme.palette.success.main,
+                  fontWeight: 600
+                }
+              }}
+            >
+              {STEPS.map((label, index) => (
+                <Step key={label}>
+                  <StepLabel
+                    onClick={() => navigateToStep(index)}
+                    sx={{
+                      cursor: isStepClickable(index) ? 'pointer' : 'default',
+                      '&:hover': isStepClickable(index) ? {
+                        '& .MuiStepLabel-label': {
+                          color: index === activeStep ? theme.palette.primary.dark : theme.palette.success.dark,
+                          textDecoration: 'underline'
+                        }
+                      } : {},
+                      transition: 'all 0.2s ease',
+                      opacity: isStepClickable(index) ? 1 : 0.6
+                    }}
+                    StepIconComponent={({ active, completed, icon }) => {
+                      if (completed) {
+                        return (
+                          <Tooltip 
+                            title={isStepClickable(index) ? `Click to go back to ${label}` : 'Step completed'}
+                            placement="top"
+                          >
+                            <Avatar
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                bgcolor: theme.palette.success.main,
+                                color: 'white',
+                                fontSize: '1rem',
+                                cursor: isStepClickable(index) ? 'pointer' : 'default',
+                                '&:hover': isStepClickable(index) ? {
+                                  transform: 'scale(1.1)',
+                                  boxShadow: `0 4px 20px ${alpha(theme.palette.success.main, 0.4)}`
+                                } : {},
+                                transition: 'all 0.2s ease'
+                              }}
+                            >
+                              <CheckCircle fontSize="small" />
+                            </Avatar>
+                          </Tooltip>
+                        );
+                      }
+                      if (active) {
+                        return (
+                          <Tooltip title="Current step" placement="top">
+                            <Avatar
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                bgcolor: theme.palette.primary.main,
+                                color: 'white',
+                                fontSize: '1rem',
+                                boxShadow: `0 4px 16px ${alpha(theme.palette.primary.main, 0.4)}`,
+                                cursor: 'pointer',
+                                '&:hover': {
+                                  transform: 'scale(1.1)',
+                                  boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.6)}`
+                                },
+                                transition: 'all 0.2s ease'
+                              }}
+                            >
+                              {icon}
+                            </Avatar>
+                          </Tooltip>
+                        );
+                      }
+                      return (
+                        <Tooltip 
+                          title={isStepClickable(index) ? `Click to go back to ${label}` : 'Step not yet accessible'}
+                          placement="top"
+                        >
+                          <Avatar
+                            sx={{
+                              width: 32,
+                              height: 32,
+                              bgcolor: alpha(theme.palette.text.secondary, 0.1),
+                              color: theme.palette.text.secondary,
+                              fontSize: '1rem',
+                              cursor: isStepClickable(index) ? 'pointer' : 'default',
+                              '&:hover': isStepClickable(index) ? {
+                                transform: 'scale(1.05)',
+                                bgcolor: alpha(theme.palette.text.secondary, 0.2)
+                              } : {},
+                              transition: 'all 0.2s ease'
+                            }}
+                          >
+                            {icon}
+                          </Avatar>
+                        </Tooltip>
+                      );
+                    }}
+                  >
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="caption" sx={{ 
+                        display: 'block', 
+                        color: isStepClickable(index) ? 'text.secondary' : 'text.disabled',
+                        fontWeight: 500,
+                        mb: 0.5
+                      }}>
+                        Step {index + 1}
+                      </Typography>
+                      {label}
+                    </Box>
+                  </StepLabel>
+                </Step>
+              ))}
+            </Stepper>
+            
+            {/* Progress Bar */}
+            <Box sx={{ mt: 3 }}>
+              <LinearProgress 
+                variant="determinate" 
+                value={((activeStep + 1) / STEPS.length) * 100}
+                sx={{
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                  '& .MuiLinearProgress-bar': {
+                    borderRadius: 4,
+                    background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`
+                  }
+                }}
+              />
+              <Typography 
+                variant="caption" 
+                color="text.secondary" 
+                sx={{ mt: 1, display: 'block', textAlign: 'center' }}
+              >
+                Step {activeStep + 1} of {STEPS.length} - {Math.round(((activeStep + 1) / STEPS.length) * 100)}% Complete
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Step completion indicator */}
+          {!isCurrentStepComplete() && (
+            <Alert severity="warning" sx={{ mb: 3 }}>
+              <Typography variant="body2">
+                <strong>⚠️ Please complete all required fields in the current step before proceeding.</strong>
+                {activeStep === 2 && formData.role === 'techie' && (
+                  <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+                    <li>All basic information fields (Full Name, Email, Phone, Password)</li>
+                    <li>Work Authorization selection</li>
+                    <li>At least one complete education entry</li>
+                    <li>Work experience is optional (for freshers) - but if provided, must be complete with references</li>
+                  </Box>
+                )}
+                {activeStep === 3 && formData.role === 'techie' && (
+                  <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+                    <li>1 required photo for identity verification</li>
+                  </Box>
+                )}
+                {activeStep === 4 && (
+                  <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+                    <li><strong>🚫 CRITICAL:</strong> You must accept the Terms of Service to proceed</li>
+                  </Box>
+                )}
+              </Typography>
+            </Alert>
+          )}
+
+          {errors.submit && (
+            <Alert severity="error" sx={{ mb: 3 }}>
+              {errors.submit}
+            </Alert>
+          )}
+
+          <Box component="form" onSubmit={(e) => { e.preventDefault(); handleNext(); }}>
+            {renderStepContent()}
+
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              mt: 6,
+              gap: 2
+            }}>
+              <Button
+                onClick={handleBack}
+                disabled={activeStep === 0 || loading}
+                variant="outlined"
+                size="large"
+                sx={{
+                  px: 4,
+                  py: 1.5,
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  borderWidth: 2,
+                  '&:hover': {
+                    borderWidth: 2,
+                    transform: 'translateY(-2px)',
+                    boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.3)}`,
+                  },
+                  transition: 'all 0.3s ease',
+                  minWidth: 120
+                }}
+              >
+                ← Back
+              </Button>
+              
+              {/* Show Next button on all steps since no checkbox required */}
+              {(() => {
+                const shouldShowButton = true; // Always show button
+                console.log('🔍 Button visibility check:', {
+                  activeStep,
+                  shouldShowButton,
+                  note: 'No checkbox required - button always visible'
+                });
+                return shouldShowButton;
+              })() && (
+                <Button
+                  key={`next-button-terms-${formData.termsAccepted ? 'enabled' : 'disabled'}`}
+                  variant="contained"
+                  color="primary"
+                  size="large"
+                  onClick={(e) => {
+                    // BULLETPROOF validation - multiple safety checks
+                    console.log('🚨 Next button clicked!', { 
+                      activeStep, 
+                      termsAccepted: formData.termsAccepted, 
+                      loading,
+                      isStepComplete: isCurrentStepComplete(),
+                      buttonDisabled: (loading || !isCurrentStepComplete() || (activeStep === 4 && !formData.termsAccepted))
+                    });
+                    
+                    // Safety check 1: Direct terms validation
+                    if (activeStep === 4 && !formData.termsAccepted) {
+                      console.log('🚫 BLOCKED: Terms not accepted!');
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setErrors(prev => ({ ...prev, terms: '🚫 BLOCKED: You must accept Terms & Conditions to proceed!' }));
+                      alert('🚫 BLOCKED: You must accept the Terms & Conditions to proceed!');
+                      return;
+                    }
+                    
+                    // Safety check 2: Step completion validation
+                    if (!isCurrentStepComplete()) {
+                      console.log('🚫 BLOCKED: Step not complete!');
+                      e.preventDefault();
+                      e.stopPropagation();
+                      alert('🚫 BLOCKED: Please complete all required fields before proceeding!');
+                      return;
+                    }
+                    
+                    console.log('✅ All checks passed, proceeding...');
+                    handleNext();
+                  }}
+                  disabled={loading || !isCurrentStepComplete() || (activeStep === 4 && !formData.termsAccepted)}
+                  sx={{
+                    px: 6,
+                    py: 1.5,
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    fontSize: '1.1rem',
+                    fontWeight: 700,
+                    minWidth: 160,
+                    background: (loading || !isCurrentStepComplete() || (activeStep === 4 && !formData.termsAccepted)) 
+                      ? alpha(theme.palette.text.disabled, 0.3)
+                      : `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                    color: (loading || !isCurrentStepComplete() || (activeStep === 4 && !formData.termsAccepted)) 
+                      ? theme.palette.text.disabled 
+                      : 'white',
+                    boxShadow: (loading || !isCurrentStepComplete() || (activeStep === 4 && !formData.termsAccepted))
+                      ? 'none'
+                      : `0 8px 25px ${alpha(theme.palette.primary.main, 0.4)}`,
+                    '&:hover': {
+                      background: (loading || !isCurrentStepComplete() || (activeStep === 4 && !formData.termsAccepted))
+                        ? alpha(theme.palette.text.disabled, 0.3)
+                        : `linear-gradient(135deg, ${theme.palette.primary.dark}, ${theme.palette.primary.main})`,
+                      transform: (loading || !isCurrentStepComplete() || (activeStep === 4 && !formData.termsAccepted))
+                        ? 'none'
+                        : 'translateY(-3px)',
+                      boxShadow: (loading || !isCurrentStepComplete() || (activeStep === 4 && !formData.termsAccepted))
+                        ? 'none'
+                        : `0 12px 35px ${alpha(theme.palette.primary.main, 0.5)}`,
+                    },
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    cursor: (loading || !isCurrentStepComplete() || (activeStep === 4 && !formData.termsAccepted)) ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {loading ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CircularProgress size={20} color="inherit" />
+                      Processing...
+                    </Box>
+                  ) : activeStep === STEPS.length - 1 ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <VerifiedUser fontSize="small" />
+                      Create Account
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      Next Step
+                      <Box sx={{ 
+                        width: 8, 
+                        height: 8, 
+                        borderRadius: '50%', 
+                        backgroundColor: 'currentColor',
+                        animation: 'pulse 2s infinite'
+                      }} />
+                    </Box>
+                  )}
+                </Button>
+              )}
+            </Box>
+          </Box>
+
+          {/* Footer Section */}
+          <Box sx={{ 
+            mt: 6, 
+            textAlign: 'center',
+            p: 4,
+            backgroundColor: alpha(theme.palette.background.default, 0.5),
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.divider, 0.1)}`
+          }}>
+            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'text.primary' }}>
+              Already have an account?
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Sign in to access your dashboard and continue your journey
+            </Typography>
+            <Button
+              variant="outlined"
+              color="primary"
+              size="large"
+              onClick={() => navigate('/login')}
+              sx={{
+                px: 4,
+                py: 1.5,
+                borderRadius: 2,
+                textTransform: 'none',
+                fontSize: '1rem',
+                fontWeight: 600,
+                borderWidth: 2,
+                '&:hover': {
+                  borderWidth: 2,
+                  transform: 'translateY(-2px)',
+                  boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.3)}`,
+                  backgroundColor: alpha(theme.palette.primary.main, 0.05),
+                },
+                transition: 'all 0.3s ease',
+                minWidth: 140
+              }}
+            >
+              Sign In
+            </Button>
+          </Box>
+
+          {/* CSS Animations */}
+          <style>
+            {`
+              @keyframes pulse {
+                0% { opacity: 1; }
+                50% { opacity: 0.5; }
+                100% { opacity: 1; }
+              }
+              
+              @keyframes shimmer {
+                0% { background-position: 200% 0; }
+                100% { background-position: -200% 0; }
+              }
+            `}
+          </style>
+
+          {/* Terms and Conditions Dialog */}
+          <Dialog
+            open={showTerms}
+            onClose={() => setShowTerms(false)}
+            maxWidth="md"
+            fullWidth
+            PaperProps={{
+              sx: {
+                borderRadius: 3,
+                boxShadow: `0 20px 60px ${alpha(theme.palette.common.black, 0.3)}`
+              }
+            }}
+          >
+            <DialogTitle sx={{ 
+              backgroundColor: alpha(theme.palette.primary.main, 0.1),
+              borderBottom: `1px solid ${alpha(theme.palette.divider, 0.2)}`
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Security color="primary" />
+                <Typography variant="h6" fontWeight={600}>
+                  Terms and Conditions
+                </Typography>
+              </Box>
+            </DialogTitle>
+            <DialogContent sx={{ p: 3 }}>
+              <TermsBox>
+                <Typography variant="body1" paragraph>
+                  By creating an account on VerTechie, you agree to the following terms:
+                </Typography>
+
+                <Typography variant="body2" paragraph sx={{ fontWeight: 'bold' }}>
+                  1. Information Accuracy and Verification
+                </Typography>
+                <Typography variant="body2" paragraph sx={{ pl: 2 }}>
+                  You are required to provide accurate, truthful, and complete information during the signup process and throughout your use of the platform. This includes but is not limited to:
+                </Typography>
+                <Box component="ul" sx={{ pl: 4, mb: 2 }}>
+                  <li>Personal identification details</li>
+                  <li>Professional experience and employment history</li>
+                  <li>Educational qualifications and certifications</li>
+                  <li>Skills and technical expertise</li>
+                  <li>Work authorization and visa status</li>
+                  <li>Contact information and references</li>
+                </Box>
+
+                <Typography variant="body2" paragraph sx={{ fontWeight: 'bold' }}>
+                  2. Verification Process
+                </Typography>
+                <Typography variant="body2" paragraph sx={{ pl: 2 }}>
+                  VerTechie employs a rigorous verification process that includes:
+                </Typography>
+                <Box component="ul" sx={{ pl: 4, mb: 2 }}>
+                  <li>Document verification for identity and qualifications</li>
+                  <li>Employment history verification through third-party services</li>
+                  <li>Educational credential verification</li>
+                  <li>Skill assessment and validation</li>
+                  <li>Background checks where applicable</li>
+                </Box>
+
+                <Typography variant="body2" paragraph sx={{ fontWeight: 'bold' }}>
+                  3. Consequences of False Information
+                </Typography>
+                <Typography variant="body2" paragraph sx={{ pl: 2 }}>
+                  Any attempt to provide false, misleading, or incomplete information will result in:
+                </Typography>
+                <Box component="ul" sx={{ pl: 4, mb: 2 }}>
+                  <li>Immediate account suspension or termination</li>
+                  <li>Permanent blacklisting from the platform</li>
+                  <li>Reporting to relevant authorities and professional bodies</li>
+                  <li>Legal action for fraud or misrepresentation</li>
+                  <li>Notification to current or potential employers</li>
+                </Box>
+
+                <Typography variant="body2" paragraph sx={{ fontWeight: 'bold' }}>
+                  4. Data Privacy and Security
+                </Typography>
+                <Typography variant="body2" paragraph sx={{ pl: 2 }}>
+                  Your data will be handled with strict confidentiality and security measures:
+                </Typography>
+                <Box component="ul" sx={{ pl: 4, mb: 2 }}>
+                  <li>Encrypted storage of sensitive information</li>
+                  <li>Limited access to verification data</li>
+                  <li>Regular security audits and updates</li>
+                  <li>Compliance with data protection regulations</li>
+                </Box>
+
+                <Typography variant="body2" paragraph sx={{ fontWeight: 'bold' }}>
+                  5. Platform Usage
+                </Typography>
+                <Typography variant="body2" paragraph sx={{ pl: 2 }}>
+                  You agree to use the platform responsibly and professionally:
+                </Typography>
+                <Box component="ul" sx={{ pl: 4, mb: 2 }}>
+                  <li>Maintain the accuracy of your profile information</li>
+                  <li>Update any changes to your status or qualifications</li>
+                  <li>Report any suspicious activity or security concerns</li>
+                  <li>Comply with all platform policies and guidelines</li>
+                </Box>
+
+                <Typography variant="body2" paragraph sx={{ fontWeight: 'bold' }}>
+                  6. Zero Tolerance Policy
+                </Typography>
+                <Typography variant="body2" paragraph sx={{ pl: 2 }}>
+                  VerTechie maintains a strict zero-tolerance policy against:
+                </Typography>
+                <Box component="ul" sx={{ pl: 4, mb: 2 }}>
+                  <li>Fake or misleading profiles</li>
+                  <li>Fabricated qualifications or experience</li>
+                  <li>Identity theft or impersonation</li>
+                  <li>Any form of fraudulent activity</li>
+                </Box>
+
+                <Typography variant="body2" paragraph sx={{ fontWeight: 'bold' }}>
+                  7. Continuous Monitoring
+                </Typography>
+                <Typography variant="body2" paragraph sx={{ pl: 2 }}>
+                  Your profile and information may be subject to:
+                </Typography>
+                <Box component="ul" sx={{ pl: 4, mb: 2 }}>
+                  <li>Regular verification checks</li>
+                  <li>Random audits of provided information</li>
+                  <li>Automated monitoring for suspicious activity</li>
+                  <li>User-reported verification requests</li>
+                </Box>
+
+                <Typography variant="body2" paragraph sx={{ fontWeight: 'bold' }}>
+                  8. Legal Compliance
+                </Typography>
+                <Typography variant="body2" paragraph sx={{ pl: 2 }}>
+                  You acknowledge and agree to:
+                </Typography>
+                <Box component="ul" sx={{ pl: 4, mb: 2 }}>
+                  <li>Comply with all applicable laws and regulations</li>
+                  <li>Accept full responsibility for the accuracy of provided information</li>
+                  <li>Cooperate with verification processes and investigations</li>
+                  <li>Accept the platform's right to modify these terms at any time</li>
+                </Box>
+
+                <Typography variant="body2" paragraph sx={{ fontStyle: 'italic', mt: 3 }}>
+                  By accepting these terms, you confirm that all information provided is accurate and truthful to the best of your knowledge. You understand that any violation of these terms may result in immediate account termination and potential legal consequences.
+                </Typography>
+              </TermsBox>
+            </DialogContent>
+            <DialogActions sx={{ p: 3, borderTop: `1px solid ${alpha(theme.palette.divider, 0.2)}` }}>
+              <Button 
+                onClick={() => setShowTerms(false)}
+                variant="outlined"
+                sx={{
+                  borderRadius: 2,
+                  px: 3,
+                  py: 1,
+                  textTransform: 'none',
+                  fontWeight: 600
+                }}
+              >
+                Close
+              </Button>
+            </DialogActions>
+          </Dialog>
+        </Paper>
+      </Fade>
+      
+      {/* Floating Scroll to Top Button */}
+      {showScrollToTop && (
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 1000,
+          }}
+        >
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={scrollToTop}
+            sx={{
+              minWidth: 'auto',
+              width: 56,
+              height: 56,
+              borderRadius: '50%',
+              boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.4)}`,
+              '&:hover': {
+                transform: 'translateY(-3px)',
+                boxShadow: `0 12px 35px ${alpha(theme.palette.primary.main, 0.5)}`,
+              },
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            }}
+          >
+            ↑
+          </Button>
+        </Box>
+      )}
+    </Container>
+  );
+};
+
+export default Signup; 
