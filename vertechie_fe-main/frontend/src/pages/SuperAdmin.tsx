@@ -614,6 +614,11 @@ const SuperAdmin: React.FC = () => {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   
+  // Review Profile Dialog States
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [reviewingProfile, setReviewingProfile] = useState<any>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  
   // Edit Admin Roles States
   const [editRolesDialogOpen, setEditRolesDialogOpen] = useState(false);
   const [editingAdmin, setEditingAdmin] = useState<Admin | null>(null);
@@ -844,6 +849,35 @@ const SuperAdmin: React.FC = () => {
     } catch (error) {
       console.error('Error unblocking user:', error);
       setSnackbar({ open: true, message: 'Error unblocking user', severity: 'error' });
+    }
+  };
+
+  // Fetch Full Profile for Review
+  const fetchFullProfile = async (userId: string) => {
+    setLoadingProfile(true);
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) return;
+
+      const response = await fetch(`${getApiUrl(API_ENDPOINTS.USERS)}${userId}/full-profile`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setReviewingProfile(data);
+        setReviewDialogOpen(true);
+      } else {
+        setSnackbar({ open: true, message: 'Failed to load profile', severity: 'error' });
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      setSnackbar({ open: true, message: 'Error loading profile', severity: 'error' });
+    } finally {
+      setLoadingProfile(false);
     }
   };
 
@@ -2803,31 +2837,44 @@ const SuperAdmin: React.FC = () => {
                               />
                             </TableCell>
                             <TableCell align="center">
-                              {approval.status === 'pending' && (
-                                <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                                  <Button
-                                    size="small"
-                                    variant="contained"
-                                    color="success"
-                                    onClick={() => handleApproveUser(approval.id)}
-                                    sx={{ borderRadius: '8px', textTransform: 'none' }}
-                                  >
-                                    Approve
-                                  </Button>
-                                  <Button
-                                    size="small"
-                                    variant="outlined"
-                                    color="error"
-                                    onClick={() => {
-                                      setSelectedApproval(approval);
-                                      setRejectDialogOpen(true);
-                                    }}
-                                    sx={{ borderRadius: '8px', textTransform: 'none' }}
-                                  >
-                                    Reject
-                                  </Button>
-                                </Box>
-                              )}
+                              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  color="primary"
+                                  onClick={() => fetchFullProfile(approval.id)}
+                                  disabled={loadingProfile}
+                                  sx={{ borderRadius: '8px', textTransform: 'none' }}
+                                  startIcon={<Visibility />}
+                                >
+                                  Review
+                                </Button>
+                                {approval.status === 'pending' && (
+                                  <>
+                                    <Button
+                                      size="small"
+                                      variant="contained"
+                                      color="success"
+                                      onClick={() => handleApproveUser(approval.id)}
+                                      sx={{ borderRadius: '8px', textTransform: 'none' }}
+                                    >
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      size="small"
+                                      variant="outlined"
+                                      color="error"
+                                      onClick={() => {
+                                        setSelectedApproval(approval);
+                                        setRejectDialogOpen(true);
+                                      }}
+                                      sx={{ borderRadius: '8px', textTransform: 'none' }}
+                                    >
+                                      Reject
+                                    </Button>
+                                  </>
+                                )}
+                              </Box>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -2905,6 +2952,262 @@ const SuperAdmin: React.FC = () => {
           >
             Reject Registration
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Review Profile Dialog */}
+      <Dialog 
+        open={reviewDialogOpen} 
+        onClose={() => setReviewDialogOpen(false)} 
+        maxWidth="md" 
+        fullWidth
+        PaperProps={{ sx: { borderRadius: '16px', maxHeight: '90vh' } }}
+      >
+        <DialogTitle sx={{ 
+          fontWeight: 700, 
+          background: 'linear-gradient(135deg, #004d40 0%, #00796b 100%)',
+          color: 'white',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Visibility />
+            Profile Review
+          </Box>
+          <IconButton onClick={() => setReviewDialogOpen(false)} sx={{ color: 'white' }}>
+            <Close />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {loadingProfile ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 6 }}>
+              <CircularProgress />
+            </Box>
+          ) : reviewingProfile && (
+            <Box>
+              {/* Personal Information Section */}
+              <Box sx={{ p: 3, borderBottom: '1px solid #e0e0e0', bgcolor: '#f8fafb' }}>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#004d40', display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <People fontSize="small" /> Personal Information
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary">Full Name</Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                        {reviewingProfile.first_name} {reviewingProfile.middle_name || ''} {reviewingProfile.last_name}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary">Email</Typography>
+                      <Typography variant="body1">{reviewingProfile.email}</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary">Phone</Typography>
+                      <Typography variant="body1">{reviewingProfile.phone || reviewingProfile.mobile_number || 'Not provided'}</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary">Date of Birth</Typography>
+                      <Typography variant="body1">{reviewingProfile.dob || 'Not provided'}</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary">Country</Typography>
+                      <Typography variant="body1">{reviewingProfile.country || 'Not provided'}</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary">Address</Typography>
+                      <Typography variant="body1">{reviewingProfile.address || 'Not provided'}</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary">Government ID</Typography>
+                      <Typography variant="body1">{reviewingProfile.gov_id || 'Not provided'}</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary">VerTechie ID</Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 600, color: '#004d40' }}>{reviewingProfile.vertechie_id}</Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Box>
+
+              {/* Verification Status Section */}
+              <Box sx={{ p: 3, borderBottom: '1px solid #e0e0e0' }}>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#004d40', display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Security fontSize="small" /> Verification Status
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                  <Chip 
+                    label={reviewingProfile.email_verified ? 'Email Verified' : 'Email Not Verified'}
+                    color={reviewingProfile.email_verified ? 'success' : 'default'}
+                    size="small"
+                    icon={reviewingProfile.email_verified ? <CheckCircle /> : <Cancel />}
+                  />
+                  <Chip 
+                    label={reviewingProfile.mobile_verified ? 'Mobile Verified' : 'Mobile Not Verified'}
+                    color={reviewingProfile.mobile_verified ? 'success' : 'default'}
+                    size="small"
+                    icon={reviewingProfile.mobile_verified ? <CheckCircle /> : <Cancel />}
+                  />
+                  <Chip 
+                    label={reviewingProfile.face_verification ? 'Face Verified' : 'Face Not Verified'}
+                    color={reviewingProfile.face_verification ? 'success' : 'default'}
+                    size="small"
+                    icon={reviewingProfile.face_verification ? <CheckCircle /> : <Cancel />}
+                  />
+                  <Chip 
+                    label={`Status: ${reviewingProfile.verification_status || 'pending'}`}
+                    color={reviewingProfile.verification_status === 'approved' ? 'success' : reviewingProfile.verification_status === 'rejected' ? 'error' : 'warning'}
+                    size="small"
+                  />
+                </Box>
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="caption" color="text.secondary">Registered: {new Date(reviewingProfile.created_at).toLocaleString()}</Typography>
+                  {reviewingProfile.reviewed_by && (
+                    <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
+                      Reviewed by: {reviewingProfile.reviewed_by} on {new Date(reviewingProfile.reviewed_at).toLocaleString()}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+
+              {/* Profile Section */}
+              {reviewingProfile.profile && (
+                <Box sx={{ p: 3, borderBottom: '1px solid #e0e0e0', bgcolor: '#f8fafb' }}>
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#004d40', display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Engineering fontSize="small" /> Professional Profile
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12}>
+                      <Typography variant="caption" color="text.secondary">Headline</Typography>
+                      <Typography variant="body1">{reviewingProfile.profile.headline || 'Not provided'}</Typography>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <Typography variant="caption" color="text.secondary">Bio</Typography>
+                      <Typography variant="body2">{reviewingProfile.profile.bio || 'Not provided'}</Typography>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="caption" color="text.secondary">Current Position</Typography>
+                      <Typography variant="body1">{reviewingProfile.profile.current_position || 'Not provided'}</Typography>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="caption" color="text.secondary">Current Company</Typography>
+                      <Typography variant="body1">{reviewingProfile.profile.current_company || 'Not provided'}</Typography>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <Typography variant="caption" color="text.secondary">Skills</Typography>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
+                        {reviewingProfile.profile.skills?.length > 0 ? (
+                          reviewingProfile.profile.skills.map((skill: string, idx: number) => (
+                            <Chip key={idx} label={skill} size="small" variant="outlined" />
+                          ))
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">No skills listed</Typography>
+                        )}
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </Box>
+              )}
+
+              {/* Work Experience Section */}
+              <Box sx={{ p: 3, borderBottom: '1px solid #e0e0e0' }}>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#004d40', display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Business fontSize="small" /> Work Experience ({reviewingProfile.experiences?.length || 0})
+                </Typography>
+                {reviewingProfile.experiences?.length > 0 ? (
+                  reviewingProfile.experiences.map((exp: any, idx: number) => (
+                    <Paper key={idx} sx={{ p: 2, mb: 2, bgcolor: '#f5f5f5', borderRadius: '12px' }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{exp.title}</Typography>
+                      <Typography variant="body2" color="text.secondary">{exp.company_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {exp.start_date} - {exp.is_current ? 'Present' : exp.end_date} | {exp.employment_type} | {exp.location}
+                      </Typography>
+                      {exp.description && (
+                        <Typography variant="body2" sx={{ mt: 1 }}>{exp.description}</Typography>
+                      )}
+                      {exp.skills?.length > 0 && (
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                          {exp.skills.map((skill: string, sidx: number) => (
+                            <Chip key={sidx} label={skill} size="small" variant="outlined" sx={{ fontSize: '10px' }} />
+                          ))}
+                        </Box>
+                      )}
+                    </Paper>
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary">No work experience added</Typography>
+                )}
+              </Box>
+
+              {/* Education Section */}
+              <Box sx={{ p: 3, bgcolor: '#f8fafb' }}>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#004d40', display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <School fontSize="small" /> Education ({reviewingProfile.educations?.length || 0})
+                </Typography>
+                {reviewingProfile.educations?.length > 0 ? (
+                  reviewingProfile.educations.map((edu: any, idx: number) => (
+                    <Paper key={idx} sx={{ p: 2, mb: 2, bgcolor: 'white', borderRadius: '12px' }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{edu.degree} in {edu.field_of_study}</Typography>
+                      <Typography variant="body2" color="text.secondary">{edu.school_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {edu.start_year} - {edu.end_year} {edu.grade && `| Grade: ${edu.grade}`}
+                      </Typography>
+                      {edu.description && (
+                        <Typography variant="body2" sx={{ mt: 1 }}>{edu.description}</Typography>
+                      )}
+                    </Paper>
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary">No education records added</Typography>
+                )}
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: '1px solid #e0e0e0', justifyContent: 'space-between' }}>
+          <Button onClick={() => setReviewDialogOpen(false)} variant="outlined">
+            Close
+          </Button>
+          {reviewingProfile?.verification_status === 'pending' && (
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button 
+                variant="outlined" 
+                color="error"
+                onClick={() => {
+                  setSelectedApproval(reviewingProfile);
+                  setRejectDialogOpen(true);
+                  setReviewDialogOpen(false);
+                }}
+              >
+                Reject
+              </Button>
+              <Button 
+                variant="contained" 
+                color="success"
+                onClick={() => {
+                  handleApproveUser(reviewingProfile.id);
+                  setReviewDialogOpen(false);
+                }}
+              >
+                Approve
+              </Button>
+            </Box>
+          )}
         </DialogActions>
       </Dialog>
 

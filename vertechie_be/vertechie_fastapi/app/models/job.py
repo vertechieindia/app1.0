@@ -119,7 +119,7 @@ class Job(Base, UUIDMixin, TimestampMixin):
     expires_at = Column(DateTime, nullable=True)
     
     # Relationships
-    company = relationship("Company", backref="jobs")
+    company = relationship("Company", back_populates="jobs")
     posted_by = relationship("User", backref="posted_jobs")
     applications = relationship("JobApplication", back_populates="job")
 

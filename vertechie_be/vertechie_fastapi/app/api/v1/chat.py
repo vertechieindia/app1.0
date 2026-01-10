@@ -47,7 +47,11 @@ async def list_conversations(
     result = await db.execute(
         select(Conversation)
         .where(Conversation.id.in_(conversation_ids))
-        .order_by(Conversation.last_message_at.desc().nullsfirst())
+        .order_by(
+            # MySQL/MariaDB doesn't support NULLS FIRST
+            Conversation.last_message_at.is_(None).desc(),
+            Conversation.last_message_at.desc()
+        )
     )
     return result.scalars().all()
 

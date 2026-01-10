@@ -32,6 +32,7 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
 }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [phoneSkipped, setPhoneSkipped] = useState(false);
   
   // All types use same colors: US = light thick blue, India = peacock green
   const roleType = role === 'hr' ? 'hr' : (role || 'techie');
@@ -527,18 +528,18 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
         <Grid item xs={12} md={6}>
           <TextField
             fullWidth
-            label="Phone Number *"
+            label={phoneSkipped ? "Phone Number (Optional)" : "Phone Number"}
             type="tel"
             value={formData.phone || ''}
             onChange={handleChange('phone')}
             error={!!errors.phone || !!otpHook.errors.phone}
-            helperText={errors.phone || otpHook.errors.phone}
+            helperText={errors.phone || otpHook.errors.phone || (phoneSkipped ? 'Skipped for now - you can verify later' : '')}
             placeholder="+91 98765 43210"
-            required
-            disabled={!otpHook.emailVerified || otpHook.phoneVerified}
+            required={!phoneSkipped}
+            disabled={!otpHook.emailVerified || otpHook.phoneVerified || phoneSkipped}
             sx={{
               '& .MuiInputBase-root.Mui-disabled': {
-                backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                backgroundColor: phoneSkipped ? 'rgba(255, 193, 7, 0.1)' : 'rgba(0, 0, 0, 0.04)',
               },
             }}
             InputProps={{
@@ -555,39 +556,81 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
                     >
                       Verified
                     </Typography>
-                  ) : (
-                    <Button
-                      size="small"
-                      onClick={handlePhoneVerify}
-                      disabled={
-                        otpHook.phoneVerifying ||
-                        !formData.phone ||
-                        !otpHook.emailVerified
-                      }
+                  ) : phoneSkipped ? (
+                    <Typography
+                      variant="body2"
                       sx={{
-                        color: primaryColor,
-                        fontWeight: 700,
-                        fontSize: '0.875rem',
-                        textTransform: 'none',
-                        minWidth: 'auto',
-                        px: 1.5,
-                        py: 0.5,
-                        borderRadius: 1,
-                        border: `1.5px solid ${borderColor}`,
-                        backgroundColor: lightColor,
-                        '&:hover': {
-                          backgroundColor: 'rgba(0, 77, 64, 0.15)', // Peacock green hover for India
-                          border: `1.5px solid ${borderColor}`,
-                        },
-                        '&:disabled': {
-                          color: 'rgba(0, 77, 64, 0.5)', // Peacock green disabled for India
-                          border: '1.5px solid rgba(0, 77, 64, 0.3)', // Peacock green border for India
-                          backgroundColor: 'rgba(0, 77, 64, 0.05)', // Peacock green background for India
-                        },
+                        color: '#f57c00',
+                        fontWeight: 600,
+                        cursor: 'default',
                       }}
                     >
-                      {otpHook.phoneVerifying ? 'Sending...' : 'Verify'}
-                    </Button>
+                      Skipped
+                    </Typography>
+                  ) : (
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setPhoneSkipped(true);
+                          updateFormData({ phoneVerified: false, phoneSkipped: true });
+                        }}
+                        disabled={!otpHook.emailVerified}
+                        sx={{
+                          color: '#f57c00',
+                          fontWeight: 600,
+                          fontSize: '0.75rem',
+                          textTransform: 'none',
+                          minWidth: 'auto',
+                          px: 1,
+                          py: 0.5,
+                          borderRadius: 1,
+                          border: '1px solid #f57c00',
+                          backgroundColor: 'rgba(255, 152, 0, 0.08)',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 152, 0, 0.15)',
+                          },
+                          '&:disabled': {
+                            color: 'rgba(245, 124, 0, 0.5)',
+                            border: '1px solid rgba(245, 124, 0, 0.3)',
+                          },
+                        }}
+                      >
+                        Skip
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={handlePhoneVerify}
+                        disabled={
+                          otpHook.phoneVerifying ||
+                          !formData.phone ||
+                          !otpHook.emailVerified
+                        }
+                        sx={{
+                          color: primaryColor,
+                          fontWeight: 700,
+                          fontSize: '0.875rem',
+                          textTransform: 'none',
+                          minWidth: 'auto',
+                          px: 1.5,
+                          py: 0.5,
+                          borderRadius: 1,
+                          border: `1.5px solid ${borderColor}`,
+                          backgroundColor: lightColor,
+                          '&:hover': {
+                            backgroundColor: 'rgba(0, 77, 64, 0.15)',
+                            border: `1.5px solid ${borderColor}`,
+                          },
+                          '&:disabled': {
+                            color: 'rgba(0, 77, 64, 0.5)',
+                            border: '1.5px solid rgba(0, 77, 64, 0.3)',
+                            backgroundColor: 'rgba(0, 77, 64, 0.05)',
+                          },
+                        }}
+                      >
+                        {otpHook.phoneVerifying ? 'Sending...' : 'Verify'}
+                      </Button>
+                    </Box>
                   )}
                 </InputAdornment>
               ),
@@ -595,8 +638,8 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
           />
         </Grid>
 
-        {/* Row 4: Password and Confirm Password (only show after phone verified) */}
-        {(otpHook.phoneVerified || formData.phoneVerified) && (
+        {/* Row 4: Password and Confirm Password (show after phone verified or skipped) */}
+        {(otpHook.phoneVerified || formData.phoneVerified || phoneSkipped) && (
           <>
             <Grid item xs={12} md={6}>
               <TextField

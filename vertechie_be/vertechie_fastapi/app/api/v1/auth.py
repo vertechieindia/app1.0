@@ -9,11 +9,11 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, insert
 from slugify import slugify
 
 from app.db.session import get_db
-from app.models.user import User, UserRole, UserProfile, Experience, Education, RoleType
+from app.models.user import User, UserRole, UserProfile, Experience, Education, RoleType, user_roles
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, TokenRefresh,
     PasswordReset, PasswordResetConfirm, PasswordChange,
@@ -29,7 +29,7 @@ from app.core.security import (
 router = APIRouter()
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(
     user_in: UserRegister,
     db: AsyncSession = Depends(get_db)
@@ -65,6 +65,7 @@ async def register(
         dob=user_in.dob,
         country=user_in.country,
         address=user_in.address,
+        gov_id=user_in.gov_id,
         username=username,
         vertechie_id=vertechie_id,
     )
@@ -91,12 +92,32 @@ async def register(
         db.add(role)
         await db.flush()
     
-    user.roles.append(role)
+    # Add role association using SQL to avoid lazy loading issues
+    await db.execute(
+        insert(user_roles).values(user_id=user.id, role_id=role.id)
+    )
     
     await db.commit()
     await db.refresh(user)
     
-    return user
+    # Return as dict to avoid async lazy loading issues
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "middle_name": user.middle_name,
+        "username": user.username,
+        "vertechie_id": user.vertechie_id,
+        "is_active": user.is_active,
+        "is_verified": user.is_verified,
+        "email_verified": user.email_verified,
+        "mobile_verified": user.mobile_verified,
+        "country": user.country,
+        "dob": str(user.dob) if user.dob else None,
+        "address": user.address,
+        "created_at": str(user.created_at) if user.created_at else None,
+    }
 
 
 @router.post("/login")
@@ -140,12 +161,19 @@ async def login(
     user.last_login = datetime.utcnow()
     await db.commit()
     
+    # Fetch user roles using SQL to avoid lazy loading issues
+    roles_result = await db.execute(
+        select(UserRole).join(user_roles).where(user_roles.c.user_id == user.id)
+    )
+    user_role_list = roles_result.scalars().all()
+    role_values = [r.role_type.value for r in user_role_list] if user_role_list else []
+    
     # Create tokens
     access_token = create_access_token(
         subject=str(user.id),
         additional_claims={
             "email": user.email,
-            "roles": [r.role_type.value for r in user.roles] if user.roles else []
+            "roles": role_values
         }
     )
     refresh_token_value = create_refresh_token(subject=str(user.id))
@@ -170,7 +198,7 @@ async def login(
         "email_verified": user.email_verified,
         "mobile_verified": user.mobile_verified,
         "admin_roles": user.admin_roles or [],
-        "groups": [{"name": r.role_type.value} for r in user.roles] if user.roles else [],
+        "groups": [{"name": r.role_type.value} for r in user_role_list] if user_role_list else [],
         "user_permissions": [],
     }
     

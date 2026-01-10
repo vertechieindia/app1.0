@@ -39,6 +39,15 @@ class AdminRole(str, enum.Enum):
     BDM_ADMIN = "bdm_admin"
 
 
+class VerificationStatus(str, enum.Enum):
+    """User verification status for admin review workflow."""
+    PENDING = "pending"           # Submitted, awaiting admin review
+    UNDER_REVIEW = "under_review" # Admin is currently reviewing
+    APPROVED = "approved"         # Admin approved the profile
+    REJECTED = "rejected"         # Admin rejected the profile
+    RESUBMITTED = "resubmitted"   # User resubmitted after rejection
+
+
 # Association table for user roles
 user_roles = Table(
     "user_roles",
@@ -78,6 +87,13 @@ class User(Base, UUIDMixin, TimestampMixin):
     email_verified = Column(Boolean, default=False)
     mobile_verified = Column(Boolean, default=False)
     is_superuser = Column(Boolean, default=False)
+    
+    # Admin Review Workflow
+    verification_status = Column(Enum(VerificationStatus), default=VerificationStatus.PENDING)
+    reviewed_by_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    admin_notes = Column(Text, nullable=True)  # Internal notes for admin
     
     # Blocked profile
     is_blocked = Column(Boolean, default=False)
@@ -154,6 +170,7 @@ class UserProfile(Base, UUIDMixin, TimestampMixin):
     # Social Links
     linkedin_url = Column(String(255), nullable=True)
     github_url = Column(String(255), nullable=True)
+    gitlab_url = Column(String(255), nullable=True)
     twitter_url = Column(String(255), nullable=True)
     portfolio_url = Column(String(255), nullable=True)
     
@@ -275,4 +292,28 @@ class BlockedProfileHistory(Base, UUIDMixin):
     reason = Column(Text, nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ProfileReviewHistory(Base, UUIDMixin):
+    """History of admin profile reviews for techies."""
+    
+    __tablename__ = "profile_review_history"
+    
+    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    reviewer_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    
+    # Review action
+    previous_status = Column(Enum(VerificationStatus), nullable=True)
+    new_status = Column(Enum(VerificationStatus), nullable=False)
+    
+    # Review details
+    action = Column(String(50), nullable=False)  # approved, rejected, requested_changes
+    reason = Column(Text, nullable=True)  # Required for rejection
+    admin_notes = Column(Text, nullable=True)  # Internal admin notes
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id], backref="review_history")
+    reviewer = relationship("User", foreign_keys=[reviewer_id])
 

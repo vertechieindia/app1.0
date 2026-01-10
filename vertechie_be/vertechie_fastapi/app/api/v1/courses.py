@@ -288,7 +288,11 @@ async def get_my_enrollments(
     if status_filter:
         query = query.where(CourseEnrollment.status == status_filter)
     
-    query = query.order_by(CourseEnrollment.last_accessed_at.desc().nullsfirst())
+    # MySQL/MariaDB doesn't support NULLS FIRST
+    query = query.order_by(
+        CourseEnrollment.last_accessed_at.is_(None).desc(),
+        CourseEnrollment.last_accessed_at.desc()
+    )
     
     result = await db.execute(query)
     enrollments = result.scalars().all()

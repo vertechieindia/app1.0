@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -62,7 +62,26 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [idleLogoutMessage, setIdleLogoutMessage] = useState('');
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Check if user was logged out due to inactivity or session expiry
+  useEffect(() => {
+    const reason = searchParams.get('reason');
+    if (reason === 'idle') {
+      setIdleLogoutMessage('You were logged out due to inactivity. Please login again.');
+      // Clear the URL parameter
+      window.history.replaceState({}, '', '/login');
+    }
+    
+    // Check for session expired flag (set by API interceptor on 401)
+    const sessionExpired = localStorage.getItem('sessionExpired');
+    if (sessionExpired === 'true') {
+      setIdleLogoutMessage('Your session has expired. Please login again.');
+      localStorage.removeItem('sessionExpired');
+    }
+  }, [searchParams]);
 
   // Forgot Password states
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
@@ -149,12 +168,12 @@ const Login = () => {
       } else if (userData.is_active && !userData.is_verified) {
         navigate('/status/processing');
       } else if (userData.is_active && userData.is_verified) {
-        // Redirect verified techie users to the new Techie Dashboard
-        navigate('/techie');
+        // Redirect verified techie users to the home feed
+        navigate('/techie/home/feed');
       } else if (!userData.is_active && !userData.is_verified) {
         navigate('/status/rejected');
       } else {
-        navigate('/techie');
+        navigate('/techie/home/feed');
       }
     } catch (err: any) {
       Logger.error('Login failed', { error: err.message, email }, 'Login');
@@ -564,6 +583,24 @@ const Login = () => {
               Sign in to continue to your account
         </Typography>
           </Box>
+
+        {idleLogoutMessage && (
+            <Alert
+              severity="warning"
+              onClose={() => setIdleLogoutMessage('')}
+              sx={{
+                mb: 3,
+                borderRadius: '12px',
+                backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                border: '1px solid rgba(255, 193, 7, 0.3)',
+                '& .MuiAlert-icon': {
+                  color: '#ffc107',
+                },
+              }}
+            >
+            {idleLogoutMessage}
+          </Alert>
+        )}
 
         {error && (
             <Alert

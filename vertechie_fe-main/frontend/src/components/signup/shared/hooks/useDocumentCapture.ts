@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { detectFacePose, getHeadPosition, checkPositionMatch, FacePose } from '../../../../utils/faceDetection';
-import { getApiUrl, API_ENDPOINTS } from '../../../../config/api';
+import { getLegacyApiUrl, API_ENDPOINTS } from '../../../../config/api';
 import { compressImage } from '../../../../utils/imageDownload';
 import { validateImageQuality, enhanceImageForOCR, compressForOCR, ImageQualityResult } from '../../../../utils/imageQuality';
 import Logger from '../../../../utils/logger';
@@ -1197,7 +1197,7 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
     setErrors({});
 
     try {
-      const apiUrl = getApiUrl(API_ENDPOINTS.EXTRACT_ID_DETAILS);
+      const apiUrl = getLegacyApiUrl(API_ENDPOINTS.EXTRACT_ID_DETAILS);
       
       // Add prefix if not already present
       const imageWithPrefix = base64Image.includes('data:image') 
@@ -1428,7 +1428,7 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
     setErrors({});
 
     try {
-      const apiUrl = getApiUrl(API_ENDPOINTS.ID_VERIFICATION);
+      const apiUrl = getLegacyApiUrl(API_ENDPOINTS.ID_VERIFICATION);
       console.log('Sending SSN card image to id-verification API...');
 
       // Add prefix if not already present
@@ -1585,7 +1585,7 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
     setErrors({});
 
     try {
-      const apiUrl = getApiUrl(API_ENDPOINTS.ID_VERIFICATION);
+      const apiUrl = getLegacyApiUrl(API_ENDPOINTS.ID_VERIFICATION);
       console.log('Sending PAN card image to id-verification API...');
 
       // Add prefix if not already present
@@ -2122,7 +2122,7 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
       const fileExtension = mimeType.includes('mp4') ? 'mp4' : 'webm';
       formData.append('video', videoBlob, `liveness.${fileExtension}`);
 
-      const apiUrl = getApiUrl(API_ENDPOINTS.CHECK_LIVENESS);
+      const apiUrl = getLegacyApiUrl(API_ENDPOINTS.CHECK_LIVENESS);
       console.log('🚀 Uploading video to:', apiUrl);
       console.log('📋 FormData details:', {
         fieldName: 'video',

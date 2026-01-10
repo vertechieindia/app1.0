@@ -7,15 +7,15 @@ Fully migrated from Django backend.
 # Auth Models
 from app.models.user import (
     User, UserRole, UserProfile, 
-    Experience, Education, OTP, BlockedProfileHistory,
-    RoleType, AdminRole, EmploymentType
+    Experience, Education, OTP, BlockedProfileHistory, ProfileReviewHistory,
+    RoleType, AdminRole, EmploymentType, VerificationStatus
 )
 
 # Company Models
 from app.models.company import (
     Company, CompanyProfile, CompanyLocation, CompanyBenefit, 
-    CompanyPhoto, CompanyTeamMember, CompanyAdmin,
-    CompanySize, CompanyStatus, BenefitCategory, PhotoType
+    CompanyPhoto, CompanyTeamMember, CompanyAdmin, CompanyInvite,
+    CompanySize, CompanyStatus, BenefitCategory, PhotoType, InviteStatus
 )
 
 # School Models
@@ -71,7 +71,7 @@ from app.models.quiz import Quiz, Question, QuestionOption, QuizAttempt
 from app.models.learn import (
     TutorialCategory, Tutorial, TutorialSection, TutorialLesson,
     ContentBlock, MediaAsset, CodeSnippet, TutorialEnrollment,
-    LessonProgress as TutorialLessonProgress,
+    TutorialLessonProgress,
     DifficultyLevel, ContentStatus, LessonType, BlockType, MediaType
 )
 
@@ -93,13 +93,13 @@ from app.models.community import Group, GroupMember, Post, Comment
 __all__ = [
     # Auth
     "User", "UserRole", "UserProfile", 
-    "Experience", "Education", "OTP", "BlockedProfileHistory",
-    "RoleType", "AdminRole", "EmploymentType",
+    "Experience", "Education", "OTP", "BlockedProfileHistory", "ProfileReviewHistory",
+    "RoleType", "AdminRole", "EmploymentType", "VerificationStatus",
     
     # Company
     "Company", "CompanyProfile", "CompanyLocation", "CompanyBenefit",
-    "CompanyPhoto", "CompanyTeamMember", "CompanyAdmin",
-    "CompanySize", "CompanyStatus", "BenefitCategory", "PhotoType",
+    "CompanyPhoto", "CompanyTeamMember", "CompanyAdmin", "CompanyInvite",
+    "CompanySize", "CompanyStatus", "BenefitCategory", "PhotoType", "InviteStatus",
     
     # School
     "School", "Department", "Program", "StudentBatch",

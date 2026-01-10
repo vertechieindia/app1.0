@@ -48,7 +48,9 @@ import Cookies from './components/pages/Cookies';
 import StatusProcessing from './pages/StatusProcessing';
 import StatusAccepted from './pages/StatusAccepted';
 import StatusRejected from './pages/StatusRejected';
+import CompleteProfile from './pages/CompleteProfile';
 import Admin from './pages/Admin';
+import IdleTimeoutProvider from './components/auth/IdleTimeoutProvider';
 
 // HR Pages
 import HRDashboard from './pages/hr/HRDashboard';
@@ -182,6 +184,7 @@ const App: React.FC = () => {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Router>
+        <IdleTimeoutProvider>
         <ScrollToTop />
         <Routes>
           {/* ========== PUBLIC ROUTES ========== */}
@@ -205,6 +208,9 @@ const App: React.FC = () => {
             <Route path="/status/processing" element={<StatusProcessing />} />
             <Route path="/status/accepted" element={<StatusAccepted />} />
             <Route path="/status/rejected" element={<StatusRejected />} />
+            
+            {/* Profile Completion Route */}
+            <Route path="/complete-profile" element={<CompleteProfile />} />
             
             {/* Company Info Routes */}
             <Route path="/companies/post-job" element={<PostJob />} />
@@ -387,9 +393,7 @@ const App: React.FC = () => {
             
             {/* ========== TECHIE PLATFORM ROUTES ========== */}
             <Route path="/techie" element={
-              <ProtectedRoute requiredRole="user">
-                <TechieDashboard />
-              </ProtectedRoute>
+              <Navigate to="/techie/home/feed" replace />
             } />
             <Route path="/techie/dashboard" element={
               <ProtectedRoute requiredRole="user">
@@ -817,6 +821,7 @@ const App: React.FC = () => {
           <Route path="/schedule/:username" element={<PublicSchedulingPage />} />
           <Route path="/book/:linkId" element={<PublicSchedulingPage />} />
         </Routes>
+        </IdleTimeoutProvider>
       </Router>
     </ThemeProvider>
   );

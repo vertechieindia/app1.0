@@ -99,6 +99,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
   // Skills dialog state
   const [showSkillDialog, setShowSkillDialog] = useState(false);
   const [currentSkill, setCurrentSkill] = useState<Skill>({ name: '', experience: '', rating: 5 });
+  const [skillInput, setSkillInput] = useState('');
   
   // Job description warning state
   const [showJobDescWarning, setShowJobDescWarning] = useState(false);
@@ -309,78 +310,11 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
       (formData as any)?.tokenResponse?.data?.token;
 
     try {
-      // Prepare payload according to API format (trim all string values)
-      const payload = {
-        client_name: newExperience.clientName.trim(),
-        company_website: newExperience.website.trim(), // Correct spelling: company_website
-        work_location: newExperience.workLocation.trim(),
-        job_title: newExperience.position.trim(),
-        from_date: newExperience.startDate,
-        to_date: newExperience.current ? '' : (newExperience.endDate || ''), // Empty string if current job
-        skills: newExperience.skills,
-        job_description: newExperience.description.trim(),
-        manage_name: newExperience.managerName.trim() || '', // Note: API has 'manage_name' instead of 'manager_name'
-        manager_email: newExperience.managerEmail.trim() || '',
-        manager_phone: newExperience.managerPhone.trim() || '',
-        manager_linkedin: newExperience.managerLinkedIn.trim() || '',
-      };
+      // During signup, just store experience locally - no API call needed
+      // Experiences will be saved when the full registration is submitted
+      console.log('Saving work experience locally (no API call during signup)');
 
-      console.log('Posting work experience to API:', payload);
-      
-      console.log('Token check for work experience API:');
-      console.log('  - localStorage:', localStorage.getItem('authToken') ? 'Available' : 'Not available');
-      console.log('  - formData.access_token:', (formData as any)?.access_token ? 'Available' : 'Not available');
-      console.log('  - formData.token:', (formData as any)?.token ? 'Available' : 'Not available');
-      console.log('  - formData.tokenResponse:', (formData as any)?.tokenResponse ? 'Available' : 'Not available');
-      console.log('  - Final token:', token ? `Found (${token.substring(0, 20)}...)` : 'No token');
-
-      const apiUrl = getApiUrl(API_ENDPOINTS.EXPERIENCES);
-      console.log('API URL:', apiUrl);
-
-      // Prepare headers with authentication
-      const headers: any = {
-        'Content-Type': 'application/json',
-      };
-      
-      // Add Authorization header if token is available
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-        console.log('Authorization header added with Bearer token');
-      } else {
-        console.warn('No token available for work experience API call');
-      }
-
-      console.log('Request details:', {
-        url: apiUrl,
-        hasToken: !!token,
-        tokenLength: token?.length || 0,
-        headers: Object.keys(headers),
-        isEdit: editingIndex !== null,
-        experienceId: editingIndex !== null ? experiences[editingIndex]?.id : null,
-      });
-
-      // Use PATCH for editing, POST for new entries
-      let response;
-      if (editingIndex !== null && experiences[editingIndex]?.id) {
-        // Update existing experience using PATCH
-        const experienceId = experiences[editingIndex].id;
-        const updateUrl = `${apiUrl}${experienceId}/`;
-        console.log('Patching work experience:', updateUrl);
-        response = await axios.patch(updateUrl, payload, { headers });
-        console.log('Work experience updated successfully:', response.data);
-      } else {
-        // Create new experience using POST
-        console.log('Posting new work experience:', apiUrl);
-        response = await axios.post(apiUrl, payload, { headers });
-        console.log('Work experience posted successfully:', response.data);
-      }
-      
-      // Log response status for debugging
-      if (response.status !== 200 && response.status !== 201) {
-        console.warn('Unexpected status code:', response.status);
-      }
-
-      // Add or update experience to formData after successful API call
+      // Create the experience object to store locally
       const savedExperience = {
           company: newExperience.companyName,
           companyName: newExperience.companyName,
@@ -397,8 +331,16 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
           managerEmail: newExperience.managerEmail,
           managerPhone: newExperience.managerPhone,
           managerLinkedIn: newExperience.managerLinkedIn,
-        // Store API response ID if available
-        id: response.data?.id || response.data?.experience_id || experiences[editingIndex || 0]?.id,
+          // Generate a temporary ID for local tracking
+          id: editingIndex !== null ? experiences[editingIndex]?.id : `temp-${Date.now()}`,
+          // Store the payload format for later API submission
+          client_name: newExperience.clientName.trim(),
+          company_website: newExperience.website.trim(),
+          work_location: newExperience.workLocation.trim(),
+          job_title: newExperience.position.trim(),
+          from_date: newExperience.startDate,
+          to_date: newExperience.current ? '' : (newExperience.endDate || ''),
+          job_description: newExperience.description.trim(),
       };
 
       if (editingIndex !== null) {

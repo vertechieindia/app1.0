@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     PORT: int = 8000
     WORKERS: int = 4
     
-    # Database - Using SQLite for development (change to PostgreSQL for production)
-    DATABASE_URL: str = "sqlite+aiosqlite:///./vertechie.db"
+    # Database - Using MySQL for development
+    DATABASE_URL: str = "mysql+aiomysql://root@localhost:3306/vertechie_be"
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
     
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "your-super-secret-key-change-in-production-please"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours for development
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # CORS
@@ -43,12 +43,13 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
     
-    # Email
+    # Email - Gmail SMTP settings
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
+    SMTP_USE_TLS: bool = True
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    EMAILS_FROM_EMAIL: str = "noreply@vertechie.com"
+    EMAILS_FROM_EMAIL: str = "tminnovations.manager@gmail.com"
     EMAILS_FROM_NAME: str = "VerTechie"
     
     # AWS S3
@@ -69,15 +70,25 @@ class Settings(BaseSettings):
     GIPHY_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    # Azure Document Intelligence (OCR) - Set in .env file
+    AZURE_DOC_ENDPOINT: str = ""
+    AZURE_DOC_KEY: str = ""
+    
+    # Azure Face API (Liveness) - Set in .env file
+    AZURE_FACE_ENDPOINT: str = ""
+    AZURE_FACE_KEY: str = ""
+    
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": True,
+        "extra": "ignore"
+    }
 
 
-@lru_cache()
 def get_settings() -> Settings:
-    """Get cached settings instance."""
-    return Settings()
+    """Get settings instance (reload each time to pick up env changes)."""
+    return Settings(_env_file=".env")
 
 
 settings = get_settings()

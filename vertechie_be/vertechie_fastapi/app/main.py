@@ -12,6 +12,7 @@ import time
 
 from app.core.config import settings
 from app.api.v1 import api_router
+from app.api.v_auth import router as v_auth_router
 from app.db.session import init_db, close_db
 
 # Configure logging
@@ -135,6 +136,9 @@ async def root():
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+# Include legacy v_auth router for backwards compatibility
+app.include_router(v_auth_router, prefix="/api/v_auth")
 
 
 # ============= Development Server =============
