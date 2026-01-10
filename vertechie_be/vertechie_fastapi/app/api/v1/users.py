@@ -148,7 +148,28 @@ async def get_user(
             detail="User not found"
         )
     
-    return user
+    # Return dict with is_staff derived from is_superuser (for frontend compatibility)
+    return {
+        "id": user.id,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "middle_name": user.middle_name,
+        "phone": user.phone,
+        "mobile_number": user.mobile_number,
+        "dob": user.dob,
+        "country": user.country,
+        "address": user.address,
+        "username": user.username,
+        "vertechie_id": user.vertechie_id,
+        "is_active": user.is_active,
+        "is_verified": user.is_verified,
+        "is_superuser": user.is_superuser,
+        "is_staff": user.is_superuser,  # Map is_superuser to is_staff for frontend
+        "email_verified": user.email_verified,
+        "mobile_verified": user.mobile_verified,
+        "created_at": user.created_at,
+    }
 
 
 @router.get("/{user_id}/profile", response_model=UserProfileResponse)
@@ -276,10 +297,15 @@ async def get_my_educations(
 ) -> Any:
     """Get current user's educations."""
     
+    # MySQL/MariaDB doesn't support NULLS FIRST, use CASE to handle NULL values
     result = await db.execute(
         select(Education)
         .where(Education.user_id == current_user.id)
-        .order_by(Education.end_year.desc().nullsfirst())
+        .order_by(
+            # Put NULL values first by checking if end_year is NULL
+            Education.end_year.is_(None).desc(),
+            Education.end_year.desc()
+        )
     )
     return result.scalars().all()
 

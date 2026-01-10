@@ -103,9 +103,10 @@ class TutorialCategory(Base, TimestampMixin):
     
     # Relationships
     tutorials = relationship("Tutorial", back_populates="category", lazy="dynamic")
-    children = relationship("TutorialCategory", 
-                          backref="parent",
-                          lazy="dynamic")
+    parent = relationship("TutorialCategory", 
+                         remote_side=[id],
+                         backref="children",
+                         lazy="select")
 
 
 # ============================================
@@ -380,12 +381,12 @@ class TutorialEnrollment(Base, TimestampMixin):
 
 
 # ============================================
-# LESSON PROGRESS
+# TUTORIAL LESSON PROGRESS
 # ============================================
 
-class LessonProgress(Base, TimestampMixin):
+class TutorialLessonProgress(Base, TimestampMixin):
     """
-    Tracks user progress through lessons.
+    Tracks user progress through tutorial lessons.
     """
     __tablename__ = "tutorial_lesson_progress"
     

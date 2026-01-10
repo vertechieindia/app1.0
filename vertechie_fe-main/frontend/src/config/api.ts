@@ -23,7 +23,22 @@ const getBaseUrl = (): string => {
 export const API_BASE_URL = getBaseUrl();
 
 // Legacy Django endpoint (for gradual migration)
-export const LEGACY_API_URL = 'https://api.vertechie.com/api/';
+const getLegacyBaseUrl = (): string => {
+  // Check for environment variable first
+  if (import.meta.env.VITE_LEGACY_API_URL) {
+    return import.meta.env.VITE_LEGACY_API_URL;
+  }
+  
+  // Development default - same host but without /v1
+  if (import.meta.env.DEV) {
+    return 'http://localhost:8000/api/';
+  }
+  
+  // Production
+  return 'https://api.vertechie.com/api/';
+};
+
+export const LEGACY_API_URL = getLegacyBaseUrl();
 
 // API Endpoints - Updated for FastAPI
 export const API_ENDPOINTS = {
@@ -33,6 +48,7 @@ export const API_ENDPOINTS = {
   AUTH: {
     REGISTER: '/auth/register',
     LOGIN: '/auth/login',
+    TOKEN: '/auth/token',
     REFRESH: '/auth/refresh',
     ME: '/auth/me',
     LOGOUT: '/auth/logout',
@@ -40,6 +56,9 @@ export const API_ENDPOINTS = {
     RESET_PASSWORD: '/auth/reset-password',
     VERIFY_EMAIL: '/auth/verify-email',
   },
+  
+  // Token endpoint (for getting auth token after registration)
+  TOKEN: '/auth/token',
 
   // Admin user creation endpoint
   CREATE_ADMIN: '/auth/admin/users',
@@ -47,15 +66,47 @@ export const API_ENDPOINTS = {
   // Company invites
   COMPANY_INVITES: '/companies/invites',
 
+  // Shorthand aliases for backwards compatibility
+  REGISTER: '/auth/register',
+  COMPANY: '/companies',
+  COMPANY_SIGNUP: '/companies/signup',
+  SCHOOL_SIGNUP: '/schools/signup',
+  
+  // Additional top-level endpoints used across the app
+  GROUPS: '/groups/',
+  PERMISSIONS: '/permissions/',
+  BLOCKED_PROFILES: '/blocked-profiles/',
+  PENDING_APPROVALS: '/pending-approvals/',
+  EDUCATION: '/education/',
+  EXPERIENCES: '/experiences/',
+  FORGOT_PASSWORD: '/auth/forgot-password',
+  FRONTEND_LOGS: '/logs/frontend/',
+  
+  // Legacy endpoint shortcuts (also accessible via LEGACY.*)
+  SEND_EMAIL_OTP: 'v_auth/auth/send-email-otp/',
+  VERIFY_EMAIL_OTP: 'v_auth/auth/verify-email-otp/',
+  MOBILE_VERIFICATION: 'v_auth/auth/mobile-verification/',
+  EXTRACT_ID_DETAILS: 'v_auth/auth/extract-details/',
+  ID_VERIFICATION: 'v_auth/auth/id-verification/',
+  CHECK_LIVENESS: 'v_auth/auth/check_liveness/',
+
   // ============================================
   // USERS (/users)
   // ============================================
   USERS: {
+    toString: () => '/users/',
+    valueOf: () => '/users/',
     LIST: '/users',
     GET: (id: string) => `/users/${id}`,
     UPDATE_ME: '/users/me',
     PROFILE: (id: string) => `/users/${id}/profile`,
     UPDATE_PROFILE: '/users/me/profile',
+  } as unknown as string & {
+    LIST: string;
+    GET: (id: string) => string;
+    UPDATE_ME: string;
+    PROFILE: (id: string) => string;
+    UPDATE_PROFILE: string;
   },
 
   // ============================================

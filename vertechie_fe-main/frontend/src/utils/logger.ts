@@ -100,8 +100,9 @@ const Logger = {
 
       localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(logs));
       
-      // Send to backend (non-blocking)
-      this._sendToBackend([newLog]);
+      // DISABLED: Auto-sync to backend causes cascade when endpoint is unavailable
+      // Logs are stored locally and can be synced manually via Logger.syncToBackend()
+      // this._sendToBackend([newLog]);
     } catch {
       // Storage full or unavailable - fail silently
     }
@@ -336,30 +337,29 @@ ${'─'.repeat(50)}`
 
 // Initialize on page load
 if (typeof window !== 'undefined') {
-  // Sync unsynced logs on page load (after 3 seconds)
-  setTimeout(() => Logger.syncToBackend(), 3000);
+  // DISABLED: Auto-sync causes cascade of 404 errors when backend endpoint is unavailable
+  // Logs are stored in localStorage and can be manually synced via Logger.syncToBackend()
   
-  // Periodic sync every 30 seconds
-  setInterval(() => Logger.syncToBackend(), CONFIG.SYNC_INTERVAL);
+  // setTimeout(() => Logger.syncToBackend(), 3000);
+  // setInterval(() => Logger.syncToBackend(), CONFIG.SYNC_INTERVAL);
   
-  // Sync before page close using sendBeacon
-  window.addEventListener('beforeunload', () => {
-    const unsynced = Logger.getLogs().filter(l => !l.synced);
-    if (unsynced.length > 0 && navigator.sendBeacon) {
-      const payload = JSON.stringify({ 
-        logs: unsynced.map(log => ({
-          type: log.type,
-          message: log.message,
-          page: log.page,
-          component: log.component,
-          details: log.details,
-          timestamp: log.time,
-          client_id: log.id,
-        }))
-      });
-      navigator.sendBeacon(getApiUrl(API_ENDPOINTS.FRONTEND_LOGS), payload);
-    }
-  });
+  // window.addEventListener('beforeunload', () => {
+  //   const unsynced = Logger.getLogs().filter(l => !l.synced);
+  //   if (unsynced.length > 0 && navigator.sendBeacon) {
+  //     const payload = JSON.stringify({ 
+  //       logs: unsynced.map(log => ({
+  //         type: log.type,
+  //         message: log.message,
+  //         page: log.page,
+  //         component: log.component,
+  //         details: log.details,
+  //         timestamp: log.time,
+  //         client_id: log.id,
+  //       }))
+  //     });
+  //     navigator.sendBeacon(getApiUrl(API_ENDPOINTS.FRONTEND_LOGS), payload);
+  //   }
+  // });
 
   // Make Logger available globally in browser console
   (window as unknown as { Logger: typeof Logger }).Logger = Logger;

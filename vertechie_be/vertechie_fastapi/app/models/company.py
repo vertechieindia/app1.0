@@ -297,3 +297,48 @@ class CompanyAdmin(Base):
     company = relationship("Company", back_populates="admins")
     user = relationship("User")
 
+
+class InviteStatus(str, enum.Enum):
+    PENDING = "pending"
+    SENT = "sent"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    EXPIRED = "expired"
+
+
+class CompanyInvite(Base):
+    """Company invite requests from users."""
+    __tablename__ = "company_invites"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    
+    # Company Details
+    company_name = Column(String(200), nullable=False)
+    address = Column(Text)
+    website = Column(String(500))
+    
+    # Contact Person
+    contact_person_name = Column(String(100))
+    contact_person_role = Column(String(100))
+    
+    # Contact Info (JSON arrays)
+    emails = Column(JSON, default=list)  # List of email addresses
+    phone_numbers = Column(JSON, default=list)  # List of phone numbers
+    
+    # Status
+    status = Column(SQLEnum(InviteStatus), default=InviteStatus.PENDING)
+    
+    # Who requested
+    requested_by_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
+    
+    # Notes
+    admin_notes = Column(Text)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    sent_at = Column(DateTime)  # When invite email was sent
+    
+    # Relationships
+    requested_by = relationship("User", foreign_keys=[requested_by_id])
+

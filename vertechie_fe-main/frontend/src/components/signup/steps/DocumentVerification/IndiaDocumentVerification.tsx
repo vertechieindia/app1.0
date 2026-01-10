@@ -1467,6 +1467,7 @@ Live Verification
               </Box>
             )}
           </Box>
+          {/* Capture / Retry Button */}
           <Box sx={{ textAlign: 'center' }}>
             <Button
               variant="contained"
@@ -1480,14 +1481,14 @@ Live Verification
               disabled={aadhaarHook.processing || !aadhaarHook.videoStream}
               size="large"
               sx={{
-                bgcolor: primaryColor,
+                bgcolor: aadhaarHook.errors.capture ? '#f44336' : primaryColor,
                 color: 'white',
                 px: 4,
                 py: 1.5,
                 fontSize: '1rem',
                 fontWeight: 600,
                 '&:hover': {
-                  bgcolor: darkColor,
+                  bgcolor: aadhaarHook.errors.capture ? '#d32f2f' : darkColor,
                 },
               }}
             >
@@ -1495,6 +1496,10 @@ Live Verification
                 <>
                   <CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />
                   Processing...
+                </>
+              ) : aadhaarHook.errors.capture ? (
+                <>
+                  🔄 Retry Capture
                 </>
               ) : (
                 <>
@@ -1504,6 +1509,64 @@ Live Verification
               )}
             </Button>
           </Box>
+
+          {/* Extracted Information Display */}
+          {aadhaarCaptured && formData.firstName && (
+            <Box sx={{ 
+              mt: 3, 
+              p: 2, 
+              bgcolor: lightColor, 
+              borderRadius: 2,
+              border: `2px solid ${primaryColor}`
+            }}>
+              <Typography variant="h6" sx={{ 
+                color: primaryColor, 
+                fontWeight: 700, 
+                mb: 2,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1
+              }}>
+                <CheckCircleIcon /> Extracted Information
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                    First Name
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {formData.firstName || 'Not extracted'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                    Last Name
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {formData.lastName || 'Not extracted'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                    Date of Birth
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {formData.dateOfBirth || 'Not extracted'}
+                  </Typography>
+                </Grid>
+                {formData.fullAddress && (
+                  <Grid item xs={12}>
+                    <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                      Address
+                    </Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                      {formData.fullAddress}
+                    </Typography>
+                  </Grid>
+                )}
+              </Grid>
+            </Box>
+          )}
           
           {/* Action Buttons */}
           <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 3 }}>
@@ -1536,6 +1599,23 @@ Live Verification
                 }}
               >
                 Re-capture
+              </Button>
+            )}
+            {aadhaarCaptured && !aadhaarHook.errors.capture && (
+              <Button
+                variant="contained"
+                onClick={() => {
+                  aadhaarHook.stopCamera();
+                }}
+                sx={{
+                  bgcolor: primaryColor,
+                  color: 'white',
+                  '&:hover': {
+                    bgcolor: darkColor,
+                  },
+                }}
+              >
+                ✓ Confirm & Close
               </Button>
             )}
           </Box>

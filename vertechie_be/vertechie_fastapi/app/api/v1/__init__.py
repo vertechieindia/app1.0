@@ -74,3 +74,19 @@ try:
 except ImportError as e:
     print(f"Learn Admin import error: {e}")
     pass
+
+# Techie Admin Review - Profile Verification Workflow
+try:
+    from app.api.v1 import admin_review
+    api_router.include_router(admin_review.router, tags=["Admin - Techie Review"])
+except ImportError as e:
+    print(f"Admin Review import error: {e}")
+    pass
+
+# Admin Dashboard - Groups, Permissions, Stats, etc.
+try:
+    from app.api.v1 import admin
+    api_router.include_router(admin.router, tags=["Admin Dashboard"])
+except ImportError as e:
+    print(f"Admin Dashboard import error: {e}")
+    pass

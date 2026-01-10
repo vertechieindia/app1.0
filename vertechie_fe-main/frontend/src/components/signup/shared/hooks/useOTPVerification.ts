@@ -9,7 +9,7 @@ import {
   ConfirmationResult
 } from 'firebase/auth';
 import axios from 'axios';
-import { getApiUrl, API_ENDPOINTS } from '../../../../config/api';
+import { getLegacyApiUrl, API_ENDPOINTS } from '../../../../config/api';
 import { formatPhoneForFirebase } from '../../utils/formatters';
 
 export const useOTPVerification = () => {
@@ -60,7 +60,7 @@ export const useOTPVerification = () => {
       // Reset last verified email OTP when sending new OTP
       lastVerifiedEmailOTPRef.current = '';
       
-      const apiUrl = getApiUrl(API_ENDPOINTS.SEND_EMAIL_OTP);
+      const apiUrl = getLegacyApiUrl(API_ENDPOINTS.SEND_EMAIL_OTP);
       const response = await axios.post(apiUrl, { email });
       
       if (response.data.success || response.status === 200) {
@@ -114,7 +114,7 @@ export const useOTPVerification = () => {
     });
 
     try {
-      const apiUrl = getApiUrl(API_ENDPOINTS.VERIFY_EMAIL_OTP);
+      const apiUrl = getLegacyApiUrl(API_ENDPOINTS.VERIFY_EMAIL_OTP);
       const response = await axios.post(apiUrl, {
         email,
         otp: trimmedOTP
@@ -263,7 +263,7 @@ export const useOTPVerification = () => {
       const result = await phoneConfirmationResult.confirm(otp.trim());
       const idToken = await result.user.getIdToken();
     
-      const apiUrl = getApiUrl(API_ENDPOINTS.MOBILE_VERIFICATION);
+      const apiUrl = getLegacyApiUrl(API_ENDPOINTS.MOBILE_VERIFICATION);
       const response = await axios.post(apiUrl, {
         email,
         idToken

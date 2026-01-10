@@ -24,8 +24,17 @@ class UserRegister(BaseModel):
     country: Optional[str] = None
     address: Optional[str] = None
     
+    # Additional fields from frontend
+    username: Optional[str] = None
+    confirm_password: Optional[str] = None
+    role: Optional[str] = None
+    gov_id: Optional[str] = None
+    
     # Work authorization
     work_authorization: Optional[str] = None
+    
+    class Config:
+        extra = "ignore"  # Ignore extra fields from frontend
     
     @field_validator('password')
     @classmethod

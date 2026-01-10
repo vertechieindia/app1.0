@@ -109,7 +109,8 @@ const validatePersonalInformation = (data: any): boolean | string => {
   if (!data.firstName) return 'First name is required';
   if (!data.lastName) return 'Last name is required';
   if (!data.email) return 'Email is required';
-  if (!data.phone) return 'Phone number is required';
+  // Phone is optional if skipped
+  if (!data.phoneSkipped && !data.phone) return 'Phone number is required';
   
   // Password validation
   if (!data.password) {

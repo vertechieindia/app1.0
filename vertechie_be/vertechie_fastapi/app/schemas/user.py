@@ -49,9 +49,11 @@ class UserResponse(UserBase):
     vertechie_id: Optional[str] = None
     is_active: bool = True
     is_verified: bool = False
-    email_verified: bool = False
-    mobile_verified: bool = False
-    created_at: datetime
+    is_superuser: bool = False  # Added for admin routing
+    is_staff: Optional[bool] = False  # Added for admin routing (alias for is_superuser in frontend)
+    email_verified: Optional[bool] = False
+    mobile_verified: Optional[bool] = False
+    created_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -72,6 +74,7 @@ class UserProfileUpdate(BaseModel):
     current_company: Optional[str] = None
     linkedin_url: Optional[str] = None
     github_url: Optional[str] = None
+    gitlab_url: Optional[str] = None
     twitter_url: Optional[str] = None
     portfolio_url: Optional[str] = None
     open_to_work: Optional[bool] = None
@@ -96,6 +99,7 @@ class UserProfileResponse(BaseModel):
     current_company: Optional[str] = None
     linkedin_url: Optional[str] = None
     github_url: Optional[str] = None
+    gitlab_url: Optional[str] = None
     twitter_url: Optional[str] = None
     portfolio_url: Optional[str] = None
     open_to_work: bool = False

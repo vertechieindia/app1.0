@@ -73,8 +73,8 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
         return;
       }
       
-      // Step 2: If email is filled, check phone
-      if (!formData.phone || formData.phone.trim() === '') {
+      // Step 2: If email is filled, check phone (skip if phoneSkipped is true)
+      if (!formData.phoneSkipped && (!formData.phone || formData.phone.trim() === '')) {
         setErrors({ phone: 'Phone number is required' });
         // Scroll to phone field
         setTimeout(() => {
@@ -477,7 +477,8 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
         console.log('Calling token API with payload:', tokenPayload);
 
         try {
-          const tokenApiUrl = getApiUrl(API_ENDPOINTS.TOKEN);
+          // Use login endpoint instead of token endpoint (login accepts JSON with email)
+          const tokenApiUrl = getApiUrl(API_ENDPOINTS.AUTH.LOGIN);
           const tokenResponse = await fetch(tokenApiUrl, {
             method: 'POST',
             headers: {
