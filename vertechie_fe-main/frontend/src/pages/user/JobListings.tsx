@@ -47,7 +47,10 @@ import {
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 import { Job, JOB_TYPES, EXPERIENCE_LEVELS, JobFilters } from '../../types/jobPortal';
-import { jobService } from '../../services/jobPortalService';
+import { jobService, interestService } from '../../services/jobPortalService';
+import { Snackbar } from '@mui/material';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 
 // Theme Colors - VerTechie Blue Palette (Matching App Theme)
 const colors = {
@@ -288,6 +291,65 @@ const JobListings: React.FC = () => {
     experienceLevel: '',
     location: '',
   });
+  const [interestedJobs, setInterestedJobs] = useState<Set<string>>(new Set());
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
+
+  // Get current user data
+  const getUserData = () => {
+    try {
+      const userData = localStorage.getItem('userData');
+      return userData ? JSON.parse(userData) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Load user's existing interests
+  const loadUserInterests = async () => {
+    const user = getUserData();
+    if (!user?.id) return;
+    
+    try {
+      const interests = await interestService.getInterestsByUser(user.id.toString());
+      setInterestedJobs(new Set(interests.map(i => i.jobId)));
+    } catch (err) {
+      console.error('Failed to load interests:', err);
+    }
+  };
+
+  // Handle express interest
+  const handleExpressInterest = async (e: React.MouseEvent, jobId: string) => {
+    e.stopPropagation();
+    
+    const user = getUserData();
+    if (!user) {
+      setSnackbar({ open: true, message: 'Please login to express interest', severity: 'error' });
+      return;
+    }
+    
+    if (interestedJobs.has(jobId)) {
+      setSnackbar({ open: true, message: 'You have already expressed interest in this job', severity: 'info' });
+      return;
+    }
+    
+    try {
+      await interestService.expressInterest(
+        jobId,
+        user.id.toString(),
+        `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
+        user.email
+      );
+      
+      setInterestedJobs(prev => new Set([...prev, jobId]));
+      setSnackbar({ open: true, message: 'Interest sent to Hiring Manager!', severity: 'success' });
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err.message || 'Failed to express interest', severity: 'error' });
+    }
+  };
 
   // Generate random salary for demo
   const getSalary = (jobType: string, experienceLevel: string): string => {
@@ -322,6 +384,7 @@ const JobListings: React.FC = () => {
 
   useEffect(() => {
     loadJobs();
+    loadUserInterests();
   }, []);
 
   useEffect(() => {
@@ -734,13 +797,35 @@ const JobListings: React.FC = () => {
                           </Typography>
                         </Box>
                       </Box>
-                      <ApplyButton
-                        className="apply-btn"
-                        endIcon={<ArrowForwardIcon />}
-                        onClick={(e) => handleApplyClick(e, job.id)}
-                      >
-                        Apply Now
-                      </ApplyButton>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button
+                          variant={interestedJobs.has(job.id) ? "contained" : "outlined"}
+                          size="small"
+                          startIcon={interestedJobs.has(job.id) ? <FavoriteIcon /> : <FavoriteBorderIcon />}
+                          onClick={(e) => handleExpressInterest(e, job.id)}
+                          sx={{
+                            borderRadius: 3,
+                            textTransform: 'none',
+                            fontWeight: 600,
+                            color: interestedJobs.has(job.id) ? 'white' : '#e91e63',
+                            bgcolor: interestedJobs.has(job.id) ? '#e91e63' : 'transparent',
+                            borderColor: '#e91e63',
+                            '&:hover': {
+                              bgcolor: interestedJobs.has(job.id) ? '#c2185b' : 'rgba(233, 30, 99, 0.1)',
+                              borderColor: '#c2185b',
+                            },
+                          }}
+                        >
+                          {interestedJobs.has(job.id) ? 'Interested' : 'Show Interest'}
+                        </Button>
+                        <ApplyButton
+                          className="apply-btn"
+                          endIcon={<ArrowForwardIcon />}
+                          onClick={(e) => handleApplyClick(e, job.id)}
+                        >
+                          Apply Now
+                        </ApplyButton>
+                      </Box>
                     </Box>
                   </CardContent>
                 </JobCard>
@@ -749,6 +834,22 @@ const JobListings: React.FC = () => {
           </Grid>
         )}
       </Container>
+      
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          severity={snackbar.severity}
+          sx={{ width: '100%', borderRadius: 2 }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </PageContainer>
   );
 };

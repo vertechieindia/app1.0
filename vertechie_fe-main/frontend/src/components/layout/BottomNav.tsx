@@ -51,6 +51,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import HelpIcon from '@mui/icons-material/Help';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import PeopleIcon from '@mui/icons-material/People';
 
 // Styled Components - Using Hero Section Colors
 const StyledBottomNav = styled(Paper)(({ theme }) => ({
@@ -156,19 +157,24 @@ const BottomNav: React.FC = () => {
         setUserName(`${firstName} ${lastName}`.trim() || user.email || 'User');
         setUserAvatar(user.profile_image || '');
         
-        // Determine role
+        // Determine role - check user.role, user.roles array, and user.groups array
+        const userRoles = user.roles || [];
+        const userGroups = user.groups || [];
+        const hasRole = (roleType: string) => 
+          user.role === roleType || 
+          userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType) ||
+          userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType);
+        
         if (user.is_superuser) {
           setUserRole('super_admin');
         } else if (user.is_staff) {
           setUserRole('admin');
+        } else if (hasRole('hiring_manager')) {
+          setUserRole('hiring_manager');
         } else if (user.has_school || user.school_id) {
           setUserRole('school');
         } else if (user.has_company || user.company_id) {
           setUserRole('company');
-        } else if (user.role === 'hiring_manager' || user.groups?.some((g: any) => 
-          g.name?.toLowerCase().includes('hiring') || g.name?.toLowerCase().includes('hr')
-        )) {
-          setUserRole('hiring_manager');
         } else {
           setUserRole('techie');
         }
@@ -192,15 +198,17 @@ const BottomNav: React.FC = () => {
     return location.pathname.startsWith(path);
   };
 
-  // Core navigation items for ALL users - All under /techie/
-  // Note: Home is now the unified Network + Community experience
-  const coreNavItems: NavItemConfig[] = [
-    { key: 'home', label: 'Home', icon: <HomeIcon />, path: '/techie/home' }, // Network is now Home
+  // Core navigation items - paths vary based on role
+  const coreNavItems: NavItemConfig[] = userRole === 'hiring_manager' ? [
+    { key: 'home', label: 'Home', icon: <HomeIcon />, path: '/techie/home/feed' },
+  ] : [
+    { key: 'home', label: 'Home', icon: <HomeIcon />, path: '/techie/home' },
     { key: 'jobs', label: 'Jobs', icon: <WorkIcon />, path: '/techie/jobs' },
     { key: 'practice', label: 'Practice', icon: <CodeIcon />, path: '/techie/practice' },
   ];
 
-  const secondaryNavItems: NavItemConfig[] = [
+  // Secondary nav items - different for HR vs Techie
+  const secondaryNavItems: NavItemConfig[] = userRole === 'hiring_manager' ? [] : [
     { key: 'learn', label: 'Learn', icon: <SchoolIcon />, path: '/techie/learn' },
     { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat', badge: messages },
     { key: 'blogs', label: 'Blogs', icon: <ArticleIcon />, path: '/techie/blogs' },
@@ -313,8 +321,8 @@ const BottomNav: React.FC = () => {
         {/* Chat (always visible) */}
         {isMobile && (
           <NavItem
-            active={isActive('/techie/chat')}
-            onClick={() => navigate('/techie/chat')}
+            active={isActive(userRole === 'hiring_manager' ? '/hr/chat' : '/techie/chat')}
+            onClick={() => navigate(userRole === 'hiring_manager' ? '/hr/chat' : '/techie/chat')}
           >
             <NavIcon>
               <Badge badgeContent={messages} color="error" max={99}>
@@ -327,8 +335,8 @@ const BottomNav: React.FC = () => {
         
         {/* Alerts/Notifications */}
         <NavItem
-          active={isActive('/techie/alerts')}
-          onClick={() => navigate('/techie/alerts')}
+          active={isActive(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
+          onClick={() => navigate(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
         >
           <NavIcon>
             <Badge badgeContent={notifications} color="error" max={99}>
@@ -397,7 +405,7 @@ const BottomNav: React.FC = () => {
         
         {/* Profile */}
         <NavItem
-          active={isActive('/techie/profile')}
+          active={isActive(userRole === 'hiring_manager' ? '/hr/profile' : '/techie/profile')}
           onClick={(e) => setProfileAnchor(e.currentTarget as HTMLElement)}
         >
           <NavIcon>
@@ -447,7 +455,7 @@ const BottomNav: React.FC = () => {
           
           <MenuItem
             onClick={() => {
-              navigate('/techie/profile');
+              navigate(userRole === 'hiring_manager' ? '/hr/profile' : '/techie/profile');
               setProfileAnchor(null);
             }}
             sx={{ py: 1.5 }}
@@ -460,7 +468,7 @@ const BottomNav: React.FC = () => {
           
           <MenuItem
             onClick={() => {
-              navigate('/techie/saved');
+              navigate(userRole === 'hiring_manager' ? '/hr/saved' : '/techie/saved');
               setProfileAnchor(null);
             }}
             sx={{ py: 1.5 }}
@@ -473,7 +481,7 @@ const BottomNav: React.FC = () => {
           
           <MenuItem
             onClick={() => {
-              navigate('/techie/settings');
+              navigate(userRole === 'hiring_manager' ? '/hr/settings' : '/techie/settings');
               setProfileAnchor(null);
             }}
             sx={{ py: 1.5 }}
@@ -521,7 +529,7 @@ const BottomNav: React.FC = () => {
           
           <MenuItem
             onClick={() => {
-              navigate('/techie/help');
+              navigate(userRole === 'hiring_manager' ? '/hr/help' : '/techie/help');
               setProfileAnchor(null);
             }}
             sx={{ py: 1.5 }}

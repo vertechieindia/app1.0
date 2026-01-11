@@ -146,7 +146,35 @@ const Login = () => {
 
         if (userResponse.ok) {
           const userApiData = await userResponse.json();
-          userData = userApiData;
+          // Preserve groups/roles from login response when merging user data
+          userData = {
+            ...userApiData,
+            groups: userApiData.groups || data.user_data.groups || [],
+            roles: userApiData.roles || data.user_data.roles || [],
+            admin_roles: userApiData.admin_roles || data.user_data.admin_roles || [],
+          };
+          localStorage.setItem('userData', JSON.stringify(userData));
+        }
+        
+        // Also fetch user profile to get company info
+        const profileUrl = getApiUrl('/users/me/profile');
+        const profileResponse = await fetch(profileUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${data.access}`,
+          },
+        });
+        
+        if (profileResponse.ok) {
+          const profileData = await profileResponse.json();
+          // Add profile data (including company) to userData
+          userData = {
+            ...userData,
+            current_company: profileData.current_company,
+            current_position: profileData.current_position,
+            profile: profileData,
+          };
           localStorage.setItem('userData', JSON.stringify(userData));
         }
       } catch (fetchError) {

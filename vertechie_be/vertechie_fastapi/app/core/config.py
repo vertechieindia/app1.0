@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     AZURE_FACE_ENDPOINT: str = ""
     AZURE_FACE_KEY: str = ""
     
+    # SMTP Email Settings - Set in .env file
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    FROM_EMAIL: str = "noreply@vertechie.com"
+    
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

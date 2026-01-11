@@ -6,7 +6,8 @@ from fastapi import APIRouter
 from app.api.v1 import (
     auth, users, jobs, courses, calendar, 
     chat, network, community, unified_network,
-    companies, schools, practice, hiring, blog, ide
+    companies, schools, practice, hiring, blog, ide,
+    notifications
 )
 
 api_router = APIRouter()
@@ -33,6 +34,7 @@ api_router.include_router(practice.router, prefix="/practice", tags=["Practice"]
 api_router.include_router(hiring.router, prefix="/hiring", tags=["Hiring"])
 api_router.include_router(blog.router, prefix="/blog", tags=["Blog"])
 api_router.include_router(ide.router, prefix="/ide", tags=["IDE"])
+api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 
 # ============= Admin Routes =============
 
