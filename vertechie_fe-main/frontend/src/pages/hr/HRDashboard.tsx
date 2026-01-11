@@ -27,6 +27,11 @@ import {
   Avatar,
   alpha,
   keyframes,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  CircularProgress,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
@@ -43,9 +48,14 @@ import {
   TrendingUp as TrendingUpIcon,
   Assignment as AssignmentIcon,
   AutoAwesome as SparkleIcon,
+  Delete as DeleteIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
 import { Job, JOB_TYPES, EXPERIENCE_LEVELS } from '../../types/jobPortal';
-import { jobService, getHRUserInfo } from '../../services/jobPortalService';
+import { jobService, getHRUserInfo, interestService, JobInterest } from '../../services/jobPortalService';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import EmailIcon from '@mui/icons-material/Email';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
 // Theme Colors - Poncho Palette
 const colors = {
@@ -304,11 +314,22 @@ const HRDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  
+  // Delete confirmation dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [jobToDelete, setJobToDelete] = useState<Job | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // Interests state
+  const [interests, setInterests] = useState<JobInterest[]>([]);
+  const [loadingInterests, setLoadingInterests] = useState(false);
 
   const hrUser = getHRUserInfo();
 
   useEffect(() => {
     loadJobs();
+    loadInterests();
   }, []);
 
   const loadJobs = async () => {
@@ -316,19 +337,42 @@ const HRDashboard: React.FC = () => {
       setLoading(true);
       const hrId = hrUser?.id || 'hr-user';
       const fetchedJobs = await jobService.getJobsByHR(hrId);
-      // If HR has no jobs yet, show all jobs as demo
-      if (fetchedJobs.length === 0) {
-        const allJobs = await jobService.getAllActiveJobs();
-        setJobs(allJobs);
-      } else {
-        setJobs(fetchedJobs);
-      }
+      setJobs(fetchedJobs);
     } catch (err) {
       setError('Failed to load jobs');
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+  
+  const loadInterests = async () => {
+    try {
+      setLoadingInterests(true);
+      const hrId = hrUser?.id || 'hr-user';
+      const fetchedInterests = await interestService.getInterestsForHR(hrId);
+      setInterests(fetchedInterests);
+    } catch (err) {
+      console.error('Failed to load interests:', err);
+    } finally {
+      setLoadingInterests(false);
+    }
+  };
+  
+  const handleMarkAsContacted = async (interestId: string) => {
+    try {
+      await interestService.updateInterestStatus(interestId, 'contacted');
+      setInterests(prev => prev.map(i => 
+        i.id === interestId ? { ...i, status: 'contacted' } : i
+      ));
+    } catch (err) {
+      console.error('Failed to update interest status:', err);
+    }
+  };
+  
+  const getJobTitle = (jobId: string) => {
+    const job = jobs.find(j => j.id === jobId);
+    return job?.title || 'Unknown Position';
   };
 
   const handleMenuClick = (event: React.MouseEvent<HTMLElement>, jobId: string) => {
@@ -365,14 +409,52 @@ const HRDashboard: React.FC = () => {
     try {
       if (job.status === 'active') {
         await jobService.closeJob(selectedJobId);
+        setSuccessMessage('Job closed successfully');
       } else {
         await jobService.reopenJob(selectedJobId);
+        setSuccessMessage('Job reopened successfully');
       }
       await loadJobs();
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       console.error('Failed to update job status:', err);
+      setError('Failed to update job status');
     }
     handleMenuClose();
+  };
+
+  // Delete job handlers
+  const handleDeleteClick = () => {
+    const job = jobs.find(j => j.id === selectedJobId);
+    if (job) {
+      setJobToDelete(job);
+      setDeleteDialogOpen(true);
+    }
+    handleMenuClose();
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setJobToDelete(null);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!jobToDelete) return;
+
+    try {
+      setDeleting(true);
+      await jobService.deleteJob(jobToDelete.id);
+      setSuccessMessage(`Job "${jobToDelete.title}" deleted successfully`);
+      setDeleteDialogOpen(false);
+      setJobToDelete(null);
+      await loadJobs();
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to delete job:', err);
+      setError('Failed to delete job. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const stats = {
@@ -527,6 +609,22 @@ const HRDashboard: React.FC = () => {
           </SecondaryButton>
         </Box>
 
+        {/* Success Alert */}
+        {successMessage && (
+          <Alert 
+            severity="success" 
+            sx={{ 
+              mb: 3, 
+              borderRadius: 3,
+              border: `1px solid ${colors.success}40`,
+              background: `${alpha(colors.success, 0.08)}`,
+            }}
+            onClose={() => setSuccessMessage(null)}
+          >
+            {successMessage}
+          </Alert>
+        )}
+
         {/* Error Alert */}
         {error && (
           <Alert 
@@ -537,6 +635,7 @@ const HRDashboard: React.FC = () => {
               border: `1px solid ${colors.error}40`,
               background: `${alpha(colors.error, 0.08)}`,
             }}
+            onClose={() => setError(null)}
           >
             {error}
           </Alert>
@@ -711,6 +810,166 @@ const HRDashboard: React.FC = () => {
           </Grid>
         )}
 
+        {/* Techie Interests Section */}
+        <Box sx={{ mt: 5, mb: 4 }}>
+          <Typography 
+            variant="h5" 
+            sx={{ 
+              fontWeight: 700, 
+              color: colors.secondary, 
+              mb: 3,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+            }}
+          >
+            <FavoriteIcon sx={{ color: colors.primary }} />
+            Techie Interests
+            {interests.length > 0 && (
+              <Chip 
+                label={interests.length}
+                size="small"
+                sx={{ 
+                  bgcolor: colors.primary, 
+                  color: 'white',
+                  fontWeight: 700,
+                }}
+              />
+            )}
+          </Typography>
+          
+          {loadingInterests ? (
+            <Grid container spacing={2}>
+              {[1, 2, 3].map(i => (
+                <Grid item xs={12} md={4} key={i}>
+                  <Skeleton variant="rounded" height={120} sx={{ borderRadius: 3 }} />
+                </Grid>
+              ))}
+            </Grid>
+          ) : interests.length === 0 ? (
+            <Paper
+              sx={{
+                p: 4,
+                textAlign: 'center',
+                borderRadius: 4,
+                background: `linear-gradient(135deg, ${colors.surface} 0%, ${colors.accent}10 100%)`,
+                border: `2px dashed ${colors.accent}`,
+              }}
+            >
+              <FavoriteIcon sx={{ fontSize: 48, color: colors.accent, mb: 2 }} />
+              <Typography variant="h6" sx={{ color: colors.textLight, fontWeight: 600 }}>
+                No Interests Yet
+              </Typography>
+              <Typography variant="body2" sx={{ color: colors.textLight, mt: 1 }}>
+                When techies express interest in your jobs, they'll appear here
+              </Typography>
+            </Paper>
+          ) : (
+            <Grid container spacing={2}>
+              {interests.map((interest) => (
+                <Grid item xs={12} md={6} lg={4} key={interest.id}>
+                  <Card
+                    sx={{
+                      borderRadius: 4,
+                      border: `1px solid ${colors.accent}`,
+                      boxShadow: `0 4px 20px ${colors.secondary}10`,
+                      transition: 'all 0.3s ease',
+                      '&:hover': {
+                        boxShadow: `0 8px 30px ${colors.primary}20`,
+                        transform: 'translateY(-2px)',
+                      },
+                    }}
+                  >
+                    <CardContent sx={{ p: 2.5 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                        <Avatar
+                          sx={{
+                            bgcolor: colors.primary,
+                            width: 48,
+                            height: 48,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {interest.userName.charAt(0).toUpperCase()}
+                        </Avatar>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 700, color: colors.secondary }}>
+                            {interest.userName}
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: colors.textLight, mb: 0.5 }}>
+                            {interest.userEmail}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={getJobTitle(interest.jobId)}
+                            sx={{
+                              bgcolor: `${colors.accent}40`,
+                              color: colors.secondary,
+                              fontWeight: 500,
+                              fontSize: '0.7rem',
+                              mt: 0.5,
+                            }}
+                          />
+                        </Box>
+                        <Chip
+                          size="small"
+                          icon={interest.status === 'contacted' ? <CheckCircleIcon sx={{ fontSize: 14 }} /> : <FavoriteIcon sx={{ fontSize: 14 }} />}
+                          label={interest.status === 'contacted' ? 'Contacted' : 'New'}
+                          sx={{
+                            bgcolor: interest.status === 'contacted' ? colors.success : colors.primary,
+                            color: 'white',
+                            fontWeight: 600,
+                            '& .MuiChip-icon': { color: 'white' },
+                          }}
+                        />
+                      </Box>
+                      
+                      <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<EmailIcon />}
+                          href={`mailto:${interest.userEmail}`}
+                          sx={{
+                            flex: 1,
+                            borderRadius: 2,
+                            textTransform: 'none',
+                            borderColor: colors.primary,
+                            color: colors.primary,
+                            '&:hover': {
+                              bgcolor: `${colors.primary}10`,
+                              borderColor: colors.primaryDark,
+                            },
+                          }}
+                        >
+                          Email
+                        </Button>
+                        {interest.status !== 'contacted' && (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            startIcon={<CheckCircleIcon />}
+                            onClick={() => handleMarkAsContacted(interest.id)}
+                            sx={{
+                              flex: 1,
+                              borderRadius: 2,
+                              textTransform: 'none',
+                              bgcolor: colors.success,
+                              '&:hover': { bgcolor: '#388e3c' },
+                            }}
+                          >
+                            Mark Contacted
+                          </Button>
+                        )}
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          )}
+        </Box>
+
         {/* Action Menu */}
         <Menu
           anchorEl={anchorEl}
@@ -787,7 +1046,132 @@ const HRDashboard: React.FC = () => {
               }}
             />
           </MenuItem>
+          <MenuItem 
+            onClick={handleDeleteClick}
+            sx={{ 
+              py: 1.5, 
+              '&:hover': { 
+                background: `${alpha(colors.error, 0.1)}`,
+              },
+            }}
+          >
+            <ListItemIcon>
+              <DeleteIcon fontSize="small" sx={{ color: colors.error }} />
+            </ListItemIcon>
+            <ListItemText
+              primary="Delete Job"
+              primaryTypographyProps={{ 
+                fontWeight: 500, 
+                color: colors.error,
+              }}
+            />
+          </MenuItem>
         </Menu>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog
+          open={deleteDialogOpen}
+          onClose={handleDeleteCancel}
+          PaperProps={{
+            sx: {
+              borderRadius: 4,
+              maxWidth: 440,
+              boxShadow: `0 25px 60px ${colors.secondary}30`,
+            },
+          }}
+        >
+          <DialogTitle sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 2,
+            pb: 1,
+          }}>
+            <Box
+              sx={{
+                width: 48,
+                height: 48,
+                borderRadius: 3,
+                background: `linear-gradient(135deg, ${alpha(colors.error, 0.15)} 0%, ${alpha(colors.error, 0.1)} 100%)`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <WarningIcon sx={{ color: colors.error, fontSize: 28 }} />
+            </Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, color: colors.secondary }}>
+              Delete Job Post
+            </Typography>
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body1" sx={{ color: colors.textLight, mb: 2 }}>
+              Are you sure you want to delete this job post?
+            </Typography>
+            {jobToDelete && (
+              <Paper
+                sx={{
+                  p: 2,
+                  borderRadius: 3,
+                  background: `${alpha(colors.accent, 0.3)}`,
+                  border: `1px solid ${colors.accent}`,
+                }}
+              >
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: colors.secondary }}>
+                  {jobToDelete.title}
+                </Typography>
+                <Typography variant="body2" sx={{ color: colors.textLight }}>
+                  {jobToDelete.companyName} • {jobToDelete.location}
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.primary, fontWeight: 600 }}>
+                  {jobToDelete.applicantCount || 0} applicant(s)
+                </Typography>
+              </Paper>
+            )}
+            <Typography variant="body2" sx={{ color: colors.error, mt: 2, fontWeight: 500 }}>
+              ⚠️ This action cannot be undone. All applications for this job will also be removed.
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ p: 3, pt: 1 }}>
+            <Button
+              onClick={handleDeleteCancel}
+              disabled={deleting}
+              sx={{
+                borderRadius: 3,
+                px: 3,
+                fontWeight: 600,
+                color: colors.secondary,
+                '&:hover': {
+                  background: `${colors.accent}30`,
+                },
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDeleteConfirm}
+              disabled={deleting}
+              variant="contained"
+              startIcon={deleting ? <CircularProgress size={18} color="inherit" /> : <DeleteIcon />}
+              sx={{
+                borderRadius: 3,
+                px: 3,
+                fontWeight: 600,
+                background: `linear-gradient(135deg, ${colors.error} 0%, #c62828 100%)`,
+                boxShadow: `0 6px 20px ${alpha(colors.error, 0.4)}`,
+                '&:hover': {
+                  background: `linear-gradient(135deg, #c62828 0%, #b71c1c 100%)`,
+                  boxShadow: `0 8px 25px ${alpha(colors.error, 0.5)}`,
+                },
+                '&:disabled': {
+                  background: colors.accent,
+                  color: colors.textLight,
+                },
+              }}
+            >
+              {deleting ? 'Deleting...' : 'Delete Job'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Container>
     </DashboardContainer>
   );

@@ -11,10 +11,24 @@ import {
   ApplicationStatus,
   CodingAnswer,
 } from '../types/jobPortal';
+import { emailNotificationService } from './emailNotificationService';
 
 // Storage keys
 const JOBS_STORAGE_KEY = 'vertechie_jobs';
 const APPLICATIONS_STORAGE_KEY = 'vertechie_applications';
+const INTERESTS_STORAGE_KEY = 'vertechie_interests';
+
+// Interest type
+export interface JobInterest {
+  id: string;
+  jobId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  message?: string;
+  createdAt: string;
+  status: 'pending' | 'viewed' | 'contacted';
+}
 
 // Helper functions for local storage (simulating backend)
 const getStoredJobs = (): Job[] => {
@@ -33,6 +47,15 @@ const getStoredApplications = (): Application[] => {
 
 const storeApplications = (applications: Application[]): void => {
   localStorage.setItem(APPLICATIONS_STORAGE_KEY, JSON.stringify(applications));
+};
+
+const getStoredInterests = (): JobInterest[] => {
+  const stored = localStorage.getItem(INTERESTS_STORAGE_KEY);
+  return stored ? JSON.parse(stored) : [];
+};
+
+const storeInterests = (interests: JobInterest[]): void => {
+  localStorage.setItem(INTERESTS_STORAGE_KEY, JSON.stringify(interests));
 };
 
 // Generate unique ID
@@ -186,6 +209,25 @@ export const applicationService = {
     if (jobIndex !== -1) {
       jobs[jobIndex].applicantCount = (jobs[jobIndex].applicantCount || 0) + 1;
       storeJobs(jobs);
+      
+      // Send email notification to HR
+      const job = jobs[jobIndex];
+      const hrInfo = getHREmailFromJob(job);
+      if (hrInfo) {
+        emailNotificationService.sendJobApplicationEmail({
+          hrEmail: hrInfo.email,
+          hrName: hrInfo.name,
+          jobTitle: job.title,
+          companyName: job.companyName,
+          candidateName: candidateName,
+          candidateEmail: candidateEmail,
+          appliedAt: newApplication.appliedAt,
+        }).then((sent) => {
+          if (sent) {
+            console.log('📧 Application notification sent to HR:', hrInfo.email);
+          }
+        });
+      }
     }
 
     return newApplication;
@@ -259,32 +301,74 @@ export const applicationService = {
 
 // ==================== HR USER HELPER ====================
 
+// Helper to get HR email from a job (for sending notifications)
+const getHREmailFromJob = (job: Job): { email: string; name: string } | null => {
+  // First, try to get HR info from the job's createdBy field
+  if (job.createdBy) {
+    // Look up the HR user who created this job
+    // For now, we'll use stored HR data or fallback to a pattern
+    const storedHRData = localStorage.getItem('hr_users');
+    if (storedHRData) {
+      try {
+        const hrUsers = JSON.parse(storedHRData);
+        const hrUser = hrUsers.find((hr: any) => hr.id === job.createdBy);
+        if (hrUser) {
+          return { email: hrUser.email, name: hrUser.name };
+        }
+      } catch {}
+    }
+  }
+  
+  // Fallback: Try to get current logged-in HR user (if they created this job)
+  const currentUser = localStorage.getItem('userData');
+  if (currentUser) {
+    try {
+      const user = JSON.parse(currentUser);
+      // Check if user has HR email pattern or is the job creator
+      if (user.email && (user.id?.toString() === job.createdBy || user.email.includes('hr') || user.email.includes('hm'))) {
+        return {
+          email: user.email,
+          name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Hiring Manager',
+        };
+      }
+    } catch {}
+  }
+  
+  // Last fallback: Use a notification email from job data
+  if (job.companyName) {
+    return {
+      email: `hr@${job.companyName.toLowerCase().replace(/\s+/g, '')}.com`,
+      name: 'Hiring Manager',
+    };
+  }
+  
+  return null;
+};
+
 export const getHRUserInfo = (): { id: string; name: string; companyName: string } | null => {
   const userDataString = localStorage.getItem('userData');
   
-  // TEMPORARY: Return demo HR user if no user is logged in (for testing)
   if (!userDataString) {
-    return {
-      id: 'demo-hr',
-      name: 'Demo HR Manager',
-      companyName: 'Vertechie Inc.',
-    };
+    return null;
   }
 
   try {
     const userData = JSON.parse(userDataString);
+    
+    // Get company name from profile.current_company or current_company field
+    const companyName = 
+      userData.current_company || 
+      userData.profile?.current_company || 
+      userData.company_name ||
+      'Your Company';
+    
     return {
-      id: userData.id?.toString() || 'demo-hr',
+      id: userData.id?.toString() || '',
       name: `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || userData.email || 'HR Manager',
-      companyName: userData.company_name || 'Vertechie Inc.',
+      companyName: companyName,
     };
   } catch {
-    // TEMPORARY: Return demo user on error
-    return {
-      id: 'demo-hr',
-      name: 'Demo HR Manager',
-      companyName: 'Vertechie Inc.',
-    };
+    return null;
   }
 };
 
@@ -317,84 +401,117 @@ export const getUserInfo = (): { id: string; name: string; email: string } | nul
   }
 };
 
-// Initialize with sample data if empty
-export const initializeSampleData = (): void => {
+// Clear sample data (removed mock data initialization)
+export const clearSampleData = (): void => {
   const jobs = getStoredJobs();
-  if (jobs.length === 0) {
-    const sampleJobs: Job[] = [
-      {
-        id: 'sample-1',
-        title: 'Senior React Developer',
-        companyName: 'TechCorp Solutions',
-        description: 'We are looking for an experienced React developer to join our frontend team. You will be working on cutting-edge web applications using React, TypeScript, and modern frontend technologies.',
-        requiredSkills: ['React', 'TypeScript', 'Redux', 'REST APIs', 'CSS/SASS'],
-        experienceLevel: 'senior',
-        location: 'Remote',
-        jobType: 'full-time',
-        codingQuestions: [
-          {
-            id: 'q1',
-            question: 'Implement a debounce function',
-            description: 'Write a debounce function that delays invoking the provided function until at least ms milliseconds have passed since the last time it was invoked.',
-            difficulty: 'medium',
-          },
-          {
-            id: 'q2',
-            question: 'Build a custom React hook for API calls',
-            description: 'Create a custom React hook called useApi that handles loading states, errors, and data fetching.',
-            difficulty: 'medium',
-          },
-        ],
-        status: 'active',
-        createdBy: 'hr-1',
-        createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        updatedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        applicantCount: 12,
-      },
-      {
-        id: 'sample-2',
-        title: 'Full Stack Developer Intern',
-        companyName: 'StartupXYZ',
-        description: 'Join our fast-growing startup as a Full Stack Developer Intern. Great opportunity to learn and grow with hands-on experience in modern web development.',
-        requiredSkills: ['JavaScript', 'Node.js', 'React', 'MongoDB', 'Git'],
-        experienceLevel: 'entry',
-        location: 'New York, NY',
-        jobType: 'internship',
-        codingQuestions: [
-          {
-            id: 'q3',
-            question: 'Reverse a string',
-            description: 'Write a function that reverses a string without using the built-in reverse method.',
-            difficulty: 'easy',
-          },
-        ],
-        status: 'active',
-        createdBy: 'hr-2',
-        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-        updatedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-        applicantCount: 28,
-      },
-      {
-        id: 'sample-3',
-        title: 'Python Backend Engineer',
-        companyName: 'DataDriven Inc.',
-        description: 'We need a skilled Python developer to help build and maintain our data processing pipelines and API services.',
-        requiredSkills: ['Python', 'Django', 'PostgreSQL', 'Docker', 'AWS'],
-        experienceLevel: 'mid',
-        location: 'San Francisco, CA',
-        jobType: 'full-time',
-        codingQuestions: [],
-        status: 'active',
-        createdBy: 'hr-1',
-        createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-        updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-        applicantCount: 8,
-      },
-    ];
-    storeJobs(sampleJobs);
-  }
+  // Remove any sample/mock jobs
+  const realJobs = jobs.filter(job => !job.id.startsWith('sample-'));
+  storeJobs(realJobs);
 };
 
-// Call initialization
-initializeSampleData();
+// Call cleanup on load to remove mock data
+clearSampleData();
+
+// ==================== INTEREST API ====================
+
+export const interestService = {
+  // Express interest in a job
+  expressInterest: async (
+    jobId: string,
+    userId: string,
+    userName: string,
+    userEmail: string,
+    message?: string
+  ): Promise<JobInterest> => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    
+    const interests = getStoredInterests();
+    
+    // Check if already expressed interest
+    const existing = interests.find(
+      (i) => i.jobId === jobId && i.userId === userId
+    );
+    if (existing) {
+      throw new Error('You have already expressed interest in this job');
+    }
+    
+    const newInterest: JobInterest = {
+      id: generateId(),
+      jobId,
+      userId,
+      userName,
+      userEmail,
+      message,
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+    };
+    
+    interests.push(newInterest);
+    
+    // Send email notification to HR
+    const jobs = getStoredJobs();
+    const job = jobs.find(j => j.id === jobId);
+    if (job) {
+      const hrInfo = getHREmailFromJob(job);
+      if (hrInfo) {
+        emailNotificationService.sendInterestEmail({
+          hrEmail: hrInfo.email,
+          hrName: hrInfo.name,
+          jobTitle: job.title,
+          candidateName: userName,
+          candidateEmail: userEmail,
+        }).then((sent) => {
+          if (sent) {
+            console.log('📧 Interest notification sent to HR:', hrInfo.email);
+          }
+        });
+      }
+    }
+    storeInterests(interests);
+    return newInterest;
+  },
+  
+  // Get interests by user
+  getInterestsByUser: async (userId: string): Promise<JobInterest[]> => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const interests = getStoredInterests();
+    return interests.filter((i) => i.userId === userId);
+  },
+  
+  // Get interests for a job (for HR)
+  getInterestsByJob: async (jobId: string): Promise<JobInterest[]> => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const interests = getStoredInterests();
+    return interests.filter((i) => i.jobId === jobId);
+  },
+  
+  // Get all interests for HR's jobs
+  getInterestsForHR: async (hrUserId: string): Promise<JobInterest[]> => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const jobs = getStoredJobs();
+    const hrJobIds = jobs.filter((j) => j.createdBy === hrUserId).map((j) => j.id);
+    const interests = getStoredInterests();
+    return interests.filter((i) => hrJobIds.includes(i.jobId));
+  },
+  
+  // Check if user has expressed interest
+  hasExpressedInterest: async (jobId: string, userId: string): Promise<boolean> => {
+    const interests = getStoredInterests();
+    return interests.some((i) => i.jobId === jobId && i.userId === userId);
+  },
+  
+  // Update interest status (for HR)
+  updateInterestStatus: async (
+    interestId: string,
+    status: 'pending' | 'viewed' | 'contacted'
+  ): Promise<boolean> => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const interests = getStoredInterests();
+    const idx = interests.findIndex((i) => i.id === interestId);
+    if (idx === -1) return false;
+    interests[idx].status = status;
+    storeInterests(interests);
+    return true;
+  },
+};
 

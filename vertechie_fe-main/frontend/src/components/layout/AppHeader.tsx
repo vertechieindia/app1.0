@@ -51,6 +51,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LogoutIcon from '@mui/icons-material/Logout';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import HomeIcon from '@mui/icons-material/Home';
 import BusinessIcon from '@mui/icons-material/Business';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
@@ -155,10 +156,7 @@ const roleNavConfig: RoleNavConfig = {
     { label: 'Learn', path: '/techie/learn', icon: <SchoolIcon /> },
   ],
   hiring_manager: [
-    { label: 'Dashboard', path: '/techie/dashboard', icon: <DashboardIcon /> },
-    { label: 'Jobs', path: '/techie/jobs', icon: <WorkIcon /> },
-    { label: 'ATS', path: '/techie/ats', icon: <AssessmentIcon /> },
-    { label: 'Learn', path: '/techie/learn', icon: <SchoolIcon /> },
+    { label: 'Home', path: '/techie/home/feed', icon: <HomeIcon /> },
   ],
   school_admin: [
     { label: 'Dashboard', path: '/techie/dashboard', icon: <DashboardIcon /> },
@@ -230,18 +228,23 @@ const AppHeader: React.FC = () => {
         setUserName(`${firstName} ${lastName}`.trim() || user.email || 'User');
         setUserAvatar(user.profile_image || '');
         
-        // Determine role
+        // Determine role - check user.role, user.roles array, and user.groups array
+        const userRoles = user.roles || [];
+        const userGroups = user.groups || [];
+        const hasRole = (roleType: string) => 
+          user.role === roleType || 
+          userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType) ||
+          userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType);
+        
         if (user.is_superuser) {
           setUserRole('super_admin');
         } else if (user.is_staff) {
           setUserRole('admin');
-        } else if (user.role === 'hiring_manager' || user.groups?.some((g: any) => 
-          g.name?.toLowerCase().includes('hiring') || g.name?.toLowerCase().includes('hr')
-        )) {
+        } else if (hasRole('hiring_manager')) {
           setUserRole('hiring_manager');
-        } else if (user.role === 'school_admin' || user.school_id) {
+        } else if (hasRole('school_admin') || user.school_id) {
           setUserRole('school_admin');
-        } else if (user.role === 'company_admin' || user.company_id) {
+        } else if (hasRole('company_admin') || user.company_id) {
           setUserRole('company_admin');
         } else {
           setUserRole('techie');

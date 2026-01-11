@@ -367,6 +367,17 @@ const App: React.FC = () => {
             
             {/* HR Routes */}
             <Route path="/hr/dashboard" element={<HRDashboard />} />
+            <Route path="/hr/feed" element={<Navigate to="/techie/home/feed" replace />} />
+            <Route path="/hr/jobs" element={<HRDashboard />} />
+            <Route path="/hr/candidates" element={<HRDashboard />} />
+            <Route path="/hr/interviews" element={<HRDashboard />} />
+            <Route path="/hr/analytics" element={<HRDashboard />} />
+            <Route path="/hr/chat" element={<Chat />} />
+            <Route path="/hr/alerts" element={<Notifications />} />
+            <Route path="/hr/profile" element={<ProfilePage />} />
+            <Route path="/hr/saved" element={<HRDashboard />} />
+            <Route path="/hr/settings" element={<HRDashboard />} />
+            <Route path="/hr/help" element={<HRDashboard />} />
             <Route path="/hr/create-job" element={<CreateJobPost />} />
             <Route path="/hr/job/:jobId/edit" element={<CreateJobPost />} />
             <Route path="/hr/job/:jobId/applicants" element={<ViewApplicants />} />
