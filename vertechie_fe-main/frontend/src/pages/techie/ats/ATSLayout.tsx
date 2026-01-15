@@ -4,8 +4,10 @@
  * Enhanced with job posting, screening questions, and applicant matching
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { jobService, getHRUserInfo } from '../../../services/jobPortalService';
+import { JobFormData, CodingQuestion } from '../../../types/jobPortal';
 import {
   Box,
   Container,
@@ -170,21 +172,88 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
     setQuestions(questions.filter(q => q.id !== id));
   };
 
-  const handlePostJob = () => {
+  const [isPosting, setIsPosting] = useState(false);
+
+  const handlePostJob = async () => {
     if (!newJob.title || !newJob.department) {
       setSnackbar({ open: true, message: 'Please fill in Job Title and Department', severity: 'error' });
       return;
     }
-    setSnackbar({ open: true, message: 'Job posted successfully! Applicants will answer screening questions.', severity: 'success' });
-    setOpenJobDialog(false);
-    // Reset form
-    setNewJob({ title: '', department: '', location: '', type: '', experience: '', salaryMin: '', salaryMax: '', description: '', responsibilities: '', requirements: '' });
-    setSkills(['JavaScript', 'React', 'Node.js']);
-    setQuestions([
-      { id: '1', question: 'How many years of experience do you have in this field?', type: 'number', required: true },
-      { id: '2', question: 'Are you authorized to work in the location specified?', type: 'yesno', required: true, idealAnswer: 'yes' },
-    ]);
-    setDialogTab(0);
+    
+    if (!newJob.description) {
+      setSnackbar({ open: true, message: 'Please fill in Job Description', severity: 'error' });
+      return;
+    }
+
+    setIsPosting(true);
+
+    try {
+      // Get HR user info from localStorage
+      const hrUser = getHRUserInfo();
+      const userId = hrUser?.id || localStorage.getItem('userId') || 'ats-user';
+      const companyName = hrUser?.companyName || localStorage.getItem('current_company') || 'Company';
+
+      // Map experience level to expected format
+      const experienceLevelMap: Record<string, 'entry' | 'mid' | 'senior' | 'lead'> = {
+        'entry': 'entry',
+        'mid': 'mid',
+        'senior': 'senior',
+        'lead': 'lead',
+        'executive': 'lead',
+      };
+
+      // Map job type to expected format
+      const jobTypeMap: Record<string, 'full-time' | 'internship' | 'part-time' | 'contract'> = {
+        'fulltime': 'full-time',
+        'parttime': 'part-time',
+        'contract': 'contract',
+        'internship': 'internship',
+        'freelance': 'contract',
+      };
+
+      // Convert screening questions to coding questions format (for compatibility)
+      const codingQuestions: CodingQuestion[] = questions.map((q, index) => ({
+        id: q.id,
+        question: q.question,
+        description: `Type: ${q.type}${q.options ? ` | Options: ${q.options.join(', ')}` : ''}${q.required ? ' (Required)' : ''}`,
+        difficulty: 'easy' as const,
+      }));
+
+      // Create job form data
+      const jobFormData: JobFormData = {
+        title: newJob.title,
+        companyName: companyName,
+        description: `${newJob.description}\n\nResponsibilities:\n${newJob.responsibilities}\n\nRequirements:\n${newJob.requirements}`,
+        requiredSkills: skills,
+        experienceLevel: experienceLevelMap[newJob.experience] || 'mid',
+        location: newJob.location || 'Remote',
+        jobType: jobTypeMap[newJob.type] || 'full-time',
+        codingQuestions: codingQuestions,
+      };
+
+      // Save job using job service
+      await jobService.createJob(jobFormData, userId);
+
+      setSnackbar({ open: true, message: 'Job posted successfully! Applicants will answer screening questions.', severity: 'success' });
+      setOpenJobDialog(false);
+      
+      // Reset form
+      setNewJob({ title: '', department: '', location: '', type: '', experience: '', salaryMin: '', salaryMax: '', description: '', responsibilities: '', requirements: '' });
+      setSkills(['JavaScript', 'React', 'Node.js']);
+      setQuestions([
+        { id: '1', question: 'How many years of experience do you have in this field?', type: 'number', required: true },
+        { id: '2', question: 'Are you authorized to work in the location specified?', type: 'yesno', required: true, idealAnswer: 'yes' },
+      ]);
+      setDialogTab(0);
+
+      // Trigger a refresh by reloading the page or navigating
+      window.location.reload();
+    } catch (error: any) {
+      console.error('Error posting job:', error);
+      setSnackbar({ open: true, message: error.message || 'Failed to post job. Please try again.', severity: 'error' });
+    } finally {
+      setIsPosting(false);
+    }
   };
 
   const navItems = [
@@ -677,8 +746,14 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
                 Next
               </Button>
             ) : (
-              <Button variant="contained" onClick={handlePostJob} sx={{ bgcolor: '#0d47a1' }} startIcon={<CheckCircleIcon />}>
-                Post Job
+              <Button 
+                variant="contained" 
+                onClick={handlePostJob} 
+                sx={{ bgcolor: '#0d47a1' }} 
+                startIcon={<CheckCircleIcon />}
+                disabled={isPosting}
+              >
+                {isPosting ? 'Posting...' : 'Post Job'}
               </Button>
             )}
           </Box>

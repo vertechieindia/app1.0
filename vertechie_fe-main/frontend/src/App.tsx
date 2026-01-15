@@ -48,6 +48,7 @@ import Cookies from './components/pages/Cookies';
 import StatusProcessing from './pages/StatusProcessing';
 import StatusAccepted from './pages/StatusAccepted';
 import StatusRejected from './pages/StatusRejected';
+import ResetPassword from './pages/ResetPassword';
 import CompleteProfile from './pages/CompleteProfile';
 import Admin from './pages/Admin';
 import IdleTimeoutProvider from './components/auth/IdleTimeoutProvider';
@@ -87,11 +88,15 @@ import {
   PipelinePage,
   JobPostingsPage,
   AllCandidatesPage,
+  CandidateProfilePage,
   InterviewsPage,
   SchedulingPage as ATSSchedulingPage,
   CalendarPage as ATSCalendarPage,
   AnalyticsPage,
 } from './pages/techie/ats';
+
+// Interview Lobby (VerTechie Meet)
+import InterviewLobby from './pages/techie/lobby/InterviewLobby';
 
 // SMS (School Management System) Pages
 import {
@@ -208,6 +213,7 @@ const App: React.FC = () => {
             <Route path="/status/processing" element={<StatusProcessing />} />
             <Route path="/status/accepted" element={<StatusAccepted />} />
             <Route path="/status/rejected" element={<StatusRejected />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             
             {/* Profile Completion Route */}
             <Route path="/complete-profile" element={<CompleteProfile />} />
@@ -628,6 +634,11 @@ const App: React.FC = () => {
                 <AllCandidatesPage />
               </ProtectedRoute>
             } />
+            <Route path="/techie/ats/candidate/:candidateId" element={
+              <ProtectedRoute requiredRole="user">
+                <CandidateProfilePage />
+              </ProtectedRoute>
+            } />
             <Route path="/techie/ats/interviews" element={
               <ProtectedRoute requiredRole="user">
                 <InterviewsPage />
@@ -650,6 +661,11 @@ const App: React.FC = () => {
             } />
 
             {/* Video Conferencing Routes */}
+            <Route path="/techie/lobby/interview-:meetingId" element={
+              <ProtectedRoute requiredRole="user">
+                <InterviewLobby />
+              </ProtectedRoute>
+            } />
             <Route path="/techie/lobby/:roomId" element={
               <ProtectedRoute requiredRole="user">
                 <MeetingLobby />

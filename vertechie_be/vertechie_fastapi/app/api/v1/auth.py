@@ -566,3 +566,81 @@ async def logout(
     # For token blacklisting, you'd add the token to a blacklist here
     return {"message": "Successfully logged out"}
 
+
+# ============= Forgot Password Endpoints (Frontend Compatible) =============
+
+@router.post("/forgot-password")
+async def forgot_password(
+    reset_in: PasswordReset,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Request password reset email (frontend compatible endpoint)."""
+    from app.core.email import send_password_reset_email
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    result = await db.execute(
+        select(User).where(User.email == reset_in.email)
+    )
+    user = result.scalar_one_or_none()
+    
+    if user:
+        # Generate reset token
+        reset_token = create_access_token(
+            subject=str(user.id),
+            expires_delta=timedelta(hours=1),
+            additional_claims={"type": "password_reset"}
+        )
+        
+        # Get user's name for personalization
+        user_name = user.first_name or user.username or "User"
+        
+        # Log the token for development/testing
+        logger.info(f"Password reset requested for {user.email}")
+        
+        # Send email in background task
+        background_tasks.add_task(
+            send_password_reset_email,
+            user.email,
+            reset_token,
+            user_name
+        )
+    
+    # Always return success (security - don't reveal if email exists)
+    return {"message": "If an account exists with this email, a password reset link will be sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(
+    reset_in: PasswordResetConfirm,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Reset password with token (frontend compatible endpoint)."""
+    
+    from app.core.security import decode_token
+    
+    payload = decode_token(reset_in.token)
+    if not payload or payload.get("type") != "password_reset":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+    
+    from uuid import UUID
+    result = await db.execute(
+        select(User).where(User.id == UUID(payload.get("sub")))
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    user.hashed_password = get_password_hash(reset_in.new_password)
+    await db.commit()
+    
+    return {"message": "Password reset successfully"}
+
