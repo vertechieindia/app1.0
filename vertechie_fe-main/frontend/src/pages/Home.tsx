@@ -113,7 +113,13 @@ const Home = () => {
         } else if (userData.is_active && !userData.is_verified) {
           navigate('/status/processing', { replace: true });
         } else if (userData.is_active && userData.is_verified) {
-          navigate('/status/accepted', { replace: true });
+          // Redirect to appropriate dashboard based on role
+          const userRole = userData.role || userData.user_type || 'techie';
+          if (userRole === 'hr' || userRole === 'hiring_manager' || userRole === 'HIRING_MANAGER') {
+            navigate('/techie/home/feed', { replace: true });
+          } else {
+            navigate('/techie/dashboard', { replace: true });
+          }
         } else if (!userData.is_active && !userData.is_verified) {
           navigate('/status/rejected', { replace: true });
         }

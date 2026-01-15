@@ -20,6 +20,26 @@ const StatusPaper = styled(Paper)(({ theme }) => ({
 const StatusAccepted = () => {
   const navigate = useNavigate();
 
+  const handleGoToDashboard = () => {
+    // Determine dashboard based on user role
+    const userDataString = localStorage.getItem('userData');
+    if (userDataString) {
+      try {
+        const userData = JSON.parse(userDataString);
+        const userRole = userData.role || userData.user_type || 'techie';
+        if (userRole === 'hr' || userRole === 'hiring_manager' || userRole === 'HIRING_MANAGER') {
+          navigate('/techie/home/feed', { replace: true });
+        } else {
+          navigate('/techie/dashboard', { replace: true });
+        }
+        return;
+      } catch {
+        // Fall through to default
+      }
+    }
+    navigate('/techie/dashboard', { replace: true });
+  };
+
   return (
     <StatusContainer maxWidth="sm">
       <Box
@@ -52,7 +72,7 @@ const StatusAccepted = () => {
           </Typography>
           <Button
             variant="contained"
-            onClick={() => navigate('/')}
+            onClick={handleGoToDashboard}
             sx={{
               borderRadius: '50px',
               px: 4,

@@ -48,6 +48,7 @@ import StarIcon from '@mui/icons-material/Star';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import BusinessIcon from '@mui/icons-material/Business';
+import { applicationService, jobService } from '../../services/jobPortalService';
 
 // Theme Colors
 const colors = {
@@ -195,56 +196,31 @@ const JobApply: React.FC = () => {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   
-  // Mock data - would come from API
-  const [job] = useState<Job>({
+  // Job data from API
+  const [job, setJob] = useState<Job>({
     id: jobId || '1',
-    title: 'Senior Software Engineer',
-    company: 'TechCorp Solutions',
-    location: 'San Francisco, CA (Remote)',
-    requiredSkills: ['JavaScript', 'React', 'Node.js', 'TypeScript', 'AWS'],
-    experienceLevel: '5+ years',
+    title: '',
+    company: '',
+    location: '',
+    requiredSkills: [],
+    experienceLevel: '',
   });
   
-  const [userProfile] = useState<UserProfile>({
-    name: 'John Doe',
-    title: 'Full Stack Developer',
-    location: 'New York, NY',
-    yearsExperience: 6,
-    skills: ['JavaScript', 'React', 'Node.js', 'Python', 'SQL', 'Docker', 'AWS'],
-    experience: [
-      {
-        title: 'Senior Frontend Developer',
-        company: 'Tech Innovations Inc.',
-        duration: '2021 - Present (3 years)',
-        responsibilities: [
-          'Led development of React-based dashboard serving 50K+ users',
-          'Implemented CI/CD pipelines using GitHub Actions',
-          'Mentored junior developers and conducted code reviews',
-        ],
-      },
-      {
-        title: 'Full Stack Developer',
-        company: 'StartupXYZ',
-        duration: '2018 - 2021 (3 years)',
-        responsibilities: [
-          'Built RESTful APIs using Node.js and Express',
-          'Developed responsive web applications with React',
-          'Managed AWS infrastructure including EC2, S3, and RDS',
-        ],
-      },
-    ],
-    education: [
-      {
-        degree: 'B.S. Computer Science',
-        school: 'MIT',
-        year: '2018',
-      },
-    ],
+  // User profile from localStorage
+  const [userProfile, setUserProfile] = useState<UserProfile>({
+    name: '',
+    title: '',
+    location: '',
+    yearsExperience: 0,
+    skills: [],
+    experience: [],
+    education: [],
   });
   
-  const [questions] = useState<ScreeningQuestion[]>([
+  // Default screening questions (can be overridden by job-specific questions)
+  const [questions, setQuestions] = useState<ScreeningQuestion[]>([
     { id: '1', question: 'How many years of experience do you have with React?', type: 'number', required: true },
-    { id: '2', question: 'Are you authorized to work in the United States?', type: 'yesno', required: true },
+    { id: '2', question: 'Are you authorized to work in India?', type: 'yesno', required: true },
     { id: '3', question: 'Are you comfortable working in a remote environment?', type: 'yesno', required: true },
     { id: '4', question: 'What is your expected salary range?', type: 'text', required: false },
     { id: '5', question: 'Why are you interested in this role?', type: 'text', required: true },
@@ -271,9 +247,56 @@ const JobApply: React.FC = () => {
   );
 
   useEffect(() => {
-    // Simulate loading
-    setTimeout(() => setLoading(false), 500);
-  }, []);
+    const loadData = async () => {
+      try {
+        // Load job from API/localStorage
+        if (jobId) {
+          const jobData = await jobService.getJobById(jobId);
+          if (jobData) {
+            setJob({
+              id: jobData.id,
+              title: jobData.title,
+              company: jobData.companyName || 'Company',
+              location: jobData.location || 'Remote',
+              requiredSkills: jobData.requiredSkills || [],
+              experienceLevel: jobData.experienceLevel || 'Mid-Level',
+            });
+            // If job has screening questions, use them
+            if (jobData.screeningQuestions && jobData.screeningQuestions.length > 0) {
+              setQuestions(jobData.screeningQuestions.map((q: any, idx: number) => ({
+                id: String(idx + 1),
+                question: q.question,
+                type: q.type || 'text',
+                required: q.required !== false,
+                options: q.options,
+              })));
+            }
+          }
+        }
+
+        // Load user profile from localStorage
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+          const user = JSON.parse(userStr);
+          setUserProfile({
+            name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User',
+            title: user.title || user.headline || 'Professional',
+            location: user.location || user.address || 'India',
+            yearsExperience: user.yearsExperience || 3,
+            skills: user.skills || [],
+            experience: user.experience || [],
+            education: user.education || [],
+          });
+        }
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [jobId]);
 
   const handleAnswerChange = (questionId: string, value: string) => {
     setAnswers({ ...answers, [questionId]: value });
@@ -293,11 +316,45 @@ const JobApply: React.FC = () => {
     
     setSubmitting(true);
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setSubmitting(false);
-    setSubmitted(true);
+    try {
+      // Get user info from localStorage
+      const userStr = localStorage.getItem('user');
+      const user = userStr ? JSON.parse(userStr) : null;
+      
+      if (!user) {
+        setSnackbar({ open: true, message: 'Please login to apply', severity: 'error' });
+        setSubmitting(false);
+        return;
+      }
+
+      // Prepare screening answers for API
+      const screeningAnswers = questions.map(q => ({
+        questionId: q.id,
+        code: answers[q.id] || '',
+        language: 'text',
+        submittedAt: new Date().toISOString(),
+      }));
+
+      // Submit application to database via API
+      await applicationService.applyForJob(
+        job.id,
+        user.id || user.user_id,
+        user.name || `${user.first_name} ${user.last_name}`,
+        user.email,
+        screeningAnswers
+      );
+      
+      setSubmitting(false);
+      setSubmitted(true);
+      setSnackbar({ open: true, message: 'Application submitted successfully!', severity: 'success' });
+    } catch (error: any) {
+      setSubmitting(false);
+      setSnackbar({ 
+        open: true, 
+        message: error.message || 'Failed to submit application', 
+        severity: 'error' 
+      });
+    }
   };
 
   if (loading) {

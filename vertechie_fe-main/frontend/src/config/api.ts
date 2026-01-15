@@ -96,11 +96,11 @@ export const API_ENDPOINTS = {
   USERS: {
     toString: () => '/users/',
     valueOf: () => '/users/',
-    LIST: '/users',
-    GET: (id: string) => `/users/${id}`,
-    UPDATE_ME: '/users/me',
-    PROFILE: (id: string) => `/users/${id}/profile`,
-    UPDATE_PROFILE: '/users/me/profile',
+    LIST: '/users/',
+    GET: (id: string) => `/users/${id}/`,
+    UPDATE_ME: '/users/me/',
+    PROFILE: (id: string) => `/users/${id}/profile/`,
+    UPDATE_PROFILE: '/users/me/profile/',
   } as unknown as string & {
     LIST: string;
     GET: (id: string) => string;
@@ -113,17 +113,17 @@ export const API_ENDPOINTS = {
   // JOBS (/jobs)
   // ============================================
   JOBS: {
-    LIST: '/jobs',
-    CREATE: '/jobs',
-    GET: (id: string) => `/jobs/${id}`,
-    UPDATE: (id: string) => `/jobs/${id}`,
-    DELETE: (id: string) => `/jobs/${id}`,
-    APPLY: (id: string) => `/jobs/${id}/apply`,
-    APPLICATIONS: (id: string) => `/jobs/${id}/applications`,
-    SAVE: (id: string) => `/jobs/${id}/save`,
-    UNSAVE: (id: string) => `/jobs/${id}/save`,
-    MY_APPLICATIONS: '/jobs/my/applications',
-    SAVED: '/jobs/my/saved',
+    LIST: '/jobs/',
+    CREATE: '/jobs/',
+    GET: (id: string) => `/jobs/${id}/`,
+    UPDATE: (id: string) => `/jobs/${id}/`,
+    DELETE: (id: string) => `/jobs/${id}/`,
+    APPLY: (id: string) => `/jobs/${id}/apply/`,
+    APPLICATIONS: (id: string) => `/jobs/${id}/applications/`,
+    SAVE: (id: string) => `/jobs/${id}/save/`,
+    UNSAVE: (id: string) => `/jobs/${id}/save/`,
+    MY_APPLICATIONS: '/jobs/my/applications/',
+    SAVED: '/jobs/my/saved/',
   },
 
   // ============================================

@@ -176,3 +176,105 @@ The VerTechie Team
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============= Stage Change Notification =============
+
+class StageChangeRequest(BaseModel):
+    candidate_email: EmailStr
+    candidate_name: str
+    old_stage: str
+    new_stage: str
+    hr_name: str
+    job_title: str
+
+
+@router.post("/stage-change")
+async def send_stage_change_notification(
+    request: StageChangeRequest,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Send email notification when a candidate's pipeline stage changes.
+    
+    This notifies the candidate about their application status update.
+    """
+    try:
+        # Determine if this is a forward or backward move
+        stage_order = ['New Applicants', 'Screening', 'Interview', 'Offer Stage', 'Hired']
+        old_index = stage_order.index(request.old_stage) if request.old_stage in stage_order else -1
+        new_index = stage_order.index(request.new_stage) if request.new_stage in stage_order else -1
+        
+        is_forward = new_index > old_index
+        
+        # Create appropriate email content based on the new stage
+        if request.new_stage == 'Screening':
+            stage_message = "Your application is now under review by our team. We will be in touch soon with next steps."
+            emoji = "📋"
+        elif request.new_stage == 'Interview':
+            stage_message = "Congratulations! We would like to schedule an interview with you. Our HR team will reach out to coordinate a suitable time."
+            emoji = "🎉"
+        elif request.new_stage == 'Offer Stage':
+            stage_message = "Great news! We are preparing an offer for you. Our HR team will be in contact shortly with the details."
+            emoji = "🌟"
+        elif request.new_stage == 'Hired':
+            stage_message = "Welcome to the team! We are thrilled to have you join us. Our HR team will send you onboarding details soon."
+            emoji = "🎊"
+        elif request.new_stage == 'New Applicants':
+            stage_message = "Your application status has been updated. Our team will review your profile shortly."
+            emoji = "📝"
+        else:
+            stage_message = f"Your application status has been updated to: {request.new_stage}."
+            emoji = "📬"
+        
+        email_body = f"""
+Dear {request.candidate_name},
+
+{emoji} Application Status Update
+
+We wanted to let you know that your application status for the {request.job_title} position has been updated.
+
+Previous Status: {request.old_stage}
+New Status: {request.new_stage}
+
+{stage_message}
+
+If you have any questions, please don't hesitate to reach out.
+
+Best regards,
+{request.hr_name}
+VerTechie Hiring Team
+
+---
+This is an automated notification from VerTechie.
+        """
+        
+        subject = f"{emoji} Application Update: Your status has changed to {request.new_stage}"
+        
+        # Queue the email
+        background_tasks.add_task(
+            send_email_background,
+            request.candidate_email,
+            subject,
+            email_body.strip(),
+            "stage_change"
+        )
+        
+        logger.info(f"Stage change notification queued: {request.candidate_name} ({request.old_stage} -> {request.new_stage})")
+        
+        return {
+            "success": True,
+            "message": f"Stage change notification sent to {request.candidate_email}",
+            "old_stage": request.old_stage,
+            "new_stage": request.new_stage
+        }
+        
+    except Exception as e:
+        logger.error(f"Error sending stage change notification: {str(e)}")
+        # Don't fail the request, just log the error
+        return {
+            "success": False,
+            "message": f"Failed to send notification: {str(e)}",
+            "old_stage": request.old_stage,
+            "new_stage": request.new_stage
+        }

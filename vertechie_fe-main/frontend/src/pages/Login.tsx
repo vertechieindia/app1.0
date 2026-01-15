@@ -191,8 +191,8 @@ const Login = () => {
       } else if (userData.is_staff) {
         navigate('/admin');
       } else if (isHR) {
-        // Redirect HR users to HR Dashboard
-        navigate('/hr/dashboard');
+        // Redirect HR users to Home Feed
+        navigate('/techie/home/feed');
       } else if (userData.is_active && !userData.is_verified) {
         navigate('/status/processing');
       } else if (userData.is_active && userData.is_verified) {
