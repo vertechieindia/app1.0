@@ -263,7 +263,7 @@ function executeJavaScriptInBrowser(code: string, input: string): ExecutionResul
     status: 'success',
     output: logs.join('\n'),
     executionTime,
-    memoryUsage: Math.round(performance.memory?.usedJSHeapSize / 1024 || 0),
+    memoryUsage: Math.round((performance as any).memory?.usedJSHeapSize / 1024 || 0),
   };
 }
 

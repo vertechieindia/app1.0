@@ -137,7 +137,7 @@ const CompleteProfile: React.FC = () => {
   };
 
   // Determine location for form formatting
-  const location = formData.country === 'US' ? 'US' : 'India';
+  const location = formData.country === 'US' ? 'US' : 'IN';
 
   return (
     <PageContainer maxWidth="lg">

@@ -147,6 +147,17 @@ interface Group {
   is_featured?: boolean;
 }
 
+interface NetworkGroup {
+  id: string;
+  name: string;
+  description: string;
+  members_count: number;
+  cover_image: string;
+  is_member: boolean;
+  category: string;
+  privacy: 'public' | 'private';
+}
+
 interface Post {
   id: string;
   author: User;

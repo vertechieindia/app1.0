@@ -90,7 +90,9 @@ const LogoImage = styled('img')({
 });
 
 // Hero accent color: #5AC8FA (cyan) and #90CAF9 (light blue)
-const NavButton = styled(Button)<{ active?: boolean }>(({ theme, active }) => ({
+const NavButton = styled(Button, {
+  shouldForwardProp: (prop) => prop !== 'active',
+})<{ active?: boolean; component?: React.ElementType; to?: string }>(({ theme, active }) => ({
   color: active ? '#5AC8FA' : 'rgba(255, 255, 255, 0.9)',
   fontWeight: active ? 600 : 500,
   fontSize: '0.9rem',

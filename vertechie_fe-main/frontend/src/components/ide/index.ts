@@ -17,3 +17,7 @@ export { default as MobilePreview } from './MobilePreview';
 
 // Debugging
 export { default as DebugPanel } from './DebugPanel';
+
+// Types
+export type { ExecutionResult, LanguageConfig, FileTab, TestCase } from './VerTechieIDE';
+export type { ProjectFile, ProjectFolder, ProjectConfig, ProjectBuilderProps } from './ProjectBuilder';

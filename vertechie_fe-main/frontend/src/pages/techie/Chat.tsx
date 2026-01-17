@@ -219,7 +219,7 @@ interface Message {
   senderName?: string;
   timestamp: Date;
   status: 'sent' | 'delivered' | 'read';
-  type: 'text' | 'image' | 'file' | 'poll' | 'gif' | 'link';
+  type: 'text' | 'image' | 'file' | 'poll' | 'gif' | 'link' | 'document';
   fileUrl?: string;
   fileName?: string;
   poll?: Poll;

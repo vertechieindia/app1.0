@@ -35,6 +35,19 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
   applicantCount: number;
+  // Additional fields
+  salary_min?: number;
+  salary_max?: number;
+  views_count?: number;
+  screeningQuestions?: ScreeningQuestion[];
+  responsibilities?: string;
+  is_remote?: boolean;
+}
+
+export interface ScreeningQuestion {
+  id: string;
+  question: string;
+  expectedOutput?: string;
 }
 
 export interface JobFormData {

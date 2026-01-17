@@ -455,6 +455,7 @@ interface User {
   is_staff?: boolean;
   is_superuser?: boolean;
   user_type?: string;
+  status?: string;
 }
 
 // Additional interfaces for user type specific details

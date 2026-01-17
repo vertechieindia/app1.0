@@ -770,5 +770,3 @@ const ProjectBuilder: React.FC<ProjectBuilderProps> = ({
 
 export default ProjectBuilder;
 
-export type { ProjectFile, ProjectFolder, ProjectConfig, ProjectBuilderProps };
-

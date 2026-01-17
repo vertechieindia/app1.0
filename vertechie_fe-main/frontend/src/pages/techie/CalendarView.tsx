@@ -610,10 +610,11 @@ const CalendarView: React.FC = () => {
             {getCalendarDays().map(({ date, isCurrentMonth }, index) => {
               const dayEvents = getEventsForDate(date);
               const isTodayDate = isToday(date);
-              const isSelectedDate = selectedDate && 
+              const isSelectedDate = selectedDate ? (
                 date.getFullYear() === selectedDate.getFullYear() &&
                 date.getMonth() === selectedDate.getMonth() &&
-                date.getDate() === selectedDate.getDate();
+                date.getDate() === selectedDate.getDate()
+              ) : undefined;
 
               return (
                 <DayCell

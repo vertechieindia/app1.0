@@ -312,7 +312,9 @@ interface EducationData {
   start_year: number;
   end_year?: number;
   gpa?: string;
+  grade?: string;
   description?: string;
+  school_name?: string;
 }
 
 // Skill with rating interface
