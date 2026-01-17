@@ -43,7 +43,7 @@ class Conversation(Base, UUIDMixin, TimestampMixin):
     avatar_url = Column(String(500), nullable=True)
     
     # Created by
-    created_by_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
+    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     
     # Settings
     is_archived = Column(Boolean, default=False)
@@ -67,7 +67,7 @@ class ChatMember(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "chatmember"
     
     conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversation.id"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Role
     role = Column(String(20), default="member")  # admin, moderator, member
@@ -82,7 +82,7 @@ class ChatMember(Base, UUIDMixin, TimestampMixin):
     
     # Joined
     joined_at = Column(DateTime, default=datetime.utcnow)
-    invited_by_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
+    invited_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     
     # Relationships
     conversation = relationship("Conversation", back_populates="members")
@@ -94,7 +94,7 @@ class Message(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "message"
     
     conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversation.id"), nullable=False)
-    sender_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    sender_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     message_type = Column(Enum(MessageType), default=MessageType.TEXT)
     

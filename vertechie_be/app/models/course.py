@@ -81,7 +81,7 @@ class Course(Base, UUIDMixin, TimestampMixin):
     intro_video = Column(String(500), nullable=True)
     
     # Instructor
-    instructor_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
+    instructor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     
     # Pricing
     is_free = Column(Boolean, default=True)
@@ -132,7 +132,7 @@ class CourseEnrollment(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "courseenrollment"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     course_id = Column(UUID(as_uuid=True), ForeignKey("course.id"), nullable=False)
     
     status = Column(Enum(EnrollmentStatus), default=EnrollmentStatus.ENROLLED)
