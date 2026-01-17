@@ -68,12 +68,12 @@ class Job(Base, UUIDMixin, TimestampMixin):
     benefits = Column(Text, nullable=True)
     
     # Company
-    company_id = Column(UUID(as_uuid=True), ForeignKey("company.id"), nullable=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
     company_name = Column(String(200), nullable=False)
     company_logo = Column(String(500), nullable=True)
     
     # Posted by
-    posted_by_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
+    posted_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Location
     location = Column(String(200), nullable=True)
@@ -121,7 +121,7 @@ class JobApplication(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "jobapplication"
     
     job_id = Column(UUID(as_uuid=True), ForeignKey("job.id"), nullable=False)
-    applicant_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    applicant_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Application
     status = Column(Enum(ApplicationStatus), default=ApplicationStatus.APPLIED)
@@ -149,7 +149,7 @@ class SavedJob(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "savedjob"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     job_id = Column(UUID(as_uuid=True), ForeignKey("job.id"), nullable=False)
     
     # Optional note

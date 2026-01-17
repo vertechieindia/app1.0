@@ -26,8 +26,8 @@ class Connection(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "connection"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
-    connected_user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    connected_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     status = Column(Enum(ConnectionStatus), default=ConnectionStatus.ACCEPTED)
     
@@ -43,8 +43,8 @@ class ConnectionRequest(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "connectionrequest"
     
-    from_user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
-    to_user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    from_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    to_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     status = Column(Enum(ConnectionStatus), default=ConnectionStatus.PENDING)
     

@@ -94,7 +94,7 @@ class LessonProgress(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "lessonprogress"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     lesson_id = Column(UUID(as_uuid=True), ForeignKey("lesson.id"), nullable=False)
     enrollment_id = Column(UUID(as_uuid=True), ForeignKey("courseenrollment.id"), nullable=False)
     

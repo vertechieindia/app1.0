@@ -140,7 +140,7 @@ class QuizAttempt(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "quizattempt"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     quiz_id = Column(UUID(as_uuid=True), ForeignKey("quiz.id"), nullable=False)
     
     attempt_number = Column(Integer, default=1)

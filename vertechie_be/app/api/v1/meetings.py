@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 import uuid
 import secrets
 
-from app.database import get_db
+from app.db.session import get_db
 from app.core.security import get_current_user
 
 router = APIRouter()

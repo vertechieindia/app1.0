@@ -47,7 +47,7 @@ class Group(Base, UUIDMixin, TimestampMixin):
     posting_permissions = Column(String(20), default="all")  # all, admins, mods
     
     # Created by
-    created_by_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Stats
     member_count = Column(Integer, default=0)
@@ -68,12 +68,12 @@ class GroupMember(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "groupmember"
     
     group_id = Column(UUID(as_uuid=True), ForeignKey("group.id"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     role = Column(Enum(MemberRole), default=MemberRole.MEMBER)
     
     joined_at = Column(DateTime, default=datetime.utcnow)
-    invited_by_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
+    invited_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     
     # Notifications
     notifications_enabled = Column(Boolean, default=True)
@@ -87,7 +87,7 @@ class Post(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "post"
     
-    author_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     group_id = Column(UUID(as_uuid=True), ForeignKey("group.id"), nullable=True)
     
     # Content
@@ -130,7 +130,7 @@ class Comment(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "comment"
     
     post_id = Column(UUID(as_uuid=True), ForeignKey("post.id"), nullable=False)
-    author_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Reply to another comment
     parent_id = Column(UUID(as_uuid=True), ForeignKey("comment.id"), nullable=True)

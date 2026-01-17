@@ -149,7 +149,7 @@ class Tutorial(Base, UUIDMixin, TimestampMixin):
     badge = Column(String(50), nullable=True)  # "New", "Popular", "Updated"
     
     # ===== AUTHOR =====
-    author_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     
     # ===== SEO =====
     meta_title = Column(String(60), nullable=True)
@@ -353,7 +353,7 @@ class MediaAsset(Base, UUIDMixin, TimestampMixin):
     tags = Column(ARRAY(String), default=list)
     
     # Uploader
-    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
+    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
 
 # ============================================
@@ -380,7 +380,7 @@ class CodeSnippet(Base, UUIDMixin, TimestampMixin):
     is_public = Column(Boolean, default=True)
     
     # Author
-    created_by = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
 
 # ============================================
@@ -391,7 +391,7 @@ class TutorialEnrollment(Base, UUIDMixin, TimestampMixin):
     """User enrollment in tutorials."""
     __tablename__ = "tutorial_enrollment"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     tutorial_id = Column(UUID(as_uuid=True), ForeignKey("tutorial.id"), nullable=False)
     
     # Progress
@@ -421,7 +421,7 @@ class LessonProgress(Base, UUIDMixin, TimestampMixin):
     """User progress on individual lessons."""
     __tablename__ = "tutorial_lesson_progress"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     lesson_id = Column(UUID(as_uuid=True), ForeignKey("tutorial_lesson.id"), nullable=False)
     enrollment_id = Column(UUID(as_uuid=True), ForeignKey("tutorial_enrollment.id"), nullable=False)
     

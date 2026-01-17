@@ -35,7 +35,7 @@ class CalendarConnection(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "calendarconnection"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     provider = Column(Enum(CalendarProvider), nullable=False)
     account_email = Column(String(255), nullable=True)
@@ -58,7 +58,7 @@ class AvailabilitySchedule(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "availabilityschedule"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     name = Column(String(100), nullable=False)
     is_default = Column(Boolean, default=False)
@@ -77,7 +77,7 @@ class MeetingType(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "meetingtype"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     name = Column(String(100), nullable=False)
     slug = Column(String(120), index=True)
@@ -109,12 +109,12 @@ class Booking(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "booking"
     
     meeting_type_id = Column(UUID(as_uuid=True), ForeignKey("meetingtype.id"), nullable=False)
-    host_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    host_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Invitee (can be guest or user)
     invitee_email = Column(String(255), nullable=False)
     invitee_name = Column(String(200), nullable=False)
-    invitee_user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
+    invitee_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     
     # Schedule
     start_time = Column(DateTime, nullable=False)
@@ -142,7 +142,7 @@ class SchedulingLink(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "schedulinglink"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     meeting_type_id = Column(UUID(as_uuid=True), ForeignKey("meetingtype.id"), nullable=True)
     
     # Link

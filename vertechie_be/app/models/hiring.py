@@ -92,7 +92,7 @@ class CandidateInPipeline(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    application_id = Column(UUID(as_uuid=True), ForeignKey("job_applications.id"))
+    application_id = Column(UUID(as_uuid=True), ForeignKey("jobapplication.id"))
     pipeline_id = Column(UUID(as_uuid=True), ForeignKey("hiring_pipelines.id"))
     current_stage_id = Column(UUID(as_uuid=True), ForeignKey("pipeline_stages.id"))
     
@@ -218,7 +218,7 @@ class CandidateAssessment(Base):
     
     assessment_id = Column(UUID(as_uuid=True), ForeignKey("assessments.id"))
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    application_id = Column(UUID(as_uuid=True), ForeignKey("job_applications.id"))
+    application_id = Column(UUID(as_uuid=True), ForeignKey("jobapplication.id"))
     
     status = Column(SQLEnum(CandidateAssessmentStatus), default=CandidateAssessmentStatus.NOT_STARTED)
     
@@ -283,7 +283,7 @@ class Interview(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    application_id = Column(UUID(as_uuid=True), ForeignKey("job_applications.id"))
+    application_id = Column(UUID(as_uuid=True), ForeignKey("jobapplication.id"))
     
     interview_type = Column(SQLEnum(InterviewType))
     
@@ -355,7 +355,7 @@ class JobOffer(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    application_id = Column(UUID(as_uuid=True), ForeignKey("job_applications.id"))
+    application_id = Column(UUID(as_uuid=True), ForeignKey("jobapplication.id"))
     
     # Compensation
     base_salary = Column(Float, nullable=False)
