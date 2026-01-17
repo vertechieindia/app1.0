@@ -316,12 +316,13 @@ public:
     const { codeExecutionService } = await import('../../services/CodeExecutionService');
     
     // Use the Judge service for problem execution
-    return await codeExecutionService.executeForProblem(
+    const result = await codeExecutionService.executeForProblem(
       code,
       language,
       problem.slug,
       'run'
     );
+    return result as ExecutionResult;
   };
   
   // Handle code submission - Uses Judge service for REAL EXECUTION
@@ -360,7 +361,7 @@ public:
       setSnackbar({ open: true, message: result.error || 'Submission failed', severity: 'error' });
     }
     
-    return result;
+    return result as ExecutionResult;
   };
   
   if (loading) {

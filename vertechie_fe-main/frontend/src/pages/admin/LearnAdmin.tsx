@@ -1497,7 +1497,7 @@ const LearnAdmin: React.FC = () => {
                         label="Level"
                         onChange={(e) => setBlockForm({
                           ...blockForm,
-                          content: { ...blockForm.content, level: e.target.value }
+                          content: { ...blockForm.content, level: Number(e.target.value) }
                         })}
                       >
                         <MenuItem value={1}>H1 - Main Heading</MenuItem>

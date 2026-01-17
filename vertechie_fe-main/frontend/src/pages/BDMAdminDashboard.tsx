@@ -370,7 +370,7 @@ const BDMAdminDashboard: React.FC = () => {
                 </Typography>
               </Paper>
             ) : (
-              <StyledTableContainer component={Paper} elevation={0} sx={{ borderRadius: '12px' }}>
+              <StyledTableContainer sx={{ borderRadius: '12px' }}>
                 <Table>
                   <TableHead>
                     <TableRow>
