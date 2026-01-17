@@ -96,6 +96,13 @@ interface DisplayJob {
   views: number;
   status: string;
   posted: string;
+  experience?: string;
+  description?: string;
+  responsibilities?: string;
+  skills?: string[];
+  screeningQuestions?: Array<{ id: string; question: string; type?: string; options?: string[] }>;
+  salaryMin?: string;
+  salaryMax?: string;
 }
 
 // Display applicant interface
@@ -396,6 +403,8 @@ const JobPostingsPage: React.FC = () => {
         codingQuestions: editQuestions.map(q => ({
           id: q.id,
           question: q.question,
+          description: q.question,
+          difficulty: 'medium' as const,
           expectedOutput: q.type === 'yesno' ? 'Yes/No' : q.type === 'multiple' ? q.options?.join(',') || '' : '',
         })),
         salaryMin: editingJob.salaryMin ? parseInt(editingJob.salaryMin.replace(/\D/g, '')) : undefined,
@@ -708,7 +717,7 @@ const JobPostingsPage: React.FC = () => {
         open={Boolean(moreAnchor)}
         onClose={() => { setMoreAnchor(null); setMoreJobId(null); }}
       >
-        <MenuItem onClick={() => { openEditDialog(jobs.find(j => j.id === moreJobId)); setMoreAnchor(null); }}>
+        <MenuItem onClick={() => { const job = jobs.find(j => j.id === moreJobId); if (job) openEditDialog(job); setMoreAnchor(null); }}>
           <EditIcon sx={{ mr: 1, fontSize: 18 }} /> Edit Job
         </MenuItem>
         <MenuItem onClick={() => moreJobId && handleDeleteJob(moreJobId)} sx={{ color: '#FF3B30' }}>

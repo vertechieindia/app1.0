@@ -9,7 +9,7 @@ interface UseDocumentCaptureProps {
   cameraType: 'live' | 'govId' | 'ssn' | 'pan';
   onCaptureComplete?: (data: string) => void;
   onDataExtracted?: (extractedData: { firstName?: string; lastName?: string; dateOfBirth?: string; address?: string; panNumber?: string; idNumber?: string }) => void;
-  country?: 'US' | 'IN';
+  country?: 'US' | 'IN' | 'UK' | 'CA' | 'DE' | 'CH' | 'CN';
 }
 
 export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtracted, country }: UseDocumentCaptureProps) => {

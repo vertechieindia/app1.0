@@ -1073,6 +1073,3 @@ const VerTechieIDE: React.FC<IDEProps> = ({
 
 export default VerTechieIDE;
 
-// Export types for use in other components
-export type { ExecutionResult, LanguageConfig, FileTab, TestCase };
-

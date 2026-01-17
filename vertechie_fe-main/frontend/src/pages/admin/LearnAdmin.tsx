@@ -178,6 +178,22 @@ interface ContentBlock {
   is_visible: boolean;
 }
 
+interface BlockContentForm {
+  level?: number;
+  text?: string;
+  code?: string;
+  language?: string;
+  result_type?: string;
+  default_code?: string;
+  solution_code?: string;
+  title?: string;
+  url?: string;
+  alt?: string;
+  caption?: string;
+  type?: string;
+  items?: string[];
+}
+
 // Block type options
 const BLOCK_TYPES = [
   { value: 'header', label: 'Header', icon: <TitleIcon /> },
@@ -266,7 +282,10 @@ const LearnAdmin: React.FC = () => {
     has_try_it: true,
   });
   
-  const [blockForm, setBlockForm] = useState({
+  const [blockForm, setBlockForm] = useState<{
+    block_type: string;
+    content: BlockContentForm;
+  }>({
     block_type: 'text',
     content: {},
   });

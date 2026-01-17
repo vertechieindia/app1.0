@@ -1961,6 +1961,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
             </Box>
           );
         }
+        return null;
 
       case 3:
         // Education step for techie, Review for others
@@ -2641,7 +2642,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                     <Box key={exp.id} sx={{ py: 1, borderBottom: idx < experiences.length - 1 ? '1px solid #e2e8f0' : 'none' }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>{exp.job_title}</Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {exp.company_name} • {exp.from_date} - {exp.to_date || 'Present'}
+                        {exp.client_name} • {exp.from_date} - {exp.to_date || 'Present'}
                       </Typography>
                       {exp.skills && exp.skills.length > 0 && (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>

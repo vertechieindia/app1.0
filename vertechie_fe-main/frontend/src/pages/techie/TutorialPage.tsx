@@ -26655,7 +26655,7 @@ document.getElementById("demo").innerHTML = output;
 // ============================================
 
 const generateReactLessonContent = (lessonSlug: string) => {
-  const reactLessons: Record<string, { title: string; content: string; tryItCode: string }> = {
+  const reactLessons: Record<string, { title: string; content: string; tryItCode?: string }> = {
     // PHASE 0 — FOUNDATION
     home: {
       title: 'React HOME',
@@ -60300,116 +60300,6 @@ html += "<p>" + newHours + " hours of study → <b>" + prediction.toFixed(1) + "
 
 document.getElementById("demo").innerHTML = html;
 </script>
-
-</body>
-</html>`,
-    },
-
-    // Certificate
-    'certificate': {
-      title: 'Python Certificate',
-      content: `# Python Certificate 🏆
-
-Congratulations on completing the Python Mastery Program!
-
-## What You've Learned
-
-### Track 0-1: Core Python ✅
-- Python philosophy and execution model
-- Variables, data types, operators
-- Control flow (if/else, loops)
-- Functions and modules
-
-### Track 2: OOP ✅
-- Classes and objects
-- Inheritance and polymorphism
-- Encapsulation and decorators
-- File handling
-
-### Track 3: Data Engineering ✅
-- NumPy for numerical computing
-- Pandas for data analysis
-- Matplotlib for visualization
-
-### Track 4: Databases ✅
-- MySQL integration
-- MongoDB operations
-- Django framework
-
-### Track 5: DSA ✅
-- Data structures
-- Algorithms
-- Time/space complexity
-
-### Track 6: Machine Learning ✅
-- Regression and classification
-- Model evaluation
-- Clustering and ensembles
-
-### Track 7: Enterprise ✅
-- Error handling patterns
-- Performance optimization
-- Production best practices
-
-## Certification Levels
-
-| Level | Requirements |
-|-------|-------------|
-| **Practitioner** | Complete Tracks 0-2 |
-| **Professional** | Complete Tracks 0-5 |
-| **SME** | Complete all tracks + Capstone |
-
-## Next Steps
-
-1. **Build Projects** - Apply your knowledge
-2. **Contribute** - Open source projects
-3. **Mentor** - Help others learn
-4. **Stay Current** - Follow Python updates
-
-## You're Now Ready To:
-- ✅ Build production Python systems
-- ✅ Design clean architectures
-- ✅ Work with databases confidently
-- ✅ Implement ML pipelines
-- ✅ Pass senior Python interviews
-- ✅ Mentor teams and review code
-
-**Congratulations, Python SME!** 🎉
-`,
-      tryItCode: `<!DOCTYPE html>
-<html>
-<body style="background: linear-gradient(135deg, #3776AB 0%, #FFD43B 100%); min-height: 100vh; display: flex; justify-content: center; align-items: center;">
-
-<div style="background: white; padding: 40px; border-radius: 20px; text-align: center; max-width: 500px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
-  
-  <div style="font-size: 80px;">🐍</div>
-  
-  <h1 style="color: #3776AB; margin: 20px 0;">Certificate of Completion</h1>
-  
-  <p style="font-size: 18px; color: #666;">This certifies that</p>
-  
-  <h2 style="color: #333; font-size: 28px; margin: 20px 0;">[Your Name]</h2>
-  
-  <p style="font-size: 18px; color: #666;">has successfully completed the</p>
-  
-  <h3 style="color: #3776AB; font-size: 24px;">Python 0 → Hero → SME</h3>
-  <h3 style="color: #3776AB; font-size: 24px;">Mastery Program</h3>
-  
-  <div style="margin: 30px 0; padding: 20px; background: #f8f9fa; border-radius: 10px;">
-    <p style="margin: 5px 0;">✅ Core Python</p>
-    <p style="margin: 5px 0;">✅ OOP & Files</p>
-    <p style="margin: 5px 0;">✅ Data Engineering</p>
-    <p style="margin: 5px 0;">✅ Databases & Django</p>
-    <p style="margin: 5px 0;">✅ DSA</p>
-    <p style="margin: 5px 0;">✅ Machine Learning</p>
-    <p style="margin: 5px 0;">✅ Enterprise Python</p>
-  </div>
-  
-  <p style="color: #FFD43B; font-size: 24px; font-weight: bold;">🏆 Python SME 🏆</p>
-  
-  <p style="color: #999; font-size: 14px; margin-top: 20px;">VerTechie Learning Platform</p>
-
-</div>
 
 </body>
 </html>`,
