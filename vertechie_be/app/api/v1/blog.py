@@ -570,11 +570,10 @@ async def get_series(
 
 # ============= Newsletter =============
 
-@router.post("/newsletter/subscribe")
+@router.post("/newsletter/subscribe", response_model=None)
 async def subscribe_newsletter(
     email: str,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = None
 ):
     """Subscribe to newsletter."""
     # Check if already subscribed
@@ -593,7 +592,7 @@ async def subscribe_newsletter(
     
     new_subscriber = NewsletterSubscriber(
         email=email,
-        user_id=current_user.id if current_user else None
+        user_id=None
     )
     db.add(new_subscriber)
     await db.commit()
