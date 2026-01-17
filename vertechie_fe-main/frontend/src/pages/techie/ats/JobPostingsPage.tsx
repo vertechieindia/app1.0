@@ -396,11 +396,11 @@ const JobPostingsPage: React.FC = () => {
         codingQuestions: editQuestions.map(q => ({
           id: q.id,
           question: q.question,
+          description: q.question,
+          difficulty: 'medium' as const,
           expectedOutput: q.type === 'yesno' ? 'Yes/No' : q.type === 'multiple' ? q.options?.join(',') || '' : '',
         })),
-        salaryMin: editingJob.salaryMin ? parseInt(editingJob.salaryMin.replace(/\D/g, '')) : undefined,
-        salaryMax: editingJob.salaryMax ? parseInt(editingJob.salaryMax.replace(/\D/g, '')) : undefined,
-      });
+      } as any);
       
       // Update local state with full job data
       const updatedJob = {
@@ -436,12 +436,16 @@ const JobPostingsPage: React.FC = () => {
   const openEditDialog = (job: DisplayJob) => {
     setEditingJob({ 
       ...job,
-      experience: job.experience || 'Mid Level',
-      description: job.description || '',
-      responsibilities: job.responsibilities || '',
-    });
-    setEditSkills(job.skills || []);
-    setEditQuestions(job.screeningQuestions || []);
+      experience: (job as any).experience || 'Mid Level',
+      description: (job as any).description || '',
+      responsibilities: (job as any).responsibilities || '',
+    } as any);
+    setEditSkills((job as any).skills || []);
+    setEditQuestions(((job as any).screeningQuestions || []).map((q: any) => ({
+      ...q,
+      type: q.type || 'text',
+      required: q.required !== undefined ? q.required : true,
+    })));
     setEditTab(0);
     setEditNewSkill('');
     setEditNewQuestion('');

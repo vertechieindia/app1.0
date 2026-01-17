@@ -1961,6 +1961,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
             </Box>
           );
         }
+        return null;
 
       case 3:
         // Education step for techie, Review for others

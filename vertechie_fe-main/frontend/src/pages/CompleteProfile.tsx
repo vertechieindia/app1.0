@@ -175,8 +175,10 @@ const CompleteProfile: React.FC = () => {
             updateFormData={updateFormData}
             errors={errors}
             setErrors={setErrors}
-            location={location}
-            goToStep={() => {}} // Not used in standalone mode
+            location={location as any}
+            goToStep={() => {}}
+            onNext={() => {}}
+            onBack={() => {}}
           />
         </TabPanel>
 
@@ -187,8 +189,10 @@ const CompleteProfile: React.FC = () => {
             updateFormData={updateFormData}
             errors={errors}
             setErrors={setErrors}
-            location={location}
-            goToStep={() => {}} // Not used in standalone mode
+            location={location as any}
+            goToStep={() => {}}
+            onNext={() => {}}
+            onBack={() => {}}
           />
         </TabPanel>
 

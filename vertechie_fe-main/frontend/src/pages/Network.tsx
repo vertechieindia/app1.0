@@ -503,15 +503,16 @@ const Network: React.FC = () => {
       return;
     }
     // Mock group creation - in real app, this would call API
-    const newGroup: NetworkGroup = {
+    const newGroup: Group = {
       id: Date.now().toString(),
       name: newGroupData.name,
       description: newGroupData.description,
-      members_count: 1,
+      member_count: 1,
+      post_count: 0,
       cover_image: '',
-      is_member: true,
+      is_joined: true,
+      is_private: newGroupData.privacy === 'private',
       category: newGroupData.category,
-      privacy: newGroupData.privacy as 'public' | 'private',
     };
     setGroups(prev => [newGroup, ...prev]);
     setSnackbar({ open: true, message: `Group "${newGroupData.name}" created successfully!`, severity: 'success' });
