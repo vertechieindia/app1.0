@@ -57,5 +57,6 @@ export type {
 } from './communityService';
 
 // Legacy Services (for gradual migration)
-export { codeExecutionService, ExecutionResult } from './CodeExecutionService';
+export { codeExecutionService } from './CodeExecutionService';
+export type { ExecutionResult } from './CodeExecutionService';
 export { IDEService } from './IDEService';

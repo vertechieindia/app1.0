@@ -2539,14 +2539,21 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
               </Dialog>
             </Box>
           );
+        } else {
+          // For non-techie roles, case 3 is the review step
+          return renderReviewStep();
         }
-        // Fall through to review for other roles
-        // eslint-disable-next-line no-fallthrough
-      
+
+      case 4:
       default:
-        // Review & Create
-        const roleLabel = ROLE_CONFIG.find(r => r.value === selectedRole)?.label || selectedRole;
-        return (
+        return renderReviewStep();
+    }
+  };
+
+  // Helper function for the Review & Create step
+  const renderReviewStep = () => {
+    const roleLabel = ROLE_CONFIG.find(r => r.value === selectedRole)?.label || selectedRole;
+    return (
           <Box sx={{ animation: `${fadeIn} 0.3s ease-out` }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 2, color: '#475569' }}>
               Review & Create Account
@@ -2742,7 +2749,6 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
             </Alert>
           </Box>
         );
-    }
   };
 
   const isLastStep = activeStep === steps.length - 1;
