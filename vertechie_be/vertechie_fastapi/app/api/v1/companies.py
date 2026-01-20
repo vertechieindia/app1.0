@@ -33,8 +33,16 @@ router = APIRouter(tags=["Companies"])
 # ============= Pydantic Schemas =============
 
 class CompanyBase(BaseModel):
-    name: str
-    slug: str
+    # Core fields - made optional to support frontend variations
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    
+    # Frontend field names (HR signup sends these)
+    company_name: Optional[str] = None
+    company_email: Optional[str] = None
+    company_website: Optional[str] = None
+    
+    # Standard fields
     legal_name: Optional[str] = None
     company_type: Optional[str] = None
     industry: Optional[str] = None
@@ -49,8 +57,12 @@ class CompanyBase(BaseModel):
     phone: Optional[str] = None
     linkedin_url: Optional[str] = None
     founded_year: Optional[int] = None
+    
+    class Config:
+        extra = "ignore"  # Ignore extra fields from frontend
 
 class CompanyCreate(CompanyBase):
+    """Company creation schema - accepts both backend and frontend field names."""
     pass
 
 class CompanyUpdate(BaseModel):
@@ -210,15 +222,52 @@ async def create_company(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Create a new company (becomes admin)."""
+    """Create a new company (becomes admin).
+    
+    Accepts both backend and frontend field names:
+    - name OR company_name
+    - email OR company_email
+    - website OR company_website
+    """
+    import re
+    
+    # Map frontend field names to backend field names
+    actual_name = company.name or company.company_name
+    if not actual_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Company name is required (provide 'name' or 'company_name')"
+        )
+    
+    # Auto-generate slug from name if not provided
+    actual_slug = company.slug
+    if not actual_slug:
+        actual_slug = re.sub(r'[^a-z0-9]+', '-', actual_name.lower()).strip('-')
+    
+    # Map email and website from frontend fields if not provided
+    actual_email = company.email or company.company_email
+    actual_website = company.website or company.company_website
+    
     # Check if slug is unique
     existing = await db.execute(
-        select(Company).where(Company.slug == company.slug)
+        select(Company).where(Company.slug == actual_slug)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Slug already exists")
+        # Append a random suffix to make it unique
+        import uuid
+        actual_slug = f"{actual_slug}-{uuid.uuid4().hex[:6]}"
     
-    db_company = Company(**company.model_dump())
+    # Build company data with mapped fields
+    company_data = company.model_dump(exclude={'company_name', 'company_email', 'company_website'})
+    company_data['name'] = actual_name
+    company_data['slug'] = actual_slug
+    company_data['email'] = actual_email
+    company_data['website'] = actual_website
+    
+    # Remove None values to avoid overwriting defaults
+    company_data = {k: v for k, v in company_data.items() if v is not None}
+    
+    db_company = Company(**company_data)
     db.add(db_company)
     await db.commit()
     await db.refresh(db_company)

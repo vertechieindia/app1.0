@@ -77,7 +77,7 @@ export const API_ENDPOINTS = {
   PERMISSIONS: '/permissions/',
   BLOCKED_PROFILES: '/blocked-profiles/',
   PENDING_APPROVALS: '/pending-approvals/',
-  EDUCATION: '/education/',
+  EDUCATION: '/users/me/educations',
   EXPERIENCES: '/experiences/',
   FORGOT_PASSWORD: '/auth/forgot-password',
   FRONTEND_LOGS: '/logs/frontend/',

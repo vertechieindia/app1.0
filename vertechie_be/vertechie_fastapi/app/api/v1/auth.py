@@ -77,17 +77,40 @@ async def register(
     profile = UserProfile(user_id=user.id)
     db.add(profile)
     
-    # Get or create default role
+    # Determine role type based on frontend role field
+    # Map frontend role names to RoleType enum
+    role_mapping = {
+        "techie": RoleType.TECHIE,
+        "hr": RoleType.HIRING_MANAGER,
+        "hiring_manager": RoleType.HIRING_MANAGER,
+        "company": RoleType.COMPANY_ADMIN,
+        "school": RoleType.SCHOOL_ADMIN,
+    }
+    
+    # Get role type from request (default to TECHIE if not specified)
+    requested_role = (user_in.role or "techie").lower()
+    role_type = role_mapping.get(requested_role, RoleType.TECHIE)
+    
+    print(f"[Register] User {user_in.email} - requested role: {requested_role}, assigned role_type: {role_type}")
+    
+    # Get or create the appropriate role
     result = await db.execute(
-        select(UserRole).where(UserRole.role_type == RoleType.TECHIE)
+        select(UserRole).where(UserRole.role_type == role_type)
     )
     role = result.scalar_one_or_none()
     
     if not role:
+        # Create role with proper name
+        role_names = {
+            RoleType.TECHIE: "Techie",
+            RoleType.HIRING_MANAGER: "Hiring Manager",
+            RoleType.COMPANY_ADMIN: "Company Admin",
+            RoleType.SCHOOL_ADMIN: "School Admin",
+        }
         role = UserRole(
-            name="Techie",
-            role_type=RoleType.TECHIE,
-            description="Default user role"
+            name=role_names.get(role_type, "User"),
+            role_type=role_type,
+            description=f"{role_type.value} user role"
         )
         db.add(role)
         await db.flush()
@@ -101,6 +124,7 @@ async def register(
     await db.refresh(user)
     
     # Return as dict to avoid async lazy loading issues
+    # Include role in response for frontend
     return {
         "id": str(user.id),
         "email": user.email,
@@ -117,6 +141,8 @@ async def register(
         "dob": str(user.dob) if user.dob else None,
         "address": user.address,
         "created_at": str(user.created_at) if user.created_at else None,
+        "role": role_type.value,  # Include assigned role in response
+        "role_type": role_type.value,  # Alias for compatibility
     }
 
 
@@ -190,7 +216,7 @@ async def login(
         "is_active": user.is_active,
         "is_verified": user.is_verified,
         "is_superuser": user.is_superuser,
-        "is_staff": user.is_superuser,  # Treat superuser as staff for compatibility
+        "is_staff": user.is_superuser or (user.admin_roles and len(user.admin_roles) > 0),
         "country": user.country,
         "mobile_number": user.mobile_number,
         "dob": str(user.dob) if user.dob else None,
@@ -448,8 +474,24 @@ async def admin_create_user(
     }
     role_type = role_mapping.get(user_in.role, RoleType.TECHIE)
     
-    # Determine if user is staff (admin role)
-    is_superuser = user_in.role == "admin"
+    # Set admin_roles - prefer frontend-provided roles, fallback to mapping
+    # Frontend sends specific admin_roles like ["hm_admin", "company_admin"]
+    if user_in.admin_roles and len(user_in.admin_roles) > 0:
+        # Use frontend-provided admin_roles
+        admin_roles = user_in.admin_roles
+    else:
+        # Fallback to mapping based on role type
+        admin_roles_mapping = {
+            "admin": ["superadmin", "admin"],
+            "hr": ["hm_admin"],  # Hiring Manager Admin
+            "company": ["company_admin"],
+            "school": ["school_admin"],
+        }
+        admin_roles = admin_roles_mapping.get(user_in.role, [])
+    
+    # Determine if user is superuser - only if admin_roles includes "superadmin"
+    # HM Admin, Company Admin, etc. should NOT be superusers
+    is_superuser = "superadmin" in admin_roles if admin_roles else False
     
     # Create user
     user = User(
@@ -469,6 +511,7 @@ async def admin_create_user(
         mobile_verified=True,
         is_verified=True,
         is_superuser=is_superuser,
+        admin_roles=admin_roles,  # Set admin roles for panel visibility
     )
     
     db.add(user)
@@ -496,7 +539,10 @@ async def admin_create_user(
         db.add(role)
         await db.flush()
     
-    user.roles.append(role)
+    # Add role association using SQL to avoid lazy loading issues
+    await db.execute(
+        insert(user_roles).values(user_id=user.id, role_id=role.id)
+    )
     
     # Add experiences for techie users
     if user_in.experiences:

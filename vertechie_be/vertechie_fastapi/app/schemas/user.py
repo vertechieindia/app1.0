@@ -54,6 +54,10 @@ class UserResponse(UserBase):
     email_verified: Optional[bool] = False
     mobile_verified: Optional[bool] = False
     created_at: Optional[datetime] = None
+    # Admin fields
+    admin_roles: Optional[List[str]] = []  # List of admin role strings
+    date_joined: Optional[datetime] = None  # Alias for created_at for frontend compatibility
+    last_login: Optional[datetime] = None  # Last login timestamp
     
     class Config:
         from_attributes = True
@@ -210,6 +214,9 @@ class AdminUserCreate(BaseModel):
     
     # Role - determines user type
     role: str = "techie"  # techie, hr, company, school, admin
+    
+    # Admin roles - frontend sends specific admin roles like ["hm_admin", "company_admin"]
+    admin_roles: Optional[List[str]] = None
     
     # Techie-specific fields
     work_authorization: Optional[str] = None

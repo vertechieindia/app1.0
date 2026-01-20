@@ -105,9 +105,23 @@ const Home = () => {
     if (authToken && userDataString) {
       try {
         const userData = JSON.parse(userDataString);
+        const adminRoles = userData.admin_roles || [];
         
-        if (userData.is_superuser) {
+        // Route based on admin_roles first
+        if (userData.is_superuser || adminRoles.includes('superadmin')) {
           navigate('/super-admin', { replace: true });
+        } else if (adminRoles.includes('hm_admin')) {
+          navigate('/vertechie/hmadmin', { replace: true });
+        } else if (adminRoles.includes('company_admin')) {
+          navigate('/vertechie/companyadmin', { replace: true });
+        } else if (adminRoles.includes('school_admin')) {
+          navigate('/vertechie/schooladmin', { replace: true });
+        } else if (adminRoles.includes('techie_admin')) {
+          navigate('/vertechie/techieadmin', { replace: true });
+        } else if (adminRoles.includes('bdm_admin')) {
+          navigate('/vertechie/bdmadmin', { replace: true });
+        } else if (adminRoles.includes('learnadmin') || adminRoles.includes('learn_admin')) {
+          navigate('/vertechie/learnadmin', { replace: true });
         } else if (userData.is_staff) {
           navigate('/admin', { replace: true });
         } else if (userData.is_active && !userData.is_verified) {
