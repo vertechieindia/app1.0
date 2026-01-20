@@ -211,7 +211,7 @@ const Signup = () => {
         });
         // Navigate to pending verification page after successful registration
         setTimeout(() => {
-          navigate('/status/pending');
+          navigate('/status/processing');
         }, 2000);
       } else {
         const errorMessage = result.detail || result.error || 
@@ -236,7 +236,26 @@ const Signup = () => {
 
   const handleHRComplete = async (data: any) => {
     console.log('HR signup completed:', data);
-    await submitSignup(data, 'hiring_manager');
+    
+    // Check if user is already registered (registration happens in SignupFlowContainer during Personal Info step)
+    const token = localStorage.getItem('authToken') || data.access_token || data.token || data.access;
+    
+    if (token) {
+      // User already registered successfully in SignupFlowContainer
+      // Just show success and redirect - no need to call register API again
+      console.log('User already registered, skipping duplicate registration call');
+      setSnackbar({
+        open: true,
+        message: 'Registration successful! Redirecting to verification page...',
+        severity: 'success',
+      });
+      setTimeout(() => {
+        navigate('/status/processing');
+      }, 2000);
+    } else {
+      // Fallback: only call register if not already registered
+      await submitSignup(data, 'hiring_manager');
+    }
   };
 
   const handleHRCancel = () => {
@@ -248,7 +267,26 @@ const Signup = () => {
 
   const handleTechieComplete = async (data: any) => {
     console.log('Techie signup completed:', data);
-    await submitSignup(data, 'techie');
+    
+    // Check if user is already registered (registration happens in SignupFlowContainer during Personal Info step)
+    const token = localStorage.getItem('authToken') || data.access_token || data.token || data.access;
+    
+    if (token) {
+      // User already registered successfully in SignupFlowContainer
+      // Just show success and redirect - no need to call register API again
+      console.log('User already registered, skipping duplicate registration call');
+      setSnackbar({
+        open: true,
+        message: 'Registration successful! Redirecting to verification page...',
+        severity: 'success',
+      });
+      setTimeout(() => {
+        navigate('/status/processing');
+      }, 2000);
+    } else {
+      // Fallback: only call register if not already registered
+      await submitSignup(data, 'techie');
+    }
   };
 
   const handleTechieCancel = () => {

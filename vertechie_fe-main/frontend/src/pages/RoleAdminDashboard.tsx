@@ -106,8 +106,8 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
         setSnackbar({ open: true, message: 'You do not have permission to access this dashboard', severity: 'error' });
       }
 
-      // Fetch stats
-      const statsResponse = await fetch(`${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}stats/`, {
+      // Fetch stats (with user_type for role-based filtering)
+      const statsResponse = await fetch(`${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}stats/?user_type=${userType}`, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,

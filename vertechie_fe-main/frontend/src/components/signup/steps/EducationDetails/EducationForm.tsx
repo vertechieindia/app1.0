@@ -162,10 +162,10 @@ const EducationForm: React.FC<StepComponentProps> = ({
     }
 
     // Get auth token - check multiple sources in order of priority (declare outside try block)
-    const token = 
-      localStorage.getItem('authToken') || 
-      (formData as any)?.access_token || 
-      (formData as any)?.token || 
+    const token =
+      localStorage.getItem('authToken') ||
+      (formData as any)?.access_token ||
+      (formData as any)?.token ||
       (formData as any)?.tokenResponse?.access ||           // Token API returns token in 'access' field
       (formData as any)?.tokenResponse?.access_token ||
       (formData as any)?.tokenResponse?.accessToken ||
@@ -177,16 +177,16 @@ const EducationForm: React.FC<StepComponentProps> = ({
     try {
       // Prepare payload according to API format (trim all string values)
       const payload = {
-        institution_name: newEducation.institution.trim(),
-        level_of_education: newEducation.levelOfEducation.trim().toUpperCase(), // Convert to uppercase (e.g., "BACHELORS")
+        school_name: newEducation.institution.trim(),
+        degree: newEducation.levelOfEducation.trim().toUpperCase(),
         field_of_study: newEducation.fieldOfStudy.trim(),
-        from_date: newEducation.startDate,
-        to_date: newEducation.endDate,
-        gpa_score: (newEducation.gpa || '').trim(), // Optional field
+        start_year: newEducation.startDate ? parseInt(newEducation.startDate.split('-')[0]) : null,
+        end_year: newEducation.endDate ? parseInt(newEducation.endDate.split('-')[0]) : null,
+        grade: (newEducation.gpa || '').trim(), // Optional field
       };
 
       console.log('Posting education details to API:', payload);
-      
+
       console.log('Token check for education API:');
       console.log('  - localStorage:', localStorage.getItem('authToken') ? 'Available' : 'Not available');
       console.log('  - formData.access_token:', (formData as any)?.access_token ? 'Available' : 'Not available');
@@ -201,7 +201,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
       const headers: any = {
         'Content-Type': 'application/json',
       };
-      
+
       // Add Authorization header if token is available
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -234,7 +234,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
         response = await axios.post(apiUrl, payload, { headers });
         console.log('Education details posted successfully:', response.data);
       }
-      
+
       // Log response status for debugging
       if (response.status !== 200 && response.status !== 201) {
         console.warn('Unexpected status code:', response.status);
@@ -283,7 +283,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
           headers: error.config?.headers,
         },
       });
-      
+
       // Check if it's an authentication error
       if (error.response?.status === 401 || error.response?.status === 403) {
         console.error('Authentication error detected!');
@@ -295,14 +295,14 @@ const EducationForm: React.FC<StepComponentProps> = ({
           formData_tokenResponse: (formData as any)?.tokenResponse ? 'Available' : 'Not available',
         });
       }
-      
-      const errorMessage = 
-        error.response?.data?.message || 
-        error.response?.data?.error || 
+
+      const errorMessage =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
         error.response?.data?.detail ||
-        error.message || 
+        error.message ||
         'Failed to save education details. Please try again.';
-      
+
       if (setErrors) {
         setErrors({ submit: errorMessage });
       } else {
@@ -614,7 +614,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
                             if (inputElement) {
                               // Get the position of the input field
                               const rect = inputElement.getBoundingClientRect();
-                              
+
                               // Create a temporary date input
                               const tempInput = document.createElement('input');
                               tempInput.type = 'date';
@@ -624,7 +624,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
                               tempInput.style.width = `${rect.width}px`;
                               tempInput.style.opacity = '0';
                               tempInput.style.pointerEvents = 'none';
-                              
+
                               // Set current value if exists
                               if (newEducation.startDate) {
                                 if (newEducation.startDate.includes('-')) {
@@ -634,9 +634,9 @@ const EducationForm: React.FC<StepComponentProps> = ({
                                   tempInput.value = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
                                 }
                               }
-                              
+
                               // Allow future dates for education (no max restriction)
-                              
+
                               // Handle date selection
                               const handleDateChange = (event: any) => {
                                 const selectedDate = event.target.value;
@@ -651,10 +651,10 @@ const EducationForm: React.FC<StepComponentProps> = ({
                                   }
                                 }, 100);
                               };
-                              
+
                               tempInput.addEventListener('change', handleDateChange);
                               document.body.appendChild(tempInput);
-                              
+
                               // Trigger date picker
                               setTimeout(() => {
                                 tempInput.focus();
@@ -759,7 +759,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
                             if (inputElement) {
                               // Get the position of the input field
                               const rect = inputElement.getBoundingClientRect();
-                              
+
                               // Create a temporary date input
                               const tempInput = document.createElement('input');
                               tempInput.type = 'date';
@@ -769,7 +769,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
                               tempInput.style.width = `${rect.width}px`;
                               tempInput.style.opacity = '0';
                               tempInput.style.pointerEvents = 'none';
-                              
+
                               // Set current value if exists
                               if (newEducation.endDate) {
                                 if (newEducation.endDate.includes('-')) {
@@ -779,7 +779,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
                                   tempInput.value = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
                                 }
                               }
-                              
+
                               // Set min date to start date if exists
                               if (newEducation.startDate) {
                                 if (newEducation.startDate.includes('-')) {
@@ -789,9 +789,9 @@ const EducationForm: React.FC<StepComponentProps> = ({
                                   tempInput.min = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
                                 }
                               }
-                              
+
                               // Allow future dates for education (no max restriction)
-                              
+
                               // Handle date selection
                               const handleDateChange = (event: any) => {
                                 const selectedDate = event.target.value;
@@ -806,10 +806,10 @@ const EducationForm: React.FC<StepComponentProps> = ({
                                   }
                                 }, 100);
                               };
-                              
+
                               tempInput.addEventListener('change', handleDateChange);
                               document.body.appendChild(tempInput);
-                              
+
                               // Trigger date picker
                               setTimeout(() => {
                                 tempInput.focus();

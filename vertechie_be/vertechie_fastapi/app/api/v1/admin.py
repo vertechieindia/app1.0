@@ -528,9 +528,49 @@ async def list_pending_approvals(
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ) -> Any:
-    """List users pending approval."""
+    """List users pending approval.
     
-    query = select(User)
+    Role-based filtering:
+    - Super Admin: sees all users
+    - HM Admin: sees only hiring_manager users
+    - Techie Admin: sees only techie users
+    - Company Admin: sees only company_admin users
+    - School Admin: sees only school_admin users
+    """
+    from sqlalchemy.orm import selectinload
+    
+    # Determine what role types this admin can manage
+    admin_roles = current_admin.admin_roles or []
+    is_superadmin = current_admin.is_superuser or "superadmin" in admin_roles
+    
+    # Map admin roles to the user role types they can manage
+    admin_to_user_role_map = {
+        "superadmin": None,  # Can see all
+        "hm_admin": RoleType.HIRING_MANAGER,
+        "techie_admin": RoleType.TECHIE,
+        "company_admin": RoleType.COMPANY_ADMIN,
+        "school_admin": RoleType.SCHOOL_ADMIN,
+        "bdm_admin": RoleType.BDM_ADMIN,
+    }
+    
+    # Determine allowed role types for this admin
+    allowed_role_types = set()
+    for admin_role in admin_roles:
+        role_type = admin_to_user_role_map.get(admin_role)
+        if role_type:
+            allowed_role_types.add(role_type)
+    
+    # If user_type is provided in query, use that for additional filtering
+    user_type_to_role_map = {
+        "techie": RoleType.TECHIE,
+        "hr": RoleType.HIRING_MANAGER,
+        "hiring_manager": RoleType.HIRING_MANAGER,
+        "company": RoleType.COMPANY_ADMIN,
+        "school": RoleType.SCHOOL_ADMIN,
+        "bdm": RoleType.BDM_ADMIN,
+    }
+    
+    query_role_type = user_type_to_role_map.get(user_type.lower()) if user_type else None
     
     # Use status or status_filter
     filter_status = status or status_filter
@@ -544,6 +584,9 @@ async def list_pending_approvals(
         "resubmitted": VerificationStatus.RESUBMITTED,
     }
     
+    # Build base query with role loading
+    query = select(User).options(selectinload(User.roles))
+    
     if filter_status and filter_status.lower() in status_map:
         status_enum = status_map[filter_status.lower()]
         query = query.where(User.verification_status == status_enum)
@@ -556,13 +599,63 @@ async def list_pending_approvals(
             )
         )
     
-    # Filter by user_type if provided (for now, default to techie)
-    # In future, can filter by role type
+    # Exclude admin users (users with admin_roles) from pending approvals
+    # Admin users are created already verified
+    query = query.where(
+        or_(
+            User.admin_roles == None,
+            User.admin_roles == []
+        )
+    )
     
-    query = query.order_by(User.created_at.asc()).offset(skip).limit(limit)
+    query = query.order_by(User.created_at.asc())
     
     result = await db.execute(query)
     users = result.scalars().all()
+    
+    # Filter users based on admin's allowed role types and user_type query param
+    filtered_users = []
+    for user in users:
+        # Determine user's role type
+        user_role_type = None
+        if user.roles:
+            for role in user.roles:
+                user_role_type = role.role_type
+                break  # Take first role
+        
+        # Default to TECHIE if no role assigned
+        if not user_role_type:
+            user_role_type = RoleType.TECHIE
+        
+        # Check if superadmin or if admin can manage this user type
+        if is_superadmin:
+            # Superadmin can see all, but still filter by user_type if provided
+            if query_role_type and user_role_type != query_role_type:
+                continue
+            filtered_users.append((user, user_role_type))
+        elif allowed_role_types:
+            # Non-superadmin: only show users they can manage
+            if user_role_type in allowed_role_types:
+                # Also filter by query user_type if provided
+                if query_role_type and user_role_type != query_role_type:
+                    continue
+                filtered_users.append((user, user_role_type))
+        else:
+            # Admin has no specific role mapping, show nothing
+            pass
+    
+    # Apply pagination after filtering
+    paginated_users = filtered_users[skip:skip + limit]
+    
+    # Map role type to user type string for frontend
+    role_to_user_type_map = {
+        RoleType.TECHIE: "techie",
+        RoleType.HIRING_MANAGER: "hr",
+        RoleType.COMPANY_ADMIN: "company",
+        RoleType.SCHOOL_ADMIN: "school",
+        RoleType.BDM_ADMIN: "bdm",
+        RoleType.SUPER_ADMIN: "admin",
+    }
     
     return [
         PendingApprovalResponse(
@@ -574,50 +667,115 @@ async def list_pending_approvals(
             verification_status=user.verification_status.value if user.verification_status else "pending",
             created_at=user.created_at,
             # Frontend expected fields
-            user_type="techie",  # Default, can be enhanced based on roles
+            user_type=role_to_user_type_map.get(user_role_type, "techie"),
             user_full_name=f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email,
             user_email=user.email,
             status=user.verification_status.value.lower() if user.verification_status else "pending"
         )
-        for user in users
+        for user, user_role_type in paginated_users
     ]
 
 
 @router.get("/pending-approvals/stats/", response_model=ApprovalStatsResponse)
 async def get_pending_approvals_stats(
+    user_type: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ) -> Any:
-    """Get stats for pending approvals."""
+    """Get stats for pending approvals.
     
-    # Count pending
-    pending_result = await db.execute(
-        select(func.count(User.id)).where(
-            or_(
-                User.verification_status == VerificationStatus.PENDING,
-                User.verification_status == VerificationStatus.RESUBMITTED
-            )
+    Role-based filtering:
+    - Super Admin: counts all users
+    - HM Admin: counts only hiring_manager users
+    - Techie Admin: counts only techie users
+    - etc.
+    """
+    from sqlalchemy.orm import selectinload
+    
+    # Determine what role types this admin can manage
+    admin_roles = current_admin.admin_roles or []
+    is_superadmin = current_admin.is_superuser or "superadmin" in admin_roles
+    
+    # Map admin roles to the user role types they can manage
+    admin_to_user_role_map = {
+        "superadmin": None,  # Can see all
+        "hm_admin": RoleType.HIRING_MANAGER,
+        "techie_admin": RoleType.TECHIE,
+        "company_admin": RoleType.COMPANY_ADMIN,
+        "school_admin": RoleType.SCHOOL_ADMIN,
+        "bdm_admin": RoleType.BDM_ADMIN,
+    }
+    
+    # Determine allowed role types for this admin
+    allowed_role_types = set()
+    for admin_role in admin_roles:
+        role_type = admin_to_user_role_map.get(admin_role)
+        if role_type:
+            allowed_role_types.add(role_type)
+    
+    # If user_type is provided in query, use that for additional filtering
+    user_type_to_role_map = {
+        "techie": RoleType.TECHIE,
+        "hr": RoleType.HIRING_MANAGER,
+        "hiring_manager": RoleType.HIRING_MANAGER,
+        "company": RoleType.COMPANY_ADMIN,
+        "school": RoleType.SCHOOL_ADMIN,
+        "bdm": RoleType.BDM_ADMIN,
+    }
+    
+    query_role_type = user_type_to_role_map.get(user_type.lower()) if user_type else None
+    
+    # Fetch all non-admin users with their roles
+    query = select(User).options(selectinload(User.roles)).where(
+        or_(
+            User.admin_roles == None,
+            User.admin_roles == []
         )
     )
-    pending = pending_result.scalar() or 0
     
-    # Count approved
-    approved_result = await db.execute(
-        select(func.count(User.id)).where(
-            User.verification_status == VerificationStatus.APPROVED
-        )
-    )
-    approved = approved_result.scalar() or 0
+    result = await db.execute(query)
+    all_users = result.scalars().all()
     
-    # Count rejected
-    rejected_result = await db.execute(
-        select(func.count(User.id)).where(
-            User.verification_status == VerificationStatus.REJECTED
-        )
-    )
-    rejected = rejected_result.scalar() or 0
+    # Filter users based on admin's allowed role types
+    pending = 0
+    approved = 0
+    rejected = 0
     
-    # Total
+    for user in all_users:
+        # Determine user's role type
+        user_role_type = None
+        if user.roles:
+            for role in user.roles:
+                user_role_type = role.role_type
+                break
+        
+        # Default to TECHIE if no role assigned
+        if not user_role_type:
+            user_role_type = RoleType.TECHIE
+        
+        # Check if this admin can manage this user type
+        can_manage = False
+        if is_superadmin:
+            if query_role_type:
+                can_manage = (user_role_type == query_role_type)
+            else:
+                can_manage = True
+        elif allowed_role_types:
+            if user_role_type in allowed_role_types:
+                if query_role_type:
+                    can_manage = (user_role_type == query_role_type)
+                else:
+                    can_manage = True
+        
+        if can_manage:
+            status = user.verification_status
+            if status in (VerificationStatus.PENDING, VerificationStatus.RESUBMITTED):
+                pending += 1
+            elif status == VerificationStatus.APPROVED:
+                approved += 1
+            elif status == VerificationStatus.REJECTED:
+                rejected += 1
+    
     total = pending + approved + rejected
     
     return ApprovalStatsResponse(
@@ -1022,3 +1180,68 @@ async def update_admin_notes(
     await db.commit()
     
     return {"success": True, "message": "Admin notes updated"}
+
+
+# ============= Admin Users Listing =============
+
+class AdminUserResponse(BaseModel):
+    """Response schema for admin user listing."""
+    id: str
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    full_name: str
+    admin_roles: List[str] = []
+    is_active: bool = True
+    is_staff: bool = True
+    is_superuser: bool = False
+    date_joined: Optional[str] = None
+    last_login: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+@router.get("/admins/", response_model=List[AdminUserResponse])
+async def list_admin_users(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user)
+) -> Any:
+    """List all admin users (users with admin_roles or is_superuser=True)."""
+    
+    # Query users who have non-empty admin_roles OR are superusers
+    result = await db.execute(
+        select(User)
+        .where(
+            or_(
+                User.is_superuser == True,
+                User.admin_roles != None,
+            )
+        )
+        .order_by(User.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    users = result.scalars().all()
+    
+    # Filter out users with empty admin_roles if not superuser
+    admin_users = []
+    for user in users:
+        if user.is_superuser or (user.admin_roles and len(user.admin_roles) > 0):
+            full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
+            admin_users.append(AdminUserResponse(
+                id=str(user.id),
+                email=user.email,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                full_name=full_name,
+                admin_roles=user.admin_roles or [],
+                is_active=user.is_active,
+                is_staff=True,  # All admins are staff
+                is_superuser=user.is_superuser,
+                date_joined=user.created_at.isoformat() if user.created_at else None,
+                last_login=user.last_login.isoformat() if user.last_login else None,
+                created_at=user.created_at.isoformat() if user.created_at else None,
+            ))
+    
+    return admin_users

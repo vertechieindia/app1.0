@@ -305,6 +305,17 @@ const App: React.FC = () => {
                 <HMAdminDashboard />
               </ProtectedRoute>
             } />
+            {/* Short alias for HM Admin */}
+            <Route path="/vertechie/hmadmin" element={
+              <ProtectedRoute requiredRole="admin">
+                <HMAdminDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/vertechie/hmadmin/*" element={
+              <ProtectedRoute requiredRole="admin">
+                <HMAdminDashboard />
+              </ProtectedRoute>
+            } />
             
             {/* BDM Admin */}
             <Route path="/vertechie/bdmadmin" element={

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Box, Typography, Button, Paper, Container } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useNavigate } from 'react-router-dom';
@@ -10,8 +10,23 @@ interface SuccessScreenProps {
 const SuccessScreen: React.FC<SuccessScreenProps> = ({ role }) => {
   const navigate = useNavigate();
 
+  // Auto-redirect to pending status page after 5 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      // Clear any stale auth state that might cause issues
+      // Navigate to pending verification page
+      navigate('/status/processing', { replace: true });
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [navigate]);
+
   const handleBackToHome = () => {
-    navigate('/');
+    navigate('/', { replace: true });
+  };
+
+  const handleViewStatus = () => {
+    navigate('/status/processing', { replace: true });
   };
 
   return (
@@ -71,7 +86,7 @@ const SuccessScreen: React.FC<SuccessScreenProps> = ({ role }) => {
             variant="body1"
             sx={{
               color: '#666',
-              mb: 4,
+              mb: 2,
               fontSize: { xs: '0.95rem', md: '1rem' },
               lineHeight: 1.6,
             }}
@@ -79,28 +94,61 @@ const SuccessScreen: React.FC<SuccessScreenProps> = ({ role }) => {
             Thank you for registering with VerTechie. Your account is being verified and you will receive a confirmation email shortly.
           </Typography>
 
-          {/* Back to Home Button */}
-          <Button
-            variant="contained"
-            onClick={handleBackToHome}
+          <Typography
+            variant="body2"
             sx={{
-              bgcolor: '#1976d2',
-              color: 'white',
-              px: 5,
-              py: 1.5,
-              borderRadius: 2,
-              textTransform: 'none',
-              fontSize: '1rem',
-              fontWeight: 600,
-              boxShadow: 3,
-              '&:hover': {
-                bgcolor: '#1565c0',
-                boxShadow: 4,
-              },
+              color: '#999',
+              mb: 4,
+              fontSize: '0.85rem',
             }}
           >
-            Back to Home
-          </Button>
+            You will be redirected to your status page in 5 seconds...
+          </Typography>
+
+          {/* Action Buttons */}
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              onClick={handleViewStatus}
+              sx={{
+                bgcolor: '#4caf50',
+                color: 'white',
+                px: 4,
+                py: 1.5,
+                borderRadius: 2,
+                textTransform: 'none',
+                fontSize: '1rem',
+                fontWeight: 600,
+                boxShadow: 3,
+                '&:hover': {
+                  bgcolor: '#388e3c',
+                  boxShadow: 4,
+                },
+              }}
+            >
+              Check Status
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={handleBackToHome}
+              sx={{
+                borderColor: '#1976d2',
+                color: '#1976d2',
+                px: 4,
+                py: 1.5,
+                borderRadius: 2,
+                textTransform: 'none',
+                fontSize: '1rem',
+                fontWeight: 600,
+                '&:hover': {
+                  borderColor: '#1565c0',
+                  bgcolor: 'rgba(25, 118, 210, 0.04)',
+                },
+              }}
+            >
+              Back to Home
+            </Button>
+          </Box>
         </Paper>
       </Container>
     </Box>

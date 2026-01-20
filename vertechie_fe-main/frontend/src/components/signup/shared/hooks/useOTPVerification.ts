@@ -63,7 +63,18 @@ export const useOTPVerification = () => {
       const apiUrl = getLegacyApiUrl(API_ENDPOINTS.SEND_EMAIL_OTP);
       const response = await axios.post(apiUrl, { email });
       
-      if (response.data.success || response.status === 200) {
+      // Check for email_exists error (duplicate email registration attempt)
+      if (response.data.error === 'email_exists') {
+        setErrors((prev) => ({ 
+          ...prev, 
+          email: response.data.message || 'This email is already registered. Please login or use a different email.' 
+        }));
+        setEmailVerifying(false);
+        return false;
+      }
+      
+      // Check for success - must explicitly be true, not just status 200
+      if (response.data.success === true) {
         setShowEmailOTPDialog(true);
         setEmailOTP(''); // Clear previous OTP
         setEmailVerifying(false);

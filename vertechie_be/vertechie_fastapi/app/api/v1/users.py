@@ -50,7 +50,36 @@ async def list_users(
     query = query.offset(skip).limit(limit)
     
     result = await db.execute(query)
-    return result.scalars().all()
+    users = result.scalars().all()
+    
+    # Transform to include all necessary fields for frontend
+    return [
+        {
+            "id": user.id,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "middle_name": user.middle_name,
+            "phone": user.phone,
+            "mobile_number": user.mobile_number,
+            "dob": user.dob,
+            "country": user.country,
+            "address": user.address,
+            "username": user.username,
+            "vertechie_id": user.vertechie_id,
+            "is_active": user.is_active,
+            "is_verified": user.is_verified,
+            "is_superuser": user.is_superuser,
+            "is_staff": user.is_superuser or bool(user.admin_roles),  # Staff if superuser or has admin_roles
+            "email_verified": user.email_verified,
+            "mobile_verified": user.mobile_verified,
+            "created_at": user.created_at,
+            "admin_roles": user.admin_roles or [],  # Include admin_roles for frontend filtering
+            "date_joined": user.created_at,  # Alias for frontend compatibility
+            "last_login": user.last_login,
+        }
+        for user in users
+    ]
 
 
 @router.get("/me", response_model=UserResponse)
@@ -148,7 +177,7 @@ async def get_user(
             detail="User not found"
         )
     
-    # Return dict with is_staff derived from is_superuser (for frontend compatibility)
+    # Return dict with is_staff derived from is_superuser or admin_roles (for frontend compatibility)
     return {
         "id": user.id,
         "email": user.email,
@@ -165,10 +194,13 @@ async def get_user(
         "is_active": user.is_active,
         "is_verified": user.is_verified,
         "is_superuser": user.is_superuser,
-        "is_staff": user.is_superuser,  # Map is_superuser to is_staff for frontend
+        "is_staff": user.is_superuser or bool(user.admin_roles),  # Staff if superuser or has admin_roles
         "email_verified": user.email_verified,
         "mobile_verified": user.mobile_verified,
         "created_at": user.created_at,
+        "admin_roles": user.admin_roles or [],  # Include admin_roles for frontend
+        "date_joined": user.created_at,  # Alias for frontend compatibility
+        "last_login": user.last_login,
     }
 
 

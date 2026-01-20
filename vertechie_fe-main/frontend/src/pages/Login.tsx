@@ -186,9 +186,32 @@ const Login = () => {
         g.name?.toLowerCase() === 'hr' || g.name?.toLowerCase() === 'hiring_manager'
       );
       
-      if (userData.is_superuser) {
+      // Get admin_roles for routing
+      const adminRoles = userData.admin_roles || [];
+      
+      // Route based on admin_roles first, then fallback to is_superuser/is_staff
+      if (userData.is_superuser || adminRoles.includes('superadmin')) {
         navigate('/super-admin');
+      } else if (adminRoles.includes('hm_admin')) {
+        // HM Admin - route to HM admin panel
+        navigate('/vertechie/hmadmin');
+      } else if (adminRoles.includes('company_admin')) {
+        // Company Admin - route to company admin panel
+        navigate('/vertechie/companyadmin');
+      } else if (adminRoles.includes('school_admin')) {
+        // School Admin - route to school admin panel
+        navigate('/vertechie/schooladmin');
+      } else if (adminRoles.includes('techie_admin')) {
+        // Techie Admin - route to techie admin panel
+        navigate('/vertechie/techieadmin');
+      } else if (adminRoles.includes('bdm_admin')) {
+        // BDM Admin - route to BDM admin panel
+        navigate('/vertechie/bdmadmin');
+      } else if (adminRoles.includes('learnadmin') || adminRoles.includes('learn_admin')) {
+        // Learn Admin - route to learn admin panel
+        navigate('/vertechie/learnadmin');
       } else if (userData.is_staff) {
+        // Generic staff - route to admin
         navigate('/admin');
       } else if (isHR) {
         // Redirect HR users to Home Feed

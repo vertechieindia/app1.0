@@ -253,6 +253,15 @@ async def extract_with_azure_document_intelligence(image_bytes: bytes, country: 
     endpoint = settings.AZURE_DOC_ENDPOINT.rstrip('/')
     api_key = settings.AZURE_DOC_KEY
     
+    # Validate Azure configuration
+    if not endpoint or not endpoint.startswith(('http://', 'https://')):
+        print("[Azure OCR] Error: AZURE_DOC_ENDPOINT is not configured or missing protocol")
+        return {"error": "Azure Document Intelligence is not configured. Please set AZURE_DOC_ENDPOINT in .env file"}
+    
+    if not api_key:
+        print("[Azure OCR] Error: AZURE_DOC_KEY is not configured")
+        return {"error": "Azure Document Intelligence API key is not configured. Please set AZURE_DOC_KEY in .env file"}
+    
     # Use prebuilt ID document model
     analyze_url = f"{endpoint}/formrecognizer/documentModels/prebuilt-idDocument:analyze?api-version=2023-07-31"
     
@@ -709,7 +718,31 @@ import asyncio
 async def send_email_otp(request: SendEmailOTPRequest) -> Dict[str, Any]:
     """
     Send OTP to email address.
+    Checks if email is already registered first to prevent duplicate registrations.
     """
+    from app.db.session import AsyncSessionLocal
+    from app.models.user import User
+    from sqlalchemy import select
+    
+    # Check if email is already registered
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(User).where(User.email == request.email)
+            )
+            existing_user = result.scalar_one_or_none()
+            
+            if existing_user:
+                print(f"[OTP] Email already registered: {request.email}")
+                return {
+                    "success": False,
+                    "message": "This email is already registered. Please login or use a different email.",
+                    "error": "email_exists"
+                }
+    except Exception as e:
+        print(f"[OTP] Database check error: {e}")
+        # Continue with OTP generation even if DB check fails
+    
     otp = generate_otp()
     store_otp(request.email, otp)
     

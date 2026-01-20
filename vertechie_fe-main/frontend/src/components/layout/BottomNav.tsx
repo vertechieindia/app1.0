@@ -157,19 +157,37 @@ const BottomNav: React.FC = () => {
         setUserName(`${firstName} ${lastName}`.trim() || user.email || 'User');
         setUserAvatar(user.profile_image || '');
         
-        // Determine role - check user.role, user.roles array, and user.groups array
+        // Determine role - check user.role, user.roles array, user.groups array, and admin_roles
         const userRoles = user.roles || [];
         const userGroups = user.groups || [];
+        const adminRoles = user.admin_roles || [];
+        
         const hasRole = (roleType: string) => 
           user.role === roleType || 
-          userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType) ||
-          userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType);
+          user.role_type === roleType ||
+          userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType.toLowerCase()) ||
+          userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType.toLowerCase());
         
-        if (user.is_superuser) {
+        // Check if user is a hiring manager (regular HR, not admin)
+        const isHiringManager = hasRole('hiring_manager') || hasRole('hr');
+        
+        const hasAdminRole = (adminRole: string) =>
+          adminRoles.includes(adminRole);
+        
+        // Check for admin roles first (HM Admin, Techie Admin, etc.)
+        if (user.is_superuser || hasAdminRole('superadmin')) {
           setUserRole('super_admin');
-        } else if (user.is_staff) {
+        } else if (hasAdminRole('hm_admin')) {
+          setUserRole('hm_admin');
+        } else if (hasAdminRole('techie_admin')) {
+          setUserRole('techie_admin');
+        } else if (hasAdminRole('company_admin')) {
+          setUserRole('company_admin');
+        } else if (hasAdminRole('school_admin')) {
+          setUserRole('school_admin');
+        } else if (user.is_staff || adminRoles.length > 0) {
           setUserRole('admin');
-        } else if (hasRole('hiring_manager')) {
+        } else if (isHiringManager) {
           setUserRole('hiring_manager');
         } else if (user.has_school || user.school_id) {
           setUserRole('school');
@@ -198,17 +216,18 @@ const BottomNav: React.FC = () => {
     return location.pathname.startsWith(path);
   };
 
-  // Core navigation items - paths vary based on role
-  const coreNavItems: NavItemConfig[] = userRole === 'hiring_manager' ? [
+  // Check if user is any type of admin
+  const isAnyAdmin = ['super_admin', 'hm_admin', 'techie_admin', 'company_admin', 'school_admin', 'admin'].includes(userRole);
+  
+  // Core navigation items - same for all users (admins and non-admins)
+  const coreNavItems: NavItemConfig[] = [
     { key: 'home', label: 'Home', icon: <HomeIcon />, path: '/techie/home/feed' },
-  ] : [
-    { key: 'home', label: 'Home', icon: <HomeIcon />, path: '/techie/home' },
     { key: 'jobs', label: 'Jobs', icon: <WorkIcon />, path: '/techie/jobs' },
     { key: 'practice', label: 'Practice', icon: <CodeIcon />, path: '/techie/practice' },
   ];
 
-  // Secondary nav items - different for HR vs Techie
-  const secondaryNavItems: NavItemConfig[] = userRole === 'hiring_manager' ? [] : [
+  // Secondary nav items - available for all users
+  const secondaryNavItems: NavItemConfig[] = [
     { key: 'learn', label: 'Learn', icon: <SchoolIcon />, path: '/techie/learn' },
     { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat', badge: messages },
     { key: 'blogs', label: 'Blogs', icon: <ArticleIcon />, path: '/techie/blogs' },
@@ -218,8 +237,8 @@ const BottomNav: React.FC = () => {
   const getRoleSpecificItems = (): NavItemConfig[] => {
     const items: NavItemConfig[] = [];
     
-    // ATS for Hiring Managers (user-side job posting management)
-    if (userRole === 'hiring_manager' || userRole === 'admin' || userRole === 'super_admin') {
+    // ATS for Hiring Managers and Admins (user-side job posting management)
+    if (userRole === 'hiring_manager' || userRole === 'hm_admin' || isAnyAdmin) {
       items.push({ 
         key: 'ats', 
         label: 'ATS', 
@@ -228,8 +247,8 @@ const BottomNav: React.FC = () => {
       });
     }
     
-    // SMS for School Page Owners (user-side school page management - like LinkedIn page)
-    if (userRole === 'school' || userRole === 'admin' || userRole === 'super_admin') {
+    // SMS for School Page Owners and Admins (user-side school page management)
+    if (userRole === 'school' || userRole === 'school_admin' || isAnyAdmin) {
       items.push({ 
         key: 'sms', 
         label: 'SMS', 
@@ -238,8 +257,8 @@ const BottomNav: React.FC = () => {
       });
     }
     
-    // CMS for Company Page Owners (user-side company page management - like LinkedIn page)
-    if (userRole === 'company' || userRole === 'admin' || userRole === 'super_admin') {
+    // CMS for Company Page Owners and Admins (user-side company page management)
+    if (userRole === 'company' || userRole === 'company_admin' || isAnyAdmin) {
       items.push({ 
         key: 'cms', 
         label: 'CMS', 
@@ -254,7 +273,35 @@ const BottomNav: React.FC = () => {
         key: 'admin', 
         label: 'Admin', 
         icon: <AdminPanelSettingsIcon />, 
-        path: '/vertechie/super-admin' 
+        path: '/super-admin' 
+      });
+    } else if (userRole === 'hm_admin') {
+      items.push({ 
+        key: 'admin', 
+        label: 'Admin', 
+        icon: <AdminPanelSettingsIcon />, 
+        path: '/vertechie/hmadmin' 
+      });
+    } else if (userRole === 'techie_admin') {
+      items.push({ 
+        key: 'admin', 
+        label: 'Admin', 
+        icon: <AdminPanelSettingsIcon />, 
+        path: '/vertechie/techieadmin' 
+      });
+    } else if (userRole === 'company_admin') {
+      items.push({ 
+        key: 'admin', 
+        label: 'Admin', 
+        icon: <AdminPanelSettingsIcon />, 
+        path: '/vertechie/companyadmin' 
+      });
+    } else if (userRole === 'school_admin') {
+      items.push({ 
+        key: 'admin', 
+        label: 'Admin', 
+        icon: <AdminPanelSettingsIcon />, 
+        path: '/vertechie/schooladmin' 
       });
     } else if (userRole === 'admin') {
       items.push({ 
