@@ -31,6 +31,7 @@ import {
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
+import { API_BASE_URL } from '../../config/api';
 
 // Icons
 import HomeIcon from '@mui/icons-material/Home';
@@ -52,6 +53,7 @@ import BookmarkIcon from '@mui/icons-material/Bookmark';
 import HelpIcon from '@mui/icons-material/Help';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import PeopleIcon from '@mui/icons-material/People';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 
 // Styled Components - Using Hero Section Colors
 const StyledBottomNav = styled(Paper)(({ theme }) => ({
@@ -134,7 +136,7 @@ const BottomNav: React.FC = () => {
   const [userRole, setUserRole] = useState<string>('techie');
   const [userName, setUserName] = useState('');
   const [userAvatar, setUserAvatar] = useState('');
-  const [notifications, setNotifications] = useState(3);
+  const [notifications, setNotifications] = useState(0);
   const [messages, setMessages] = useState(2);
   
   const theme = useTheme();
@@ -143,8 +145,35 @@ const BottomNav: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Fetch unread notification count from backend
+  const fetchNotificationCount = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) return;
+      
+      const response = await fetch(`${API_BASE_URL}/hiring/notifications/unread-count`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setNotifications(data.unread_count || 0);
+      }
+    } catch (error) {
+      console.error('Failed to fetch notification count:', error);
+    }
+  };
+
   useEffect(() => {
     loadUserData();
+    fetchNotificationCount();
+    
+    // Refresh notification count every 30 seconds
+    const interval = setInterval(fetchNotificationCount, 30000);
+    return () => clearInterval(interval);
   }, [location.pathname]);
 
   const loadUserData = () => {
@@ -525,6 +554,42 @@ const BottomNav: React.FC = () => {
             </ListItemIcon>
             <ListItemText primary="Saved Items" />
           </MenuItem>
+          
+          {/* My Applications - for Techies */}
+          {userRole !== 'hiring_manager' && (
+            <MenuItem
+              onClick={() => {
+                navigate('/my-applications');
+                setProfileAnchor(null);
+              }}
+              sx={{ py: 1.5 }}
+            >
+              <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                <WorkIcon />
+              </ListItemIcon>
+              <ListItemText primary="My Applications" />
+            </MenuItem>
+          )}
+          
+          {/* My Interviews - for Techies */}
+          {userRole !== 'hiring_manager' && (
+            <MenuItem
+              onClick={() => {
+                navigate('/techie/my-interviews');
+                setProfileAnchor(null);
+              }}
+              sx={{ py: 1.5 }}
+            >
+              <ListItemIcon sx={{ color: '#5AC8FA' }}>
+                <EventAvailableIcon />
+              </ListItemIcon>
+              <ListItemText 
+                primary="My Interviews" 
+                secondary={notifications > 0 ? `${notifications} upcoming` : undefined}
+                secondaryTypographyProps={{ sx: { color: '#5AC8FA', fontSize: '0.75rem' } }}
+              />
+            </MenuItem>
+          )}
           
           <MenuItem
             onClick={() => {

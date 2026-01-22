@@ -274,8 +274,8 @@ const JobApply: React.FC = () => {
           }
         }
 
-        // Load user profile from localStorage
-        const userStr = localStorage.getItem('user');
+        // Load user profile from localStorage (using 'userData' key set by login)
+        const userStr = localStorage.getItem('userData');
         if (userStr) {
           const user = JSON.parse(userStr);
           setUserProfile({
@@ -317,8 +317,8 @@ const JobApply: React.FC = () => {
     setSubmitting(true);
     
     try {
-      // Get user info from localStorage
-      const userStr = localStorage.getItem('user');
+      // Get user info from localStorage (using 'userData' key set by login)
+      const userStr = localStorage.getItem('userData');
       const user = userStr ? JSON.parse(userStr) : null;
       
       if (!user) {

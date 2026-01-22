@@ -41,6 +41,9 @@ class JobCreate(BaseModel):
     
     external_apply_url: Optional[str] = None
     application_deadline: Optional[date] = None
+    
+    # Allow setting status on creation (default to published for immediate visibility)
+    status: str = "published"
 
 
 class JobUpdate(BaseModel):
@@ -105,10 +108,10 @@ class JobResponse(BaseModel):
 class JobApplicationCreate(BaseModel):
     """Job application creation."""
     
-    job_id: UUID
+    job_id: Optional[UUID] = None  # Optional since job_id comes from URL path
     cover_letter: Optional[str] = None
     resume_url: Optional[str] = None
-    answers: Optional[dict] = None
+    answers: Optional[dict] = None  # Must be a dict like {"question_id": "answer"}
     expected_salary: Optional[int] = None
     available_from: Optional[date] = None
     referral_source: Optional[str] = None
@@ -125,6 +128,85 @@ class JobApplicationResponse(BaseModel):
     resume_url: Optional[str] = None
     submitted_at: datetime
     reviewed_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class ApplicantInfo(BaseModel):
+    """Applicant information for job applications."""
+    
+    id: UUID
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: str
+    phone: Optional[str] = None
+    mobile_number: Optional[str] = None
+    title: Optional[str] = None
+    headline: Optional[str] = None
+    skills: List[str] = []
+    experience_years: Optional[int] = None
+    location: Optional[str] = None
+    address: Optional[str] = None
+    avatar_url: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class JobApplicationWithApplicant(BaseModel):
+    """Job application with full applicant details."""
+    
+    id: UUID
+    job_id: UUID
+    applicant_id: UUID
+    status: str
+    cover_letter: Optional[str] = None
+    resume_url: Optional[str] = None
+    answers: Optional[dict] = None
+    expected_salary: Optional[int] = None
+    submitted_at: datetime
+    reviewed_at: Optional[datetime] = None
+    rating: Optional[int] = None
+    reviewer_notes: Optional[str] = None
+    
+    # Nested applicant info
+    applicant: Optional[ApplicantInfo] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class JobSummary(BaseModel):
+    """Minimal job info for embedding in applications."""
+    
+    id: UUID
+    title: str
+    company_name: str
+    location: Optional[str] = None
+    job_type: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    is_remote: bool = False
+    
+    class Config:
+        from_attributes = True
+
+
+class JobApplicationWithJob(BaseModel):
+    """Job application with job details for techie's my-applications view."""
+    
+    id: UUID
+    job_id: UUID
+    applicant_id: UUID
+    status: str
+    cover_letter: Optional[str] = None
+    resume_url: Optional[str] = None
+    submitted_at: datetime
+    reviewed_at: Optional[datetime] = None
+    
+    # Nested job info
+    job: Optional[JobSummary] = None
     
     class Config:
         from_attributes = True

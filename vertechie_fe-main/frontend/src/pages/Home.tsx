@@ -124,18 +124,26 @@ const Home = () => {
           navigate('/vertechie/learnadmin', { replace: true });
         } else if (userData.is_staff) {
           navigate('/admin', { replace: true });
+        } else if (userData.verification_status === 'rejected' || 
+                   userData.verification_status === 'REJECTED' ||
+                   userData.verification_status?.toLowerCase() === 'rejected') {
+          // FIRST: Check if user is REJECTED (using verification_status field)
+          navigate('/status/rejected', { replace: true });
+        } else if (!userData.is_active && !userData.is_verified) {
+          // SECOND: Fallback check for rejected (not active AND not verified)
+          navigate('/status/rejected', { replace: true });
         } else if (userData.is_active && !userData.is_verified) {
+          // THIRD: Check if user is pending verification (active but not verified)
+          // This applies to ALL user types including HR, Techie, etc.
           navigate('/status/processing', { replace: true });
         } else if (userData.is_active && userData.is_verified) {
-          // Redirect to appropriate dashboard based on role
+          // FOURTH: Redirect VERIFIED users to appropriate dashboard based on role
           const userRole = userData.role || userData.user_type || 'techie';
           if (userRole === 'hr' || userRole === 'hiring_manager' || userRole === 'HIRING_MANAGER') {
             navigate('/techie/home/feed', { replace: true });
           } else {
             navigate('/techie/dashboard', { replace: true });
           }
-        } else if (!userData.is_active && !userData.is_verified) {
-          navigate('/status/rejected', { replace: true });
         }
       } catch {
         // Invalid user data, let them stay on home

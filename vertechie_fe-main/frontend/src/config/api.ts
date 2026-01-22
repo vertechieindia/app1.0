@@ -196,6 +196,15 @@ export const API_ENDPOINTS = {
   },
 
   // ============================================
+  // HIRING/ATS (/hiring)
+  // ============================================
+  HIRING: {
+    PIPELINE_CANDIDATES: '/hiring/pipeline/candidates',
+    MOVE_CANDIDATE: (id: string) => `/hiring/candidates/${id}/move`,
+    UPDATE_APPLICATION_STAGE: (id: string) => `/hiring/applications/${id}/stage`,
+  },
+
+  // ============================================
   // LEGACY ENDPOINTS (Django - for gradual migration)
   // ============================================
   LEGACY: {

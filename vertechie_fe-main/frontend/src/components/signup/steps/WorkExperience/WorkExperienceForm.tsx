@@ -310,12 +310,54 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
       (formData as any)?.tokenResponse?.data?.token;
 
     try {
-      // During signup, just store experience locally - no API call needed
-      // Experiences will be saved when the full registration is submitted
-      console.log('Saving work experience locally (no API call during signup)');
+      // Prepare API payload for backend
+      const apiPayload = {
+        title: newExperience.position.trim(),
+        company_name: newExperience.companyName.trim(),
+        location: newExperience.workLocation.trim(),
+        start_date: newExperience.startDate,
+        end_date: newExperience.current ? null : (newExperience.endDate || null),
+        is_current: newExperience.current,
+        description: newExperience.description.trim(),
+        skills: newExperience.skills || [],
+        is_remote: newExperience.workLocation.toLowerCase().includes('remote'),
+      };
 
-      // Create the experience object to store locally
+      let savedId = editingIndex !== null ? experiences[editingIndex]?.id : `temp-${Date.now()}`;
+
+      // If we have a token, save to backend API
+      if (token) {
+        console.log('Saving work experience to backend API');
+        const headers = {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        };
+
+        const existingId = editingIndex !== null ? experiences[editingIndex]?.id : null;
+        const isExistingBackendRecord = existingId && !String(existingId).startsWith('temp-');
+
+        if (isExistingBackendRecord) {
+          // Update existing experience via PATCH
+          const updateUrl = getApiUrl(`/users/me/experiences/${existingId}`);
+          console.log('Updating experience:', updateUrl);
+          const response = await axios.patch(updateUrl, apiPayload, { headers });
+          console.log('Experience updated successfully:', response.data);
+          savedId = response.data.id || existingId;
+        } else {
+          // Create new experience via POST
+          const createUrl = getApiUrl('/users/me/experiences');
+          console.log('Creating new experience:', createUrl);
+          const response = await axios.post(createUrl, apiPayload, { headers });
+          console.log('Experience created successfully:', response.data);
+          savedId = response.data.id;
+        }
+      } else {
+        console.log('No token available, storing experience locally for later sync');
+      }
+
+      // Create the experience object to store locally (for UI display)
       const savedExperience = {
+          id: savedId,
           company: newExperience.companyName,
           companyName: newExperience.companyName,
           clientName: newExperience.clientName,
@@ -331,9 +373,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
           managerEmail: newExperience.managerEmail,
           managerPhone: newExperience.managerPhone,
           managerLinkedIn: newExperience.managerLinkedIn,
-          // Generate a temporary ID for local tracking
-          id: editingIndex !== null ? experiences[editingIndex]?.id : `temp-${Date.now()}`,
-          // Store the payload format for later API submission
+          // Store the payload format for reference
           client_name: newExperience.clientName.trim(),
           company_website: newExperience.website.trim(),
           work_location: newExperience.workLocation.trim(),

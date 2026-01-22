@@ -9,6 +9,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
+from sqlalchemy.orm import selectinload
 from slugify import slugify
 
 from app.db.session import get_db
@@ -17,7 +18,7 @@ from app.models.user import User
 from app.schemas.job import (
     JobCreate, JobUpdate, JobResponse,
     JobApplicationCreate, JobApplicationResponse,
-    SavedJobCreate
+    SavedJobCreate, ApplicantInfo, JobApplicationWithApplicant
 )
 from app.core.security import get_current_user, get_current_admin_user
 
@@ -82,10 +83,19 @@ async def create_job(
     # Generate slug
     slug = f"{slugify(job_in.title)}-{uuid4().hex[:8]}"
     
+    # Get the data and handle status
+    job_data = job_in.model_dump()
+    
+    # Convert status string to enum
+    status_str = job_data.pop('status', 'published')
+    job_status = JobStatus.PUBLISHED if status_str == 'published' else JobStatus.DRAFT
+    
     job = Job(
-        **job_in.model_dump(),
+        **job_data,
         slug=slug,
         posted_by_id=current_user.id,
+        status=job_status,
+        published_at=datetime.utcnow() if job_status == JobStatus.PUBLISHED else None,
     )
     
     db.add(job)
@@ -277,15 +287,18 @@ async def apply_to_job(
     return application
 
 
-@router.get("/my/applications", response_model=List[JobApplicationResponse])
+@router.get("/my/applications")
 async def get_my_applications(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     status_filter: Optional[str] = Query(None),
 ) -> Any:
-    """Get my job applications."""
+    """Get my job applications with job details."""
+    from sqlalchemy.orm import selectinload
     
-    query = select(JobApplication).where(
+    query = select(JobApplication).options(
+        selectinload(JobApplication.job)
+    ).where(
         JobApplication.applicant_id == current_user.id
     )
     
@@ -295,17 +308,48 @@ async def get_my_applications(
     query = query.order_by(JobApplication.submitted_at.desc())
     
     result = await db.execute(query)
-    return result.scalars().all()
+    applications = result.scalars().all()
+    
+    # Build response with job details
+    response = []
+    for app in applications:
+        app_dict = {
+            "id": app.id,
+            "job_id": app.job_id,
+            "applicant_id": app.applicant_id,
+            "status": app.status.value if hasattr(app.status, 'value') else str(app.status),
+            "cover_letter": app.cover_letter,
+            "resume_url": app.resume_url,
+            "submitted_at": app.submitted_at,
+            "reviewed_at": app.reviewed_at,
+        }
+        
+        # Include job details
+        if app.job:
+            app_dict["job"] = {
+                "id": app.job.id,
+                "title": app.job.title,
+                "company_name": app.job.company_name,
+                "location": app.job.location,
+                "job_type": app.job.job_type,
+                "salary_min": app.job.salary_min,
+                "salary_max": app.job.salary_max,
+                "is_remote": app.job.is_remote,
+            }
+        
+        response.append(app_dict)
+    
+    return response
 
 
-@router.get("/{job_id}/applications", response_model=List[JobApplicationResponse])
+@router.get("/{job_id}/applications", response_model=List[JobApplicationWithApplicant])
 async def get_job_applications(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     status_filter: Optional[str] = Query(None),
 ) -> Any:
-    """Get applications for a job (job owner only)."""
+    """Get applications for a job with full applicant details (job owner only)."""
     
     # Check job ownership
     result = await db.execute(
@@ -325,7 +369,10 @@ async def get_job_applications(
             detail="Not authorized"
         )
     
-    query = select(JobApplication).where(JobApplication.job_id == job_id)
+    # Use selectinload to eagerly load applicant data
+    query = select(JobApplication).options(
+        selectinload(JobApplication.applicant)
+    ).where(JobApplication.job_id == job_id)
     
     if status_filter:
         query = query.where(JobApplication.status == status_filter)
@@ -333,7 +380,52 @@ async def get_job_applications(
     query = query.order_by(JobApplication.submitted_at.desc())
     
     result = await db.execute(query)
-    return result.scalars().all()
+    applications = result.scalars().all()
+    
+    # Build response with applicant info
+    response = []
+    for app in applications:
+        applicant_info = None
+        if app.applicant:
+            # Get skills from user profile if available
+            user_skills = []
+            if hasattr(app.applicant, 'skills') and app.applicant.skills:
+                user_skills = app.applicant.skills if isinstance(app.applicant.skills, list) else []
+            
+            applicant_info = ApplicantInfo(
+                id=app.applicant.id,
+                first_name=app.applicant.first_name,
+                last_name=app.applicant.last_name,
+                email=app.applicant.email,
+                phone=getattr(app.applicant, 'phone', None),
+                mobile_number=getattr(app.applicant, 'mobile_number', None),
+                title=getattr(app.applicant, 'title', None) or getattr(app.applicant, 'headline', None),
+                headline=getattr(app.applicant, 'headline', None),
+                skills=user_skills,
+                experience_years=getattr(app.applicant, 'experience_years', None),
+                location=getattr(app.applicant, 'address', None) or getattr(app.applicant, 'country', None),
+                address=getattr(app.applicant, 'address', None),
+                avatar_url=getattr(app.applicant, 'avatar_url', None) or getattr(app.applicant, 'profile_image', None),
+            )
+        
+        app_with_applicant = JobApplicationWithApplicant(
+            id=app.id,
+            job_id=app.job_id,
+            applicant_id=app.applicant_id,
+            status=app.status.value if hasattr(app.status, 'value') else str(app.status),
+            cover_letter=app.cover_letter,
+            resume_url=app.resume_url,
+            answers=app.answers,
+            expected_salary=app.expected_salary,
+            submitted_at=app.submitted_at,
+            reviewed_at=app.reviewed_at,
+            rating=app.rating,
+            reviewer_notes=app.reviewer_notes,
+            applicant=applicant_info
+        )
+        response.append(app_with_applicant)
+    
+    return response
 
 
 @router.put("/applications/{app_id}/status")

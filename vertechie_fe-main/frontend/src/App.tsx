@@ -82,6 +82,8 @@ import QuizPage from './pages/techie/QuizPage';
 import VideoRoom from './pages/techie/VideoRoom';
 import MeetingLobby from './pages/techie/MeetingLobby';
 import ScheduleInterview from './pages/techie/ScheduleInterview';
+import MyInterviews from './pages/techie/MyInterviews';
+import ProfileCompletion from './pages/techie/ProfileCompletion';
 
 // ATS Pages (Separate Routes)
 import {
@@ -693,6 +695,13 @@ const App: React.FC = () => {
               </ProtectedRoute>
             } />
             
+            {/* My Interviews - For Techies to see their scheduled interviews */}
+            <Route path="/techie/my-interviews" element={
+              <ProtectedRoute requiredRole="user">
+                <MyInterviews />
+              </ProtectedRoute>
+            } />
+            
             {/* Scheduling - Calendar & Scheduling (Calendly-like) */}
             <Route path="/techie/scheduling" element={
               <ProtectedRoute requiredRole="user">
@@ -819,6 +828,13 @@ const App: React.FC = () => {
             <Route path="/techie/alerts" element={
               <ProtectedRoute requiredRole="user">
                 <Notifications />
+              </ProtectedRoute>
+            } />
+            
+            {/* Profile Completion (First Login After Approval) */}
+            <Route path="/techie/profile-completion" element={
+              <ProtectedRoute requiredRole="user">
+                <ProfileCompletion />
               </ProtectedRoute>
             } />
             

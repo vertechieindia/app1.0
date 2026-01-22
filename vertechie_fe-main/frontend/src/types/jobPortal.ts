@@ -59,16 +59,34 @@ export interface JobFormData {
   location: string;
   jobType: 'full-time' | 'internship' | 'part-time' | 'contract';
   codingQuestions: CodingQuestion[];
+  // Salary fields
+  salaryMin?: number;
+  salaryMax?: number;
+  // Status field
+  status?: string;
 }
 
 // Application Types
-export type ApplicationStatus = 'applied' | 'shortlisted' | 'rejected' | 'hired';
+export type ApplicationStatus = 'applied' | 'submitted' | 'under_review' | 'shortlisted' | 'interview' | 'offered' | 'rejected' | 'hired' | 'withdrawn';
 
 export interface CodingAnswer {
   questionId: string;
   code: string;
   language: string;
   submittedAt: string;
+}
+
+export interface ApplicantDetails {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  email: string;
+  phone?: string;
+  title?: string;
+  skills: string[];
+  experienceYears?: number;
+  location?: string;
+  avatarUrl?: string;
 }
 
 export interface Application {
@@ -83,6 +101,8 @@ export interface Application {
   codingAnswers: CodingAnswer[];
   codingScore?: number;
   codingStatus: 'pending' | 'submitted' | 'evaluated';
+  // Full applicant profile details from backend
+  applicantDetails?: ApplicantDetails;
 }
 
 // HR Dashboard Types

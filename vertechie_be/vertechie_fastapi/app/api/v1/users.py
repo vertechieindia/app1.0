@@ -77,6 +77,7 @@ async def list_users(
             "admin_roles": user.admin_roles or [],  # Include admin_roles for frontend filtering
             "date_joined": user.created_at,  # Alias for frontend compatibility
             "last_login": user.last_login,
+            "verification_status": user.verification_status.value if user.verification_status else "pending",
         }
         for user in users
     ]
@@ -201,10 +202,12 @@ async def get_user(
         "admin_roles": user.admin_roles or [],  # Include admin_roles for frontend
         "date_joined": user.created_at,  # Alias for frontend compatibility
         "last_login": user.last_login,
+        "verification_status": user.verification_status.value if user.verification_status else "pending",
     }
 
 
 @router.get("/{user_id}/profile", response_model=UserProfileResponse)
+@router.get("/{user_id}/profile/", response_model=UserProfileResponse, include_in_schema=False)
 async def get_user_profile(
     user_id: UUID,
     db: AsyncSession = Depends(get_db)
@@ -217,10 +220,12 @@ async def get_user_profile(
     profile = result.scalar_one_or_none()
     
     if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found"
-        )
+        # Return empty profile if not found (user may not have created one yet)
+        # Create a temporary profile object with default values
+        profile = UserProfile(user_id=user_id)
+        db.add(profile)
+        await db.commit()
+        await db.refresh(profile)
     
     return profile
 
@@ -228,6 +233,7 @@ async def get_user_profile(
 # ============= Experience Endpoints =============
 
 @router.get("/{user_id}/experiences", response_model=List[ExperienceResponse])
+@router.get("/{user_id}/experiences/", response_model=List[ExperienceResponse], include_in_schema=False)
 async def get_user_experiences(
     user_id: UUID,
     db: AsyncSession = Depends(get_db)
@@ -243,6 +249,7 @@ async def get_user_experiences(
 
 
 @router.get("/{user_id}/educations", response_model=List[EducationResponse])
+@router.get("/{user_id}/educations/", response_model=List[EducationResponse], include_in_schema=False)
 async def get_user_educations(
     user_id: UUID,
     db: AsyncSession = Depends(get_db)
@@ -537,4 +544,87 @@ async def unblock_user(
     await db.commit()
     
     return {"message": "User unblocked successfully"}
+
+
+@router.post("/{user_id}/reject")
+async def reject_user(
+    user_id: UUID,
+    reason: Optional[str] = None,
+    permanent_delete: bool = True,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(get_current_admin_user)
+) -> Any:
+    """
+    Admin: Reject a user during verification.
+    
+    If permanent_delete=True (default), the user and ALL their data 
+    (profile, experiences, educations, applications, notifications) 
+    are permanently deleted, freeing up the email for reuse.
+    
+    If permanent_delete=False, user is marked as REJECTED but data is kept.
+    """
+    from datetime import datetime
+    from app.models.user import VerificationStatus
+    from app.models.job import JobApplication
+    from app.models.notification import Notification
+    
+    result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    user_email = user.email  # Store for response message
+    
+    if permanent_delete:
+        # Delete all related data explicitly (in case cascade doesn't work)
+        # Delete job applications
+        await db.execute(
+            select(JobApplication).where(JobApplication.applicant_id == user_id)
+        )
+        app_result = await db.execute(
+            select(JobApplication).where(JobApplication.applicant_id == user_id)
+        )
+        for app in app_result.scalars().all():
+            await db.delete(app)
+        
+        # Delete notifications
+        try:
+            notif_result = await db.execute(
+                select(Notification).where(Notification.user_id == user_id)
+            )
+            for notif in notif_result.scalars().all():
+                await db.delete(notif)
+        except Exception as e:
+            print(f"Could not delete notifications: {e}")
+        
+        # Delete user (cascade will delete profile, experiences, educations)
+        await db.delete(user)
+        await db.commit()
+        
+        return {
+            "message": f"User {user_email} rejected and permanently deleted",
+            "email_freed": True,
+            "permanent_delete": True
+        }
+    else:
+        # Just mark as rejected, keep data
+        user.verification_status = VerificationStatus.REJECTED
+        user.reviewed_by_id = admin_user.id
+        user.reviewed_at = datetime.utcnow()
+        user.rejection_reason = reason
+        user.is_active = False
+        
+        await db.commit()
+        
+        return {
+            "message": f"User {user_email} marked as rejected",
+            "email_freed": False,
+            "permanent_delete": False
+        }
 

@@ -254,7 +254,7 @@ const Signup = () => {
       }, 2000);
     } else {
       // Fallback: only call register if not already registered
-      await submitSignup(data, 'hiring_manager');
+    await submitSignup(data, 'hiring_manager');
     }
   };
 
@@ -285,7 +285,7 @@ const Signup = () => {
       }, 2000);
     } else {
       // Fallback: only call register if not already registered
-      await submitSignup(data, 'techie');
+    await submitSignup(data, 'techie');
     }
   };
 

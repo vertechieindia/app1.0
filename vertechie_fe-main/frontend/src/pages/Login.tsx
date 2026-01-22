@@ -146,12 +146,15 @@ const Login = () => {
 
         if (userResponse.ok) {
           const userApiData = await userResponse.json();
-          // Preserve groups/roles from login response when merging user data
+          // Preserve critical fields from login response when merging user data
           userData = {
             ...userApiData,
             groups: userApiData.groups || data.user_data.groups || [],
             roles: userApiData.roles || data.user_data.roles || [],
             admin_roles: userApiData.admin_roles || data.user_data.admin_roles || [],
+            // IMPORTANT: Preserve verification_status and role from login response
+            verification_status: userApiData.verification_status || data.user_data.verification_status,
+            role: userApiData.role || data.user_data.role,
           };
           localStorage.setItem('userData', JSON.stringify(userData));
         }
@@ -213,18 +216,39 @@ const Login = () => {
       } else if (userData.is_staff) {
         // Generic staff - route to admin
         navigate('/admin');
-      } else if (isHR) {
-        // Redirect HR users to Home Feed
-        navigate('/techie/home/feed');
-      } else if (userData.is_active && !userData.is_verified) {
-        navigate('/status/processing');
-      } else if (userData.is_active && userData.is_verified) {
-        // Redirect verified techie users to the home feed
-        navigate('/techie/home/feed');
-      } else if (!userData.is_active && !userData.is_verified) {
+      } else if (userData.verification_status === 'rejected' || 
+                 userData.verification_status === 'REJECTED' ||
+                 userData.verification_status?.toLowerCase() === 'rejected') {
+        // FIRST: Check if user is REJECTED (using verification_status field)
         navigate('/status/rejected');
+      } else if (!userData.is_active && !userData.is_verified) {
+        // SECOND: Fallback check for rejected (not active AND not verified)
+        navigate('/status/rejected');
+      } else if (userData.is_active && !userData.is_verified) {
+        // THIRD: Check if user is pending verification (active but not verified)
+        // This applies to ALL user types including HR, Techie, etc.
+        navigate('/status/processing');
+      } else if (isHR && userData.is_verified) {
+        // FOURTH: Only redirect VERIFIED HR users to Home Feed
+        // Check if first login (profile completion not shown yet)
+        const profileCompletionShown = localStorage.getItem('profileCompletionShown');
+        if (!profileCompletionShown) {
+          navigate('/techie/profile-completion');
+        } else {
+          navigate('/techie/home/feed');
+        }
+      } else if (userData.is_active && userData.is_verified) {
+        // Redirect verified techie users
+        // Check if first login (profile completion not shown yet)
+        const profileCompletionShown = localStorage.getItem('profileCompletionShown');
+        if (!profileCompletionShown) {
+          navigate('/techie/profile-completion');
+        } else {
+          navigate('/techie/home/feed');
+        }
       } else {
-        navigate('/techie/home/feed');
+        // Default fallback
+        navigate('/status/processing');
       }
     } catch (err: any) {
       Logger.error('Login failed', { error: err.message, email }, 'Login');

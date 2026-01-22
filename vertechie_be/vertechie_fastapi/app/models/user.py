@@ -115,11 +115,11 @@ class User(Base, UUIDMixin, TimestampMixin):
     last_login = Column(DateTime, nullable=True)
     verified_at = Column(DateTime, nullable=True)
     
-    # Relationships
+    # Relationships with CASCADE DELETE - when user is deleted, all related data is deleted
     roles = relationship("UserRole", secondary=user_roles, back_populates="users")
-    profile = relationship("UserProfile", back_populates="user", uselist=False)
-    experiences = relationship("Experience", back_populates="user", foreign_keys="[Experience.user_id]")
-    educations = relationship("Education", back_populates="user", foreign_keys="[Education.user_id]")
+    profile = relationship("UserProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    experiences = relationship("Experience", back_populates="user", foreign_keys="[Experience.user_id]", cascade="all, delete-orphan")
+    educations = relationship("Education", back_populates="user", foreign_keys="[Education.user_id]", cascade="all, delete-orphan")
     
     @property
     def full_name(self) -> str:
