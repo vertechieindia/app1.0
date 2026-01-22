@@ -28,7 +28,21 @@ export interface Interview {
   notes?: string;
   job_title?: string;
   company_name?: string;
+  candidate_name?: string;
   created_at: string;
+}
+
+export interface InterviewDetail extends Interview {
+  application_id: string;
+  candidate_id?: string;
+  candidate_email?: string;
+  candidate_avatar?: string;
+  candidate_skills: string[];
+  candidate_experience?: string;
+  match_score?: number;
+  job_id?: string;
+  application_status?: string;
+  updated_at?: string;
 }
 
 export interface Notification {
@@ -110,7 +124,7 @@ export const interviewService = {
    */
   updateInterviewStatus: async (
     interviewId: string,
-    status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show'
+    status: 'scheduled' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'no_show'
   ): Promise<{ status: string }> => {
     return apiRequest(`/hiring/interviews/${interviewId}/status`, {
       method: 'PUT',
@@ -119,10 +133,52 @@ export const interviewService = {
   },
 
   /**
-   * Get a single interview by ID
+   * Get a single interview by ID with full details
    */
-  getInterviewById: async (interviewId: string): Promise<Interview> => {
+  getInterviewById: async (interviewId: string): Promise<InterviewDetail> => {
     return apiRequest(`/hiring/interviews/${interviewId}`);
+  },
+
+  /**
+   * Reschedule an interview
+   */
+  rescheduleInterview: async (
+    interviewId: string,
+    data: {
+      scheduled_at: string;
+      duration_minutes?: number;
+      location?: string;
+      meeting_link?: string;
+      notes?: string;
+    }
+  ): Promise<{ status: string; new_date: string }> => {
+    return apiRequest(`/hiring/interviews/${interviewId}/reschedule`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Cancel an interview
+   */
+  cancelInterview: async (interviewId: string): Promise<{ status: string }> => {
+    return apiRequest(`/hiring/interviews/${interviewId}/cancel`, {
+      method: 'PUT',
+    });
+  },
+
+  /**
+   * Update decision after interview (Selected/Rejected/On Hold)
+   */
+  updateDecision: async (
+    interviewId: string,
+    decision: 'selected' | 'rejected' | 'on_hold',
+    notes?: string
+  ): Promise<{ status: string; decision: string; application_status: string }> => {
+    return apiRequest(`/hiring/interviews/${interviewId}/decision`, {
+      method: 'PUT',
+      body: JSON.stringify({ decision, notes }),
+    });
   },
 };
 
@@ -195,10 +251,24 @@ export const formatInterviewStatus = (status: string): { label: string; color: s
 };
 
 /**
+ * Parse date string from backend (handles UTC conversion)
+ * Backend sends dates without "Z" suffix, so we need to append it
+ */
+const parseBackendDate = (dateString: string): Date => {
+  // If the string doesn't have timezone info (no Z or +/-), treat as UTC
+  if (dateString && !dateString.includes('Z') && !dateString.includes('+') && !dateString.match(/[+-]\d{2}:\d{2}$/)) {
+    // Replace space with T for ISO format and add Z for UTC
+    const isoString = dateString.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
+    return new Date(isoString);
+  }
+  return new Date(dateString);
+};
+
+/**
  * Format date for interview display
  */
 export const formatInterviewDate = (dateString: string): string => {
-  const date = new Date(dateString);
+  const date = parseBackendDate(dateString);
   return date.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -211,7 +281,7 @@ export const formatInterviewDate = (dateString: string): string => {
  * Format time for interview display
  */
 export const formatInterviewTime = (dateString: string): string => {
-  const date = new Date(dateString);
+  const date = parseBackendDate(dateString);
   return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',

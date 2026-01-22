@@ -3,7 +3,7 @@
  * Integrates with backend API to store and manage scheduling link constraints
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Card, CardContent, Button, IconButton, Chip, Grid,
   TextField, Dialog, DialogTitle, DialogContent, DialogActions, FormControl,
@@ -42,14 +42,15 @@ const MeetingTypeCard = styled(Card)(() => ({
   },
 }));
 
-const meetingTypes = [
-  { id: 1, name: '30 Minute Meeting', duration: 30, color: '#0d47a1', platform: 'Zoom', type: 'One-on-one', visibility: 'Public', bookings: 45, active: true },
-  { id: 2, name: '60 Minute Meeting', duration: 60, color: '#34C759', platform: 'Google Meet', type: 'One-on-one', visibility: 'Public', bookings: 23, active: true },
-  { id: 3, name: 'Technical Interview', duration: 45, color: '#FF9500', platform: 'Zoom', type: 'One-on-one', visibility: 'Private', bookings: 12, active: true },
-  { id: 4, name: 'Team Round Robin', duration: 30, color: '#8E8E93', platform: 'Teams', type: 'Round Robin', visibility: 'Private', bookings: 8, active: false },
+// Default meeting types (can be customized by HM)
+const defaultMeetingTypes = [
+  { id: 1, name: '30 Minute Interview', duration: 30, color: '#0d47a1', platform: 'VerTechie Meet', type: 'One-on-one', visibility: 'Private', bookings: 0, active: true },
+  { id: 2, name: '60 Minute Interview', duration: 60, color: '#34C759', platform: 'VerTechie Meet', type: 'One-on-one', visibility: 'Private', bookings: 0, active: true },
+  { id: 3, name: 'Technical Interview', duration: 45, color: '#FF9500', platform: 'VerTechie Meet', type: 'One-on-one', visibility: 'Private', bookings: 0, active: true },
 ];
 
-const availability = [
+// Default availability
+const defaultAvailability = [
   { day: 'Monday', dayNum: 1, slots: [{ start: '9:00 AM', end: '12:00 PM' }, { start: '1:00 PM', end: '5:00 PM' }] },
   { day: 'Tuesday', dayNum: 2, slots: [{ start: '9:00 AM', end: '12:00 PM' }, { start: '1:00 PM', end: '5:00 PM' }] },
   { day: 'Wednesday', dayNum: 3, slots: [{ start: '9:00 AM', end: '12:00 PM' }, { start: '1:00 PM', end: '5:00 PM' }] },
@@ -57,12 +58,6 @@ const availability = [
   { day: 'Friday', dayNum: 5, slots: [{ start: '9:00 AM', end: '12:00 PM' }] },
   { day: 'Saturday', dayNum: 6, slots: [] },
   { day: 'Sunday', dayNum: 0, slots: [] },
-];
-
-const upcomingBookings = [
-  { id: 1, name: 'Sarah Johnson', type: '30 Minute Meeting', date: 'Dec 29, 2024', time: '10:00 AM', status: 'confirmed' },
-  { id: 2, name: 'Mike Chen', type: 'Technical Interview', date: 'Dec 30, 2024', time: '2:00 PM', status: 'confirmed' },
-  { id: 3, name: 'Emily Davis', type: '60 Minute Meeting', date: 'Dec 31, 2024', time: '11:00 AM', status: 'pending' },
 ];
 
 interface LinkSettings {
@@ -114,6 +109,54 @@ const SchedulingPage: React.FC = () => {
   const [linkCopied, setLinkCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [realBookings, setRealBookings] = useState<any[]>([]);
+  const [meetingTypes, setMeetingTypes] = useState(defaultMeetingTypes);
+  const [availability] = useState(defaultAvailability);
+
+  // Fetch real upcoming bookings from interviews
+  useEffect(() => {
+    const fetchBookings = async () => {
+      try {
+        const token = localStorage.getItem('authToken');
+        if (!token) return;
+
+        const response = await fetch(`${API_BASE}/v1/hiring/interviews?upcoming=true`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const bookings = data.map((interview: any, idx: number) => {
+            const scheduledAt = new Date(interview.scheduled_at);
+            return {
+              id: interview.id || idx + 1,
+              name: interview.candidate_name || 'Candidate',
+              type: interview.interview_type || 'Technical Interview',
+              date: scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+              time: scheduledAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              status: interview.status === 'scheduled' ? 'confirmed' : interview.status,
+              duration: interview.duration_minutes || 60,
+            };
+          });
+          setRealBookings(bookings);
+          
+          // Update meeting types with real booking counts
+          const updatedMeetingTypes = defaultMeetingTypes.map(mt => ({
+            ...mt,
+            bookings: bookings.filter((b: any) => b.duration === mt.duration).length,
+          }));
+          setMeetingTypes(updatedMeetingTypes);
+        }
+      } catch (err) {
+        console.warn('Could not fetch bookings:', err);
+      }
+    };
+
+    fetchBookings();
+  }, []);
 
   const handleDayToggle = (day: number) => {
     const newDays = linkSettings.availableDays.includes(day)
@@ -395,7 +438,12 @@ const SchedulingPage: React.FC = () => {
               <Button size="small">View All</Button>
             </Box>
             <List dense>
-              {upcomingBookings.map((booking) => (
+              {realBookings.length === 0 ? (
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">No upcoming bookings</Typography>
+                </Box>
+              ) : null}
+              {realBookings.map((booking) => (
                 <ListItem key={booking.id} sx={{ px: 0 }}>
                   <ListItemAvatar>
                     <Avatar sx={{ bgcolor: alpha('#0d47a1', 0.1), color: '#0d47a1', width: 36, height: 36 }}>

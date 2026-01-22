@@ -25,6 +25,8 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PersonIcon from '@mui/icons-material/Person';
 import EmailIcon from '@mui/icons-material/Email';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import Grid from '@mui/material/Grid';
 import ATSLayout from './ATSLayout';
 import { userService, jobService, getHRUserInfo } from '../../../services/jobPortalService';
 import { getApiUrl, API_ENDPOINTS } from '../../../config/api';
@@ -137,6 +139,7 @@ interface Candidate {
   source: string;
   avatar?: string;
   applicationId?: string;
+  userId?: string;  // The actual user ID for viewing profile
   jobId?: string;
   jobTitle?: string;
 }
@@ -177,6 +180,17 @@ const PipelinePage: React.FC = () => {
     open: false, action: null, candidate: null
   });
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Schedule Interview Dialog State
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({
+    date: '',
+    time: '',
+    duration: 60,
+    type: 'technical',
+    notes: '',
+  });
+  const [scheduling, setScheduling] = useState(false);
 
   // Fetch jobs for filter dropdown
   useEffect(() => {
@@ -246,14 +260,15 @@ const PipelinePage: React.FC = () => {
           skills: candidate.skills || [],
           rating: candidate.rating || 4,
           time: candidate.time || 'Recently',
-          score: candidate.score || candidate.matchScore || 75,
-          matchScore: candidate.matchScore || candidate.score || 75,
+          score: candidate.score || candidate.matchScore || candidate.match_score || 0,
+          matchScore: candidate.matchScore || candidate.match_score || candidate.score || 0,
           aiInsight: candidate.aiInsight || aiInsights[index % aiInsights.length],
           experience: candidate.experience || 0,
           education: candidate.education || 'Not specified',
           source: candidate.source || 'VerTechie',
           avatar: candidate.avatar,
           applicationId: candidate.application_id,
+          userId: candidate.user_id,  // Store the actual user ID
           jobId: candidate.job_id,
           jobTitle: candidate.job_title,
         }));
@@ -435,9 +450,67 @@ const PipelinePage: React.FC = () => {
     setSelectedCandidate(candidate);
   };
 
-  // Handle card click - navigate to profile
+  // Handle card click - navigate to profile using userId (the actual user ID)
   const handleCardClick = (candidate: Candidate) => {
-    navigate(`/techie/ats/candidate/${candidate.id}`);
+    const profileId = candidate.userId || candidate.id;
+    navigate(`/techie/ats/candidate/${profileId}`);
+  };
+
+  // Handle schedule interview
+  const handleScheduleInterview = (candidate: Candidate) => {
+    setSelectedCandidate(candidate);
+    setScheduleDialogOpen(true);
+    setMenuAnchor(null);
+  };
+
+  const handleSubmitSchedule = async () => {
+    if (!selectedCandidate || !scheduleForm.date || !scheduleForm.time) {
+      setSnackbar({ open: true, message: 'Please fill in all required fields', severity: 'error' });
+      return;
+    }
+    
+    try {
+      setScheduling(true);
+      const token = localStorage.getItem('authToken');
+      const scheduledAt = new Date(`${scheduleForm.date}T${scheduleForm.time}`).toISOString();
+      const meetingId = `interview-${Date.now()}`;
+      const meetingLink = `${window.location.origin}/techie/lobby/${meetingId}?type=interview`;
+      
+      // Use the application_id from the candidate
+      const applicationId = selectedCandidate.applicationId || selectedCandidate.id;
+      
+      const response = await fetch(getApiUrl('/hiring/interviews'), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          application_id: applicationId,
+          interview_type: scheduleForm.type,
+          scheduled_at: scheduledAt,
+          duration_minutes: scheduleForm.duration,
+          meeting_link: meetingLink,
+          notes: scheduleForm.notes,
+        }),
+      });
+      
+      if (response.ok) {
+        setSnackbar({ open: true, message: 'Interview scheduled successfully! Candidate will be notified.', severity: 'success' });
+        setScheduleDialogOpen(false);
+        setScheduleForm({ date: '', time: '', duration: 60, type: 'technical', notes: '' });
+        // Refresh candidates to reflect the stage change
+        window.location.reload();
+      } else {
+        const error = await response.json();
+        setSnackbar({ open: true, message: error.detail || 'Failed to schedule interview', severity: 'error' });
+      }
+    } catch (error) {
+      console.error('Error scheduling interview:', error);
+      setSnackbar({ open: true, message: 'Failed to schedule interview', severity: 'error' });
+    } finally {
+      setScheduling(false);
+    }
   };
 
   // Filter candidates by search
@@ -773,7 +846,10 @@ const PipelinePage: React.FC = () => {
       >
         <MenuItem onClick={() => {
           setMenuAnchor(null);
-          if (selectedCandidate) navigate(`/techie/ats/candidate/${selectedCandidate.id}`);
+          if (selectedCandidate) {
+            const profileId = selectedCandidate.userId || selectedCandidate.id;
+            navigate(`/techie/ats/candidate/${profileId}`);
+          }
         }}>
           <PersonIcon fontSize="small" sx={{ mr: 1 }} />
           View Profile
@@ -784,6 +860,16 @@ const PipelinePage: React.FC = () => {
         }}>
           <EmailIcon fontSize="small" sx={{ mr: 1 }} />
           Send Email
+        </MenuItem>
+        <MenuItem 
+          onClick={() => {
+            if (selectedCandidate) {
+              handleScheduleInterview(selectedCandidate);
+            }
+          }}
+        >
+          <ScheduleIcon fontSize="small" sx={{ mr: 1 }} />
+          Schedule Interview
         </MenuItem>
         <MenuItem 
           onClick={() => {
@@ -858,6 +944,99 @@ const PipelinePage: React.FC = () => {
             }}
           >
             Confirm & Send Email
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Schedule Interview Dialog */}
+      <Dialog
+        open={scheduleDialogOpen}
+        onClose={() => setScheduleDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>
+          Schedule Interview with {selectedCandidate?.name}
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Date"
+                type="date"
+                value={scheduleForm.date}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, date: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Time"
+                type="time"
+                value={scheduleForm.time}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, time: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Duration</InputLabel>
+                <Select
+                  value={scheduleForm.duration}
+                  label="Duration"
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, duration: Number(e.target.value) })}
+                >
+                  <MenuItem value={30}>30 minutes</MenuItem>
+                  <MenuItem value={45}>45 minutes</MenuItem>
+                  <MenuItem value={60}>1 hour</MenuItem>
+                  <MenuItem value={90}>1.5 hours</MenuItem>
+                  <MenuItem value={120}>2 hours</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Interview Type</InputLabel>
+                <Select
+                  value={scheduleForm.type}
+                  label="Interview Type"
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, type: e.target.value })}
+                >
+                  <MenuItem value="phone">Phone Screening</MenuItem>
+                  <MenuItem value="video">Video Interview</MenuItem>
+                  <MenuItem value="technical">Technical Interview</MenuItem>
+                  <MenuItem value="behavioral">Behavioral Interview</MenuItem>
+                  <MenuItem value="panel">Panel Interview</MenuItem>
+                  <MenuItem value="onsite">Onsite Interview</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Notes"
+                multiline
+                rows={3}
+                value={scheduleForm.notes}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, notes: e.target.value })}
+                placeholder="Add any notes or instructions for the interview..."
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button onClick={() => setScheduleDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmitSchedule}
+            disabled={scheduling || !scheduleForm.date || !scheduleForm.time}
+            sx={{ bgcolor: '#0d47a1' }}
+          >
+            {scheduling ? <CircularProgress size={20} /> : 'Schedule Interview'}
           </Button>
         </DialogActions>
       </Dialog>

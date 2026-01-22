@@ -101,10 +101,21 @@ class InterviewCreate(BaseModel):
     interviewers: List[UUID] = []
     notes: Optional[str] = None
 
-class InterviewResponse(InterviewCreate):
+class InterviewResponse(BaseModel):
     id: UUID
+    application_id: UUID
+    interview_type: InterviewType
+    scheduled_at: datetime
+    duration_minutes: int = 60
+    location: Optional[str] = None
+    meeting_link: Optional[str] = None
+    interviewers: List[UUID] = []
+    notes: Optional[str] = None
     status: InterviewStatus
     created_at: datetime
+    # Additional fields for HM dashboard
+    candidate_name: Optional[str] = None
+    job_title: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -240,6 +251,7 @@ class PipelineCandidateResponse(BaseModel):
     """Response model for pipeline candidates."""
     id: str
     application_id: UUID
+    user_id: UUID  # The actual user/applicant ID for viewing profile
     name: str
     email: str
     role: Optional[str] = None
@@ -368,6 +380,7 @@ async def get_pipeline_candidates(
         candidate = PipelineCandidateResponse(
             id=str(app.id),  # Use application ID as candidate ID
             application_id=app.id,
+            user_id=applicant.id,  # The actual user ID for profile viewing
             name=name,
             email=applicant.email,
             role=getattr(applicant, 'title', None) or getattr(applicant, 'headline', None) or job.title if job else None,
@@ -377,7 +390,7 @@ async def get_pipeline_candidates(
             rating=app.rating if app.rating else None,
             time=time_str,
             score=app.rating * 20 if app.rating else 75,
-            matchScore=match_score,
+            matchScore=app.match_score if app.match_score else match_score,  # Use stored match_score
             aiInsight=None,  # Can be enhanced with AI insights
             experience=experience_years,
             education=education,
@@ -553,19 +566,94 @@ async def list_my_interviews(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """List interviews (as interviewer)."""
-    from sqlalchemy import cast, String
+    """List interviews for HM - includes interviews for their jobs or where they are interviewer."""
+    from sqlalchemy import cast, String, or_
     
-    query = select(Interview).where(
-        Interview.interviewers.contains([str(current_user.id)])
+    # Get all job IDs posted by this HM
+    jobs_result = await db.execute(
+        select(Job.id).where(Job.posted_by_id == current_user.id)
     )
+    hm_job_ids = [row[0] for row in jobs_result.fetchall()]
+    
+    # Get all application IDs for HM's jobs
+    hm_application_ids = []
+    if hm_job_ids:
+        apps_result = await db.execute(
+            select(JobApplication.id).where(JobApplication.job_id.in_(hm_job_ids))
+        )
+        hm_application_ids = [row[0] for row in apps_result.fetchall()]
+    
+    # Query interviews where:
+    # 1. Current user is in interviewers list, OR
+    # 2. Interview is for an application to HM's job
+    if hm_application_ids:
+        query = select(Interview).where(
+            or_(
+                Interview.interviewers.contains([str(current_user.id)]),
+                Interview.application_id.in_(hm_application_ids)
+            )
+        )
+    else:
+        query = select(Interview).where(
+            Interview.interviewers.contains([str(current_user.id)])
+        )
     
     if upcoming:
         query = query.where(Interview.scheduled_at >= datetime.utcnow())
+        query = query.order_by(Interview.scheduled_at.asc())  # Upcoming: earliest first
+    else:
+        query = query.order_by(Interview.scheduled_at.desc())  # All: most recent first
     
-    query = query.order_by(Interview.scheduled_at).offset(skip).limit(limit)
+    query = query.offset(skip).limit(limit)
     result = await db.execute(query)
-    return result.scalars().all()
+    interviews = result.scalars().all()
+    
+    # Enrich interviews with candidate and job details
+    enriched_interviews = []
+    for interview in interviews:
+        # Get the application to find candidate and job
+        app_result = await db.execute(
+            select(JobApplication).where(JobApplication.id == interview.application_id)
+        )
+        application = app_result.scalar_one_or_none()
+        
+        candidate_name = None
+        job_title = None
+        
+        if application:
+            # Get the applicant's name
+            user_result = await db.execute(
+                select(User).where(User.id == application.applicant_id)
+            )
+            applicant = user_result.scalar_one_or_none()
+            if applicant:
+                candidate_name = f"{applicant.first_name or ''} {applicant.last_name or ''}".strip() or applicant.email
+            
+            # Get the job title
+            job_result = await db.execute(
+                select(Job).where(Job.id == application.job_id)
+            )
+            job = job_result.scalar_one_or_none()
+            if job:
+                job_title = job.title
+        
+        enriched_interviews.append(InterviewResponse(
+            id=interview.id,
+            application_id=interview.application_id,
+            interview_type=interview.interview_type,
+            scheduled_at=interview.scheduled_at,
+            duration_minutes=interview.duration_minutes,
+            location=interview.location,
+            meeting_link=interview.meeting_link,
+            interviewers=interview.interviewers or [],
+            notes=interview.notes,
+            status=interview.status,
+            created_at=interview.created_at,
+            candidate_name=candidate_name,
+            job_title=job_title,
+        ))
+    
+    return enriched_interviews
 
 
 @router.post("/interviews", response_model=InterviewResponse)
@@ -663,7 +751,29 @@ The VerTechie Team
         
         logger.info(f"Interview scheduled and notification sent to {candidate.email}")
     
-    return db_interview
+    # Return enriched response with candidate and job details
+    candidate_name = None
+    job_title_str = None
+    if candidate:
+        candidate_name = f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email
+    if job:
+        job_title_str = job.title
+    
+    return InterviewResponse(
+        id=db_interview.id,
+        application_id=db_interview.application_id,
+        interview_type=db_interview.interview_type,
+        scheduled_at=db_interview.scheduled_at,
+        duration_minutes=db_interview.duration_minutes,
+        location=db_interview.location,
+        meeting_link=db_interview.meeting_link,
+        interviewers=db_interview.interviewers or [],
+        notes=db_interview.notes,
+        status=db_interview.status,
+        created_at=db_interview.created_at,
+        candidate_name=candidate_name,
+        job_title=job_title_str,
+    )
 
 
 def send_interview_email(to: str, subject: str, body: str):
@@ -758,6 +868,357 @@ async def update_interview_status(
     await db.commit()
     
     return {"status": "updated"}
+
+
+# ============= Interview Details & Management Endpoints =============
+
+class InterviewDetailResponse(BaseModel):
+    """Detailed interview response with full candidate info."""
+    id: UUID
+    application_id: UUID
+    interview_type: InterviewType
+    scheduled_at: datetime
+    duration_minutes: int
+    location: Optional[str] = None
+    meeting_link: Optional[str] = None
+    interviewers: List[UUID] = []
+    notes: Optional[str] = None
+    status: InterviewStatus
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    # Candidate details
+    candidate_id: Optional[UUID] = None
+    candidate_name: Optional[str] = None
+    candidate_email: Optional[str] = None
+    candidate_avatar: Optional[str] = None
+    candidate_skills: List[str] = []
+    candidate_experience: Optional[str] = None
+    match_score: Optional[int] = None
+    # Job details
+    job_id: Optional[UUID] = None
+    job_title: Optional[str] = None
+    company_name: Optional[str] = None
+    # Application decision
+    application_status: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class RescheduleRequest(BaseModel):
+    scheduled_at: datetime
+    duration_minutes: Optional[int] = None
+    location: Optional[str] = None
+    meeting_link: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class DecisionRequest(BaseModel):
+    decision: str  # selected, rejected, on_hold
+    notes: Optional[str] = None
+
+
+@router.get("/interviews/{interview_id}", response_model=InterviewDetailResponse)
+async def get_interview_details(
+    interview_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get full interview details with candidate information."""
+    from app.models.user import UserProfile
+    
+    result = await db.execute(
+        select(Interview).where(Interview.id == interview_id)
+    )
+    interview = result.scalar_one_or_none()
+    
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    
+    # Get application details
+    app_result = await db.execute(
+        select(JobApplication).where(JobApplication.id == interview.application_id)
+    )
+    application = app_result.scalar_one_or_none()
+    
+    candidate_id = None
+    candidate_name = None
+    candidate_email = None
+    candidate_avatar = None
+    candidate_skills = []
+    candidate_experience = None
+    job_id = None
+    job_title = None
+    company_name = None
+    application_status = None
+    match_score = None
+    
+    if application:
+        application_status = application.status.value if application.status else None
+        match_score = application.match_score
+        
+        # Get candidate details
+        user_result = await db.execute(
+            select(User).where(User.id == application.applicant_id)
+        )
+        candidate = user_result.scalar_one_or_none()
+        if candidate:
+            candidate_id = candidate.id
+            candidate_name = f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email
+            candidate_email = candidate.email
+            candidate_avatar = candidate.avatar_url if hasattr(candidate, 'avatar_url') else None
+            
+            # Get profile for skills
+            profile_result = await db.execute(
+                select(UserProfile).where(UserProfile.user_id == candidate.id)
+            )
+            profile = profile_result.scalar_one_or_none()
+            if profile:
+                candidate_skills = profile.skills or []
+                candidate_experience = profile.headline
+        
+        # Get job details
+        job_result = await db.execute(
+            select(Job).where(Job.id == application.job_id)
+        )
+        job = job_result.scalar_one_or_none()
+        if job:
+            job_id = job.id
+            job_title = job.title
+            company_name = job.company_name
+    
+    return InterviewDetailResponse(
+        id=interview.id,
+        application_id=interview.application_id,
+        interview_type=interview.interview_type,
+        scheduled_at=interview.scheduled_at,
+        duration_minutes=interview.duration_minutes,
+        location=interview.location,
+        meeting_link=interview.meeting_link,
+        interviewers=interview.interviewers or [],
+        notes=interview.notes,
+        status=interview.status,
+        created_at=interview.created_at,
+        updated_at=interview.updated_at,
+        candidate_id=candidate_id,
+        candidate_name=candidate_name,
+        candidate_email=candidate_email,
+        candidate_avatar=candidate_avatar,
+        candidate_skills=candidate_skills,
+        candidate_experience=candidate_experience,
+        match_score=match_score,
+        job_id=job_id,
+        job_title=job_title,
+        company_name=company_name,
+        application_status=application_status,
+    )
+
+
+@router.put("/interviews/{interview_id}/reschedule")
+async def reschedule_interview(
+    interview_id: UUID,
+    reschedule: RescheduleRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Reschedule an interview and notify the candidate."""
+    result = await db.execute(
+        select(Interview).where(Interview.id == interview_id)
+    )
+    interview = result.scalar_one_or_none()
+    
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    
+    old_date = interview.scheduled_at
+    
+    # Update interview
+    interview.scheduled_at = reschedule.scheduled_at
+    if reschedule.duration_minutes:
+        interview.duration_minutes = reschedule.duration_minutes
+    if reschedule.location:
+        interview.location = reschedule.location
+    if reschedule.meeting_link:
+        interview.meeting_link = reschedule.meeting_link
+    if reschedule.notes:
+        interview.notes = reschedule.notes
+    interview.status = InterviewStatus.SCHEDULED
+    
+    # Get candidate for notification
+    app_result = await db.execute(
+        select(JobApplication).where(JobApplication.id == interview.application_id)
+    )
+    application = app_result.scalar_one_or_none()
+    
+    if application:
+        user_result = await db.execute(
+            select(User).where(User.id == application.applicant_id)
+        )
+        candidate = user_result.scalar_one_or_none()
+        
+        job_result = await db.execute(
+            select(Job).where(Job.id == application.job_id)
+        )
+        job = job_result.scalar_one_or_none()
+        
+        if candidate:
+            # Create notification
+            notification = Notification(
+                user_id=candidate.id,
+                title="Interview Rescheduled",
+                message=f"Your interview for {job.title if job else 'the position'} has been rescheduled to {reschedule.scheduled_at.strftime('%B %d, %Y at %I:%M %p')}",
+                notification_type=NotificationType.INTERVIEW_SCHEDULED,
+                link="/techie/my-interviews",
+                reference_id=interview.id,
+                reference_type="interview"
+            )
+            db.add(notification)
+    
+    await db.commit()
+    
+    return {"status": "rescheduled", "new_date": reschedule.scheduled_at}
+
+
+@router.put("/interviews/{interview_id}/cancel")
+async def cancel_interview(
+    interview_id: UUID,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Cancel an interview and notify the candidate."""
+    result = await db.execute(
+        select(Interview).where(Interview.id == interview_id)
+    )
+    interview = result.scalar_one_or_none()
+    
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    
+    interview.status = InterviewStatus.CANCELLED
+    
+    # Get candidate for notification
+    app_result = await db.execute(
+        select(JobApplication).where(JobApplication.id == interview.application_id)
+    )
+    application = app_result.scalar_one_or_none()
+    
+    if application:
+        user_result = await db.execute(
+            select(User).where(User.id == application.applicant_id)
+        )
+        candidate = user_result.scalar_one_or_none()
+        
+        job_result = await db.execute(
+            select(Job).where(Job.id == application.job_id)
+        )
+        job = job_result.scalar_one_or_none()
+        
+        if candidate:
+            notification = Notification(
+                user_id=candidate.id,
+                title="Interview Cancelled",
+                message=f"Your interview for {job.title if job else 'the position'} has been cancelled.",
+                notification_type=NotificationType.INTERVIEW_SCHEDULED,
+                link="/techie/my-interviews",
+                reference_id=interview.id,
+                reference_type="interview"
+            )
+            db.add(notification)
+    
+    await db.commit()
+    
+    return {"status": "cancelled"}
+
+
+@router.put("/interviews/{interview_id}/decision")
+async def update_interview_decision(
+    interview_id: UUID,
+    decision: DecisionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update the final decision after interview (Selected/Rejected/On Hold)."""
+    result = await db.execute(
+        select(Interview).where(Interview.id == interview_id)
+    )
+    interview = result.scalar_one_or_none()
+    
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    
+    # Get application
+    app_result = await db.execute(
+        select(JobApplication).where(JobApplication.id == interview.application_id)
+    )
+    application = app_result.scalar_one_or_none()
+    
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    # Update application status based on decision
+    decision_map = {
+        'selected': ApplicationStatus.OFFERED,
+        'rejected': ApplicationStatus.REJECTED,
+        'on_hold': ApplicationStatus.SHORTLISTED,
+    }
+    
+    new_status = decision_map.get(decision.decision.lower())
+    if not new_status:
+        raise HTTPException(status_code=400, detail="Invalid decision. Use: selected, rejected, or on_hold")
+    
+    application.status = new_status
+    application.notes = decision.notes if decision.notes else application.notes
+    interview.status = InterviewStatus.COMPLETED
+    
+    # Get candidate for notification
+    user_result = await db.execute(
+        select(User).where(User.id == application.applicant_id)
+    )
+    candidate = user_result.scalar_one_or_none()
+    
+    job_result = await db.execute(
+        select(Job).where(Job.id == application.job_id)
+    )
+    job = job_result.scalar_one_or_none()
+    
+    if candidate:
+        if decision.decision.lower() == 'selected':
+            notification = Notification(
+                user_id=candidate.id,
+                title="Congratulations! You've been selected!",
+                message=f"Great news! You have been selected for {job.title if job else 'the position'}. We will contact you with next steps.",
+                notification_type=NotificationType.APPLICATION_SELECTED,
+                link="/techie/my-applications",
+                reference_id=application.id,
+                reference_type="application"
+            )
+        elif decision.decision.lower() == 'rejected':
+            notification = Notification(
+                user_id=candidate.id,
+                title="Application Update",
+                message=f"Thank you for interviewing for {job.title if job else 'the position'}. Unfortunately, we have decided to move forward with other candidates.",
+                notification_type=NotificationType.APPLICATION_REJECTED,
+                link="/techie/my-applications",
+                reference_id=application.id,
+                reference_type="application"
+            )
+        else:
+            notification = Notification(
+                user_id=candidate.id,
+                title="Application Status Update",
+                message=f"Your application for {job.title if job else 'the position'} is on hold. We will update you soon.",
+                notification_type=NotificationType.APPLICATION_UPDATE,
+                link="/techie/my-applications",
+                reference_id=application.id,
+                reference_type="application"
+            )
+        db.add(notification)
+    
+    await db.commit()
+    
+    return {"status": "updated", "decision": decision.decision, "application_status": new_status.value}
 
 
 @router.post("/interviews/{interview_id}/scorecard")
@@ -1127,4 +1588,109 @@ async def mark_all_notifications_read(
     await db.commit()
     
     return {"status": "all_read"}
+
+
+# ============= Analytics Endpoint =============
+
+class AnalyticsResponse(BaseModel):
+    """Analytics data for HM dashboard."""
+    total_applicants: int = 0
+    interviews_scheduled: int = 0
+    offers_made: int = 0
+    active_jobs: int = 0
+    pipeline_metrics: List[dict] = []
+    job_performance: List[dict] = []
+    source_metrics: List[dict] = []
+
+
+@router.get("/analytics", response_model=AnalyticsResponse)
+async def get_hiring_analytics(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get hiring analytics for the current HM's jobs."""
+    from sqlalchemy import func
+    
+    # Get all jobs created by this HM
+    jobs_result = await db.execute(
+        select(Job).where(Job.posted_by_id == current_user.id)
+    )
+    hm_jobs = jobs_result.scalars().all()
+    job_ids = [job.id for job in hm_jobs]
+    
+    if not job_ids:
+        return AnalyticsResponse()
+    
+    # Get all applications for HM's jobs
+    apps_result = await db.execute(
+        select(JobApplication).where(JobApplication.job_id.in_(job_ids))
+    )
+    applications = apps_result.scalars().all()
+    
+    # Count by status
+    status_counts = {
+        'submitted': 0,
+        'under_review': 0,
+        'shortlisted': 0,
+        'interview': 0,
+        'offered': 0,
+        'hired': 0,
+        'rejected': 0,
+    }
+    
+    for app in applications:
+        status = app.status.value.lower() if app.status else 'submitted'
+        if status in status_counts:
+            status_counts[status] += 1
+    
+    total = len(applications) or 1
+    
+    # Pipeline metrics
+    pipeline_metrics = [
+        {'stage': 'New Applicants', 'count': status_counts['submitted'], 'percentage': 100},
+        {'stage': 'Screening', 'count': status_counts['under_review'] + status_counts['shortlisted'], 'percentage': round((status_counts['under_review'] + status_counts['shortlisted']) / total * 100)},
+        {'stage': 'Interview', 'count': status_counts['interview'], 'percentage': round(status_counts['interview'] / total * 100)},
+        {'stage': 'Offer', 'count': status_counts['offered'], 'percentage': round(status_counts['offered'] / total * 100)},
+        {'stage': 'Hired', 'count': status_counts['hired'], 'percentage': round(status_counts['hired'] / total * 100)},
+    ]
+    
+    # Job performance
+    job_performance = []
+    for job in hm_jobs:
+        job_apps = [a for a in applications if a.job_id == job.id]
+        job_performance.append({
+            'title': job.title,
+            'applicants': len(job_apps),
+            'interviews': len([a for a in job_apps if a.status and a.status.value.lower() == 'interview']),
+            'offers': len([a for a in job_apps if a.status and a.status.value.lower() in ['offered', 'hired']]),
+            'status': 'active' if job.status == 'published' else job.status,
+        })
+    
+    # Count interviews
+    interviews_result = await db.execute(
+        select(func.count(Interview.id)).where(
+            Interview.interviewers.contains([str(current_user.id)])
+        )
+    )
+    interviews_count = interviews_result.scalar() or 0
+    
+    # Source metrics (all from VerTechie for now)
+    source_metrics = [
+        {
+            'source': 'VerTechie',
+            'applicants': len(applications),
+            'hires': status_counts['hired'],
+            'conversionRate': round(status_counts['hired'] / total * 100) if total else 0
+        },
+    ]
+    
+    return AnalyticsResponse(
+        total_applicants=len(applications),
+        interviews_scheduled=status_counts['interview'],
+        offers_made=status_counts['offered'] + status_counts['hired'],
+        active_jobs=len([j for j in hm_jobs if j.status == 'published']),
+        pipeline_metrics=pipeline_metrics,
+        job_performance=job_performance,
+        source_metrics=source_metrics,
+    )
 

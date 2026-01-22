@@ -238,7 +238,8 @@ async def apply_to_job(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
-    """Apply to a job."""
+    """Apply to a job with skill matching calculation."""
+    from app.models.user import UserProfile
     
     # Check job exists
     result = await db.execute(
@@ -265,6 +266,47 @@ async def apply_to_job(
             detail="You have already applied to this job"
         )
     
+    # ============= SKILL MATCHING CALCULATION =============
+    # Get applicant's skills from profile
+    profile_result = await db.execute(
+        select(UserProfile).where(UserProfile.user_id == current_user.id)
+    )
+    user_profile = profile_result.scalar_one_or_none()
+    
+    # Get user skills (normalize to lowercase for comparison)
+    user_skills = []
+    if user_profile and user_profile.skills:
+        user_skills = [s.lower().strip() for s in user_profile.skills if s]
+    
+    # Get required skills from job (normalize to lowercase)
+    required_skills = []
+    if job.skills_required:
+        required_skills = [s.lower().strip() for s in job.skills_required if s]
+    
+    # Calculate matched and missing skills
+    matched_skills = []
+    missing_skills = []
+    
+    for req_skill in required_skills:
+        # Check if any user skill matches (partial match allowed)
+        skill_matched = False
+        for user_skill in user_skills:
+            if req_skill in user_skill or user_skill in req_skill:
+                matched_skills.append(req_skill)
+                skill_matched = True
+                break
+        if not skill_matched:
+            missing_skills.append(req_skill)
+    
+    # Calculate match score (percentage)
+    match_score = 0
+    if required_skills:
+        match_score = int((len(matched_skills) / len(required_skills)) * 100)
+    else:
+        # No required skills specified - default to 100%
+        match_score = 100
+    
+    # ============= CREATE APPLICATION =============
     application = JobApplication(
         job_id=job_id,
         applicant_id=current_user.id,
@@ -274,6 +316,10 @@ async def apply_to_job(
         expected_salary=application_in.expected_salary,
         available_from=application_in.available_from,
         referral_source=application_in.referral_source,
+        # Skill matching fields
+        match_score=match_score,
+        matched_skills=matched_skills,
+        missing_skills=missing_skills,
     )
     
     db.add(application)
@@ -310,7 +356,7 @@ async def get_my_applications(
     result = await db.execute(query)
     applications = result.scalars().all()
     
-    # Build response with job details
+    # Build response with job details and match score
     response = []
     for app in applications:
         app_dict = {
@@ -322,6 +368,10 @@ async def get_my_applications(
             "resume_url": app.resume_url,
             "submitted_at": app.submitted_at,
             "reviewed_at": app.reviewed_at,
+            # Include skill matching data
+            "match_score": app.match_score,
+            "matched_skills": app.matched_skills or [],
+            "missing_skills": app.missing_skills or [],
         }
         
         # Include job details
@@ -335,6 +385,7 @@ async def get_my_applications(
                 "salary_min": app.job.salary_min,
                 "salary_max": app.job.salary_max,
                 "is_remote": app.job.is_remote,
+                "skills_required": app.job.skills_required or [],
             }
         
         response.append(app_dict)
@@ -421,6 +472,10 @@ async def get_job_applications(
             reviewed_at=app.reviewed_at,
             rating=app.rating,
             reviewer_notes=app.reviewer_notes,
+            # Include skill matching data
+            match_score=app.match_score,
+            matched_skills=app.matched_skills or [],
+            missing_skills=app.missing_skills or [],
             applicant=applicant_info
         )
         response.append(app_with_applicant)

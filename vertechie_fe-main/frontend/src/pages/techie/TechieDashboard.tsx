@@ -574,9 +574,9 @@ const TechieDashboard: React.FC = () => {
       });
       
       setRecommendedJobs([
-        { id: '1', title: 'Senior Frontend Developer', company_name: 'TechCorp', location: 'Remote', salary_range_display: '$120k-$160k', work_mode: 'remote' },
-        { id: '2', title: 'Full Stack Engineer', company_name: 'StartupXYZ', location: 'San Francisco, CA', salary_range_display: '$130k-$180k', work_mode: 'hybrid' },
-        { id: '3', title: 'React Developer', company_name: 'InnovateLabs', location: 'New York, NY', salary_range_display: '$100k-$140k', work_mode: 'onsite' },
+        { id: '1', title: 'Senior Frontend Developer', company_name: 'TechCorp', location: 'Remote', salary_range_display: '₹12L-₹18L', work_mode: 'remote' },
+        { id: '2', title: 'Full Stack Engineer', company_name: 'StartupXYZ', location: 'Bangalore', salary_range_display: '₹15L-₹22L', work_mode: 'hybrid' },
+        { id: '3', title: 'React Developer', company_name: 'InnovateLabs', location: 'Hyderabad', salary_range_display: '₹10L-₹16L', work_mode: 'onsite' },
       ]);
       
       setGroups([

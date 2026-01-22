@@ -7,6 +7,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Paper, Avatar, Chip, Button, Grid, Card, CardContent,
   IconButton, Divider, CircularProgress, Rating, Snackbar, Alert, Tab, Tabs,
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl,
+  InputLabel, Select, MenuItem,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -89,6 +91,18 @@ const CandidateProfilePage: React.FC = () => {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
     open: false, message: '', severity: 'info'
   });
+  
+  // Schedule Interview Dialog State
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const [applicationId, setApplicationId] = useState<string | null>(null);
+  const [scheduleForm, setScheduleForm] = useState({
+    date: '',
+    time: '',
+    duration: 60,
+    type: 'technical',
+    notes: '',
+  });
+  const [scheduling, setScheduling] = useState(false);
 
   useEffect(() => {
     const fetchCandidate = async () => {
@@ -166,8 +180,88 @@ const CandidateProfilePage: React.FC = () => {
     }
   }, [candidateId]);
 
-  const handleScheduleInterview = () => {
-    setSnackbar({ open: true, message: 'Interview scheduling coming soon!', severity: 'info' });
+  const handleScheduleInterview = async () => {
+    // First, fetch the application for this candidate
+    if (!candidateId) return;
+    
+    try {
+      const token = localStorage.getItem('authToken');
+      const userData = localStorage.getItem('userData');
+      const user = userData ? JSON.parse(userData) : null;
+      
+      // Get all jobs by this HM and find applications from this candidate
+      const jobsRes = await fetch(getApiUrl('/jobs/'), {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const allJobs = jobsRes.ok ? await jobsRes.json() : [];
+      const hmJobs = allJobs.filter((j: any) => j.posted_by_id === user?.id);
+      
+      // Find application from this candidate
+      for (const job of hmJobs) {
+        const appRes = await fetch(getApiUrl(`/jobs/${job.id}/applications`), {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (appRes.ok) {
+          const apps = await appRes.json();
+          const candidateApp = apps.find((a: any) => a.applicant_id === candidateId || a.applicant?.id === candidateId);
+          if (candidateApp) {
+            setApplicationId(candidateApp.id);
+            setScheduleDialogOpen(true);
+            return;
+          }
+        }
+      }
+      
+      setSnackbar({ open: true, message: 'No application found for this candidate', severity: 'error' });
+    } catch (error) {
+      console.error('Error finding application:', error);
+      setSnackbar({ open: true, message: 'Failed to load application', severity: 'error' });
+    }
+  };
+
+  const handleSubmitSchedule = async () => {
+    if (!applicationId || !scheduleForm.date || !scheduleForm.time) {
+      setSnackbar({ open: true, message: 'Please fill in all required fields', severity: 'error' });
+      return;
+    }
+    
+    try {
+      setScheduling(true);
+      const token = localStorage.getItem('authToken');
+      const scheduledAt = new Date(`${scheduleForm.date}T${scheduleForm.time}`).toISOString();
+      const meetingId = `interview-${Date.now()}`;
+      const meetingLink = `${window.location.origin}/techie/lobby/${meetingId}?type=interview`;
+      
+      const response = await fetch(getApiUrl('/hiring/interviews'), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          application_id: applicationId,
+          interview_type: scheduleForm.type,
+          scheduled_at: scheduledAt,
+          duration_minutes: scheduleForm.duration,
+          meeting_link: meetingLink,
+          notes: scheduleForm.notes,
+        }),
+      });
+      
+      if (response.ok) {
+        setSnackbar({ open: true, message: 'Interview scheduled successfully!', severity: 'success' });
+        setScheduleDialogOpen(false);
+        setScheduleForm({ date: '', time: '', duration: 60, type: 'technical', notes: '' });
+      } else {
+        const error = await response.json();
+        setSnackbar({ open: true, message: error.detail || 'Failed to schedule interview', severity: 'error' });
+      }
+    } catch (error) {
+      console.error('Error scheduling interview:', error);
+      setSnackbar({ open: true, message: 'Failed to schedule interview', severity: 'error' });
+    } finally {
+      setScheduling(false);
+    }
   };
 
   const handleSendEmail = () => {
@@ -503,6 +597,99 @@ const CandidateProfilePage: React.FC = () => {
           </CardContent>
         </InfoCard>
       )}
+
+      {/* Schedule Interview Dialog */}
+      <Dialog
+        open={scheduleDialogOpen}
+        onClose={() => setScheduleDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>
+          Schedule Interview with {candidate?.first_name} {candidate?.last_name}
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Date"
+                type="date"
+                value={scheduleForm.date}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, date: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Time"
+                type="time"
+                value={scheduleForm.time}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, time: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Duration</InputLabel>
+                <Select
+                  value={scheduleForm.duration}
+                  label="Duration"
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, duration: Number(e.target.value) })}
+                >
+                  <MenuItem value={30}>30 minutes</MenuItem>
+                  <MenuItem value={45}>45 minutes</MenuItem>
+                  <MenuItem value={60}>1 hour</MenuItem>
+                  <MenuItem value={90}>1.5 hours</MenuItem>
+                  <MenuItem value={120}>2 hours</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Interview Type</InputLabel>
+                <Select
+                  value={scheduleForm.type}
+                  label="Interview Type"
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, type: e.target.value })}
+                >
+                  <MenuItem value="phone">Phone Screening</MenuItem>
+                  <MenuItem value="video">Video Interview</MenuItem>
+                  <MenuItem value="technical">Technical Interview</MenuItem>
+                  <MenuItem value="behavioral">Behavioral Interview</MenuItem>
+                  <MenuItem value="panel">Panel Interview</MenuItem>
+                  <MenuItem value="onsite">Onsite Interview</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Notes"
+                multiline
+                rows={3}
+                value={scheduleForm.notes}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, notes: e.target.value })}
+                placeholder="Add any notes or instructions for the interview..."
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button onClick={() => setScheduleDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmitSchedule}
+            disabled={scheduling || !scheduleForm.date || !scheduleForm.time}
+            sx={{ bgcolor: '#0d47a1' }}
+          >
+            {scheduling ? <CircularProgress size={20} /> : 'Schedule Interview'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar */}
       <Snackbar

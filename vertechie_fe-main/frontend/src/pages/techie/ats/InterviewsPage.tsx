@@ -1,14 +1,16 @@
 /**
  * InterviewsPage - Manage Interview Schedules
+ * Fetches real interview data from backend
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getApiUrl } from '../../../config/api';
 import {
   Box, Typography, Card, CardContent, Avatar, Chip, IconButton, Button, Grid,
   Tabs, Tab, List, ListItem, ListItemAvatar, ListItemText, Divider,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl,
-  InputLabel, Select, MenuItem, Snackbar, Alert, Menu, Tooltip,
+  InputLabel, Select, MenuItem, Snackbar, Alert, Menu, Tooltip, CircularProgress, Paper,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
@@ -256,6 +258,18 @@ const InterviewsPage: React.FC = () => {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
     open: false, message: '', severity: 'info'
   });
+  const [loading, setLoading] = useState(true);
+  
+  // Real interview data state
+  const [realInterviews, setRealInterviews] = useState<{
+    today: any[];
+    upcoming: any[];
+    completed: any[];
+  }>({
+    today: [],
+    upcoming: [],
+    completed: [],
+  });
   
   // Schedule form state
   const [scheduleForm, setScheduleForm] = useState({
@@ -271,6 +285,90 @@ const InterviewsPage: React.FC = () => {
     location: '',
     notes: '',
   });
+
+  // Interview detail dialog state
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [selectedInterviewDetail, setSelectedInterviewDetail] = useState<any>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
+  const [decisionDialogOpen, setDecisionDialogOpen] = useState(false);
+  const [rescheduleForm, setRescheduleForm] = useState({
+    date: '',
+    time: '',
+    duration: 60,
+    notes: '',
+  });
+  const [selectedDecision, setSelectedDecision] = useState<'selected' | 'rejected' | 'on_hold' | ''>('');
+  const [decisionNotes, setDecisionNotes] = useState('');
+
+  // Fetch real interviews from backend
+  useEffect(() => {
+    fetchInterviews();
+  }, []);
+
+  const fetchInterviews = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('authToken');
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      };
+
+      // Fetch ALL interviews for this HM (including past ones for Today/History tabs)
+      const response = await fetch(getApiUrl('/hiring/interviews?upcoming=false&limit=50'), { headers });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const now = new Date();
+        const todayStr = now.toDateString();
+        
+        const today: any[] = [];
+        const upcoming: any[] = [];
+        const completed: any[] = [];
+        
+        data.forEach((interview: any) => {
+          // Parse backend date (convert UTC to local)
+          let dateStr = interview.scheduled_at;
+          if (dateStr && !dateStr.includes('Z') && !dateStr.includes('+')) {
+            dateStr = dateStr.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
+          }
+          const interviewDate = new Date(dateStr);
+          const formattedInterview = {
+            id: interview.id,
+            candidate: interview.candidate_name || 'Candidate',
+            role: interview.job_title || 'Position',
+            time: interviewDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            date: interviewDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+            type: interview.interview_type || 'Technical',
+            interviewers: interview.interviewers || [],
+            status: interview.status,
+            platform: 'VerTechie Meet',
+            meetingLink: interview.meeting_link || `/techie/lobby/interview-${interview.id}?type=interview`,
+            duration: interview.duration_minutes || 60,
+            location: interview.location,
+            notes: interview.notes,
+          };
+          
+          if (interview.status === 'completed') {
+            completed.push(formattedInterview);
+          } else if (interviewDate.toDateString() === todayStr) {
+            today.push(formattedInterview);
+          } else if (interviewDate > now) {
+            upcoming.push(formattedInterview);
+          } else {
+            completed.push(formattedInterview);
+          }
+        });
+        
+        setRealInterviews({ today, upcoming, completed });
+      }
+    } catch (error) {
+      console.error('Error fetching interviews:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleScheduleSubmit = () => {
     // Generate VerTechie Meet link if platform is VerTechie Meet
@@ -302,6 +400,170 @@ const InterviewsPage: React.FC = () => {
     event.stopPropagation();
     setMenuAnchor(event.currentTarget);
     setSelectedInterview(interview);
+  };
+
+  // Open interview detail dialog
+  const handleViewDetails = async (interview: any) => {
+    try {
+      setLoadingDetail(true);
+      setDetailDialogOpen(true);
+      
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(getApiUrl(`/hiring/interviews/${interview.id}`), {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const detail = await response.json();
+        setSelectedInterviewDetail(detail);
+      } else {
+        setSnackbar({ open: true, message: 'Failed to load interview details', severity: 'error' });
+      }
+    } catch (error) {
+      console.error('Error fetching interview details:', error);
+      setSnackbar({ open: true, message: 'Failed to load interview details', severity: 'error' });
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
+
+  // Join meeting
+  const handleJoinMeeting = (interview: any) => {
+    const meetingLink = interview.meetingLink || interview.meeting_link;
+    if (meetingLink) {
+      if (meetingLink.startsWith('/')) {
+        navigate(meetingLink);
+      } else {
+        window.open(meetingLink, '_blank');
+      }
+    }
+  };
+
+  // Cancel interview
+  const handleCancelInterview = async () => {
+    if (!selectedInterviewDetail) return;
+    
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(getApiUrl(`/hiring/interviews/${selectedInterviewDetail.id}/cancel`), {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        setSnackbar({ open: true, message: 'Interview cancelled successfully', severity: 'success' });
+        setDetailDialogOpen(false);
+        fetchInterviews();
+      } else {
+        setSnackbar({ open: true, message: 'Failed to cancel interview', severity: 'error' });
+      }
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Failed to cancel interview', severity: 'error' });
+    }
+  };
+
+  // Reschedule interview
+  const handleRescheduleSubmit = async () => {
+    if (!selectedInterviewDetail || !rescheduleForm.date || !rescheduleForm.time) return;
+    
+    try {
+      const token = localStorage.getItem('authToken');
+      const scheduledAt = new Date(`${rescheduleForm.date}T${rescheduleForm.time}`).toISOString();
+      
+      const response = await fetch(getApiUrl(`/hiring/interviews/${selectedInterviewDetail.id}/reschedule`), {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          scheduled_at: scheduledAt,
+          duration_minutes: rescheduleForm.duration,
+          notes: rescheduleForm.notes,
+        }),
+      });
+      
+      if (response.ok) {
+        setSnackbar({ open: true, message: 'Interview rescheduled successfully', severity: 'success' });
+        setRescheduleDialogOpen(false);
+        setDetailDialogOpen(false);
+        fetchInterviews();
+      } else {
+        setSnackbar({ open: true, message: 'Failed to reschedule interview', severity: 'error' });
+      }
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Failed to reschedule interview', severity: 'error' });
+    }
+  };
+
+  // Update decision (Selected/Rejected/On Hold)
+  const handleDecisionSubmit = async () => {
+    if (!selectedInterviewDetail || !selectedDecision) return;
+    
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(getApiUrl(`/hiring/interviews/${selectedInterviewDetail.id}/decision`), {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          decision: selectedDecision,
+          notes: decisionNotes,
+        }),
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        setSnackbar({ 
+          open: true, 
+          message: `Candidate marked as ${selectedDecision.replace('_', ' ')}`, 
+          severity: 'success' 
+        });
+        setDecisionDialogOpen(false);
+        setDetailDialogOpen(false);
+        fetchInterviews();
+      } else {
+        setSnackbar({ open: true, message: 'Failed to update decision', severity: 'error' });
+      }
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Failed to update decision', severity: 'error' });
+    }
+  };
+
+  // Update interview status
+  const handleUpdateStatus = async (status: string) => {
+    if (!selectedInterviewDetail) return;
+    
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(getApiUrl(`/hiring/interviews/${selectedInterviewDetail.id}/status`), {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status }),
+      });
+      
+      if (response.ok) {
+        setSnackbar({ open: true, message: `Status updated to ${status}`, severity: 'success' });
+        fetchInterviews();
+        // Refresh details
+        handleViewDetails({ id: selectedInterviewDetail.id });
+      } else {
+        setSnackbar({ open: true, message: 'Failed to update status', severity: 'error' });
+      }
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Failed to update status', severity: 'error' });
+    }
   };
 
   const handleCopyLink = () => {
@@ -341,17 +603,36 @@ const InterviewsPage: React.FC = () => {
           '& .MuiTab-root': { fontWeight: 600 },
         }}
       >
-        <Tab label={`Today (${interviews.today.length})`} />
-        <Tab label={`Upcoming (${interviews.upcoming.length})`} />
-        <Tab label={`Completed (${interviews.completed.length})`} />
+        <Tab label={`Today (${realInterviews.today.length})`} />
+        <Tab label={`Upcoming (${realInterviews.upcoming.length})`} />
+        <Tab label={`Completed (${realInterviews.completed.length})`} />
       </Tabs>
 
       {/* Today's Interviews */}
       {activeTab === 0 && (
         <Grid container spacing={3}>
-          {interviews.today.map((interview) => (
+          {loading ? (
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            </Grid>
+          ) : realInterviews.today.length === 0 ? (
+            <Grid item xs={12}>
+              <Paper sx={{ p: 4, textAlign: 'center' }}>
+                <Typography variant="h6" color="text.secondary">No interviews scheduled for today</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Schedule interviews from the Pipeline or Job Postings page
+                </Typography>
+              </Paper>
+            </Grid>
+          ) : null}
+          {realInterviews.today.map((interview) => (
             <Grid item xs={12} md={6} lg={4} key={interview.id}>
-              <InterviewCard>
+              <InterviewCard 
+                onClick={() => handleViewDetails(interview)}
+                sx={{ cursor: 'pointer' }}
+              >
                 <CardContent>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                     <Box sx={{ display: 'flex', gap: 2 }}>
@@ -452,9 +733,28 @@ const InterviewsPage: React.FC = () => {
       {/* Upcoming Interviews */}
       {activeTab === 1 && (
         <Grid container spacing={2}>
-          {interviews.upcoming.map((interview) => (
+          {loading ? (
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            </Grid>
+          ) : realInterviews.upcoming.length === 0 ? (
+            <Grid item xs={12}>
+              <Paper sx={{ p: 4, textAlign: 'center' }}>
+                <Typography variant="h6" color="text.secondary">No upcoming interviews</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Schedule interviews from the Pipeline or Job Postings page
+                </Typography>
+              </Paper>
+            </Grid>
+          ) : null}
+          {realInterviews.upcoming.map((interview) => (
             <Grid item xs={12} key={interview.id}>
-              <InterviewCard sx={{ mb: 0 }}>
+              <InterviewCard 
+                onClick={() => handleViewDetails(interview)}
+                sx={{ mb: 0, cursor: 'pointer' }}
+              >
                 <CardContent sx={{ py: 2 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -530,9 +830,28 @@ const InterviewsPage: React.FC = () => {
       {/* Completed Interviews */}
       {activeTab === 2 && (
         <Grid container spacing={2}>
-          {interviews.completed.map((interview) => (
+          {loading ? (
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            </Grid>
+          ) : realInterviews.completed.length === 0 ? (
+            <Grid item xs={12}>
+              <Paper sx={{ p: 4, textAlign: 'center' }}>
+                <Typography variant="h6" color="text.secondary">No completed interviews</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Completed interviews will appear here after they're done
+                </Typography>
+              </Paper>
+            </Grid>
+          ) : null}
+          {realInterviews.completed.map((interview) => (
             <Grid item xs={12} md={6} key={interview.id}>
-              <InterviewCard sx={{ mb: 0 }}>
+              <InterviewCard 
+                onClick={() => handleViewDetails(interview)}
+                sx={{ mb: 0, cursor: 'pointer' }}
+              >
                 <CardContent>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                     <Box sx={{ display: 'flex', gap: 2 }}>
@@ -758,6 +1077,327 @@ const InterviewsPage: React.FC = () => {
           Cancel Interview
         </MenuItem>
       </Menu>
+
+      {/* Interview Detail Dialog */}
+      <Dialog
+        open={detailDialogOpen}
+        onClose={() => setDetailDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          Interview Details
+          {selectedInterviewDetail && (
+            <Chip
+              label={selectedInterviewDetail.status?.replace('_', ' ').toUpperCase() || 'SCHEDULED'}
+              color={
+                selectedInterviewDetail.status === 'completed' ? 'success' :
+                selectedInterviewDetail.status === 'cancelled' ? 'error' :
+                selectedInterviewDetail.status === 'in_progress' ? 'warning' : 'primary'
+              }
+              size="small"
+            />
+          )}
+        </DialogTitle>
+        <DialogContent>
+          {loadingDetail ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : selectedInterviewDetail ? (
+            <Grid container spacing={3} sx={{ mt: 1 }}>
+              {/* Candidate Info */}
+              <Grid item xs={12}>
+                <Paper sx={{ p: 2, bgcolor: alpha('#0d47a1', 0.03) }}>
+                  <Typography variant="subtitle2" color="primary" sx={{ mb: 1 }}>Candidate Information</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Avatar sx={{ width: 60, height: 60, bgcolor: '#0d47a1' }}>
+                      {selectedInterviewDetail.candidate_name?.charAt(0) || 'C'}
+                    </Avatar>
+                    <Box>
+                      <Typography variant="h6">{selectedInterviewDetail.candidate_name || 'Candidate'}</Typography>
+                      <Typography variant="body2" color="text.secondary">{selectedInterviewDetail.candidate_email}</Typography>
+                      {selectedInterviewDetail.candidate_experience && (
+                        <Typography variant="body2" color="text.secondary">{selectedInterviewDetail.candidate_experience}</Typography>
+                      )}
+                    </Box>
+                    {selectedInterviewDetail.match_score && (
+                      <Chip
+                        label={`${selectedInterviewDetail.match_score}% Match`}
+                        sx={{
+                          ml: 'auto',
+                          bgcolor: selectedInterviewDetail.match_score >= 70 ? alpha('#34C759', 0.15) : alpha('#FF9500', 0.15),
+                          color: selectedInterviewDetail.match_score >= 70 ? '#34C759' : '#FF9500',
+                          fontWeight: 600,
+                        }}
+                      />
+                    )}
+                  </Box>
+                  {selectedInterviewDetail.candidate_skills?.length > 0 && (
+                    <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      {selectedInterviewDetail.candidate_skills.slice(0, 8).map((skill: string, idx: number) => (
+                        <Chip key={idx} label={skill} size="small" variant="outlined" />
+                      ))}
+                    </Box>
+                  )}
+                </Paper>
+              </Grid>
+
+              {/* Job Info */}
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" color="text.secondary">Position</Typography>
+                <Typography variant="body1" fontWeight={500}>{selectedInterviewDetail.job_title || 'N/A'}</Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" color="text.secondary">Company</Typography>
+                <Typography variant="body1" fontWeight={500}>{selectedInterviewDetail.company_name || 'N/A'}</Typography>
+              </Grid>
+
+              {/* Interview Details */}
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" color="text.secondary">Date & Time</Typography>
+                <Typography variant="body1" fontWeight={500}>
+                  {(() => {
+                    let ds = selectedInterviewDetail.scheduled_at;
+                    if (ds && !ds.includes('Z') && !ds.includes('+')) {
+                      ds = ds.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
+                    }
+                    return new Date(ds).toLocaleDateString('en-US', { 
+                      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+                    });
+                  })()}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {(() => {
+                    let ds = selectedInterviewDetail.scheduled_at;
+                    if (ds && !ds.includes('Z') && !ds.includes('+')) {
+                      ds = ds.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
+                    }
+                    return new Date(ds).toLocaleTimeString('en-US', { 
+                      hour: '2-digit', minute: '2-digit' 
+                    });
+                  })()} ({selectedInterviewDetail.duration_minutes} min)
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" color="text.secondary">Interview Type</Typography>
+                <Typography variant="body1" fontWeight={500}>
+                  {selectedInterviewDetail.interview_type?.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                </Typography>
+              </Grid>
+
+              {selectedInterviewDetail.notes && (
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" color="text.secondary">Notes</Typography>
+                  <Typography variant="body2">{selectedInterviewDetail.notes}</Typography>
+                </Grid>
+              )}
+
+              {/* Application Status */}
+              {selectedInterviewDetail.application_status && (
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" color="text.secondary">Application Status</Typography>
+                  <Chip
+                    label={selectedInterviewDetail.application_status.replace('_', ' ').toUpperCase()}
+                    color={
+                      selectedInterviewDetail.application_status === 'offered' ? 'success' :
+                      selectedInterviewDetail.application_status === 'rejected' ? 'error' : 'default'
+                    }
+                    size="small"
+                  />
+                </Grid>
+              )}
+            </Grid>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, gap: 1, flexWrap: 'wrap' }}>
+          {selectedInterviewDetail?.status !== 'completed' && selectedInterviewDetail?.status !== 'cancelled' && (
+            <>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<VideocamIcon />}
+                onClick={() => handleJoinMeeting(selectedInterviewDetail)}
+              >
+                Join Meeting
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  setRescheduleForm({
+                    date: new Date(selectedInterviewDetail.scheduled_at).toISOString().split('T')[0],
+                    time: new Date(selectedInterviewDetail.scheduled_at).toTimeString().slice(0, 5),
+                    duration: selectedInterviewDetail.duration_minutes,
+                    notes: '',
+                  });
+                  setRescheduleDialogOpen(true);
+                }}
+              >
+                Reschedule
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => handleUpdateStatus('in_progress')}
+              >
+                Start Interview
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={handleCancelInterview}
+              >
+                Cancel
+              </Button>
+            </>
+          )}
+          {(selectedInterviewDetail?.status === 'completed' || selectedInterviewDetail?.status === 'in_progress') && (
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => {
+                setSelectedDecision('');
+                setDecisionNotes('');
+                setDecisionDialogOpen(true);
+              }}
+            >
+              Update Decision
+            </Button>
+          )}
+          <Button onClick={() => setDetailDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reschedule Dialog */}
+      <Dialog
+        open={rescheduleDialogOpen}
+        onClose={() => setRescheduleDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>Reschedule Interview</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="New Date"
+                type="date"
+                value={rescheduleForm.date}
+                onChange={(e) => setRescheduleForm({ ...rescheduleForm, date: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="New Time"
+                type="time"
+                value={rescheduleForm.time}
+                onChange={(e) => setRescheduleForm({ ...rescheduleForm, time: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel>Duration</InputLabel>
+                <Select
+                  value={rescheduleForm.duration}
+                  label="Duration"
+                  onChange={(e) => setRescheduleForm({ ...rescheduleForm, duration: Number(e.target.value) })}
+                >
+                  {durationOptions.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Notes"
+                multiline
+                rows={2}
+                placeholder="Reason for rescheduling..."
+                value={rescheduleForm.notes}
+                onChange={(e) => setRescheduleForm({ ...rescheduleForm, notes: e.target.value })}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button onClick={() => setRescheduleDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleRescheduleSubmit} sx={{ bgcolor: '#0d47a1' }}>
+            Reschedule
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Decision Dialog */}
+      <Dialog
+        open={decisionDialogOpen}
+        onClose={() => setDecisionDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>Update Interview Decision</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Select the final decision for this candidate after the interview.
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <Button
+                  variant={selectedDecision === 'selected' ? 'contained' : 'outlined'}
+                  color="success"
+                  onClick={() => setSelectedDecision('selected')}
+                  sx={{ flex: 1 }}
+                >
+                  Selected
+                </Button>
+                <Button
+                  variant={selectedDecision === 'on_hold' ? 'contained' : 'outlined'}
+                  color="warning"
+                  onClick={() => setSelectedDecision('on_hold')}
+                  sx={{ flex: 1 }}
+                >
+                  On Hold
+                </Button>
+                <Button
+                  variant={selectedDecision === 'rejected' ? 'contained' : 'outlined'}
+                  color="error"
+                  onClick={() => setSelectedDecision('rejected')}
+                  sx={{ flex: 1 }}
+                >
+                  Rejected
+                </Button>
+              </Box>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Notes"
+                multiline
+                rows={3}
+                placeholder="Add feedback or notes about this decision..."
+                value={decisionNotes}
+                onChange={(e) => setDecisionNotes(e.target.value)}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button onClick={() => setDecisionDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleDecisionSubmit}
+            disabled={!selectedDecision}
+            sx={{ bgcolor: '#0d47a1' }}
+          >
+            Submit Decision
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar */}
       <Snackbar

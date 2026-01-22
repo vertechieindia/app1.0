@@ -338,11 +338,12 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
     title: backendJob.title,
     companyName: backendJob.company_name || backendJob.companyName,
     description: backendJob.description || '',
-    requiredSkills: backendJob.required_skills || backendJob.requiredSkills || [],
+    requiredSkills: backendJob.skills_required || backendJob.required_skills || backendJob.requiredSkills || [],
     experienceLevel: backendJob.experience_level || backendJob.experienceLevel || 'entry',
     location: backendJob.location || '',
     jobType: backendJob.job_type || backendJob.jobType || 'full-time',
     codingQuestions: backendJob.coding_questions || backendJob.codingQuestions || [],
+    screeningQuestions: backendJob.screening_questions || backendJob.screeningQuestions || [],
     status: backendJob.status === 'published' ? 'active' : (backendJob.status || 'active'),
     createdBy: backendJob.posted_by_id || backendJob.createdBy,
     createdAt: backendJob.created_at || backendJob.createdAt,
@@ -598,6 +599,10 @@ const mapBackendApplicationToFrontend = (backendApp: any): Application => {
     codingScore: backendApp.match_score || backendApp.rating,
     codingStatus: backendApp.coding_status || 'pending',
     job: backendApp.job,
+    // Skill matching fields from backend
+    match_score: backendApp.match_score,
+    matched_skills: backendApp.matched_skills || [],
+    missing_skills: backendApp.missing_skills || [],
     // Include additional applicant details for display
     applicantDetails: applicant.id ? {
       id: applicant.id,
@@ -904,7 +909,7 @@ export const userService = {
             title: app.applicant?.title || app.applicant?.headline || '',
             experience: app.applicant?.total_experience || '',
             skills: app.applicant?.skills || [],
-            matchScore: app.match_score || Math.floor(Math.random() * 30) + 70,
+            matchScore: app.match_score ?? 0,  // Use actual match score from backend
             status: mapApplicationStatus(app.status),
             appliedAt: app.submitted_at || app.created_at,
             location: app.applicant?.location || '',
@@ -929,7 +934,7 @@ export const userService = {
         name: app.candidateName,
         email: app.candidateEmail,
         skills: [],
-        matchScore: app.codingScore || Math.floor(Math.random() * 30) + 70,
+        matchScore: app.codingScore || app.match_score || 0,
         status: mapApplicationStatus(app.status),
         appliedAt: app.appliedAt,
       }));
@@ -952,7 +957,7 @@ const mapBackendUserToCandidate = (user: any): Candidate => {
     title: user.title || user.headline || user.profile?.title || '',
     experience: user.total_experience || user.years_of_experience ? `${user.years_of_experience} years` : '',
     skills: user.skills || user.profile?.skills || [],
-    matchScore: Math.floor(Math.random() * 30) + 70, // Random match score for display
+    matchScore: user.match_score || 0, // Use actual match score from backend
     status: 'new',
     location: user.location || user.city || '',
     education: user.education || user.profile?.education || '',

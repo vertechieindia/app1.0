@@ -294,7 +294,8 @@ interface ExperienceData {
   id: string;
   user_id: string;
   title: string;
-  company: string;
+  company?: string;
+  company_name?: string; // Backend returns company_name
   location?: string;
   start_date: string;
   end_date?: string;
@@ -535,7 +536,12 @@ const ProfilePage: React.FC = () => {
         const expRes = await fetchWithAuth(expUrl);
         if (expRes.ok) {
           const expData = await expRes.json();
-          setExperiences(expData);
+          // Map backend field names to frontend field names
+          const mappedExperiences = expData.map((exp: any) => ({
+            ...exp,
+            company: exp.company_name || exp.company || '',
+          }));
+          setExperiences(mappedExperiences);
         }
       } catch (err: any) {
         if (err.message?.includes('Session expired')) return; // Already redirecting
@@ -548,7 +554,13 @@ const ProfilePage: React.FC = () => {
         const eduRes = await fetchWithAuth(eduUrl);
         if (eduRes.ok) {
           const eduData = await eduRes.json();
-          setEducations(eduData);
+          // Map backend field names to frontend field names
+          const mappedEducations = eduData.map((edu: any) => ({
+            ...edu,
+            institution: edu.school_name || edu.institution || '',
+            gpa: edu.grade || edu.gpa || '',
+          }));
+          setEducations(mappedEducations);
         }
       } catch (err: any) {
         if (err.message?.includes('Session expired')) return; // Already redirecting
@@ -606,23 +618,23 @@ const ProfilePage: React.FC = () => {
     logo: getTechByName(skillName)?.logo,
   }));
 
-  // Format experience data
+  // Format experience data - handle both backend field names (company_name) and frontend field names (company)
   const experience = experiences.map(exp => ({
     id: exp.id,
     title: exp.title,
-    company: exp.company,
+    company: exp.company || exp.company_name || '',
     period: `${new Date(exp.start_date).getFullYear()} - ${exp.is_current ? 'Present' : (exp.end_date ? new Date(exp.end_date).getFullYear() : 'Present')}`,
     tech: exp.skills || [],
     description: exp.description,
   }));
 
-  // Format education data
+  // Format education data - handle both backend field names (school_name/grade) and frontend field names (institution/gpa)
   const education = educations.map(edu => ({
     id: edu.id,
     degree: `${edu.degree}${edu.field_of_study ? ` in ${edu.field_of_study}` : ''}`,
-    institution: edu.institution,
+    institution: edu.institution || edu.school_name || '',
     period: `${edu.start_year} - ${edu.end_year || 'Present'}`,
-    gpa: edu.gpa || '',
+    gpa: edu.gpa || edu.grade || '',
   }));
 
   // Load projects from localStorage on mount
@@ -812,17 +824,49 @@ const ProfilePage: React.FC = () => {
         ? getApiUrl(`/users/me/experiences/${editingExperienceId}`)
         : getApiUrl('/users/me/experiences');
       
+      // Ensure start_date is a valid date string in YYYY-MM-DD format
+      let formattedStartDate = newExperience.startDate;
+      if (!formattedStartDate || formattedStartDate.trim() === '') {
+        formattedStartDate = new Date().toISOString().split('T')[0];
+      } else if (!formattedStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Try to parse and format the date
+        const parsedDate = new Date(formattedStartDate);
+        if (!isNaN(parsedDate.getTime())) {
+          formattedStartDate = parsedDate.toISOString().split('T')[0];
+        } else {
+          formattedStartDate = new Date().toISOString().split('T')[0];
+        }
+      }
+
+      // Format end_date properly
+      let formattedEndDate = null;
+      if (!newExperience.current && newExperience.endDate && newExperience.endDate.trim() !== '') {
+        if (newExperience.endDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          formattedEndDate = newExperience.endDate;
+        } else {
+          const parsedDate = new Date(newExperience.endDate);
+          if (!isNaN(parsedDate.getTime())) {
+            formattedEndDate = parsedDate.toISOString().split('T')[0];
+          }
+        }
+      }
+
+      // Skills should be an array of strings (skill names only), not objects
+      const skillNames = (newExperience.skills || []).map((s: any) => 
+        typeof s === 'string' ? s : (s.name || s)
+      );
+
       const response = await fetchWithAuth(url, {
         method: isEditing ? 'PUT' : 'POST',
         body: JSON.stringify({
-          title: newExperience.position,
-          company_name: newExperience.companyName,  // Backend expects company_name, not company
-          location: newExperience.workLocation || null,
-          start_date: newExperience.startDate || new Date().toISOString().split('T')[0],
-          end_date: newExperience.current ? null : (newExperience.endDate || null),
-          is_current: newExperience.current,
-          description: newExperience.description || null,
-          skills: newExperience.skills.map(s => s.name),
+          title: newExperience.position.trim(),
+          company_name: newExperience.companyName.trim(),
+          location: newExperience.workLocation?.trim() || null,
+          start_date: formattedStartDate,
+          end_date: formattedEndDate,
+          is_current: newExperience.current || false,
+          description: newExperience.description?.trim() || null,
+          skills: skillNames,
         }),
       });
       
@@ -954,14 +998,48 @@ const ProfilePage: React.FC = () => {
         ? getApiUrl(`/users/me/educations/${editingEducationId}`)
         : getApiUrl('/users/me/educations');
       
+      // Parse start_year safely - ensure it's a valid integer or null
+      let startYear: number | null = null;
+      if (newEducation.startDate && newEducation.startDate.trim() !== '') {
+        const parsedDate = new Date(newEducation.startDate);
+        if (!isNaN(parsedDate.getTime())) {
+          startYear = parsedDate.getFullYear();
+        } else {
+          // Try to extract year directly if date parsing fails
+          const yearMatch = newEducation.startDate.match(/\d{4}/);
+          if (yearMatch) {
+            startYear = parseInt(yearMatch[0], 10);
+          }
+        }
+      }
+      // Default to current year if no valid start year
+      if (startYear === null || isNaN(startYear)) {
+        startYear = new Date().getFullYear();
+      }
+
+      // Parse end_year safely - ensure it's a valid integer or null
+      let endYear: number | null = null;
+      if (newEducation.endDate && newEducation.endDate.trim() !== '') {
+        const parsedDate = new Date(newEducation.endDate);
+        if (!isNaN(parsedDate.getTime())) {
+          endYear = parsedDate.getFullYear();
+        } else {
+          // Try to extract year directly if date parsing fails
+          const yearMatch = newEducation.endDate.match(/\d{4}/);
+          if (yearMatch) {
+            endYear = parseInt(yearMatch[0], 10);
+          }
+        }
+      }
+
       const response = await fetchWithAuth(url, {
         method: isEditing ? 'PUT' : 'POST',
         body: JSON.stringify({
           school_name: newEducation.institution.trim(),
-          degree: newEducation.levelOfEducation.trim(),
+          degree: newEducation.levelOfEducation.trim() || null,
           field_of_study: newEducation.fieldOfStudy.trim() || null,
-          start_year: newEducation.startDate ? new Date(newEducation.startDate).getFullYear() : new Date().getFullYear(),
-          end_year: newEducation.endDate ? new Date(newEducation.endDate).getFullYear() : null,
+          start_year: startYear,
+          end_year: endYear,
           grade: newEducation.gpa.trim() || null,
           description: null,
         }),

@@ -15,6 +15,7 @@ import {
   Tab,
   Snackbar,
   Alert,
+  CircularProgress,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -22,10 +23,12 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import WorkIcon from '@mui/icons-material/Work';
 import SchoolIcon from '@mui/icons-material/School';
 import SaveIcon from '@mui/icons-material/Save';
+import axios from 'axios';
 
 // Import existing signup flow components
 import WorkExperienceForm from '../components/signup/steps/WorkExperience/WorkExperienceForm';
 import EducationForm from '../components/signup/steps/EducationDetails/EducationForm';
+import { getApiUrl } from '../config/api';
 
 // Styled Components
 const PageContainer = styled(Container)(({ theme }) => ({
@@ -61,6 +64,7 @@ const CompleteProfile: React.FC = () => {
   const [tabValue, setTabValue] = useState(initialSection === 'education' ? 1 : 0);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
 
   // Form data state (same structure as signup flow)
   const [formData, setFormData] = useState<any>({
@@ -69,38 +73,173 @@ const CompleteProfile: React.FC = () => {
     country: 'India', // Default to India for date formats etc.
   });
 
-  // Load existing data from sessionStorage
+  // Fetch existing data from backend AND merge with sessionStorage
   useEffect(() => {
-    const storedData = sessionStorage.getItem('signupFormData');
-    if (storedData) {
-      try {
-        const parsed = JSON.parse(storedData);
-        setFormData((prev: any) => ({
-          ...prev,
-          experience: parsed.experience || [],
-          education: parsed.education || [],
-          country: parsed.country || 'India',
-        }));
-      } catch (error) {
-        console.error('Error loading stored data:', error);
+    const fetchExistingData = async () => {
+      setLoading(true);
+      const token = localStorage.getItem('authToken');
+      
+      if (!token) {
+        console.warn('No auth token available, loading from sessionStorage only');
+        loadFromSessionStorage();
+        setLoading(false);
+        return;
       }
-    }
-    
-    // Also check userData for country
-    const userData = localStorage.getItem('userData');
-    if (userData) {
+
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      };
+
       try {
-        const parsed = JSON.parse(userData);
-        if (parsed.country) {
+        // Fetch experiences and educations from backend in parallel
+        const [experiencesRes, educationsRes] = await Promise.all([
+          axios.get(getApiUrl('/users/me/experiences'), { headers }).catch(err => {
+            console.warn('Error fetching experiences:', err);
+            return { data: [] };
+          }),
+          axios.get(getApiUrl('/users/me/educations'), { headers }).catch(err => {
+            console.warn('Error fetching educations:', err);
+            return { data: [] };
+          }),
+        ]);
+
+        // Transform backend data to frontend format
+        const backendExperiences = (experiencesRes.data || []).map((exp: any) => ({
+          id: exp.id,
+          clientName: exp.client_name || '',
+          companyName: exp.company_name || '',
+          workLocation: exp.work_location || '',
+          website: exp.website || '',
+          workEmail: exp.work_email || '',
+          roleTitle: exp.role_title || '',
+          startDate: exp.start_date || '',
+          endDate: exp.end_date || '',
+          isCurrentlyWorking: exp.is_currently_working || false,
+          responsibilities: exp.responsibilities || '',
+          skills: exp.skills || [],
+        }));
+
+        const backendEducations = (educationsRes.data || []).map((edu: any) => ({
+          id: edu.id,
+          institution: edu.school_name || '',
+          levelOfEducation: edu.degree || '',
+          fieldOfStudy: edu.field_of_study || '',
+          startDate: edu.start_year ? `${edu.start_year}-01-01` : '',
+          endDate: edu.end_year ? `${edu.end_year}-01-01` : '',
+          gpa: edu.grade || '',
+        }));
+
+        // Load from sessionStorage for any additional data
+        let sessionExperiences: any[] = [];
+        let sessionEducations: any[] = [];
+        let country = 'India';
+
+        const storedData = sessionStorage.getItem('signupFormData');
+        if (storedData) {
+          try {
+            const parsed = JSON.parse(storedData);
+            sessionExperiences = parsed.experience || [];
+            sessionEducations = parsed.education || [];
+            country = parsed.country || 'India';
+          } catch (error) {
+            console.error('Error parsing sessionStorage:', error);
+          }
+        }
+
+        // Also check userData for country
+        const userData = localStorage.getItem('userData');
+        if (userData) {
+          try {
+            const parsed = JSON.parse(userData);
+            if (parsed.country) {
+              country = parsed.country;
+            }
+          } catch (error) {
+            console.error('Error parsing userData:', error);
+          }
+        }
+
+        // Merge: Backend data takes priority, add any session-only items (with temp ids)
+        const mergedExperiences = [...backendExperiences];
+        sessionExperiences.forEach((sessExp: any) => {
+          // Only add if it doesn't already exist (by id or if it's a temp item)
+          const existsInBackend = backendExperiences.some((beExp: any) => 
+            beExp.id === sessExp.id || 
+            (beExp.companyName === sessExp.companyName && beExp.roleTitle === sessExp.roleTitle)
+          );
+          if (!existsInBackend && String(sessExp.id).startsWith('temp-')) {
+            mergedExperiences.push(sessExp);
+          }
+        });
+
+        const mergedEducations = [...backendEducations];
+        sessionEducations.forEach((sessEdu: any) => {
+          const existsInBackend = backendEducations.some((beEdu: any) =>
+            beEdu.id === sessEdu.id ||
+            (beEdu.institution === sessEdu.institution && beEdu.levelOfEducation === sessEdu.levelOfEducation)
+          );
+          if (!existsInBackend && String(sessEdu.id).startsWith('temp-')) {
+            mergedEducations.push(sessEdu);
+          }
+        });
+
+        setFormData({
+          experience: mergedExperiences,
+          education: mergedEducations,
+          country: country,
+        });
+
+        // Update sessionStorage with merged data
+        sessionStorage.setItem('signupFormData', JSON.stringify({
+          experience: mergedExperiences,
+          education: mergedEducations,
+          country: country,
+        }));
+
+      } catch (error) {
+        console.error('Error fetching profile data:', error);
+        // Fall back to sessionStorage
+        loadFromSessionStorage();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const loadFromSessionStorage = () => {
+      const storedData = sessionStorage.getItem('signupFormData');
+      if (storedData) {
+        try {
+          const parsed = JSON.parse(storedData);
           setFormData((prev: any) => ({
             ...prev,
-            country: parsed.country,
+            experience: parsed.experience || [],
+            education: parsed.education || [],
+            country: parsed.country || 'India',
           }));
+        } catch (error) {
+          console.error('Error loading stored data:', error);
         }
-      } catch (error) {
-        console.error('Error parsing user data:', error);
       }
-    }
+
+      // Also check userData for country
+      const userData = localStorage.getItem('userData');
+      if (userData) {
+        try {
+          const parsed = JSON.parse(userData);
+          if (parsed.country) {
+            setFormData((prev: any) => ({
+              ...prev,
+              country: parsed.country,
+            }));
+          }
+        } catch (error) {
+          console.error('Error parsing user data:', error);
+        }
+      }
+    };
+
+    fetchExistingData();
   }, []);
 
   // Update form data function (matches signup flow interface)
@@ -122,19 +261,84 @@ const CompleteProfile: React.FC = () => {
     });
   }, []);
 
-  // Save profile to API
+  // Refresh data from backend
+  const refreshData = useCallback(async () => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    };
+
+    try {
+      const [experiencesRes, educationsRes] = await Promise.all([
+        axios.get(getApiUrl('/users/me/experiences'), { headers }).catch(() => ({ data: [] })),
+        axios.get(getApiUrl('/users/me/educations'), { headers }).catch(() => ({ data: [] })),
+      ]);
+
+      const experiences = (experiencesRes.data || []).map((exp: any) => ({
+        id: exp.id,
+        clientName: exp.client_name || '',
+        companyName: exp.company_name || '',
+        workLocation: exp.work_location || '',
+        website: exp.website || '',
+        workEmail: exp.work_email || '',
+        roleTitle: exp.role_title || '',
+        startDate: exp.start_date || '',
+        endDate: exp.end_date || '',
+        isCurrentlyWorking: exp.is_currently_working || false,
+        responsibilities: exp.responsibilities || '',
+        skills: exp.skills || [],
+      }));
+
+      const educations = (educationsRes.data || []).map((edu: any) => ({
+        id: edu.id,
+        institution: edu.school_name || '',
+        levelOfEducation: edu.degree || '',
+        fieldOfStudy: edu.field_of_study || '',
+        startDate: edu.start_year ? `${edu.start_year}-01-01` : '',
+        endDate: edu.end_year ? `${edu.end_year}-01-01` : '',
+        gpa: edu.grade || '',
+      }));
+
+      setFormData((prev: any) => ({
+        ...prev,
+        experience: experiences,
+        education: educations,
+      }));
+
+      setSnackbar({ open: true, message: 'Data refreshed!', severity: 'success' });
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    }
+  }, []);
+
+  // Save profile - refresh from backend to confirm saves
   const handleSaveProfile = useCallback(async () => {
     try {
+      await refreshData();
       setSnackbar({ open: true, message: 'Profile saved successfully!', severity: 'success' });
     } catch (error) {
       console.error('Error saving profile:', error);
       setSnackbar({ open: true, message: 'Error saving profile', severity: 'error' });
     }
-  }, []);
+  }, [refreshData]);
 
   const handleGoBack = () => {
     navigate('/status/processing');
   };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <PageContainer maxWidth="lg">
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+          <CircularProgress />
+        </Box>
+      </PageContainer>
+    );
+  }
 
   // Determine location for form formatting
   const location = formData.country === 'US' ? 'US' : 'IN';

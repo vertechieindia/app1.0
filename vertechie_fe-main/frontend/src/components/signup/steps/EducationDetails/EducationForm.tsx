@@ -175,14 +175,56 @@ const EducationForm: React.FC<StepComponentProps> = ({
       (formData as any)?.tokenResponse?.data?.token;
 
     try {
+      // Parse start_year safely - ensure it's a valid integer or null
+      let startYear: number | null = null;
+      if (newEducation.startDate && newEducation.startDate.trim() !== '') {
+        // First try to parse as YYYY-MM-DD format
+        if (newEducation.startDate.includes('-')) {
+          const yearPart = parseInt(newEducation.startDate.split('-')[0], 10);
+          if (!isNaN(yearPart) && yearPart > 1900 && yearPart < 2100) {
+            startYear = yearPart;
+          }
+        }
+        // Fallback: try to parse as a date
+        if (startYear === null) {
+          const parsedDate = new Date(newEducation.startDate);
+          if (!isNaN(parsedDate.getTime())) {
+            startYear = parsedDate.getFullYear();
+          }
+        }
+      }
+      // Default to current year if no valid start year
+      if (startYear === null) {
+        startYear = new Date().getFullYear();
+      }
+
+      // Parse end_year safely - ensure it's a valid integer or null
+      let endYear: number | null = null;
+      if (newEducation.endDate && newEducation.endDate.trim() !== '') {
+        // First try to parse as YYYY-MM-DD format
+        if (newEducation.endDate.includes('-')) {
+          const yearPart = parseInt(newEducation.endDate.split('-')[0], 10);
+          if (!isNaN(yearPart) && yearPart > 1900 && yearPart < 2100) {
+            endYear = yearPart;
+          }
+        }
+        // Fallback: try to parse as a date
+        if (endYear === null) {
+          const parsedDate = new Date(newEducation.endDate);
+          if (!isNaN(parsedDate.getTime())) {
+            endYear = parsedDate.getFullYear();
+          }
+        }
+      }
+
       // Prepare payload according to API format (trim all string values)
       const payload = {
         school_name: newEducation.institution.trim(),
-        degree: newEducation.levelOfEducation.trim().toUpperCase(),
-        field_of_study: newEducation.fieldOfStudy.trim(),
-        start_year: newEducation.startDate ? parseInt(newEducation.startDate.split('-')[0]) : null,
-        end_year: newEducation.endDate ? parseInt(newEducation.endDate.split('-')[0]) : null,
-        grade: (newEducation.gpa || '').trim(), // Optional field
+        degree: newEducation.levelOfEducation.trim().toUpperCase() || null,
+        field_of_study: newEducation.fieldOfStudy.trim() || null,
+        start_year: startYear,
+        end_year: endYear,
+        grade: (newEducation.gpa || '').trim() || null,
       };
 
       console.log('Posting education details to API:', payload);
