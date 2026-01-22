@@ -90,6 +90,9 @@ from app.models.network import Connection, ConnectionRequest
 # Community Models
 from app.models.community import Group, GroupMember, Post, Comment
 
+# Notification Models
+from app.models.notification import Notification, NotificationType
+
 __all__ = [
     # Auth
     "User", "UserRole", "UserProfile", 
@@ -157,4 +160,7 @@ __all__ = [
     
     # Community
     "Group", "GroupMember", "Post", "Comment",
+    
+    # Notifications
+    "Notification", "NotificationType",
 ]

@@ -9,7 +9,8 @@
  * - Quick actions
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { notificationService } from '../../services/interviewService';
 import {
   Box,
   Container,
@@ -301,7 +302,8 @@ const mockNotifications: Notification[] = [
 // ============================================
 const Notifications: React.FC = () => {
   const [activeTab, setActiveTab] = useState(0);
-  const [notifications, setNotifications] = useState(mockNotifications);
+  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
+  const [loading, setLoading] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [selectedNotification, setSelectedNotification] = useState<string | null>(null);
@@ -315,6 +317,76 @@ const Notifications: React.FC = () => {
     learningReminders: true,
     marketingEmails: false,
   });
+
+  // Fetch real notifications from backend
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      try {
+        setLoading(true);
+        const apiNotifications = await notificationService.getNotifications(false, 50);
+        
+        if (apiNotifications && apiNotifications.length > 0) {
+          // Map backend notifications to frontend format
+          const mappedNotifications: Notification[] = apiNotifications.map((n: any) => {
+            // Determine notification type and icon based on notification_type
+            let type: 'job' | 'network' | 'learn' | 'system' | 'achievement' = 'system';
+            let icon: React.ReactNode = <NotificationsIcon />;
+            
+            if (n.notification_type?.includes('interview') || n.notification_type?.includes('job')) {
+              type = 'job';
+              icon = <WorkIcon />;
+            } else if (n.notification_type?.includes('network') || n.notification_type?.includes('connection')) {
+              type = 'network';
+              icon = <PeopleIcon />;
+            } else if (n.notification_type?.includes('learn') || n.notification_type?.includes('course')) {
+              type = 'learn';
+              icon = <SchoolIcon />;
+            }
+            
+            // Determine time group
+            const createdAt = new Date(n.created_at);
+            const now = new Date();
+            const diffDays = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+            let timeGroup: 'today' | 'week' | 'earlier' = 'earlier';
+            if (diffDays === 0) timeGroup = 'today';
+            else if (diffDays < 7) timeGroup = 'week';
+            
+            // Format time display
+            let timeDisplay: string;
+            const diffHours = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60));
+            if (diffHours < 1) timeDisplay = 'Just now';
+            else if (diffHours < 24) timeDisplay = `${diffHours} hours ago`;
+            else if (diffDays < 7) timeDisplay = `${diffDays} days ago`;
+            else timeDisplay = createdAt.toLocaleDateString();
+            
+            return {
+              id: n.id,
+              type,
+              title: n.title,
+              message: n.message,
+              time: timeDisplay,
+              timeGroup,
+              read: n.is_read,
+              saved: false,
+              icon,
+              actionUrl: n.link,
+              actionLabel: n.link ? 'View Details' : undefined,
+            };
+          });
+          
+          // Merge with mock notifications (real ones first)
+          setNotifications([...mappedNotifications, ...mockNotifications.slice(0, 3)]);
+        }
+      } catch (error) {
+        console.error('Error fetching notifications:', error);
+        // Keep mock notifications as fallback
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchNotifications();
+  }, []);
 
   // Filter notifications based on tab
   const filterNotifications = () => {
@@ -343,12 +415,24 @@ const Notifications: React.FC = () => {
   };
 
   // Actions
-  const markAsRead = (id: string) => {
+  const markAsRead = async (id: string) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    // Also update in backend
+    try {
+      await notificationService.markAsRead(id);
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+    }
   };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    // Also update in backend
+    try {
+      await notificationService.markAllAsRead();
+    } catch (error) {
+      console.error('Failed to mark all as read:', error);
+    }
   };
 
   const toggleSaved = (id: string) => {

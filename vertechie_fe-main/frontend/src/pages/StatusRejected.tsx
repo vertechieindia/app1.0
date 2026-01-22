@@ -20,6 +20,19 @@ const StatusPaper = styled(Paper)(({ theme }) => ({
 const StatusRejected = () => {
   const navigate = useNavigate();
 
+  const handleReturnToHome = () => {
+    // Clear all auth tokens and user data to logout
+    localStorage.removeItem('vertechie_access_token');
+    localStorage.removeItem('vertechie_refresh_token');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
+    localStorage.removeItem('userData');
+    sessionStorage.clear();
+    // Navigate to home
+    navigate('/');
+  };
+
   return (
     <StatusContainer maxWidth="sm">
       <Box
@@ -65,7 +78,7 @@ const StatusRejected = () => {
             </Button>
             <Button
               variant="contained"
-              onClick={() => navigate('/')}
+              onClick={handleReturnToHome}
               sx={{
                 borderRadius: '50px',
                 px: 4,
@@ -74,7 +87,7 @@ const StatusRejected = () => {
               }}
             >
               Return to Home
-          </Button>
+            </Button>
           </Box>
         </StatusPaper>
       </Box>

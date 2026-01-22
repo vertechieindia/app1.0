@@ -21,7 +21,7 @@ const INTERESTS_STORAGE_KEY = 'vertechie_interests';
 
 // API Helper - Get auth token
 const getAuthToken = (): string | null => {
-  return localStorage.getItem('access_token') || localStorage.getItem('token');
+  return localStorage.getItem('authToken') || localStorage.getItem('access_token') || localStorage.getItem('token');
 };
 
 // API Helper - Make authenticated request
@@ -359,15 +359,16 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
 const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
   return {
     title: frontendJob.title,
-    company_name: frontendJob.companyName,
-    description: frontendJob.description || '',
-    required_skills: frontendJob.requiredSkills || [],
-    experience_level: frontendJob.experienceLevel || 'entry',
-    location: frontendJob.location || '',
-    job_type: frontendJob.jobType || 'full-time',
+    company_name: frontendJob.companyName || 'Company',
+    description: frontendJob.description || 'Job Description',
+    short_description: frontendJob.description?.substring(0, 200) || null,
+    skills_required: frontendJob.requiredSkills || [],
+    experience_level: frontendJob.experienceLevel || 'mid',
+    location: frontendJob.location || 'Remote',
+    job_type: (frontendJob.jobType || 'full_time').replace('-', '_'),
     is_remote: frontendJob.location?.toLowerCase().includes('remote') || false,
-    salary_min: null,
-    salary_max: null,
+    salary_min: frontendJob.salaryMin || null,
+    salary_max: frontendJob.salaryMax || null,
     status: 'published',
   };
 };
@@ -384,12 +385,18 @@ export const applicationService = {
     codingAnswers: CodingAnswer[]
   ): Promise<Application> => {
     try {
+      // Convert answers array to dict format for backend
+      const answersDict: Record<string, string> = {};
+      codingAnswers.forEach((answer) => {
+        answersDict[answer.questionId] = answer.code || '';
+      });
+      
       const response = await apiRequest(API_ENDPOINTS.JOBS.APPLY(jobId), {
         method: 'POST',
         body: JSON.stringify({
           cover_letter: '',
           resume_url: '',
-          answers: codingAnswers,
+          answers: answersDict,  // Send as dict, not array
         }),
       });
       if (response.ok) {
@@ -572,18 +579,38 @@ export const applicationService = {
 
 // Helper: Map backend application format to frontend format
 const mapBackendApplicationToFrontend = (backendApp: any): Application => {
+  // Extract applicant details from nested applicant object (new format)
+  const applicant = backendApp.applicant || {};
+  const applicantName = applicant.first_name 
+    ? `${applicant.first_name} ${applicant.last_name || ''}`.trim()
+    : backendApp.applicant_name || backendApp.candidateName || 'Applicant';
+  const applicantEmail = applicant.email || backendApp.applicant_email || backendApp.candidateEmail || '';
+  
   return {
     id: backendApp.id,
     jobId: backendApp.job_id || backendApp.jobId,
-    userId: backendApp.user_id || backendApp.userId,
-    candidateName: backendApp.applicant_name || backendApp.candidateName || 'Applicant',
-    candidateEmail: backendApp.applicant_email || backendApp.candidateEmail || '',
+    userId: backendApp.applicant_id || backendApp.user_id || backendApp.userId,
+    candidateName: applicantName,
+    candidateEmail: applicantEmail,
     appliedAt: backendApp.submitted_at || backendApp.appliedAt || backendApp.created_at,
     status: backendApp.status || 'applied',
     codingAnswers: backendApp.answers || [],
-    codingScore: backendApp.match_score,
+    codingScore: backendApp.match_score || backendApp.rating,
     codingStatus: backendApp.coding_status || 'pending',
     job: backendApp.job,
+    // Include additional applicant details for display
+    applicantDetails: applicant.id ? {
+      id: applicant.id,
+      firstName: applicant.first_name,
+      lastName: applicant.last_name,
+      email: applicant.email,
+      phone: applicant.phone || applicant.mobile_number,
+      title: applicant.title || applicant.headline,
+      skills: applicant.skills || [],
+      experienceYears: applicant.experience_years,
+      location: applicant.location || applicant.address,
+      avatarUrl: applicant.avatar_url,
+    } : undefined,
   };
 };
 
@@ -806,7 +833,9 @@ export const interestService = {
 // ==================== USER/CANDIDATE SERVICE ====================
 
 export interface Candidate {
-  id: string;
+  id: string; // Application ID when from job applications, User ID otherwise
+  applicationId?: string; // Explicit job application ID (for scheduling interviews)
+  userId?: string; // User ID (for profile navigation)
   name: string;
   email: string;
   avatar?: string;
@@ -862,8 +891,11 @@ export const userService = {
         const applications = await response.json();
         if (applications && applications.length > 0) {
           // Map applications to candidates with applicant info
+          // IMPORTANT: id should be APPLICATION ID for interview scheduling
           return applications.map((app: any) => ({
-            id: app.applicant_id || app.id,
+            id: app.id, // APPLICATION ID - used for scheduling interviews
+            applicationId: app.id, // Explicit application ID
+            userId: app.applicant_id, // User ID - used for profile navigation
             name: app.applicant?.first_name 
               ? `${app.applicant.first_name} ${app.applicant.last_name || ''}`.trim()
               : app.applicant_name || 'Applicant',
@@ -891,7 +923,9 @@ export const userService = {
     
     if (jobApplications.length > 0) {
       return jobApplications.map(app => ({
-        id: app.userId,
+        id: app.id, // Application ID
+        applicationId: app.id,
+        userId: app.userId,
         name: app.candidateName,
         email: app.candidateEmail,
         skills: [],

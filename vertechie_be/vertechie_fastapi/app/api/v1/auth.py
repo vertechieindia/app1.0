@@ -226,6 +226,8 @@ async def login(
         "admin_roles": user.admin_roles or [],
         "groups": [{"name": r.role_type.value} for r in user_role_list] if user_role_list else [],
         "user_permissions": [],
+        "verification_status": user.verification_status.value if user.verification_status else "pending",
+        "role": user_role_list[0].role_type.value if user_role_list else "techie",
     }
     
     return {

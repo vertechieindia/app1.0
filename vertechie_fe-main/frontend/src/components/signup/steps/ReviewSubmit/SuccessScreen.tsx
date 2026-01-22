@@ -107,24 +107,24 @@ const SuccessScreen: React.FC<SuccessScreenProps> = ({ role }) => {
 
           {/* Action Buttons */}
           <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Button
-              variant="contained"
+          <Button
+            variant="contained"
               onClick={handleViewStatus}
-              sx={{
+            sx={{
                 bgcolor: '#4caf50',
-                color: 'white',
+              color: 'white',
                 px: 4,
-                py: 1.5,
-                borderRadius: 2,
-                textTransform: 'none',
-                fontSize: '1rem',
-                fontWeight: 600,
-                boxShadow: 3,
-                '&:hover': {
+              py: 1.5,
+              borderRadius: 2,
+              textTransform: 'none',
+              fontSize: '1rem',
+              fontWeight: 600,
+              boxShadow: 3,
+              '&:hover': {
                   bgcolor: '#388e3c',
-                  boxShadow: 4,
-                },
-              }}
+                boxShadow: 4,
+              },
+            }}
             >
               Check Status
             </Button>
@@ -145,9 +145,9 @@ const SuccessScreen: React.FC<SuccessScreenProps> = ({ role }) => {
                   bgcolor: 'rgba(25, 118, 210, 0.04)',
                 },
               }}
-            >
-              Back to Home
-            </Button>
+          >
+            Back to Home
+          </Button>
           </Box>
         </Paper>
       </Container>

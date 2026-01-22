@@ -101,13 +101,14 @@ interface DisplayJob {
   responsibilities?: string;
   skills?: string[];
   screeningQuestions?: Array<{ id: string; question: string; type?: string; options?: string[] }>;
-  salaryMin?: string;
-  salaryMax?: string;
+  salaryMin?: number;  // Raw salary value for edit form
+  salaryMax?: number;  // Raw salary value for edit form
 }
 
 // Display applicant interface
 interface DisplayApplicant {
   id: string;
+  applicantId?: string; // User ID for navigation
   name: string;
   email: string;
   phone: string;
@@ -117,6 +118,8 @@ interface DisplayApplicant {
   status: string;
   appliedDate: string;
   skills: string[];
+  location?: string;
+  avatarUrl?: string;
 }
 
 const JobPostingsPage: React.FC = () => {
@@ -145,12 +148,17 @@ const JobPostingsPage: React.FC = () => {
           department: job.requiredSkills?.length > 0 ? 'Engineering' : 'General',
           location: job.location || 'Remote',
           type: job.jobType === 'full-time' ? 'Full-time' : job.jobType || 'Full-time',
+          // Show real salary if entered, otherwise show "Not specified"
           salary: job.salary_min && job.salary_max 
-            ? `$${job.salary_min / 1000}K - $${job.salary_max / 1000}K` 
-            : '$90K - $130K',
+            ? `$${Math.round(job.salary_min / 1000)}K - $${Math.round(job.salary_max / 1000)}K` 
+            : job.salary_min 
+              ? `From $${Math.round(job.salary_min / 1000)}K`
+              : job.salary_max
+                ? `Up to $${Math.round(job.salary_max / 1000)}K`
+                : 'Not specified',
           applicants: job.applicantCount || 0,
           newApplicants: 0, // Will be calculated when viewing applicants
-          views: job.views_count || Math.floor(Math.random() * 500) + 100,
+          views: job.views_count || 0, // Real count, no dummy random values
           status: job.status || 'active',
           posted: formatTimeAgo(job.createdAt),
           // Store additional job data for edit dialog
@@ -159,6 +167,9 @@ const JobPostingsPage: React.FC = () => {
           requiredSkills: job.requiredSkills,
           screeningQuestions: job.screeningQuestions,
           responsibilities: job.responsibilities,
+          // Store raw salary values for edit form
+          salaryMin: job.salary_min,
+          salaryMax: job.salary_max,
         }));
         
         setJobs(displayJobs);
@@ -311,7 +322,7 @@ const JobPostingsPage: React.FC = () => {
         difficulty: 'easy' as const,
       }));
       
-      // Create job via API
+      // Create job via API - include salary fields
       const createdJob = await jobService.createJob({
         title: newJob.title,
         companyName: companyName,
@@ -321,12 +332,19 @@ const JobPostingsPage: React.FC = () => {
         location: newJob.location || 'Remote',
         jobType: jobTypeMap[newJob.type] || 'full-time',
         codingQuestions: codingQuestions,
+        // Include salary values if provided
+        salaryMin: newJob.salaryMin ? parseInt(newJob.salaryMin) : undefined,
+        salaryMax: newJob.salaryMax ? parseInt(newJob.salaryMax) : undefined,
       }, userId);
       
-      // Format salary display
+      // Format salary display - show real values or "Not specified"
       const salaryDisplay = newJob.salaryMin && newJob.salaryMax 
-        ? `$${parseInt(newJob.salaryMin) / 1000}K - $${parseInt(newJob.salaryMax) / 1000}K`
-        : '$90K - $130K';
+        ? `$${Math.round(parseInt(newJob.salaryMin) / 1000)}K - $${Math.round(parseInt(newJob.salaryMax) / 1000)}K`
+        : newJob.salaryMin 
+          ? `From $${Math.round(parseInt(newJob.salaryMin) / 1000)}K`
+          : newJob.salaryMax
+            ? `Up to $${Math.round(parseInt(newJob.salaryMax) / 1000)}K`
+            : 'Not specified';
 
       // Map department for display
       const departmentDisplay = newJob.department.charAt(0).toUpperCase() + newJob.department.slice(1);
@@ -507,7 +525,8 @@ const JobPostingsPage: React.FC = () => {
       
       if (candidates.length > 0) {
         const displayApps: DisplayApplicant[] = candidates.map((candidate) => ({
-          id: candidate.id,
+          id: candidate.applicationId || candidate.id, // APPLICATION ID for interview scheduling
+          applicantId: candidate.userId || candidate.id, // User ID for profile navigation
           name: candidate.name || 'Applicant',
           email: candidate.email || '',
           phone: '',
@@ -517,25 +536,34 @@ const JobPostingsPage: React.FC = () => {
           status: candidate.status || 'new',
           appliedDate: candidate.appliedAt ? formatTimeAgo(candidate.appliedAt) : 'Recently',
           skills: candidate.skills || [],
+          location: candidate.location || '',
+          avatarUrl: candidate.avatar || '',
         }));
         setApplicants(displayApps);
         return;
       }
       
-      // Fallback to applicationService
+      // Fallback to applicationService - now includes applicant details from backend
       const apps = await applicationService.getApplicationsByJob(job.id);
-      const displayApps: DisplayApplicant[] = apps.map((app) => ({
-        id: app.id,
-        name: app.candidateName || 'Applicant',
-        email: app.candidateEmail || '',
-        phone: '',
-        title: 'Candidate',
-        experience: '3+ years',
-        matchScore: app.codingScore || Math.floor(Math.random() * 30) + 70,
-        status: app.status === 'applied' ? 'new' : app.status,
-        appliedDate: formatTimeAgo(app.appliedAt),
-        skills: [],
-      }));
+      const displayApps: DisplayApplicant[] = apps.map((app) => {
+        // Use applicantDetails if available from backend
+        const details = app.applicantDetails;
+        return {
+          id: app.id,
+          applicantId: details?.id || app.userId, // Store applicant ID for navigation
+          name: app.candidateName || 'Applicant',
+          email: app.candidateEmail || details?.email || '',
+          phone: details?.phone || '',
+          title: details?.title || 'Candidate',
+          experience: details?.experienceYears ? `${details.experienceYears}+ years` : 'Not specified',
+          matchScore: app.codingScore || Math.floor(Math.random() * 30) + 70,
+          status: app.status === 'applied' || (app.status as string) === 'submitted' ? 'new' : app.status,
+          appliedDate: formatTimeAgo(app.appliedAt),
+          skills: details?.skills || [],
+          location: details?.location || '',
+          avatarUrl: details?.avatarUrl || '',
+        };
+      });
       setApplicants(displayApps);
     } catch (error) {
       console.error('Error fetching applicants:', error);
@@ -1633,8 +1661,9 @@ const JobPostingsPage: React.FC = () => {
                             size="small" 
                             sx={{ color: '#0d47a1' }}
                             onClick={() => {
-                              setSnackbar({ open: true, message: `Viewing profile of ${applicant.name}`, severity: 'info' });
-                              // TODO: Navigate to candidate profile page
+                              // Navigate to candidate profile page
+                              const candidateId = applicant.applicantId || applicant.id;
+                              navigate(`/techie/ats/candidate/${candidateId}`);
                             }}
                           >
                             <VisibilityIcon fontSize="small" />
@@ -1645,8 +1674,19 @@ const JobPostingsPage: React.FC = () => {
                             size="small" 
                             sx={{ color: '#5856D6' }}
                             onClick={() => {
-                              setSnackbar({ open: true, message: `Schedule interview with ${applicant.name}`, severity: 'info' });
-                              // TODO: Open scheduling dialog
+                              // Navigate to schedule interview page with candidate and job info
+                              // applicant.id = application ID, applicant.applicantId = user ID
+                              const candidateId = applicant.applicantId || applicant.id;
+                              const applicationId = applicant.id; // This is the JobApplication ID
+                              const params = new URLSearchParams({
+                                applicationId: applicationId,
+                                candidateId: candidateId,
+                                candidateName: applicant.name,
+                                candidateEmail: applicant.email || '',
+                                jobId: selectedJob?.id || '',
+                                jobTitle: selectedJob?.title || '',
+                              });
+                              navigate(`/techie/schedule-interview?${params.toString()}`);
                             }}
                           >
                             <ScheduleIcon fontSize="small" />
@@ -1680,9 +1720,9 @@ const JobPostingsPage: React.FC = () => {
           <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
             {applicants.length > 0 ? `Showing ${filteredApplicants.length} applicants sorted by relevance` : 'Browse candidates to find potential matches'}
           </Typography>
-          {applicants.length > 0 && (
-            <Button onClick={loadAllCandidates} sx={{ mr: 1 }}>
-              Refresh Candidates
+          {applicants.length > 0 && selectedJob && (
+            <Button onClick={() => openApplicantsDialog(selectedJob)} sx={{ mr: 1 }}>
+              Refresh Applicants
             </Button>
           )}
           <Button onClick={() => setApplicantsDialogOpen(false)}>Close</Button>

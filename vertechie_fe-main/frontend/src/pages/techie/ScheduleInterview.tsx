@@ -10,8 +10,9 @@
  * - Calendar integration
  */
 
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { interviewService, InterviewCreate } from '../../services/interviewService';
 import {
   Box,
   Typography,
@@ -136,6 +137,7 @@ const mockInterviewers = [
 
 const ScheduleInterview: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [activeStep, setActiveStep] = useState(0);
   const [selectedType, setSelectedType] = useState('technical');
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
@@ -151,16 +153,109 @@ const ScheduleInterview: React.FC = () => {
   const [generatedLink, setGeneratedLink] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   const steps = ['Interview Type', 'Date & Time', 'Participants', 'Review & Schedule'];
 
-  const handleNext = () => {
+  // Pre-populate from URL params (when coming from View Applicants)
+  useEffect(() => {
+    const candidateId = searchParams.get('candidateId');
+    const candidateName = searchParams.get('candidateName');
+    const candidateEmail = searchParams.get('candidateEmail');
+    const jobTitle = searchParams.get('jobTitle');
+
+    if (candidateId && candidateName) {
+      // Create candidate from URL params
+      const candidateFromUrl = {
+        id: candidateId,
+        name: candidateName,
+        email: candidateEmail || '',
+        position: jobTitle || 'Candidate',
+        avatar: '',
+      };
+      setSelectedCandidates([candidateFromUrl]);
+      
+      // Set meeting title based on job
+      if (jobTitle) {
+        setMeetingTitle(`Interview for ${jobTitle}`);
+      }
+    }
+  }, [searchParams]);
+
+  const handleNext = async () => {
     if (activeStep === steps.length - 1) {
-      // Generate meeting link and schedule
-      const roomId = `interview-${Date.now()}`;
-      const link = `${window.location.origin}/techie/lobby/${roomId}?type=interview`;
-      setGeneratedLink(link);
-      setShowSuccess(true);
+      // Schedule interview via backend API
+      setIsScheduling(true);
+      setScheduleError(null);
+      
+      try {
+        // Generate meeting link
+        const roomId = `interview-${Date.now()}`;
+        const link = `${window.location.origin}/techie/lobby/${roomId}?type=interview`;
+        
+        // Get application_id from URL params or selected candidate
+        const applicationId = searchParams.get('applicationId');
+        const jobId = searchParams.get('jobId');
+        
+        // Combine date and time
+        const scheduledDateTime = selectedDate && selectedTime 
+          ? new Date(
+              selectedDate.getFullYear(),
+              selectedDate.getMonth(),
+              selectedDate.getDate(),
+              selectedTime.getHours(),
+              selectedTime.getMinutes()
+            ).toISOString()
+          : new Date().toISOString();
+
+        // Map interview type
+        const interviewTypeMap: Record<string, InterviewCreate['interview_type']> = {
+          'screening': 'phone',
+          'technical': 'technical',
+          'behavioral': 'behavioral',
+          'hr': 'phone',
+          'final': 'panel',
+          'panel': 'panel',
+        };
+
+        // Build interview data
+        // Filter out mock interviewers (IDs that aren't valid UUIDs - less than 32 chars)
+        const validInterviewerIds = selectedInterviewers
+          .map(i => i.id)
+          .filter(id => id && id.length >= 32);
+        
+        const interviewData: InterviewCreate = {
+          application_id: applicationId || '', // This will be validated on backend
+          interview_type: interviewTypeMap[selectedType] || 'technical',
+          scheduled_at: scheduledDateTime,
+          duration_minutes: duration,
+          meeting_link: link,
+          notes: meetingNotes || undefined,
+          interviewers: validInterviewerIds.length > 0 ? validInterviewerIds : undefined,
+        };
+
+        // Only call API if we have an application_id
+        if (applicationId) {
+          await interviewService.scheduleInterview(interviewData);
+          console.log('✅ Interview scheduled via backend API');
+        } else {
+          console.log('⚠️ No application_id, creating local meeting link only');
+        }
+        
+        setGeneratedLink(link);
+        setShowSuccess(true);
+      } catch (error: any) {
+        console.error('Failed to schedule interview:', error);
+        setScheduleError(error.message || 'Failed to schedule interview. Please try again.');
+        // Still show success for local meeting link
+        const roomId = `interview-${Date.now()}`;
+        const link = `${window.location.origin}/techie/lobby/${roomId}?type=interview`;
+        setGeneratedLink(link);
+        setShowSuccess(true);
+      } finally {
+        setIsScheduling(false);
+      }
     } else {
       setActiveStep(prev => prev + 1);
     }

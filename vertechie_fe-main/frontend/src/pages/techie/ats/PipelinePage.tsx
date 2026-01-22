@@ -26,8 +26,8 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PersonIcon from '@mui/icons-material/Person';
 import EmailIcon from '@mui/icons-material/Email';
 import ATSLayout from './ATSLayout';
-import { userService } from '../../../services/jobPortalService';
-import { getApiUrl } from '../../../config/api';
+import { userService, jobService, getHRUserInfo } from '../../../services/jobPortalService';
+import { getApiUrl, API_ENDPOINTS } from '../../../config/api';
 
 const pulse = keyframes`
   0%, 100% { opacity: 1; }
@@ -136,6 +136,9 @@ interface Candidate {
   education: string;
   source: string;
   avatar?: string;
+  applicationId?: string;
+  jobId?: string;
+  jobTitle?: string;
 }
 
 // Score color based on value
@@ -163,6 +166,7 @@ const PipelinePage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [selectedJob, setSelectedJob] = useState('all');
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [jobs, setJobs] = useState<Array<{ id: string; title: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
@@ -174,15 +178,54 @@ const PipelinePage: React.FC = () => {
   });
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Fetch jobs for filter dropdown
+  useEffect(() => {
+    const fetchJobs = async () => {
+      try {
+        const hrUser = getHRUserInfo();
+        const userId = hrUser?.id || '';
+        if (userId) {
+          const fetchedJobs = await jobService.getJobsByHR(userId);
+          setJobs(fetchedJobs.map(job => ({ id: job.id, title: job.title })));
+        }
+      } catch (error) {
+        console.error('Error fetching jobs:', error);
+      }
+    };
+
+    fetchJobs();
+  }, []);
+
   // Fetch candidates from API
   useEffect(() => {
     const fetchCandidates = async () => {
       try {
         setLoading(true);
-        const data = await userService.getAllUsers('', 100);
+        const token = localStorage.getItem('authToken');
         
-        // Map API data to pipeline format with random stages for demo
-        const stageDistribution = ['new', 'new', 'new', 'screening', 'screening', 'interview', 'interview', 'offer', 'hired'];
+        // Build query params
+        const params = new URLSearchParams();
+        if (selectedJob && selectedJob !== 'all') {
+          params.append('job_id', selectedJob);
+        }
+        
+        const response = await fetch(
+          `${getApiUrl(API_ENDPOINTS.HIRING.PIPELINE_CANDIDATES)}?${params.toString()}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch candidates');
+        }
+        
+        const data = await response.json();
+        
+        // Map API data to pipeline format
         const aiInsights = [
           'Strong technical background',
           'Excellent communication skills',
@@ -194,22 +237,25 @@ const PipelinePage: React.FC = () => {
           'Good team player',
         ];
         
-        const mappedCandidates: Candidate[] = data.map((user: any, index: number) => ({
-          id: user.id,
-          name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Unknown',
-          email: user.email || '',
-          role: user.title || user.headline || user.current_position || 'Techie',
-          stage: user.pipeline_stage || stageDistribution[index % stageDistribution.length],
-          skills: user.skills || ['React', 'JavaScript'],
-          rating: user.rating || Math.floor(Math.random() * 2) + 4,
-          time: user.created_at ? getRelativeTime(user.created_at) : 'Recently',
-          score: user.score || Math.floor(Math.random() * 20) + 75,
-          matchScore: user.matchScore || Math.floor(Math.random() * 15) + 80,
-          aiInsight: user.aiInsight || aiInsights[index % aiInsights.length],
-          experience: user.experience_years || Math.floor(Math.random() * 8) + 2,
-          education: user.education || 'BS Computer Science',
-          source: user.source || 'VerTechie',
-          avatar: user.avatar || user.avatar_url,
+        const mappedCandidates: Candidate[] = data.map((candidate: any, index: number) => ({
+          id: candidate.id || candidate.application_id,
+          name: candidate.name || 'Unknown',
+          email: candidate.email || '',
+          role: candidate.role || candidate.job_title || 'Applicant',
+          stage: candidate.stage || 'new',
+          skills: candidate.skills || [],
+          rating: candidate.rating || 4,
+          time: candidate.time || 'Recently',
+          score: candidate.score || candidate.matchScore || 75,
+          matchScore: candidate.matchScore || candidate.score || 75,
+          aiInsight: candidate.aiInsight || aiInsights[index % aiInsights.length],
+          experience: candidate.experience || 0,
+          education: candidate.education || 'Not specified',
+          source: candidate.source || 'VerTechie',
+          avatar: candidate.avatar,
+          applicationId: candidate.application_id,
+          jobId: candidate.job_id,
+          jobTitle: candidate.job_title,
         }));
         
         setCandidates(mappedCandidates);
@@ -222,7 +268,7 @@ const PipelinePage: React.FC = () => {
     };
 
     fetchCandidates();
-  }, []);
+  }, [selectedJob]);
 
   // Helper function for relative time
   const getRelativeTime = (dateStr: string): string => {
@@ -279,19 +325,47 @@ const PipelinePage: React.FC = () => {
     const newStage = stages[currentStageIndex + 1].id;
     const oldStage = candidate.stage;
     
-    // Update local state
-    setCandidates(prev => prev.map(c => 
-      c.id === candidate.id ? { ...c, stage: newStage } : c
-    ));
-    
-    // Send email notification
-    const emailSent = await sendStageChangeEmail(candidate, oldStage, newStage);
-    
-    setSnackbar({ 
-      open: true, 
-      message: `${candidate.name} moved to ${getStageLabel(newStage)}${emailSent ? ' - Email notification sent' : ''}`, 
-      severity: 'success' 
-    });
+    try {
+      // Update via API
+      const token = localStorage.getItem('authToken');
+      const applicationId = candidate.applicationId || candidate.id;
+      
+      const response = await fetch(
+        getApiUrl(API_ENDPOINTS.HIRING.UPDATE_APPLICATION_STAGE(applicationId)) + `?stage=${newStage}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to update stage');
+      }
+      
+      // Update local state
+      setCandidates(prev => prev.map(c => 
+        c.id === candidate.id ? { ...c, stage: newStage } : c
+      ));
+      
+      // Send email notification
+      const emailSent = await sendStageChangeEmail(candidate, oldStage, newStage);
+      
+      setSnackbar({ 
+        open: true, 
+        message: `${candidate.name} moved to ${getStageLabel(newStage)}${emailSent ? ' - Email notification sent' : ''}`, 
+        severity: 'success' 
+      });
+    } catch (error) {
+      console.error('Error moving candidate:', error);
+      setSnackbar({ 
+        open: true, 
+        message: 'Failed to move candidate. Please try again.', 
+        severity: 'error' 
+      });
+    }
     
     setConfirmDialog({ open: false, action: null, candidate: null });
     setMenuAnchor(null);
@@ -308,19 +382,47 @@ const PipelinePage: React.FC = () => {
     const newStage = stages[currentStageIndex - 1].id;
     const oldStage = candidate.stage;
     
-    // Update local state
-    setCandidates(prev => prev.map(c => 
-      c.id === candidate.id ? { ...c, stage: newStage } : c
-    ));
-    
-    // Send email notification
-    const emailSent = await sendStageChangeEmail(candidate, oldStage, newStage);
-    
-    setSnackbar({ 
-      open: true, 
-      message: `${candidate.name} moved back to ${getStageLabel(newStage)}${emailSent ? ' - Email notification sent' : ''}`, 
-      severity: 'success' 
-    });
+    try {
+      // Update via API
+      const token = localStorage.getItem('authToken');
+      const applicationId = candidate.applicationId || candidate.id;
+      
+      const response = await fetch(
+        getApiUrl(API_ENDPOINTS.HIRING.UPDATE_APPLICATION_STAGE(applicationId)) + `?stage=${newStage}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to update stage');
+      }
+      
+      // Update local state
+      setCandidates(prev => prev.map(c => 
+        c.id === candidate.id ? { ...c, stage: newStage } : c
+      ));
+      
+      // Send email notification
+      const emailSent = await sendStageChangeEmail(candidate, oldStage, newStage);
+      
+      setSnackbar({ 
+        open: true, 
+        message: `${candidate.name} moved back to ${getStageLabel(newStage)}${emailSent ? ' - Email notification sent' : ''}`, 
+        severity: 'success' 
+      });
+    } catch (error) {
+      console.error('Error moving candidate:', error);
+      setSnackbar({ 
+        open: true, 
+        message: 'Failed to move candidate. Please try again.', 
+        severity: 'error' 
+      });
+    }
     
     setConfirmDialog({ open: false, action: null, candidate: null });
     setMenuAnchor(null);
@@ -365,13 +467,15 @@ const PipelinePage: React.FC = () => {
       {/* Filters */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <FormControl size="small" sx={{ minWidth: 150 }}>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
             <InputLabel>Filter by Job</InputLabel>
             <Select value={selectedJob} label="Filter by Job" onChange={(e) => setSelectedJob(e.target.value)}>
               <MenuItem value="all">All Jobs</MenuItem>
-              <MenuItem value="react">Senior React Developer</MenuItem>
-              <MenuItem value="pm">Product Manager</MenuItem>
-              <MenuItem value="ux">UX Designer</MenuItem>
+              {jobs.map((job) => (
+                <MenuItem key={job.id} value={job.id}>
+                  {job.title}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
           <TextField
