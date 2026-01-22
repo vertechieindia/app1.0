@@ -84,7 +84,7 @@ class Job(Base, UUIDMixin, TimestampMixin):
     # Salary
     salary_min = Column(Integer, nullable=True)
     salary_max = Column(Integer, nullable=True)
-    salary_currency = Column(String(3), default="USD")
+    salary_currency = Column(String(3), default="INR")
     salary_period = Column(String(20), default="yearly")  # yearly, monthly, hourly
     show_salary = Column(Boolean, default=True)
     
@@ -151,6 +151,11 @@ class JobApplication(Base, UUIDMixin, TimestampMixin):
     reviewed_at = Column(DateTime, nullable=True)
     reviewer_notes = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)  # 1-5 stars
+    
+    # Skill Matching
+    match_score = Column(Integer, nullable=True)  # Percentage 0-100
+    matched_skills = Column(JSON, default=list)  # Skills that matched
+    missing_skills = Column(JSON, default=list)  # Required skills applicant lacks
     
     # Timestamps
     submitted_at = Column(DateTime, default=datetime.utcnow)

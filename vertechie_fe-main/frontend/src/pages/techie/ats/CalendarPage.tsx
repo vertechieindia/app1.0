@@ -486,7 +486,7 @@ const CalendarPage: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month' | 'agenda' | 'schedule'>('week');
-  const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [showSidebar, setShowSidebar] = useState(true);
   const [showEventDialog, setShowEventDialog] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
@@ -521,6 +521,53 @@ const CalendarPage: React.FC = () => {
       setCurrentTime(new Date());
     }, 60000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Fetch real interviews and add to calendar
+  useEffect(() => {
+    const fetchInterviews = async () => {
+      try {
+        const token = localStorage.getItem('authToken');
+        if (!token) return;
+        
+        const response = await fetch('http://localhost:8000/api/v1/hiring/interviews?upcoming=true', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const interviewEvents: CalendarEvent[] = data.map((interview: any, idx: number) => {
+            const scheduledAt = new Date(interview.scheduled_at);
+            return {
+              id: 10000 + idx, // Unique ID to avoid conflicts
+              title: `Interview - ${interview.candidate_name || 'Candidate'}`,
+              date: scheduledAt.toISOString().split('T')[0],
+              time: scheduledAt.toTimeString().slice(0, 5),
+              duration: interview.duration_minutes || 60,
+              type: 'vertechie',
+              category: 'interview',
+              location: interview.location || 'VerTechie Meet',
+              description: interview.notes || `${interview.interview_type || 'Technical'} Interview`,
+              videoLink: interview.meeting_link,
+            };
+          });
+          
+          // Merge with existing events (avoiding duplicates)
+          setEvents(prev => {
+            const existingIds = prev.map(e => e.id);
+            const newEvents = interviewEvents.filter(e => !existingIds.includes(e.id));
+            return [...prev.filter(e => e.id < 10000), ...interviewEvents];
+          });
+        }
+      } catch (error) {
+        console.warn('Could not fetch interviews for calendar:', error);
+      }
+    };
+    
+    fetchInterviews();
   }, []);
 
   // Computed values

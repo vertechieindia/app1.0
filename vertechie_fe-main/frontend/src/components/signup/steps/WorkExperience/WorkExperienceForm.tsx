@@ -310,17 +310,49 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
       (formData as any)?.tokenResponse?.data?.token;
 
     try {
+      // Format start_date properly - ensure it's in YYYY-MM-DD format
+      let formattedStartDate = newExperience.startDate;
+      if (!formattedStartDate || formattedStartDate.trim() === '') {
+        formattedStartDate = new Date().toISOString().split('T')[0];
+      } else if (!formattedStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Try to parse and format the date
+        const parsedDate = new Date(formattedStartDate);
+        if (!isNaN(parsedDate.getTime())) {
+          formattedStartDate = parsedDate.toISOString().split('T')[0];
+        } else {
+          formattedStartDate = new Date().toISOString().split('T')[0];
+        }
+      }
+
+      // Format end_date properly
+      let formattedEndDate: string | null = null;
+      if (!newExperience.current && newExperience.endDate && newExperience.endDate.trim() !== '') {
+        if (newExperience.endDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          formattedEndDate = newExperience.endDate;
+        } else {
+          const parsedDate = new Date(newExperience.endDate);
+          if (!isNaN(parsedDate.getTime())) {
+            formattedEndDate = parsedDate.toISOString().split('T')[0];
+          }
+        }
+      }
+
       // Prepare API payload for backend
+      // Skills should be an array of strings (skill names only), not objects
+      const skillNames = (newExperience.skills || []).map((skill: any) => 
+        typeof skill === 'string' ? skill : (skill.name || skill)
+      );
+
       const apiPayload = {
         title: newExperience.position.trim(),
         company_name: newExperience.companyName.trim(),
-        location: newExperience.workLocation.trim(),
-        start_date: newExperience.startDate,
-        end_date: newExperience.current ? null : (newExperience.endDate || null),
-        is_current: newExperience.current,
-        description: newExperience.description.trim(),
-        skills: newExperience.skills || [],
-        is_remote: newExperience.workLocation.toLowerCase().includes('remote'),
+        location: newExperience.workLocation?.trim() || null,
+        start_date: formattedStartDate,
+        end_date: formattedEndDate,
+        is_current: newExperience.current || false,
+        description: newExperience.description?.trim() || null,
+        skills: skillNames,
+        is_remote: newExperience.workLocation?.toLowerCase().includes('remote') || false,
       };
 
       let savedId = editingIndex !== null ? experiences[editingIndex]?.id : `temp-${Date.now()}`;

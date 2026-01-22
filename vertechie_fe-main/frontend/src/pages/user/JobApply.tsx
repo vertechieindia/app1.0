@@ -229,8 +229,24 @@ const JobApply: React.FC = () => {
 
   // Calculate match score
   const calculateMatchScore = () => {
+    // Handle case when no required skills (avoid divide by zero)
+    if (!job.requiredSkills || job.requiredSkills.length === 0) {
+      // If no required skills specified, base score on experience only
+      const experienceMatch = Math.min(100, (userProfile.yearsExperience / 5) * 100);
+      return Math.round(experienceMatch);
+    }
+    
+    // Handle case when user has no skills
+    if (!userProfile.skills || userProfile.skills.length === 0) {
+      const experienceMatch = Math.min(100, (userProfile.yearsExperience / 5) * 100);
+      return Math.round(experienceMatch * 0.4);
+    }
+    
     const matchedSkills = userProfile.skills.filter(skill => 
-      job.requiredSkills.some(req => req.toLowerCase() === skill.toLowerCase())
+      job.requiredSkills.some(req => 
+        req.toLowerCase().includes(skill.toLowerCase()) || 
+        skill.toLowerCase().includes(req.toLowerCase())
+      )
     );
     const skillMatch = (matchedSkills.length / job.requiredSkills.length) * 100;
     
@@ -243,7 +259,10 @@ const JobApply: React.FC = () => {
   
   const matchScore = calculateMatchScore();
   const matchedSkills = userProfile.skills.filter(skill => 
-    job.requiredSkills.some(req => req.toLowerCase() === skill.toLowerCase())
+    job.requiredSkills.some(req => 
+      req.toLowerCase().includes(skill.toLowerCase()) || 
+      skill.toLowerCase().includes(req.toLowerCase())
+    )
   );
 
   useEffect(() => {
@@ -274,19 +293,131 @@ const JobApply: React.FC = () => {
           }
         }
 
-        // Load user profile from localStorage (using 'userData' key set by login)
-        const userStr = localStorage.getItem('userData');
-        if (userStr) {
-          const user = JSON.parse(userStr);
-          setUserProfile({
-            name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User',
-            title: user.title || user.headline || 'Professional',
-            location: user.location || user.address || 'India',
-            yearsExperience: user.yearsExperience || 3,
-            skills: user.skills || [],
-            experience: user.experience || [],
-            education: user.education || [],
-          });
+        // Load user profile from backend API
+        const token = localStorage.getItem('authToken') || localStorage.getItem('access_token') || localStorage.getItem('token');
+        if (token) {
+          try {
+            // Fetch user profile from backend
+            const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
+            const profileRes = await fetch(`${apiUrl}/users/me/profile`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            let userSkills: string[] = [];
+            let userExperiences: any[] = [];
+            let userEducations: any[] = [];
+            let userName = '';
+            let userTitle = '';
+            let userLocation = '';
+            let yearsExp = 0;
+            
+            if (profileRes.ok) {
+              const profile = await profileRes.json();
+              userSkills = profile.skills || [];
+              userTitle = profile.title || profile.headline || '';
+              userLocation = profile.location || profile.address || '';
+            }
+            
+            // Fetch experiences
+            try {
+              const expRes = await fetch(`${apiUrl}/users/me/experiences`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              if (expRes.ok) {
+                userExperiences = await expRes.json();
+                // Calculate years of experience from experiences
+                if (userExperiences.length > 0) {
+                  const now = new Date().getFullYear();
+                  let totalYears = 0;
+                  userExperiences.forEach((exp: any) => {
+                    const startYear = exp.start_date ? new Date(exp.start_date).getFullYear() : now;
+                    const endYear = exp.is_current ? now : (exp.end_date ? new Date(exp.end_date).getFullYear() : now);
+                    totalYears += Math.max(0, endYear - startYear);
+                    
+                    // Also aggregate skills from experiences
+                    if (exp.skills && Array.isArray(exp.skills)) {
+                      exp.skills.forEach((skill: string) => {
+                        if (skill && !userSkills.includes(skill)) {
+                          userSkills.push(skill);
+                        }
+                      });
+                    }
+                  });
+                  yearsExp = totalYears;
+                }
+              }
+            } catch (e) { console.warn('Could not fetch experiences'); }
+            
+            // Fetch educations
+            try {
+              const eduRes = await fetch(`${apiUrl}/users/me/educations`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              if (eduRes.ok) {
+                userEducations = await eduRes.json();
+              }
+            } catch (e) { console.warn('Could not fetch educations'); }
+            
+            // Also get basic user info from localStorage
+            const userStr = localStorage.getItem('userData');
+            if (userStr) {
+              const user = JSON.parse(userStr);
+              userName = user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User';
+              if (!userTitle) userTitle = user.title || user.headline || 'Professional';
+              if (!userLocation) userLocation = user.location || user.address || 'India';
+              if (userSkills.length === 0) userSkills = user.skills || [];
+            }
+            
+            setUserProfile({
+              name: userName,
+              title: userTitle,
+              location: userLocation,
+              yearsExperience: yearsExp || 3,
+              skills: userSkills,
+              experience: userExperiences.map((exp: any) => ({
+                title: exp.title || exp.position || '',
+                company: exp.company_name || exp.company || '',
+                duration: exp.is_current ? 'Present' : (exp.end_date || 'N/A'),
+                responsibilities: [],
+              })),
+              education: userEducations.map((edu: any) => ({
+                degree: edu.degree || '',
+                school: edu.school_name || edu.institution || '',
+                year: String(edu.end_year || edu.graduation_year || ''),
+              })),
+            });
+          } catch (error) {
+            console.warn('Error fetching profile from API, using localStorage:', error);
+            // Fallback to localStorage
+            const userStr = localStorage.getItem('userData');
+            if (userStr) {
+              const user = JSON.parse(userStr);
+              setUserProfile({
+                name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User',
+                title: user.title || user.headline || 'Professional',
+                location: user.location || user.address || 'India',
+                yearsExperience: user.yearsExperience || 3,
+                skills: user.skills || [],
+                experience: user.experience || [],
+                education: user.education || [],
+              });
+            }
+          }
+        } else {
+          // No token, fallback to localStorage
+          const userStr = localStorage.getItem('userData');
+          if (userStr) {
+            const user = JSON.parse(userStr);
+            setUserProfile({
+              name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User',
+              title: user.title || user.headline || 'Professional',
+              location: user.location || user.address || 'India',
+              yearsExperience: user.yearsExperience || 3,
+              skills: user.skills || [],
+              experience: user.experience || [],
+              education: user.education || [],
+            });
+          }
         }
       } catch (error) {
         console.error('Error loading data:', error);

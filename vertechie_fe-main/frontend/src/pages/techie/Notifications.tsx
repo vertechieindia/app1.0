@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { notificationService } from '../../services/interviewService';
 import {
   Box,
@@ -301,6 +302,7 @@ const mockNotifications: Notification[] = [
 // COMPONENT
 // ============================================
 const Notifications: React.FC = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
   const [loading, setLoading] = useState(true);
@@ -504,7 +506,16 @@ const Notifications: React.FC = () => {
                         size="small"
                         variant="text"
                         sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#0d47a1' }}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          markAsRead(notification.id);
+                          // Navigate to the action URL or My Interviews for interview notifications
+                          if (notification.actionUrl) {
+                            navigate(notification.actionUrl);
+                          } else if (notification.type === 'job' && notification.title.toLowerCase().includes('interview')) {
+                            navigate('/techie/my-interviews');
+                          }
+                        }}
                       >
                         {notification.actionLabel}
                       </Button>

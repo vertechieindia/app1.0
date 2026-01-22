@@ -103,6 +103,10 @@ export interface Application {
   codingStatus: 'pending' | 'submitted' | 'evaluated';
   // Full applicant profile details from backend
   applicantDetails?: ApplicantDetails;
+  // Skill matching fields
+  match_score?: number;  // Percentage 0-100
+  matched_skills?: string[];  // Skills that matched
+  missing_skills?: string[];  // Required skills applicant lacks
 }
 
 // HR Dashboard Types

@@ -351,15 +351,29 @@ const JobListings: React.FC = () => {
     }
   };
 
-  // Generate random salary for demo
-  const getSalary = (jobType: string, experienceLevel: string): string => {
+  // Format salary in Indian Rupees (₹) - uses real data from job or shows range based on experience
+  const getSalary = (job: any): string => {
+    // If job has real salary data, use it
+    if (job.salary_min && job.salary_max) {
+      return `₹${(job.salary_min / 100000).toFixed(1)}L - ₹${(job.salary_max / 100000).toFixed(1)}L`;
+    }
+    if (job.salary_min) {
+      return `From ₹${(job.salary_min / 100000).toFixed(1)}L`;
+    }
+    if (job.salary_max) {
+      return `Up to ₹${(job.salary_max / 100000).toFixed(1)}L`;
+    }
+    
+    // Fallback: show estimated range based on job type and experience level
+    const jobType = job.jobType || 'full-time';
+    const experienceLevel = job.experienceLevel || 'mid';
     const salaries: Record<string, Record<string, string>> = {
-      'full-time': { entry: '$60K - $85K', mid: '$85K - $120K', senior: '$120K - $180K', lead: '$150K - $220K' },
-      'internship': { entry: '$25/hr - $40/hr', mid: '$30/hr - $50/hr', senior: '$40/hr - $60/hr', lead: '$50/hr - $70/hr' },
-      'contract': { entry: '$50/hr - $80/hr', mid: '$80/hr - $120/hr', senior: '$120/hr - $180/hr', lead: '$150/hr - $200/hr' },
-      'part-time': { entry: '$30/hr - $45/hr', mid: '$45/hr - $65/hr', senior: '$65/hr - $90/hr', lead: '$80/hr - $110/hr' },
+      'full-time': { entry: '₹4L - ₹8L', mid: '₹8L - ₹15L', senior: '₹15L - ₹25L', lead: '₹25L - ₹40L' },
+      'internship': { entry: '₹15K - ₹25K/mo', mid: '₹20K - ₹35K/mo', senior: '₹30K - ₹50K/mo', lead: '₹40K - ₹60K/mo' },
+      'contract': { entry: '₹50K - ₹80K/mo', mid: '₹80K - ₹1.2L/mo', senior: '₹1.2L - ₹2L/mo', lead: '₹2L - ₹3L/mo' },
+      'part-time': { entry: '₹20K - ₹35K/mo', mid: '₹35K - ₹50K/mo', senior: '₹50K - ₹80K/mo', lead: '₹80K - ₹1.2L/mo' },
     };
-    return salaries[jobType]?.[experienceLevel] || '$70K - $100K';
+    return salaries[jobType]?.[experienceLevel] || 'Not specified';
   };
 
   // Check if job is new (within 3 days)
@@ -721,14 +735,14 @@ const JobListings: React.FC = () => {
                       </Box>
                     </Box>
 
-                    {/* Salary Range */}
+                    {/* Salary Range - Indian Rupees */}
                     <SalaryBox sx={{ mb: 2 }}>
                       <SalaryIcon sx={{ fontSize: 18, color: '#00C853' }} />
                       <Typography variant="body2" sx={{ fontWeight: 700, color: '#00C853' }}>
-                        {getSalary(job.jobType, job.experienceLevel)}
+                        {getSalary(job)}
                       </Typography>
                       <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>
-                        /year
+                        {job.jobType === 'internship' || job.jobType === 'part-time' || job.jobType === 'contract' ? '' : '/year'}
                       </Typography>
                     </SalaryBox>
 

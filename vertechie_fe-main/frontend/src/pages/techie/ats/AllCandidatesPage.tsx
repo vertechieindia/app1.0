@@ -60,31 +60,88 @@ const AllCandidatesPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Fetch candidates from API
+  // Fetch candidates who applied to HM's jobs
   useEffect(() => {
     const fetchCandidates = async () => {
       try {
         setLoading(true);
-        const data = await userService.getAllUsers(searchQuery, 100);
+        const token = localStorage.getItem('authToken');
+        const userData = localStorage.getItem('userData');
+        const user = userData ? JSON.parse(userData) : null;
         
-        // Map API data to display format
-        const mappedCandidates: Candidate[] = data.map((user: any) => ({
-          id: user.id,
-          name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Unknown',
-          email: user.email || '',
-          role: user.title || user.headline || user.current_position || 'Techie',
-          stage: user.stage || 'New',
-          rating: user.rating || Math.floor(Math.random() * 3) + 3, // 3-5 rating
-          source: user.source || 'VerTechie',
-          applied: user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { 
-            month: 'short', day: 'numeric', year: 'numeric' 
-          }) : 'Recently',
-          status: user.status || 'active',
-          avatar: user.avatar || user.avatar_url,
-          skills: user.skills || [],
-        }));
+        if (!token || !user) {
+          setLoading(false);
+          return;
+        }
         
-        setCandidates(mappedCandidates);
+        const headers = {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        };
+        
+        // Get all jobs posted by this HM
+        const jobsRes = await fetch(`http://localhost:8000/api/v1/jobs/`, { headers });
+        const allJobs = jobsRes.ok ? await jobsRes.json() : [];
+        const hmJobs = allJobs.filter((j: any) => j.posted_by_id === user.id);
+        
+        // Fetch applicants for each job
+        const allCandidates: Candidate[] = [];
+        const seenIds = new Set<string>();
+        
+        for (const job of hmJobs) {
+          try {
+            const appRes = await fetch(`http://localhost:8000/api/v1/jobs/${job.id}/applications`, { headers });
+            if (appRes.ok) {
+              const applications = await appRes.json();
+              
+              for (const app of applications) {
+                const applicant = app.applicant;
+                if (!applicant || seenIds.has(applicant.id)) continue;
+                seenIds.add(applicant.id);
+                
+                // Map application status to stage
+                const statusToStage: Record<string, string> = {
+                  'submitted': 'New',
+                  'under_review': 'Screening',
+                  'shortlisted': 'Screening',
+                  'interview': 'Interview',
+                  'offered': 'Offer',
+                  'hired': 'Hired',
+                  'rejected': 'Rejected',
+                };
+                
+                allCandidates.push({
+                  id: applicant.id,
+                  name: `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || applicant.email,
+                  email: applicant.email || '',
+                  role: job.title || 'Applied Position',
+                  stage: statusToStage[app.status?.toLowerCase()] || 'New',
+                  rating: app.match_score ? Math.round(app.match_score / 20) : 3,
+                  source: 'VerTechie',
+                  applied: app.applied_at ? new Date(app.applied_at).toLocaleDateString('en-US', {
+                    month: 'short', day: 'numeric', year: 'numeric'
+                  }) : 'Recently',
+                  status: app.status || 'submitted',
+                  avatar: applicant.avatar_url,
+                  skills: app.matched_skills || [],
+                });
+              }
+            }
+          } catch (e) {
+            console.warn('Error fetching applications for job:', job.id);
+          }
+        }
+        
+        // Filter by search query
+        const filtered = searchQuery
+          ? allCandidates.filter(c =>
+              c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              c.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              c.role.toLowerCase().includes(searchQuery.toLowerCase())
+            )
+          : allCandidates;
+        
+        setCandidates(filtered);
       } catch (error) {
         console.error('Error fetching candidates:', error);
         setSnackbar({ open: true, message: 'Failed to load candidates', severity: 'error' });

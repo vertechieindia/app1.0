@@ -129,6 +129,11 @@ class JobApplicationResponse(BaseModel):
     submitted_at: datetime
     reviewed_at: Optional[datetime] = None
     
+    # Skill matching fields
+    match_score: Optional[int] = None  # Percentage 0-100
+    matched_skills: List[str] = []  # Skills that matched
+    missing_skills: List[str] = []  # Required skills applicant lacks
+    
     class Config:
         from_attributes = True
 
@@ -169,6 +174,11 @@ class JobApplicationWithApplicant(BaseModel):
     reviewed_at: Optional[datetime] = None
     rating: Optional[int] = None
     reviewer_notes: Optional[str] = None
+    
+    # Skill matching fields
+    match_score: Optional[int] = None  # Percentage 0-100
+    matched_skills: List[str] = []  # Skills that matched
+    missing_skills: List[str] = []  # Required skills applicant lacks
     
     # Nested applicant info
     applicant: Optional[ApplicantInfo] = None

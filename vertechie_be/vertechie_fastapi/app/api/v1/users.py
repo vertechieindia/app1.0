@@ -231,6 +231,22 @@ async def get_user_profile(
 
 
 # ============= Experience Endpoints =============
+# IMPORTANT: /me/ routes MUST come BEFORE /{user_id}/ routes to avoid UUID parsing errors
+
+@router.get("/me/experiences", response_model=List[ExperienceResponse])
+async def get_my_experiences(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Get current user's experiences."""
+    
+    result = await db.execute(
+        select(Experience)
+        .where(Experience.user_id == current_user.id)
+        .order_by(Experience.start_date.desc())
+    )
+    return result.scalars().all()
+
 
 @router.get("/{user_id}/experiences", response_model=List[ExperienceResponse])
 @router.get("/{user_id}/experiences/", response_model=List[ExperienceResponse], include_in_schema=False)
@@ -243,40 +259,6 @@ async def get_user_experiences(
     result = await db.execute(
         select(Experience)
         .where(Experience.user_id == user_id)
-        .order_by(Experience.start_date.desc())
-    )
-    return result.scalars().all()
-
-
-@router.get("/{user_id}/educations", response_model=List[EducationResponse])
-@router.get("/{user_id}/educations/", response_model=List[EducationResponse], include_in_schema=False)
-async def get_user_educations(
-    user_id: UUID,
-    db: AsyncSession = Depends(get_db)
-) -> Any:
-    """Get user's educations by user ID."""
-    
-    result = await db.execute(
-        select(Education)
-        .where(Education.user_id == user_id)
-        .order_by(
-            Education.end_year.is_(None).desc(),
-            Education.end_year.desc()
-        )
-    )
-    return result.scalars().all()
-
-
-@router.get("/me/experiences", response_model=List[ExperienceResponse])
-async def get_my_experiences(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-) -> Any:
-    """Get current user's experiences."""
-    
-    result = await db.execute(
-        select(Experience)
-        .where(Experience.user_id == current_user.id)
         .order_by(Experience.start_date.desc())
     )
     return result.scalars().all()
@@ -361,6 +343,7 @@ async def delete_experience(
 
 
 # ============= Education Endpoints =============
+# IMPORTANT: /me/ routes MUST come BEFORE /{user_id}/ routes to avoid UUID parsing errors
 
 @router.get("/me/educations", response_model=List[EducationResponse])
 async def get_my_educations(
@@ -375,6 +358,25 @@ async def get_my_educations(
         .where(Education.user_id == current_user.id)
         .order_by(
             # Put NULL values first by checking if end_year is NULL
+            Education.end_year.is_(None).desc(),
+            Education.end_year.desc()
+        )
+    )
+    return result.scalars().all()
+
+
+@router.get("/{user_id}/educations", response_model=List[EducationResponse])
+@router.get("/{user_id}/educations/", response_model=List[EducationResponse], include_in_schema=False)
+async def get_user_educations(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Get user's educations by user ID."""
+    
+    result = await db.execute(
+        select(Education)
+        .where(Education.user_id == user_id)
+        .order_by(
             Education.end_year.is_(None).desc(),
             Education.end_year.desc()
         )

@@ -148,13 +148,13 @@ const JobPostingsPage: React.FC = () => {
           department: job.requiredSkills?.length > 0 ? 'Engineering' : 'General',
           location: job.location || 'Remote',
           type: job.jobType === 'full-time' ? 'Full-time' : job.jobType || 'Full-time',
-          // Show real salary if entered, otherwise show "Not specified"
+          // Show real salary in Indian Rupees (₹) format
           salary: job.salary_min && job.salary_max 
-            ? `$${Math.round(job.salary_min / 1000)}K - $${Math.round(job.salary_max / 1000)}K` 
+            ? `₹${(job.salary_min / 100000).toFixed(1)}L - ₹${(job.salary_max / 100000).toFixed(1)}L` 
             : job.salary_min 
-              ? `From $${Math.round(job.salary_min / 1000)}K`
+              ? `From ₹${(job.salary_min / 100000).toFixed(1)}L`
               : job.salary_max
-                ? `Up to $${Math.round(job.salary_max / 1000)}K`
+                ? `Up to ₹${(job.salary_max / 100000).toFixed(1)}L`
                 : 'Not specified',
           applicants: job.applicantCount || 0,
           newApplicants: 0, // Will be calculated when viewing applicants
@@ -337,13 +337,13 @@ const JobPostingsPage: React.FC = () => {
         salaryMax: newJob.salaryMax ? parseInt(newJob.salaryMax) : undefined,
       }, userId);
       
-      // Format salary display - show real values or "Not specified"
+      // Format salary display in Indian Rupees (₹) - show real values or "Not specified"
       const salaryDisplay = newJob.salaryMin && newJob.salaryMax 
-        ? `$${Math.round(parseInt(newJob.salaryMin) / 1000)}K - $${Math.round(parseInt(newJob.salaryMax) / 1000)}K`
+        ? `₹${(parseInt(newJob.salaryMin) / 100000).toFixed(1)}L - ₹${(parseInt(newJob.salaryMax) / 100000).toFixed(1)}L`
         : newJob.salaryMin 
-          ? `From $${Math.round(parseInt(newJob.salaryMin) / 1000)}K`
+          ? `From ₹${(parseInt(newJob.salaryMin) / 100000).toFixed(1)}L`
           : newJob.salaryMax
-            ? `Up to $${Math.round(parseInt(newJob.salaryMax) / 1000)}K`
+            ? `Up to ₹${(parseInt(newJob.salaryMax) / 100000).toFixed(1)}L`
             : 'Not specified';
 
       // Map department for display
@@ -532,7 +532,7 @@ const JobPostingsPage: React.FC = () => {
           phone: '',
           title: candidate.title || 'Candidate',
           experience: candidate.experience || 'Not specified',
-          matchScore: candidate.matchScore || Math.floor(Math.random() * 30) + 70,
+          matchScore: candidate.matchScore ?? 0,  // Use actual match score from backend
           status: candidate.status || 'new',
           appliedDate: candidate.appliedAt ? formatTimeAgo(candidate.appliedAt) : 'Recently',
           skills: candidate.skills || [],
@@ -556,7 +556,7 @@ const JobPostingsPage: React.FC = () => {
           phone: details?.phone || '',
           title: details?.title || 'Candidate',
           experience: details?.experienceYears ? `${details.experienceYears}+ years` : 'Not specified',
-          matchScore: app.codingScore || Math.floor(Math.random() * 30) + 70,
+          matchScore: app.codingScore || app.match_score || 0,
           status: app.status === 'applied' || (app.status as string) === 'submitted' ? 'new' : app.status,
           appliedDate: formatTimeAgo(app.appliedAt),
           skills: details?.skills || [],
@@ -593,7 +593,7 @@ const JobPostingsPage: React.FC = () => {
         phone: '',
         title: candidate.title || 'Software Professional',
         experience: candidate.experience || 'Not specified',
-        matchScore: candidate.matchScore || Math.floor(Math.random() * 30) + 70,
+        matchScore: candidate.matchScore || 0,
         status: candidate.status || 'new',
         appliedDate: 'Available',
         skills: candidate.skills || [],
@@ -892,25 +892,27 @@ const JobPostingsPage: React.FC = () => {
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Minimum Salary"
+                  label="Minimum Salary (Annual)"
                   value={newJob.salaryMin}
                   onChange={(e) => setNewJob({ ...newJob, salaryMin: e.target.value })}
-                  placeholder="e.g., 80000"
+                  placeholder="e.g., 600000"
                   type="number"
                   InputLabelProps={{ shrink: true }}
-                  InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                  helperText="Enter annual salary in INR"
                 />
               </Grid>
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Maximum Salary"
+                  label="Maximum Salary (Annual)"
                   value={newJob.salaryMax}
                   onChange={(e) => setNewJob({ ...newJob, salaryMax: e.target.value })}
-                  placeholder="e.g., 120000"
+                  placeholder="e.g., 1200000"
                   type="number"
                   InputLabelProps={{ shrink: true }}
-                  InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                  helperText="Enter annual salary in INR"
                 />
               </Grid>
               <Grid item xs={12}>
@@ -1281,23 +1283,25 @@ const JobPostingsPage: React.FC = () => {
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
-                      label="Min Salary"
+                      label="Min Salary (Annual)"
                       value={editingJob.salaryMin || ''}
                       onChange={(e) => setEditingJob({ ...editingJob, salaryMin: e.target.value })}
-                      placeholder="e.g., 80000"
+                      placeholder="e.g., 600000"
+                      type="number"
                       InputLabelProps={{ shrink: true }}
-                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
-                      label="Max Salary"
+                      label="Max Salary (Annual)"
                       value={editingJob.salaryMax || ''}
                       onChange={(e) => setEditingJob({ ...editingJob, salaryMax: e.target.value })}
-                      placeholder="e.g., 120000"
+                      placeholder="e.g., 1200000"
+                      type="number"
                       InputLabelProps={{ shrink: true }}
-                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
                     />
                   </Grid>
                   <Grid item xs={12}>

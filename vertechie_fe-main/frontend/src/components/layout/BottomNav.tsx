@@ -257,6 +257,7 @@ const BottomNav: React.FC = () => {
 
   // Secondary nav items - available for all users
   const secondaryNavItems: NavItemConfig[] = [
+    { key: 'interviews', label: 'Interviews', icon: <EventAvailableIcon />, path: '/techie/my-interviews' },
     { key: 'learn', label: 'Learn', icon: <SchoolIcon />, path: '/techie/learn' },
     { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat', badge: messages },
     { key: 'blogs', label: 'Blogs', icon: <ArticleIcon />, path: '/techie/blogs' },

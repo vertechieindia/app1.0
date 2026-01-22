@@ -25,7 +25,14 @@ import {
   Divider,
   Skeleton,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Grid,
+  CircularProgress,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { styled } from '@mui/material/styles';
 
 // Icons
@@ -96,6 +103,10 @@ const MyInterviews: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [interviewCount, setInterviewCount] = useState({ upcoming: 0, total: 0 });
+  
+  // Detail dialog state
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [selectedInterview, setSelectedInterview] = useState<Interview | null>(null);
 
   const fetchInterviews = async () => {
     setLoading(true);
@@ -107,9 +118,16 @@ const MyInterviews: React.FC = () => {
 
       // Fetch past interviews
       const past = await interviewService.getMyInterviewsAsCandidate(false);
+      // Helper to parse backend date
+      const parseDate = (ds: string) => {
+        if (ds && !ds.includes('Z') && !ds.includes('+')) {
+          return new Date(ds.replace(' ', 'T').replace(/\.000000$/, '') + 'Z');
+        }
+        return new Date(ds);
+      };
       // Filter out upcoming ones from past
       const pastOnly = past.filter(
-        (interview) => new Date(interview.scheduled_at) < new Date()
+        (interview) => parseDate(interview.scheduled_at) < new Date()
       );
       setPastInterviews(pastOnly);
 
@@ -128,7 +146,8 @@ const MyInterviews: React.FC = () => {
     fetchInterviews();
   }, []);
 
-  const handleJoinInterview = (interview: Interview) => {
+  const handleJoinInterview = (interview: Interview, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (interview.meeting_link) {
       // Extract room ID from meeting link and navigate to lobby
       if (interview.meeting_link.includes('/techie/lobby/')) {
@@ -139,13 +158,44 @@ const MyInterviews: React.FC = () => {
     }
   };
 
+  const handleViewDetails = (interview: Interview) => {
+    setSelectedInterview(interview);
+    setDetailDialogOpen(true);
+  };
+
+  // Helper to parse backend date (handles UTC conversion)
+  const parseBackendDate = (dateString: string): Date => {
+    if (dateString && !dateString.includes('Z') && !dateString.includes('+') && !dateString.match(/[+-]\d{2}:\d{2}$/)) {
+      const isoString = dateString.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
+      return new Date(isoString);
+    }
+    return new Date(dateString);
+  };
+
   const renderInterviewCard = (interview: Interview) => {
     const status = formatInterviewStatus(interview.status);
-    const isUpcoming = new Date(interview.scheduled_at) > new Date();
-    const canJoin = isUpcoming && interview.meeting_link && interview.status !== 'cancelled';
+    const now = new Date();
+    const scheduledTime = parseBackendDate(interview.scheduled_at);
+    const timeDiffMinutes = (scheduledTime.getTime() - now.getTime()) / (1000 * 60);
+    const isUpcoming = scheduledTime > now;
+    
+    // Can join if:
+    // - Has meeting link
+    // - Not cancelled or completed
+    // - Within 15 minutes before the scheduled time OR after the scheduled time (up to duration + 30 min buffer)
+    const durationMinutes = interview.duration_minutes || 60;
+    const canJoinWindow = timeDiffMinutes <= 15 && timeDiffMinutes >= -(durationMinutes + 30);
+    const canJoin = interview.meeting_link && 
+                   interview.status !== 'cancelled' && 
+                   interview.status !== 'completed' &&
+                   (canJoinWindow || isUpcoming);
 
     return (
-      <InterviewCard key={interview.id}>
+      <InterviewCard 
+        key={interview.id}
+        onClick={() => handleViewDetails(interview)}
+        sx={{ cursor: 'pointer' }}
+      >
         <CardContent sx={{ p: 3 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -208,16 +258,22 @@ const MyInterviews: React.FC = () => {
             <Button
               variant="contained"
               startIcon={<VideocamIcon />}
-              onClick={() => handleJoinInterview(interview)}
+              onClick={(e) => handleJoinInterview(interview, e)}
               sx={{
-                bgcolor: '#4CAF50',
+                bgcolor: canJoinWindow ? '#4CAF50' : '#2196F3',
                 borderRadius: 3,
                 textTransform: 'none',
                 fontWeight: 600,
-                '&:hover': { bgcolor: '#388E3C' },
+                animation: canJoinWindow ? 'pulse 1.5s infinite' : 'none',
+                '@keyframes pulse': {
+                  '0%': { boxShadow: '0 0 0 0 rgba(76, 175, 80, 0.7)' },
+                  '70%': { boxShadow: '0 0 0 10px rgba(76, 175, 80, 0)' },
+                  '100%': { boxShadow: '0 0 0 0 rgba(76, 175, 80, 0)' },
+                },
+                '&:hover': { bgcolor: canJoinWindow ? '#388E3C' : '#1976D2' },
               }}
             >
-              Join Interview
+              {canJoinWindow ? '🔴 Join Now' : 'Join Interview'}
             </Button>
           )}
         </CardContent>
@@ -332,6 +388,123 @@ const MyInterviews: React.FC = () => {
             </TabPanel>
           </>
         )}
+
+        {/* Interview Detail Dialog */}
+        <Dialog
+          open={detailDialogOpen}
+          onClose={() => setDetailDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle sx={{ fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            Interview Details
+            {selectedInterview && (
+              <Chip
+                label={formatInterviewStatus(selectedInterview.status).label}
+                sx={{
+                  bgcolor: formatInterviewStatus(selectedInterview.status).color,
+                  color: 'white',
+                }}
+                size="small"
+              />
+            )}
+          </DialogTitle>
+          <DialogContent>
+            {selectedInterview && (
+              <Grid container spacing={2} sx={{ mt: 1 }}>
+                {/* Job Info */}
+                <Grid item xs={12}>
+                  <Paper sx={{ p: 2, bgcolor: alpha('#0d47a1', 0.03) }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar sx={{ bgcolor: '#0d47a1', width: 48, height: 48 }}>
+                        <VideocamIcon />
+                      </Avatar>
+                      <Box>
+                        <Typography variant="h6" fontWeight={600}>
+                          {formatInterviewType(selectedInterview.interview_type)}
+                        </Typography>
+                        {selectedInterview.job_title && (
+                          <Typography variant="body2" color="text.secondary">
+                            <WorkIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
+                            {selectedInterview.job_title}
+                          </Typography>
+                        )}
+                      </Box>
+                    </Box>
+                  </Paper>
+                </Grid>
+
+                {/* Date & Time */}
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="text.secondary">Date</Typography>
+                  <Typography variant="body1" fontWeight={500}>
+                    {formatInterviewDate(selectedInterview.scheduled_at)}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="text.secondary">Time</Typography>
+                  <Typography variant="body1" fontWeight={500}>
+                    {formatInterviewTime(selectedInterview.scheduled_at)}
+                  </Typography>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="text.secondary">Duration</Typography>
+                  <Typography variant="body1" fontWeight={500}>
+                    {selectedInterview.duration_minutes} minutes
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="text.secondary">Company</Typography>
+                  <Typography variant="body1" fontWeight={500}>
+                    {selectedInterview.company_name || 'N/A'}
+                  </Typography>
+                </Grid>
+
+                {selectedInterview.location && (
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="text.secondary">Location</Typography>
+                    <Typography variant="body1">{selectedInterview.location}</Typography>
+                  </Grid>
+                )}
+
+                {selectedInterview.notes && (
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="text.secondary">Notes</Typography>
+                    <Paper sx={{ p: 2, bgcolor: '#f5f5f5', mt: 0.5 }}>
+                      <Typography variant="body2">{selectedInterview.notes}</Typography>
+                    </Paper>
+                  </Grid>
+                )}
+
+                {/* Status Info */}
+                {selectedInterview.status === 'cancelled' && (
+                  <Grid item xs={12}>
+                    <Alert severity="error">
+                      This interview has been cancelled. Please check your notifications for updates.
+                    </Alert>
+                  </Grid>
+                )}
+              </Grid>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ p: 2.5, gap: 1 }}>
+            {selectedInterview && 
+             selectedInterview.status !== 'cancelled' && 
+             selectedInterview.meeting_link && 
+             parseBackendDate(selectedInterview.scheduled_at) > new Date() && (
+              <Button
+                variant="contained"
+                startIcon={<VideocamIcon />}
+                onClick={() => handleJoinInterview(selectedInterview)}
+                sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}
+              >
+                Join Interview
+              </Button>
+            )}
+            <Button onClick={() => setDetailDialogOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </PageContainer>
   );
