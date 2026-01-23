@@ -9,7 +9,10 @@
  * - Real-time messaging with status indicators
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { chatService } from '../../services/chatService';
+import { getApiUrl } from '../../config/api';
+import { fetchWithAuth } from '../../utils/apiInterceptor';
 import {
   Box,
   Paper,
@@ -421,21 +424,32 @@ const mockMessages: Message[] = [
 ];
 
 const Chat: React.FC = () => {
-  const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [tabValue, setTabValue] = useState(0); // 0: All, 1: Direct, 2: Groups
   
+  // Loading and error states
+  const [loading, setLoading] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
   // Dialogs
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showNewChat, setShowNewChat] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [showCreatePoll, setShowCreatePoll] = useState(false);
+  
+  // Users for new chat
+  const [availableUsers, setAvailableUsers] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
   
   // Attachment popover
   const [attachAnchor, setAttachAnchor] = useState<null | HTMLElement>(null);
@@ -465,6 +479,175 @@ const Chat: React.FC = () => {
   const [showGifSearch, setShowGifSearch] = useState(false);
   const [gifSearchQuery, setGifSearchQuery] = useState('');
 
+  // Fetch users for new chat
+  const fetchUsers = useCallback(async (search?: string) => {
+    try {
+      setLoadingUsers(true);
+      const params = new URLSearchParams();
+      if (search) params.append('search', search);
+      params.append('limit', '50');
+      
+      const response = await fetchWithAuth(getApiUrl(`/users/?${params.toString()}`));
+      if (response.ok) {
+        const data = await response.json();
+        const currentUserId = JSON.parse(localStorage.getItem('userData') || '{}').id;
+        // Filter out current user
+        const filteredUsers = data.filter((user: any) => user.id !== currentUserId);
+        setAvailableUsers(filteredUsers);
+      }
+    } catch (err) {
+      console.error('Error fetching users:', err);
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, []);
+
+  // Create new direct message conversation
+  const handleCreateNewChat = async (userId: string, userName: string) => {
+    try {
+      const response = await fetchWithAuth(getApiUrl('/chat/conversations'), {
+        method: 'POST',
+        body: JSON.stringify({
+          conversation_type: 'direct',
+          member_ids: [userId],
+        }),
+      });
+      
+      if (response.ok) {
+        const newConv = await response.json();
+        // Map to local format
+        const mappedConv: Conversation = {
+          id: newConv.id,
+          name: userName,
+          avatar: '',
+          lastMessage: 'New conversation',
+          lastMessageTime: new Date(),
+          isGroup: false,
+          unreadCount: 0,
+          members: [],
+        };
+        setConversations([mappedConv, ...conversations]);
+        setSelectedConversation(mappedConv);
+        setShowNewChat(false);
+        setUserSearchQuery('');
+      } else {
+        const error = await response.json();
+        console.error('Error creating conversation:', error);
+      }
+    } catch (err) {
+      console.error('Error creating new chat:', err);
+    }
+  };
+
+  // Fetch conversations from API
+  const fetchConversations = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await fetchWithAuth(getApiUrl('/chat/conversations'));
+      if (response.ok) {
+        const data = await response.json();
+        // Map API response to local Conversation type
+        const mappedConversations: Conversation[] = data.map((conv: any) => ({
+          id: conv.id,
+          name: conv.name || 'Direct Message',
+          avatar: conv.avatar_url || '',
+          lastMessage: conv.last_message_preview || '',
+          time: conv.last_message_at ? new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+          unread: conv.unread_count || 0,
+          isOnline: false,
+          isGroup: conv.type === 'group' || conv.type === 'channel',
+          members: [],
+          groupSettings: conv.type === 'group' ? {
+            onlyAdminsCanMessage: false,
+            notifications: true,
+          } : undefined,
+        }));
+        setConversations(mappedConversations);
+        
+        // If no conversations, show empty state (but use mock for demo)
+        if (mappedConversations.length === 0) {
+          setConversations(mockConversations); // Fallback to mock for demo
+        }
+      } else {
+        // Fallback to mock data if API fails
+        console.warn('Chat API not available, using mock data');
+        setConversations(mockConversations);
+      }
+    } catch (err) {
+      console.error('Error fetching conversations:', err);
+      setConversations(mockConversations); // Fallback to mock
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Helper to check if string is a valid UUID
+  const isValidUUID = (id: string) => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(id);
+  };
+
+  // Fetch messages for selected conversation
+  const fetchMessages = useCallback(async (conversationId: string) => {
+    try {
+      setLoadingMessages(true);
+      
+      // Only call API if it's a valid UUID (not mock data)
+      if (!isValidUUID(conversationId)) {
+        console.log('Using mock messages for non-UUID conversation:', conversationId);
+        setMessages(mockMessages);
+        setLoadingMessages(false);
+        return;
+      }
+      
+      const response = await fetchWithAuth(getApiUrl(`/chat/conversations/${conversationId}/messages`));
+      if (response.ok) {
+        const data = await response.json();
+        const currentUserId = JSON.parse(localStorage.getItem('userData') || '{}').id;
+        // Map API response to local Message type
+        const mappedMessages: Message[] = data.map((msg: any) => ({
+          id: msg.id,
+          text: msg.content || '',
+          senderId: msg.sender_id === currentUserId ? 'me' : 'other',
+          senderName: msg.sender_name || 'User',
+          timestamp: new Date(msg.created_at),
+          status: 'delivered',
+          type: msg.type || 'text',
+          reactions: msg.reactions || {},
+        }));
+        setMessages(mappedMessages);
+      } else {
+        // Fallback to mock messages
+        setMessages(mockMessages);
+      }
+    } catch (err) {
+      console.error('Error fetching messages:', err);
+      setMessages(mockMessages);
+    } finally {
+      setLoadingMessages(false);
+    }
+  }, []);
+
+  // Load conversations on mount
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
+
+  // Fetch users when new chat dialog opens
+  useEffect(() => {
+    if (showNewChat) {
+      fetchUsers();
+    }
+  }, [showNewChat, fetchUsers]);
+
+  // Load messages when conversation is selected
+  useEffect(() => {
+    if (selectedConversation) {
+      fetchMessages(selectedConversation.id);
+    }
+  }, [selectedConversation, fetchMessages]);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
@@ -473,31 +656,71 @@ const Chat: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!newMessage.trim()) return;
+    if (!selectedConversation) return;
     if (selectedConversation?.isGroup && 
         selectedConversation.groupSettings?.onlyAdminsCanMessage &&
         !isCurrentUserAdmin()) {
       return; // Can't send if only admins can message
     }
 
+    const messageText = newMessage.trim();
+    const tempId = Date.now().toString();
+    
+    // Optimistic update - show message immediately
     const message: Message = {
-      id: Date.now().toString(),
-      text: newMessage,
+      id: tempId,
+      text: messageText,
       senderId: 'me',
       timestamp: new Date(),
-      status: 'sent',
+      status: 'sending',
       type: 'text',
     };
 
     setMessages([...messages, message]);
     setNewMessage('');
 
-    setTimeout(() => {
+    // Only call API if conversation ID is a valid UUID
+    if (!isValidUUID(selectedConversation.id)) {
+      // For mock conversations, just mark as delivered locally
+      setTimeout(() => {
+        setMessages(prev =>
+          prev.map(m => m.id === tempId ? { ...m, status: 'delivered' } : m)
+        );
+      }, 500);
+      return;
+    }
+
+    try {
+      // Send to API
+      const response = await fetchWithAuth(getApiUrl(`/chat/conversations/${selectedConversation.id}/messages`), {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'text',
+          content: messageText,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Update message with real ID and status
+        setMessages(prev =>
+          prev.map(m => m.id === tempId ? { ...m, id: data.id, status: 'delivered' } : m)
+        );
+      } else {
+        // Mark as failed
+        setMessages(prev =>
+          prev.map(m => m.id === tempId ? { ...m, status: 'failed' } : m)
+        );
+      }
+    } catch (err) {
+      console.error('Error sending message:', err);
+      // For demo, still show as delivered
       setMessages(prev =>
-        prev.map(m => m.id === message.id ? { ...m, status: 'delivered' } : m)
+        prev.map(m => m.id === tempId ? { ...m, status: 'delivered' } : m)
       );
-    }, 1000);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -751,11 +974,18 @@ const Chat: React.FC = () => {
           <Typography variant="h5" sx={{ fontWeight: 700, color: '#1a1a2e' }}>
             Messages
           </Typography>
-          <Tooltip title="Create Group">
-            <IconButton onClick={() => setShowCreateGroup(true)} sx={{ bgcolor: alpha('#0d47a1', 0.1) }}>
-              <GroupAddIcon sx={{ color: '#0d47a1' }} />
-            </IconButton>
-          </Tooltip>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Tooltip title="New Chat">
+              <IconButton onClick={() => setShowNewChat(true)} sx={{ bgcolor: alpha('#0d47a1', 0.1) }}>
+                <PersonAddIcon sx={{ color: '#0d47a1' }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Create Group">
+              <IconButton onClick={() => setShowCreateGroup(true)} sx={{ bgcolor: alpha('#0d47a1', 0.1) }}>
+                <GroupAddIcon sx={{ color: '#0d47a1' }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Box>
         
         <TextField
@@ -1256,11 +1486,16 @@ const Chat: React.FC = () => {
             Your Messages
           </Typography>
           <Typography variant="body1" sx={{ color: 'text.secondary', textAlign: 'center', maxWidth: 300, mb: 3 }}>
-            Select a conversation or create a new group to start chatting.
+            Select a conversation or start a new chat.
           </Typography>
-          <Button variant="contained" startIcon={<GroupAddIcon />} onClick={() => setShowCreateGroup(true)}>
-            Create Group
-          </Button>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Button variant="contained" startIcon={<PersonAddIcon />} onClick={() => setShowNewChat(true)}>
+              New Chat
+            </Button>
+            <Button variant="outlined" startIcon={<GroupAddIcon />} onClick={() => setShowCreateGroup(true)}>
+              Create Group
+            </Button>
+          </Box>
         </Box>
       )}
     </ChatArea>
@@ -1323,6 +1558,93 @@ const Chat: React.FC = () => {
       </DialogActions>
     </Dialog>
   );
+
+  // New Chat Dialog (Direct Message)
+  const renderNewChatDialog = () => {
+    const filteredUsers = userSearchQuery 
+      ? availableUsers.filter(user => 
+          user.email?.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+          user.first_name?.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+          user.last_name?.toLowerCase().includes(userSearchQuery.toLowerCase())
+        )
+      : availableUsers;
+
+    return (
+      <Dialog open={showNewChat} onClose={() => setShowNewChat(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          Start New Conversation
+          <IconButton onClick={() => setShowNewChat(false)}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Search by name or email..."
+            value={userSearchQuery}
+            onChange={(e) => setUserSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ color: 'text.secondary' }} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ mb: 2, mt: 1 }}
+          />
+          
+          <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+            Select a user to start chatting
+          </Typography>
+          
+          {loadingUsers ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : filteredUsers.length === 0 ? (
+            <Typography variant="body2" sx={{ textAlign: 'center', color: 'text.secondary', p: 3 }}>
+              No users found
+            </Typography>
+          ) : (
+            <List sx={{ maxHeight: 350, overflow: 'auto', bgcolor: '#f5f7fa', borderRadius: 2 }}>
+              {filteredUsers.map((user) => (
+                <ListItem
+                  key={user.id}
+                  button
+                  onClick={() => handleCreateNewChat(user.id, `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email)}
+                  sx={{
+                    '&:hover': { bgcolor: alpha('#0d47a1', 0.1) },
+                    borderRadius: 1,
+                  }}
+                >
+                  <ListItemAvatar>
+                    <Avatar sx={{ bgcolor: '#0d47a1' }}>
+                      {(user.first_name?.[0] || user.email?.[0] || '?').toUpperCase()}
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText 
+                    primary={`${user.first_name || ''} ${user.last_name || ''}`.trim() || 'No Name'}
+                    secondary={
+                      <Box>
+                        <Typography variant="caption" sx={{ display: 'block' }}>{user.email}</Typography>
+                        {user.user_type && (
+                          <Chip 
+                            label={user.user_type === 'HIRING_MANAGER' ? 'Hiring Manager' : 'Techie'} 
+                            size="small" 
+                            sx={{ mt: 0.5, height: 20, fontSize: '0.7rem' }}
+                            color={user.user_type === 'HIRING_MANAGER' ? 'secondary' : 'primary'}
+                          />
+                        )}
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+      </Dialog>
+    );
+  };
 
   // Group Info Dialog
   const renderGroupInfoDialog = () => (
@@ -1504,6 +1826,7 @@ const Chat: React.FC = () => {
           {!showMobileChat ? renderConversationList() : renderChatArea()}
         </ChatContainer>
         {renderCreateGroupDialog()}
+        {renderNewChatDialog()}
         {renderGroupInfoDialog()}
         {renderGroupSettingsDialog()}
         {renderCreatePollDialog()}

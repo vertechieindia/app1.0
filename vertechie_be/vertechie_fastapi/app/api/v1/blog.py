@@ -23,7 +23,7 @@ from app.core.security import get_current_user, get_current_admin_user
 from pydantic import BaseModel
 from datetime import datetime
 
-router = APIRouter(prefix="/blog", tags=["Blog"])
+router = APIRouter(tags=["Blog"])
 
 
 # ============= Pydantic Schemas =============
@@ -55,6 +55,7 @@ class ArticleCreate(BaseModel):
     meta_description: Optional[str] = None
     is_premium: bool = False
     tags: List[str] = []
+    status: Optional[ArticleStatus] = ArticleStatus.PUBLISHED  # Default to published when creating
 
 class ArticleUpdate(BaseModel):
     title: Optional[str] = None
@@ -232,10 +233,17 @@ async def create_article(
     word_count = len(article.content.split())
     reading_time = max(1, word_count // 200)
     
+    # Prepare article data
+    article_data = article.model_dump(exclude={'tags'})
+    
+    # Set published_at if status is PUBLISHED
+    if article.status == ArticleStatus.PUBLISHED:
+        article_data['published_at'] = datetime.utcnow()
+    
     db_article = Article(
         author_id=current_user.id,
         reading_time_minutes=reading_time,
-        **article.model_dump(exclude={'tags'})
+        **article_data
     )
     db.add(db_article)
     await db.commit()

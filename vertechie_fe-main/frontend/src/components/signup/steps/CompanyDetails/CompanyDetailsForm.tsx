@@ -945,6 +945,25 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
       // Store company ID if returned from API (for future edits)
       const returnedCompanyId = response.data?.id || response.data?.company_id || companyId;
       
+      // Also update user_profile with company name so it shows on profile page
+      if (token) {
+        try {
+          const profileUrl = getApiUrl('/users/me/profile');
+          await axios.put(profileUrl, {
+            current_company: companyName.trim(),
+            current_position: isCompanySignup ? 'Company Owner' : 'Hiring Manager',
+          }, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          console.log('Updated user profile with company name');
+        } catch (profileErr) {
+          console.warn('Could not update user profile with company name:', profileErr);
+        }
+      }
+      
       // Save data to formData
       const savedCompanyDetails: any = {
         companyName: companyName.trim(),

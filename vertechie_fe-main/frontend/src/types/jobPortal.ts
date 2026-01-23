@@ -63,7 +63,7 @@ export interface JobFormData {
   salaryMin?: number;
   salaryMax?: number;
   // Status field
-  status?: string;
+  status?: 'active' | 'closed' | 'draft';
 }
 
 // Application Types
@@ -149,9 +149,14 @@ export const JOB_TYPES: Record<string, string> = {
 // Application Status Labels
 export const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
   applied: 'Applied',
+  submitted: 'Submitted',
+  under_review: 'Under Review',
   shortlisted: 'Shortlisted',
+  interview: 'Interview',
+  offered: 'Offered',
   rejected: 'Rejected',
   hired: 'Hired',
+  withdrawn: 'Withdrawn',
 };
 
 // Difficulty Labels

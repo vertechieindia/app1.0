@@ -11,6 +11,7 @@ from sqlalchemy import select, or_, func
 
 from app.db.session import get_db
 from app.models.user import User, UserProfile, Experience, Education
+from app.models.company import Company, CompanyAdmin
 from app.schemas.user import (
     UserResponse, UserUpdate, UserProfileUpdate, UserProfileResponse,
     ExperienceCreate, ExperienceResponse,
@@ -629,4 +630,38 @@ async def reject_user(
             "email_freed": False,
             "permanent_delete": False
         }
+
+
+# ============= Company Endpoints for HR Users =============
+
+@router.get("/me/company")
+async def get_my_company(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Get current user's company details (for HR users)."""
+    
+    # Find company where user is an admin
+    result = await db.execute(
+        select(Company)
+        .join(CompanyAdmin, Company.id == CompanyAdmin.company_id)
+        .where(CompanyAdmin.user_id == current_user.id)
+    )
+    company = result.scalar_one_or_none()
+    
+    if not company:
+        return None
+    
+    return {
+        "id": str(company.id),
+        "name": company.name,
+        "website": company.website,
+        "email": company.email,
+        "description": company.description,
+        "industry": company.industry,
+        "headquarters": company.headquarters,
+        "logo_url": company.logo_url,
+        "company_size": company.company_size,
+        "founded_year": company.founded_year,
+    }
 

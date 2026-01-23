@@ -54,6 +54,9 @@ import LocationOnIcon from '@mui/icons-material/LocationOn';
 import WorkIcon from '@mui/icons-material/Work';
 import SchoolIcon from '@mui/icons-material/School';
 import EmailIcon from '@mui/icons-material/Email';
+import BusinessIcon from '@mui/icons-material/Business';
+import LanguageOutlinedIcon from '@mui/icons-material/LanguageOutlined';
+import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import LanguageIcon from '@mui/icons-material/Language';
 import CodeIcon from '@mui/icons-material/Code';
@@ -288,6 +291,8 @@ interface UserProfileData {
   twitter_url?: string;
   skills?: string[];
   profile_photo?: string;
+  current_company?: string;
+  current_position?: string;
 }
 
 interface ExperienceData {
@@ -308,6 +313,7 @@ interface EducationData {
   id: string;
   user_id: string;
   institution: string;
+  school_name?: string; // Backend returns school_name
   degree: string;
   field_of_study?: string;
   start_year: number;
@@ -315,6 +321,20 @@ interface EducationData {
   gpa?: string;
   grade?: string;
   description?: string;
+}
+
+// Company data for HR users
+interface CompanyData {
+  id: string;
+  name: string;
+  website?: string;
+  email?: string;
+  description?: string;
+  industry?: string;
+  headquarters?: string;
+  logo_url?: string;
+  company_size?: string;
+  founded_year?: number;
   school_name?: string;
 }
 
@@ -487,34 +507,70 @@ const ProfilePage: React.FC = () => {
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [experiences, setExperiences] = useState<ExperienceData[]>([]);
   const [educations, setEducations] = useState<EducationData[]>([]);
+  const [companyData, setCompanyData] = useState<CompanyData | null>(null);
 
   // Fetch user data from API
   const fetchUserData = useCallback(async () => {
     try {
       setLoading(true);
 
-      // Get user data from localStorage first
-      const storedUserData = localStorage.getItem('userData');
-      if (storedUserData) {
-        const parsedUser = JSON.parse(storedUserData);
-        setUser({
-          id: parsedUser.id,
-          email: parsedUser.email,
-          first_name: parsedUser.first_name,
-          last_name: parsedUser.last_name,
-          middle_name: parsedUser.middle_name,
-          username: parsedUser.username,
-          vertechie_id: parsedUser.vertechie_id,
-          phone: parsedUser.phone,
-          mobile_number: parsedUser.mobile_number,
-          dob: parsedUser.dob,
-          country: parsedUser.country,
-          address: parsedUser.address,
-          is_active: parsedUser.is_active,
-          is_verified: parsedUser.is_verified,
-          is_superuser: parsedUser.is_superuser,
-          created_at: parsedUser.created_at || parsedUser.date_joined,
-        });
+      // Fetch fresh user data from API first
+      try {
+        const userUrl = getApiUrl('/users/me');
+        const userRes = await fetchWithAuth(userUrl);
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          setUser({
+            id: userData.id,
+            email: userData.email,
+            first_name: userData.first_name,
+            last_name: userData.last_name,
+            middle_name: userData.middle_name,
+            username: userData.username,
+            vertechie_id: userData.vertechie_id,
+            phone: userData.phone,
+            mobile_number: userData.mobile_number,
+            dob: userData.dob,
+            country: userData.country,
+            address: userData.address,
+            is_active: userData.is_active,
+            is_verified: userData.is_verified,
+            is_superuser: userData.is_superuser,
+            created_at: userData.created_at || userData.date_joined,
+          });
+          // Update localStorage with fresh data
+          const stored = localStorage.getItem('userData');
+          if (stored) {
+            const merged = { ...JSON.parse(stored), ...userData };
+            localStorage.setItem('userData', JSON.stringify(merged));
+          }
+        }
+      } catch (err: any) {
+        // Fallback to localStorage if API fails
+        const storedUserData = localStorage.getItem('userData');
+        if (storedUserData) {
+          const parsedUser = JSON.parse(storedUserData);
+          setUser({
+            id: parsedUser.id,
+            email: parsedUser.email,
+            first_name: parsedUser.first_name,
+            last_name: parsedUser.last_name,
+            middle_name: parsedUser.middle_name,
+            username: parsedUser.username,
+            vertechie_id: parsedUser.vertechie_id,
+            phone: parsedUser.phone,
+            mobile_number: parsedUser.mobile_number,
+            dob: parsedUser.dob,
+            country: parsedUser.country,
+            address: parsedUser.address,
+            is_active: parsedUser.is_active,
+            is_verified: parsedUser.is_verified,
+            is_superuser: parsedUser.is_superuser,
+            created_at: parsedUser.created_at || parsedUser.date_joined,
+          });
+        }
+        if (err.message?.includes('Session expired')) return;
+        console.warn('Could not fetch user from API, using localStorage:', err);
       }
 
       // Fetch profile data - uses interceptor for 401 handling
@@ -567,6 +623,21 @@ const ProfilePage: React.FC = () => {
         console.warn('Could not fetch educations:', err);
       }
 
+      // Fetch company details for HR users
+      try {
+        const companyUrl = getApiUrl('/users/me/company');
+        const companyRes = await fetchWithAuth(companyUrl);
+        if (companyRes.ok) {
+          const compData = await companyRes.json();
+          if (compData) {
+            setCompanyData(compData);
+          }
+        }
+      } catch (err: any) {
+        if (err.message?.includes('Session expired')) return;
+        console.warn('Could not fetch company:', err);
+      }
+
     } catch (error: any) {
       if (error.message?.includes('Session expired')) return; // Already redirecting
       console.error('Error fetching user data:', error);
@@ -584,6 +655,17 @@ const ProfilePage: React.FC = () => {
     setIsOwnProfile(!userId || userId === 'me' || userId === user?.id);
   }, [userId, user?.id]);
 
+  // Check if user is a Hiring Manager
+  const storedData = localStorage.getItem('userData');
+  const parsedStored = storedData ? JSON.parse(storedData) : {};
+  const userRoles = parsedStored.roles || parsedStored.groups || [];
+  const isHiringManager = userRoles.some((r: any) => 
+    r.role_type === 'hiring_manager' || 
+    r.role_type === 'HIRING_MANAGER' ||
+    r.name?.toLowerCase() === 'hiring_manager' || 
+    r.name?.toLowerCase() === 'hr'
+  ) || !!companyData;
+
   // Derived data for display
   const displayUser = {
     id: user?.id || '',
@@ -591,8 +673,10 @@ const ProfilePage: React.FC = () => {
     vertechieId: user?.vertechie_id || '',
     firstName: user?.first_name || 'User',
     lastName: user?.last_name || '',
-    title: profile?.headline || 'Tech Professional',
-    tagline: profile?.bio || 'Building amazing things with code 🚀',
+    title: profile?.headline || profile?.current_position || (isHiringManager ? 'Hiring Manager' : 'Tech Professional'),
+    tagline: profile?.bio || (isHiringManager 
+      ? `${profile?.current_company ? `@ ${profile.current_company}` : 'Finding great talent'} 💼`
+      : 'Building amazing things with code 🚀'),
     location: profile?.location || user?.country || 'Location not set',
     email: user?.email || '',
     isVerified: user?.is_verified || false,
@@ -602,6 +686,9 @@ const ProfilePage: React.FC = () => {
     joinedDate: user?.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Recently',
     website: profile?.website || '',
     github: profile?.github_url?.replace('https://github.com/', '') || '',
+    currentCompany: profile?.current_company || '',
+    currentPosition: profile?.current_position || '',
+    isHiringManager,
   };
 
   const stats = [
@@ -1377,7 +1464,183 @@ const ProfilePage: React.FC = () => {
               )}
             </GlassCard>
 
-            {/* Experience */}
+            {/* Company Details - For HR/Hiring Manager users */}
+            {(isHiringManager || companyData) && (
+              <GlassCard sx={{ p: 3, mb: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+                  <BusinessIcon sx={{ color: '#6366f1' }} />
+                  <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
+                    Company Details
+                  </Typography>
+                </Box>
+                
+                {companyData ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {/* Company Name */}
+                    <Box sx={{ 
+                      p: 2.5, 
+                      bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                      borderRadius: 2,
+                      border: '1px solid rgba(99, 102, 241, 0.1)'
+                    }}>
+                      <Typography variant="subtitle2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Company Name
+                      </Typography>
+                      <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 600 }}>
+                        {companyData.name}
+                      </Typography>
+                    </Box>
+
+                    {/* Company Website */}
+                    {companyData.website && (
+                      <Box sx={{ 
+                        p: 2.5, 
+                        bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                        borderRadius: 2,
+                        border: '1px solid rgba(99, 102, 241, 0.1)'
+                      }}>
+                        <Typography variant="subtitle2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Website
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <LanguageOutlinedIcon sx={{ color: '#6366f1', fontSize: 20 }} />
+                          <Link 
+                            href={companyData.website} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            sx={{ color: '#6366f1', fontWeight: 500, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                          >
+                            {companyData.website}
+                          </Link>
+                        </Box>
+                      </Box>
+                    )}
+
+                    {/* Company Email */}
+                    {companyData.email && (
+                      <Box sx={{ 
+                        p: 2.5, 
+                        bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                        borderRadius: 2,
+                        border: '1px solid rgba(99, 102, 241, 0.1)'
+                      }}>
+                        <Typography variant="subtitle2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Company Email
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <EmailOutlinedIcon sx={{ color: '#6366f1', fontSize: 20 }} />
+                          <Typography sx={{ color: '#1e293b', fontWeight: 500 }}>
+                            {companyData.email}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    )}
+
+                    {/* Industry */}
+                    {companyData.industry && (
+                      <Box sx={{ 
+                        p: 2.5, 
+                        bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                        borderRadius: 2,
+                        border: '1px solid rgba(99, 102, 241, 0.1)'
+                      }}>
+                        <Typography variant="subtitle2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Industry
+                        </Typography>
+                        <Typography sx={{ color: '#1e293b', fontWeight: 500 }}>
+                          {companyData.industry}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {/* Headquarters */}
+                    {companyData.headquarters && (
+                      <Box sx={{ 
+                        p: 2.5, 
+                        bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                        borderRadius: 2,
+                        border: '1px solid rgba(99, 102, 241, 0.1)'
+                      }}>
+                        <Typography variant="subtitle2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Headquarters
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <LocationOnIcon sx={{ color: '#6366f1', fontSize: 20 }} />
+                          <Typography sx={{ color: '#1e293b', fontWeight: 500 }}>
+                            {companyData.headquarters}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    )}
+
+                    {/* Company Size & Founded Year in a row */}
+                    {(companyData.company_size || companyData.founded_year) && (
+                      <Box sx={{ display: 'flex', gap: 2 }}>
+                        {companyData.company_size && (
+                          <Box sx={{ 
+                            flex: 1,
+                            p: 2.5, 
+                            bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                            borderRadius: 2,
+                            border: '1px solid rgba(99, 102, 241, 0.1)'
+                          }}>
+                            <Typography variant="subtitle2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              Company Size
+                            </Typography>
+                            <Typography sx={{ color: '#1e293b', fontWeight: 500 }}>
+                              {companyData.company_size}
+                            </Typography>
+                          </Box>
+                        )}
+                        {companyData.founded_year && (
+                          <Box sx={{ 
+                            flex: 1,
+                            p: 2.5, 
+                            bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                            borderRadius: 2,
+                            border: '1px solid rgba(99, 102, 241, 0.1)'
+                          }}>
+                            <Typography variant="subtitle2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              Founded
+                            </Typography>
+                            <Typography sx={{ color: '#1e293b', fontWeight: 500 }}>
+                              {companyData.founded_year}
+                            </Typography>
+                          </Box>
+                        )}
+                      </Box>
+                    )}
+
+                    {/* Description */}
+                    {companyData.description && (
+                      <Box sx={{ 
+                        p: 2.5, 
+                        bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                        borderRadius: 2,
+                        border: '1px solid rgba(99, 102, 241, 0.1)'
+                      }}>
+                        <Typography variant="subtitle2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          About
+                        </Typography>
+                        <Typography sx={{ color: '#1e293b', lineHeight: 1.6 }}>
+                          {companyData.description}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                ) : (
+                  <Box sx={{ textAlign: 'center', py: 4, color: '#64748b' }}>
+                    <BusinessIcon sx={{ fontSize: 48, color: '#e2e8f0', mb: 2 }} />
+                    <Typography color="text.secondary">
+                      No company details added yet.
+                    </Typography>
+                  </Box>
+                )}
+              </GlassCard>
+            )}
+
+            {/* Experience - Hide for HR users who only have company details */}
+            {!isHiringManager && (
             <GlassCard sx={{ p: 3, mb: 3 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1511,8 +1774,10 @@ const ProfilePage: React.FC = () => {
                 </Box>
               )}
             </GlassCard>
+            )}
 
-            {/* Education */}
+            {/* Education - Hide for HR users who only have company details */}
+            {!isHiringManager && (
             <GlassCard sx={{ p: 3, mb: 3 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1649,6 +1914,7 @@ const ProfilePage: React.FC = () => {
                 </Box>
               )}
             </GlassCard>
+            )}
 
             {/* Projects */}
             <GlassCard sx={{ p: 3 }}>

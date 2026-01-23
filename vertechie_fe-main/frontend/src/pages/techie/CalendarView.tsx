@@ -11,7 +11,9 @@
  * - Color-coded event sources
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { getApiUrl } from '../../config/api';
+import { fetchWithAuth } from '../../utils/apiInterceptor';
 import {
   Box,
   Container,
@@ -230,9 +232,48 @@ const CalendarView: React.FC = () => {
     google: true,
     microsoft: true,
   });
+  const [apiEvents, setApiEvents] = useState<CalendarEvent[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  // Mock events data
-  const events: CalendarEvent[] = useMemo(() => {
+  // Fetch events from API
+  const fetchCalendarEvents = useCallback(async () => {
+    try {
+      setLoading(true);
+      // Fetch interviews (VerTechie bookings)
+      const interviewsRes = await fetchWithAuth(getApiUrl('/hiring/my-interviews?limit=50'));
+      if (interviewsRes.ok) {
+        const interviews = await interviewsRes.json();
+        const mappedEvents: CalendarEvent[] = interviews.map((interview: any) => {
+          const startDate = new Date(interview.scheduled_at);
+          const endDate = new Date(startDate.getTime() + (interview.duration_minutes || 60) * 60000);
+          return {
+            id: interview.id,
+            title: interview.job_title ? `Interview - ${interview.job_title}` : 'Scheduled Interview',
+            start: startDate,
+            end: endDate,
+            color: '#0d47a1',
+            source: 'vertechie' as const,
+            type: 'booking' as const,
+            location: interview.meeting_type || 'Video Call',
+            attendees: [interview.candidate_name || 'Candidate'],
+            meetingLink: interview.meeting_link,
+          };
+        });
+        setApiEvents(mappedEvents);
+      }
+    } catch (err) {
+      console.error('Error fetching calendar events:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCalendarEvents();
+  }, [fetchCalendarEvents]);
+
+  // Mock events data (fallback + synced calendars demo)
+  const mockEvents: CalendarEvent[] = useMemo(() => {
     const today = new Date();
     const year = today.getFullYear();
     const month = today.getMonth();
@@ -349,6 +390,15 @@ const CalendarView: React.FC = () => {
       },
     ];
   }, []);
+
+  // Combine API events with mock events (for demo Google/Microsoft calendar)
+  const events = useMemo(() => {
+    // Replace mock VerTechie events with real ones if available
+    const googleMicrosoftEvents = mockEvents.filter(e => e.source !== 'vertechie');
+    return apiEvents.length > 0 
+      ? [...apiEvents, ...googleMicrosoftEvents]
+      : mockEvents;
+  }, [apiEvents, mockEvents]);
 
   // Filter events based on source visibility
   const filteredEvents = useMemo(() => {
