@@ -102,7 +102,9 @@ const TutorialCard = styled(Card)<{ tutorialColor: string }>(({ tutorialColor })
   },
 }));
 
-const TutorialIcon = styled(Box)<{ bgColor: string }>(({ bgColor }) => ({
+const TutorialIcon = styled(Box, {
+  shouldForwardProp: (prop) => prop !== 'bgColor',
+})<{ bgColor: string }>(({ bgColor }) => ({
   width: 60,
   height: 60,
   borderRadius: 12,

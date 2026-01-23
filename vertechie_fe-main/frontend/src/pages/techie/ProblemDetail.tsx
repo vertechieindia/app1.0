@@ -149,7 +149,7 @@ const ProblemDetail: React.FC = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(getApiUrl(`v_techie/problems/${slug}/`), {
+      const response = await fetch(getApiUrl(`/practice/problems/slug/${slug}`), {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',

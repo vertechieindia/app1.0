@@ -125,7 +125,7 @@ const CodingProblems: React.FC = () => {
       if (category !== 'all') params.append('categories', category);
       
       const response = await fetch(
-        getApiUrl(`/api/v_techie/problems/?${params}`),
+        getApiUrl(`/practice/problems/?${params}`),
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -165,7 +165,7 @@ const CodingProblems: React.FC = () => {
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch(
-        getApiUrl('/api/v_techie/problem-categories/'),
+        getApiUrl('/practice/categories/'),
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -207,7 +207,7 @@ const CodingProblems: React.FC = () => {
       if (difficulty !== 'all') params.append('difficulty', difficulty);
       
       const response = await fetch(
-        getApiUrl(`/api/v_techie/problems/random/?${params}`),
+        getApiUrl(`/practice/problems/random/?${params}`),
         {
           headers: {
             'Authorization': `Bearer ${token}`,

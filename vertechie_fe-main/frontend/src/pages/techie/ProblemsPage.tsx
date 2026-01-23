@@ -367,7 +367,7 @@ const ProblemsPage: React.FC = () => {
       params.append('page', String(page + 1));
       params.append('page_size', String(rowsPerPage));
       
-      const response = await fetch(getApiUrl(`v_techie/problems/?${params.toString()}`), {
+      const response = await fetch(getApiUrl(`/practice/problems/?${params.toString()}`), {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -449,7 +449,7 @@ const ProblemsPage: React.FC = () => {
       const params = new URLSearchParams();
       if (difficulty !== 'all') params.append('difficulty', difficulty);
       
-      const response = await fetch(getApiUrl(`v_techie/problems/random/?${params.toString()}`), {
+      const response = await fetch(getApiUrl(`/practice/problems/random/?${params.toString()}`), {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',

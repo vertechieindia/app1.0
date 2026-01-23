@@ -527,7 +527,7 @@ const TechieDashboard: React.FC = () => {
       
       // Fetch streak data
       try {
-        const streakResponse = await fetch(getApiUrl('/api/v_techie/streaks/'), { headers });
+        const streakResponse = await fetch(getApiUrl('/practice/streaks/'), { headers });
         if (streakResponse.ok) {
           const streakData = await streakResponse.json();
           setStats(prev => ({
@@ -544,7 +544,7 @@ const TechieDashboard: React.FC = () => {
       
       // Fetch daily problem
       try {
-        const problemResponse = await fetch(getApiUrl('/api/v_techie/problems/daily_challenge/'), { headers });
+        const problemResponse = await fetch(getApiUrl('/practice/problems/daily/'), { headers });
         if (problemResponse.ok) {
           const problemData = await problemResponse.json();
           setDailyProblem(problemData);

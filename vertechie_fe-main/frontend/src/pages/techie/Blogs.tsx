@@ -3,8 +3,10 @@
  * A beautiful, feature-rich blogging platform for tech professionals
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getApiUrl } from '../../config/api';
+import { fetchWithAuth } from '../../utils/apiInterceptor';
 import {
   Box, Container, Typography, Button, Card, CardContent, CardMedia,
   Grid, Chip, TextField, InputAdornment, Avatar, IconButton,
@@ -362,12 +364,85 @@ const Blogs: React.FC = () => {
   const navigate = useNavigate();
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [blogs, setBlogs] = useState<BlogPost[]>(mockBlogs);
+  const [blogs, setBlogs] = useState<BlogPost[]>([]);
   const [writeDialogOpen, setWriteDialogOpen] = useState(false);
   const [coverImage, setCoverImage] = useState<string | null>(null);
   const [savedBlogs, setSavedBlogs] = useState<Set<string>>(new Set(['2']));
   const [likedBlogs, setLikedBlogs] = useState<Set<string>>(new Set(['1', '3']));
   const [shareMenuAnchor, setShareMenuAnchor] = useState<null | HTMLElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [publishing, setPublishing] = useState(false);
+  
+  // Blog form fields
+  const [blogTitle, setBlogTitle] = useState('');
+  const [blogCategory, setBlogCategory] = useState('');
+  const [blogTags, setBlogTags] = useState('');
+  const [blogContent, setBlogContent] = useState('');
+  
+  // API Categories
+  const [apiCategories, setApiCategories] = useState<{id: string; name: string; slug: string}[]>([]);
+
+  // Fetch categories from API
+  const fetchCategories = useCallback(async () => {
+    try {
+      const response = await fetchWithAuth(getApiUrl('/blog/categories'));
+      if (response.ok) {
+        const data = await response.json();
+        setApiCategories(data.map((cat: any) => ({
+          id: cat.id,
+          name: cat.name,
+          slug: cat.slug,
+        })));
+      }
+    } catch (err) {
+      console.error('Error fetching categories:', err);
+    }
+  }, []);
+
+  // Fetch blogs from API
+  const fetchBlogs = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await fetchWithAuth(getApiUrl('/blog/articles'));
+      if (response.ok) {
+        const data = await response.json();
+        const mappedBlogs: BlogPost[] = data.map((article: any) => ({
+          id: article.id,
+          title: article.title || 'Untitled',
+          excerpt: article.excerpt || article.short_description || '',
+          coverImage: article.cover_image || article.thumbnail || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
+          category: article.category_name || 'Technology',
+          author: {
+            name: article.author_name || 'Anonymous',
+            avatar: article.author_avatar || '',
+            isVerified: article.author_verified || false,
+          },
+          publishedAt: article.published_at || article.created_at || new Date().toISOString(),
+          readTime: article.read_time || `${Math.ceil((article.content?.length || 500) / 1000)} min read`,
+          views: article.views_count || 0,
+          likes: article.likes_count || 0,
+          comments: article.comments_count || 0,
+          tags: article.tags || [],
+          isFeatured: article.is_featured || false,
+          isTrending: article.is_trending || false,
+        }));
+        setBlogs(mappedBlogs.length > 0 ? mappedBlogs : mockBlogs);
+      } else {
+        // Fallback to mock data
+        setBlogs(mockBlogs);
+      }
+    } catch (err) {
+      console.error('Error fetching blogs:', err);
+      setBlogs(mockBlogs);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBlogs();
+    fetchCategories();
+  }, [fetchBlogs, fetchCategories]);
   const [selectedBlogForShare, setSelectedBlogForShare] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
@@ -462,6 +537,94 @@ const Blogs: React.FC = () => {
   const handleCloseDialog = () => {
     setWriteDialogOpen(false);
     setCoverImage(null);
+    setBlogTitle('');
+    setBlogCategory('');
+    setBlogTags('');
+    setBlogContent('');
+  };
+
+  // Generate slug from title
+  const generateSlug = (title: string) => {
+    return title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+  };
+
+  // Publish blog to API
+  const handlePublishBlog = async () => {
+    if (!blogTitle.trim() || !blogContent.trim()) {
+      return;
+    }
+
+    try {
+      setPublishing(true);
+      const slug = generateSlug(blogTitle);
+      const tagsArray = blogTags.split(',').map(tag => tag.trim()).filter(Boolean);
+      
+      // Build article data - set status to "published" so it's visible to all users
+      const articleData: any = {
+        title: blogTitle.trim(),
+        slug: slug,
+        content: blogContent.trim(),
+        excerpt: blogContent.substring(0, 200).trim(),
+        tags: tagsArray,
+        status: "published",  // Make blog visible immediately
+      };
+      
+      // Only add cover_image if it exists
+      if (coverImage) {
+        articleData.cover_image = coverImage;
+      }
+      
+      // Only add category_id if a valid API category is selected
+      // Check if it's a valid UUID (from API categories)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (blogCategory && uuidRegex.test(blogCategory)) {
+        articleData.category_id = blogCategory;
+      }
+      
+      const response = await fetchWithAuth(getApiUrl('/blog/articles'), {
+        method: 'POST',
+        body: JSON.stringify(articleData),
+      });
+
+      if (response.ok) {
+        const newArticle = await response.json();
+        // Add to blogs list
+        const newBlog: BlogPost = {
+          id: newArticle.id,
+          title: newArticle.title,
+          excerpt: newArticle.excerpt || blogContent.substring(0, 200),
+          coverImage: coverImage || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
+          category: blogCategory || 'Technology',
+          author: {
+            name: 'You',
+            avatar: '',
+            title: 'Author',
+          },
+          publishedAt: new Date().toISOString(),
+          readTime: Math.ceil(blogContent.split(' ').length / 200),
+          likes: 0,
+          comments: 0,
+          views: 0,
+          tags: tagsArray,
+          isFeatured: false,
+          isPremium: false,
+        };
+        setBlogs([newBlog, ...blogs]);
+        handleCloseDialog();
+      } else {
+        const error = await response.json();
+        console.error('Error publishing blog:', error);
+        alert('Failed to publish blog. Please try again.');
+      }
+    } catch (err) {
+      console.error('Error publishing blog:', err);
+      alert('Failed to publish blog. Please try again.');
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const featuredBlogs = blogs.filter(blog => blog.isFeatured);
@@ -1096,26 +1259,39 @@ const Blogs: React.FC = () => {
             fullWidth
             label="Title"
             placeholder="Enter a catchy title for your blog..."
+            value={blogTitle}
+            onChange={(e) => setBlogTitle(e.target.value)}
             sx={{ mb: 3 }}
           />
           <FormControl fullWidth sx={{ mb: 3 }}>
-            <InputLabel>Category</InputLabel>
+            <InputLabel>Category (Optional)</InputLabel>
             <Select
-              label="Category"
-              defaultValue=""
+              label="Category (Optional)"
+              value={blogCategory}
+              onChange={(e) => setBlogCategory(e.target.value)}
               sx={{ borderRadius: 2 }}
             >
-              <MenuItem value="" disabled>
-                <em>Select a category</em>
+              <MenuItem value="">
+                <em>No category</em>
               </MenuItem>
-              {categories.filter(c => c.id !== 'all').map((cat) => (
-                <MenuItem key={cat.id} value={cat.id}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {cat.icon}
+              {apiCategories.length > 0 ? (
+                // Use API categories if available
+                apiCategories.map((cat) => (
+                  <MenuItem key={cat.id} value={cat.id}>
                     {cat.name}
-                  </Box>
-                </MenuItem>
-              ))}
+                  </MenuItem>
+                ))
+              ) : (
+                // Show mock categories for UI (won't be sent to API)
+                categories.filter(c => c.id !== 'all').map((cat) => (
+                  <MenuItem key={cat.id} value="" disabled>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {cat.icon}
+                      {cat.name} (Create in admin)
+                    </Box>
+                  </MenuItem>
+                ))
+              )}
             </Select>
           </FormControl>
 
@@ -1124,6 +1300,8 @@ const Blogs: React.FC = () => {
             fullWidth
             label="Tags"
             placeholder="Add tags separated by commas (e.g., React, JavaScript, Tutorial)"
+            value={blogTags}
+            onChange={(e) => setBlogTags(e.target.value)}
             sx={{ mb: 3 }}
           />
 
@@ -1133,6 +1311,8 @@ const Blogs: React.FC = () => {
             placeholder="Write your blog content here... (Supports Markdown)"
             multiline
             rows={8}
+            value={blogContent}
+            onChange={(e) => setBlogContent(e.target.value)}
             sx={{ mb: 2 }}
           />
           <Typography variant="caption" color="text.secondary">
@@ -1140,18 +1320,20 @@ const Blogs: React.FC = () => {
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={handleCloseDialog}>
+          <Button onClick={handleCloseDialog} disabled={publishing}>
             Cancel
           </Button>
           <Button
             variant="contained"
+            onClick={handlePublishBlog}
+            disabled={publishing || !blogTitle.trim() || !blogContent.trim()}
             sx={{
               background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
               textTransform: 'none',
               fontWeight: 600,
             }}
           >
-            Publish Blog
+            {publishing ? 'Publishing...' : 'Publish Blog'}
           </Button>
         </DialogActions>
       </Dialog>
