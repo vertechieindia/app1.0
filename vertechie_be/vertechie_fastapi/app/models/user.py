@@ -41,11 +41,11 @@ class AdminRole(str, enum.Enum):
 
 class VerificationStatus(str, enum.Enum):
     """User verification status for admin review workflow."""
-    PENDING = "pending"           # Submitted, awaiting admin review
-    UNDER_REVIEW = "under_review" # Admin is currently reviewing
-    APPROVED = "approved"         # Admin approved the profile
-    REJECTED = "rejected"         # Admin rejected the profile
-    RESUBMITTED = "resubmitted"   # User resubmitted after rejection
+    PENDING = "PENDING"           # Submitted, awaiting admin review
+    UNDER_REVIEW = "UNDER_REVIEW" # Admin is currently reviewing
+    APPROVED = "APPROVED"         # Admin approved the profile
+    REJECTED = "REJECTED"         # Admin rejected the profile
+    RESUBMITTED = "RESUBMITTED"   # User resubmitted after rejection
 
 
 # Association table for user roles
@@ -89,7 +89,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     is_superuser = Column(Boolean, default=False)
     
     # Admin Review Workflow
-    verification_status = Column(Enum(VerificationStatus), default=VerificationStatus.PENDING)
+    verification_status = Column(String(50), default=VerificationStatus.PENDING)
     reviewed_by_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     rejection_reason = Column(Text, nullable=True)

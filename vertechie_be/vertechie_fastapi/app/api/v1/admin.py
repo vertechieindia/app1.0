@@ -575,27 +575,27 @@ async def list_pending_approvals(
     # Use status or status_filter
     filter_status = status or status_filter
     
-    # Map status string to enum
+    # Map status string to enum value (string)
     status_map = {
-        "pending": VerificationStatus.PENDING,
-        "approved": VerificationStatus.APPROVED,
-        "rejected": VerificationStatus.REJECTED,
-        "under_review": VerificationStatus.UNDER_REVIEW,
-        "resubmitted": VerificationStatus.RESUBMITTED,
+        "pending": VerificationStatus.PENDING.value,
+        "approved": VerificationStatus.APPROVED.value,
+        "rejected": VerificationStatus.REJECTED.value,
+        "under_review": VerificationStatus.UNDER_REVIEW.value,
+        "resubmitted": VerificationStatus.RESUBMITTED.value,
     }
     
     # Build base query with role loading
     query = select(User).options(selectinload(User.roles))
     
     if filter_status and filter_status.lower() in status_map:
-        status_enum = status_map[filter_status.lower()]
-        query = query.where(User.verification_status == status_enum)
+        status_value = status_map[filter_status.lower()]
+        query = query.where(User.verification_status == status_value)
     else:
         # Default: show pending and resubmitted
         query = query.where(
             or_(
-                User.verification_status == VerificationStatus.PENDING,
-                User.verification_status == VerificationStatus.RESUBMITTED
+                User.verification_status == VerificationStatus.PENDING.value,
+                User.verification_status == VerificationStatus.RESUBMITTED.value
             )
         )
     
@@ -664,13 +664,13 @@ async def list_pending_approvals(
             first_name=user.first_name,
             last_name=user.last_name,
             country=user.country,
-            verification_status=user.verification_status.value if user.verification_status else "pending",
+            verification_status=user.verification_status or "PENDING",
             created_at=user.created_at,
             # Frontend expected fields
             user_type=role_to_user_type_map.get(user_role_type, "techie"),
             user_full_name=f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email,
             user_email=user.email,
-            status=user.verification_status.value.lower() if user.verification_status else "pending"
+            status=(user.verification_status or "PENDING").lower()
         )
         for user, user_role_type in paginated_users
     ]
@@ -769,11 +769,11 @@ async def get_pending_approvals_stats(
         
         if can_manage:
             status = user.verification_status
-            if status in (VerificationStatus.PENDING, VerificationStatus.RESUBMITTED):
+            if status in (VerificationStatus.PENDING.value, VerificationStatus.RESUBMITTED.value):
                 pending += 1
-            elif status == VerificationStatus.APPROVED:
+            elif status == VerificationStatus.APPROVED.value:
                 approved += 1
-            elif status == VerificationStatus.REJECTED:
+            elif status == VerificationStatus.REJECTED.value:
                 rejected += 1
     
     total = pending + approved + rejected
@@ -807,7 +807,7 @@ async def approve_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     # Update verification status
-    user.verification_status = VerificationStatus.APPROVED
+    user.verification_status = VerificationStatus.APPROVED.value
     user.is_verified = True
     user.reviewed_by_id = current_admin.id
     user.reviewed_at = datetime.utcnow()
@@ -843,7 +843,7 @@ async def reject_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     # Update verification status
-    user.verification_status = VerificationStatus.REJECTED
+    user.verification_status = VerificationStatus.REJECTED.value
     user.is_verified = False
     user.reviewed_by_id = current_admin.id
     user.reviewed_at = datetime.utcnow()
@@ -885,8 +885,8 @@ async def get_admin_stats(
     pending_result = await db.execute(
         select(func.count(User.id)).where(
             or_(
-                User.verification_status == VerificationStatus.PENDING,
-                User.verification_status == VerificationStatus.RESUBMITTED
+                User.verification_status == VerificationStatus.PENDING.value,
+                User.verification_status == VerificationStatus.RESUBMITTED.value
             )
         )
     )
@@ -1147,7 +1147,7 @@ async def get_user_full_profile(
         email_verified=user.email_verified,
         mobile_verified=user.mobile_verified or False,
         face_verification=user.face_verification,
-        verification_status=user.verification_status.value if user.verification_status else None,
+        verification_status=user.verification_status or None,
         reviewed_at=str(user.reviewed_at) if user.reviewed_at else None,
         reviewed_by=reviewed_by_name,
         rejection_reason=user.rejection_reason,

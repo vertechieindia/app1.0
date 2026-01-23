@@ -1916,6 +1916,66 @@ const ProfilePage: React.FC = () => {
             </GlassCard>
             )}
 
+            {/* Certificates Section */}
+            <GlassCard sx={{ p: 3, mb: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+                <WorkspacePremiumIcon sx={{ color: '#FFD700' }} />
+                <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
+                  Certificates
+                </Typography>
+              </Box>
+              {(() => {
+                const certs = JSON.parse(localStorage.getItem('userCertificates') || '[]');
+                if (certs.length === 0) {
+                  return (
+                    <Box sx={{ textAlign: 'center', py: 4 }}>
+                      <WorkspacePremiumIcon sx={{ fontSize: 48, color: 'rgba(0,0,0,0.2)', mb: 1 }} />
+                      <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.5)' }}>
+                        No certificates earned yet. Complete all lessons in a tutorial to earn a certificate!
+                      </Typography>
+                    </Box>
+                  );
+                }
+                return (
+                  <Grid container spacing={2}>
+                    {certs.map((cert: any) => (
+                      <Grid item xs={12} sm={6} key={cert.id}>
+                        <Box sx={{
+                          p: 2,
+                          borderRadius: 3,
+                          border: '2px solid #FFD700',
+                          bgcolor: alpha('#FFD700', 0.05),
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 2,
+                        }}>
+                          <Box sx={{
+                            width: 50,
+                            height: 50,
+                            borderRadius: '50%',
+                            background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}>
+                            <EmojiEventsIcon sx={{ color: '#fff', fontSize: 28 }} />
+                          </Box>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="subtitle1" fontWeight={600} sx={{ color: '#1e293b' }}>
+                              {cert.tutorialTitle}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.5)' }}>
+                              Completed {new Date(cert.completedAt).toLocaleDateString()} • {cert.totalLessons} lessons
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+                );
+              })()}
+            </GlassCard>
+
             {/* Projects */}
             <GlassCard sx={{ p: 3 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>

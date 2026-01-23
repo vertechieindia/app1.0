@@ -7,7 +7,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box, Typography, Paper, Button, IconButton, Chip, Grid, List, ListItem,
   ListItemText, Collapse, Divider, Drawer, useMediaQuery, useTheme,
-  LinearProgress, Tooltip, TextField,
+  LinearProgress, Tooltip, TextField, Dialog, DialogTitle, DialogContent,
+  DialogActions, Radio, RadioGroup, FormControlLabel, FormControl,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -23,6 +24,8 @@ import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import QuizIcon from '@mui/icons-material/Quiz';
 import CodeIcon from '@mui/icons-material/Code';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import WorkspacePremiumIcon from '@mui/icons-material/WorkspacePremium';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -60658,12 +60661,146 @@ const TutorialPage: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [expandedChapters, setExpandedChapters] = useState<string[]>([]);
-  const [completedLessons, setCompletedLessons] = useState<string[]>([]);
+  const [completedLessons, setCompletedLessons] = useState<string[]>(() => {
+    // Load completed lessons from localStorage on mount
+    try {
+      const saved = localStorage.getItem(`completedLessons_${tutorialSlug}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [editorCode, setEditorCode] = useState('');
   const [showResult, setShowResult] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  
+  // Certificate state
+  const [showCertificateDialog, setShowCertificateDialog] = useState(false);
+  const [certificateGenerated, setCertificateGenerated] = useState(() => {
+    try {
+      const certs = JSON.parse(localStorage.getItem('userCertificates') || '[]');
+      return certs.some((c: any) => c.tutorialSlug === tutorialSlug);
+    } catch {
+      return false;
+    }
+  });
+  
+  // Quiz state
+  const [showQuizDialog, setShowQuizDialog] = useState(false);
+  const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
+  const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [quizScore, setQuizScore] = useState(0);
+  const [quizCompleted, setQuizCompleted] = useState(false);
 
   const tutorial = getTutorialBySlug(tutorialSlug || '');
+
+  // Save completed lessons to localStorage whenever they change
+  useEffect(() => {
+    if (tutorialSlug && completedLessons.length > 0) {
+      localStorage.setItem(`completedLessons_${tutorialSlug}`, JSON.stringify(completedLessons));
+    }
+  }, [completedLessons, tutorialSlug]);
+
+  // Quiz questions bank for each tutorial
+  const quizQuestionsBank: Record<string, any[]> = {
+    html: [
+      { q: 'What does HTML stand for?', options: ['Hyper Text Markup Language', 'High Tech Modern Language', 'Hyper Transfer Markup Language', 'Home Tool Markup Language'], answer: 'Hyper Text Markup Language' },
+      { q: 'Which tag is used for the largest heading?', options: ['<h6>', '<heading>', '<h1>', '<head>'], answer: '<h1>' },
+      { q: 'Which element is used for a paragraph?', options: ['<p>', '<para>', '<paragraph>', '<text>'], answer: '<p>' },
+      { q: 'What is the correct HTML element for inserting a line break?', options: ['<break>', '<lb>', '<br>', '<newline>'], answer: '<br>' },
+      { q: 'Which attribute is used to provide a unique identifier?', options: ['class', 'name', 'id', 'key'], answer: 'id' },
+      { q: 'Which tag creates a hyperlink?', options: ['<link>', '<a>', '<href>', '<url>'], answer: '<a>' },
+      { q: 'Which tag is used for an unordered list?', options: ['<ol>', '<list>', '<ul>', '<li>'], answer: '<ul>' },
+      { q: 'What is the correct way to add a comment in HTML?', options: ['// comment', '/* comment */', '<!-- comment -->', '# comment'], answer: '<!-- comment -->' },
+    ],
+    css: [
+      { q: 'What does CSS stand for?', options: ['Cascading Style Sheets', 'Creative Style Sheets', 'Computer Style Sheets', 'Colorful Style Sheets'], answer: 'Cascading Style Sheets' },
+      { q: 'Which property changes the text color?', options: ['text-color', 'font-color', 'color', 'foreground'], answer: 'color' },
+      { q: 'Which property is used to change the background color?', options: ['bgcolor', 'background-color', 'color-background', 'back-color'], answer: 'background-color' },
+      { q: 'How do you select an element with id "demo"?', options: ['.demo', '#demo', 'demo', '*demo'], answer: '#demo' },
+      { q: 'How do you select elements with class "test"?', options: ['#test', '.test', 'test', '*test'], answer: '.test' },
+      { q: 'Which property controls the text size?', options: ['font-style', 'text-size', 'font-size', 'text-style'], answer: 'font-size' },
+    ],
+    javascript: [
+      { q: 'Which keyword declares a variable?', options: ['var', 'let', 'const', 'All of the above'], answer: 'All of the above' },
+      { q: 'Which method prints to the console?', options: ['print()', 'log()', 'console.log()', 'write()'], answer: 'console.log()' },
+      { q: 'How do you create a function?', options: ['function myFunc()', 'create myFunc()', 'def myFunc()', 'func myFunc()'], answer: 'function myFunc()' },
+      { q: 'Which operator is used for strict equality?', options: ['==', '===', '=', '!='], answer: '===' },
+      { q: 'Which method adds an element to the end of an array?', options: ['push()', 'add()', 'append()', 'insert()'], answer: 'push()' },
+      { q: 'What is the correct way to write an IF statement?', options: ['if i = 5', 'if (i == 5)', 'if i == 5 then', 'if i = 5 then'], answer: 'if (i == 5)' },
+    ],
+    python: [
+      { q: 'How do you print "Hello" in Python?', options: ['echo("Hello")', 'print("Hello")', 'console.log("Hello")', 'printf("Hello")'], answer: 'print("Hello")' },
+      { q: 'Which keyword is used to define a function?', options: ['function', 'func', 'def', 'define'], answer: 'def' },
+      { q: 'How do you create a comment in Python?', options: ['// comment', '/* comment */', '# comment', '<!-- comment -->'], answer: '# comment' },
+      { q: 'Which is the correct way to create a list?', options: ['list = (1, 2, 3)', 'list = [1, 2, 3]', 'list = {1, 2, 3}', 'list = <1, 2, 3>'], answer: 'list = [1, 2, 3]' },
+    ],
+    react: [
+      { q: 'What is used to create a React component?', options: ['function or class', 'module', 'package', 'library'], answer: 'function or class' },
+      { q: 'Which hook is used for state management?', options: ['useEffect', 'useState', 'useContext', 'useReducer'], answer: 'useState' },
+      { q: 'What is JSX?', options: ['JavaScript XML', 'Java Syntax Extension', 'JSON XML', 'JavaScript Extension'], answer: 'JavaScript XML' },
+      { q: 'Which method renders a React component?', options: ['ReactDOM.render()', 'React.render()', 'render()', 'component.render()'], answer: 'ReactDOM.render()' },
+    ],
+  };
+
+  // Generate random quiz questions for current tutorial
+  const generateQuizQuestions = () => {
+    const bank = quizQuestionsBank[tutorialSlug || ''] || quizQuestionsBank['html'];
+    const shuffled = [...bank].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, Math.min(5, shuffled.length)); // 5 random questions
+  };
+
+  // Start quiz
+  const handleStartQuiz = () => {
+    setQuizQuestions(generateQuizQuestions());
+    setCurrentQuizIndex(0);
+    setSelectedAnswer(null);
+    setQuizScore(0);
+    setQuizCompleted(false);
+    setShowQuizDialog(true);
+  };
+
+  // Submit quiz answer
+  const handleSubmitAnswer = () => {
+    if (selectedAnswer === quizQuestions[currentQuizIndex].answer) {
+      setQuizScore(quizScore + 1);
+    }
+    
+    if (currentQuizIndex < quizQuestions.length - 1) {
+      setCurrentQuizIndex(currentQuizIndex + 1);
+      setSelectedAnswer(null);
+    } else {
+      setQuizCompleted(true);
+    }
+  };
+
+  // Generate certificate
+  const generateCertificate = () => {
+    if (certificateGenerated) return;
+    
+    const userData = JSON.parse(localStorage.getItem('userData') || '{}');
+    const certificate = {
+      id: `cert_${tutorialSlug}_${Date.now()}`,
+      tutorialSlug: tutorialSlug,
+      tutorialTitle: tutorial?.title || 'Tutorial',
+      userName: `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || userData.email || 'Student',
+      completedAt: new Date().toISOString(),
+      totalLessons: totalLessons,
+    };
+    
+    // Save to localStorage
+    const existingCerts = JSON.parse(localStorage.getItem('userCertificates') || '[]');
+    if (!existingCerts.some((c: any) => c.tutorialSlug === tutorialSlug)) {
+      existingCerts.push(certificate);
+      localStorage.setItem('userCertificates', JSON.stringify(existingCerts));
+      setCertificateGenerated(true);
+      setShowCertificateDialog(true);
+    }
+  };
+
+  // Check if all lessons completed and generate certificate
+  const totalLessons = tutorial?.chapters.reduce((sum, ch) => sum + ch.lessons.length, 0) || 0;
   const currentLessonSlug = lessonSlug || tutorial?.chapters[0]?.lessons[0]?.slug || 'home';
 
   // Get current lesson
@@ -60685,12 +60822,15 @@ const TutorialPage: React.FC = () => {
   const currentLessonData = getCurrentLesson();
   const lessonContent = getLessonContent(tutorialSlug || '', currentLessonSlug);
 
-  // Initialize editor code
+  // Initialize editor code and reset result when lesson changes
   useEffect(() => {
     if (lessonContent.tryItCode) {
       setEditorCode(lessonContent.tryItCode);
+    } else {
+      setEditorCode('');
     }
-  }, [currentLessonSlug]);
+    setShowResult(false); // Reset result view for new lesson
+  }, [currentLessonSlug, lessonContent.tryItCode]);
 
   // Expand chapter containing current lesson
   useEffect(() => {
@@ -60746,7 +60886,6 @@ const TutorialPage: React.FC = () => {
   const prevLesson = getPrevLesson();
 
   // Calculate progress
-  const totalLessons = tutorial?.chapters.reduce((sum, ch) => sum + ch.lessons.length, 0) || 0;
   const progress = totalLessons > 0 ? (completedLessons.length / totalLessons) * 100 : 0;
 
   const handleRunCode = () => {
@@ -60762,10 +60901,17 @@ const TutorialPage: React.FC = () => {
   };
 
   const markComplete = () => {
+    let newCompletedLessons = completedLessons;
     if (!completedLessons.includes(currentLessonSlug)) {
-      setCompletedLessons([...completedLessons, currentLessonSlug]);
+      newCompletedLessons = [...completedLessons, currentLessonSlug];
+      setCompletedLessons(newCompletedLessons);
     }
-    if (nextLesson) {
+    
+    // Check if all lessons are now completed
+    if (newCompletedLessons.length >= totalLessons && !certificateGenerated) {
+      // All lessons completed! Generate certificate
+      generateCertificate();
+    } else if (nextLesson) {
       navigateToLesson(nextLesson.slug);
     }
   };
@@ -61137,6 +61283,7 @@ const TutorialPage: React.FC = () => {
               </Typography>
               <Button
                 variant="contained"
+                onClick={handleStartQuiz}
                 sx={{ bgcolor: '#FF9800', '&:hover': { bgcolor: '#F57C00' }, textTransform: 'none' }}
               >
                 Start Quiz
@@ -61182,6 +61329,142 @@ const TutorialPage: React.FC = () => {
           </Button>
         </NavigationBar>
       </MainContent>
+
+      {/* Certificate Dialog */}
+      <Dialog open={showCertificateDialog} onClose={() => setShowCertificateDialog(false)} maxWidth="sm" fullWidth>
+        <DialogContent sx={{ textAlign: 'center', py: 5 }}>
+          <Box sx={{ 
+            width: 100, height: 100, borderRadius: '50%', 
+            bgcolor: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+            background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', 
+            mx: 'auto', mb: 3 
+          }}>
+            <EmojiEventsIcon sx={{ fontSize: 50, color: '#fff' }} />
+          </Box>
+          <Typography variant="h4" fontWeight={700} gutterBottom sx={{ color: '#1a237e' }}>
+            🎉 Congratulations!
+          </Typography>
+          <Typography variant="h6" gutterBottom>
+            You have completed all lessons in
+          </Typography>
+          <Typography variant="h5" fontWeight={700} sx={{ color: tutorial?.color, mb: 2 }}>
+            {tutorial?.icon} {tutorial?.title}
+          </Typography>
+          <Box sx={{ 
+            border: '3px solid #FFD700', 
+            borderRadius: 3, 
+            p: 3, 
+            bgcolor: alpha('#FFD700', 0.05),
+            mt: 3 
+          }}>
+            <WorkspacePremiumIcon sx={{ fontSize: 40, color: '#FFD700', mb: 1 }} />
+            <Typography variant="h6" fontWeight={600}>
+              Certificate of Completion
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              This certificate is now available in your profile!
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'center', pb: 3 }}>
+          <Button 
+            variant="contained" 
+            onClick={() => {
+              setShowCertificateDialog(false);
+              navigate('/techie/profile');
+            }}
+            sx={{ bgcolor: '#4CAF50', px: 4 }}
+          >
+            View in Profile
+          </Button>
+          <Button onClick={() => setShowCertificateDialog(false)}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Quiz Dialog */}
+      <Dialog open={showQuizDialog} onClose={() => setShowQuizDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: tutorial?.color, color: '#fff', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <QuizIcon />
+          {quizCompleted ? 'Quiz Results' : `Question ${currentQuizIndex + 1} of ${quizQuestions.length}`}
+        </DialogTitle>
+        <DialogContent sx={{ py: 3 }}>
+          {quizCompleted ? (
+            <Box sx={{ textAlign: 'center', py: 3 }}>
+              <Typography variant="h2" fontWeight={700} sx={{ color: quizScore >= quizQuestions.length / 2 ? '#4CAF50' : '#f44336' }}>
+                {quizScore}/{quizQuestions.length}
+              </Typography>
+              <Typography variant="h6" sx={{ mt: 2 }}>
+                {quizScore >= quizQuestions.length / 2 ? '🎉 Great job!' : '📚 Keep practicing!'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                You answered {quizScore} out of {quizQuestions.length} questions correctly.
+              </Typography>
+            </Box>
+          ) : quizQuestions.length > 0 && (
+            <Box>
+              <Typography variant="h6" fontWeight={600} sx={{ mb: 3 }}>
+                {quizQuestions[currentQuizIndex]?.q}
+              </Typography>
+              <FormControl component="fieldset" fullWidth>
+                <RadioGroup
+                  value={selectedAnswer || ''}
+                  onChange={(e) => setSelectedAnswer(e.target.value)}
+                >
+                  {quizQuestions[currentQuizIndex]?.options.map((option: string, idx: number) => (
+                    <FormControlLabel
+                      key={idx}
+                      value={option}
+                      control={<Radio sx={{ color: tutorial?.color, '&.Mui-checked': { color: tutorial?.color } }} />}
+                      label={option}
+                      sx={{
+                        border: '1px solid #e0e0e0',
+                        borderRadius: 2,
+                        mb: 1,
+                        mx: 0,
+                        p: 1,
+                        '&:hover': { bgcolor: alpha(tutorial?.color || '#0d47a1', 0.05) },
+                      }}
+                    />
+                  ))}
+                </RadioGroup>
+              </FormControl>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          {quizCompleted ? (
+            <>
+              <Button onClick={() => {
+                setQuizCompleted(false);
+                setCurrentQuizIndex(0);
+                setQuizQuestions(generateQuizQuestions());
+                setSelectedAnswer(null);
+                setQuizScore(0);
+              }}>
+                Try Again
+              </Button>
+              <Button variant="contained" onClick={() => setShowQuizDialog(false)} sx={{ bgcolor: tutorial?.color }}>
+                Done
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={() => setShowQuizDialog(false)}>Cancel</Button>
+              <Button 
+                variant="contained" 
+                onClick={handleSubmitAnswer}
+                disabled={!selectedAnswer}
+                sx={{ bgcolor: tutorial?.color }}
+              >
+                {currentQuizIndex < quizQuestions.length - 1 ? 'Next' : 'Finish'}
+              </Button>
+            </>
+          )}
+        </DialogActions>
+      </Dialog>
     </PageContainer>
   );
 };
