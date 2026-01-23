@@ -599,9 +599,12 @@ const Blogs: React.FC = () => {
           coverImage: coverImage || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
           category: blogCategory || 'Technology',
           author: {
+            id: 'current-user',
             name: 'You',
             avatar: '',
             title: 'Author',
+            isVerified: false,
+            followers: 0,
           },
           publishedAt: new Date().toISOString(),
           readTime: Math.ceil(blogContent.split(' ').length / 200),
@@ -610,7 +613,8 @@ const Blogs: React.FC = () => {
           views: 0,
           tags: tagsArray,
           isFeatured: false,
-          isPremium: false,
+          isBookmarked: false,
+          isLiked: false,
         };
         setBlogs([newBlog, ...blogs]);
         handleCloseDialog();
