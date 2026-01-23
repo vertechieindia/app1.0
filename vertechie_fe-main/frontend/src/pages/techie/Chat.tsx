@@ -51,6 +51,7 @@ import {
   Select,
   Checkbox,
   ListItemSecondaryAction,
+  CircularProgress,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 
@@ -221,7 +222,7 @@ interface Message {
   senderId: string;
   senderName?: string;
   timestamp: Date;
-  status: 'sent' | 'delivered' | 'read';
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
   type: 'text' | 'image' | 'file' | 'poll' | 'gif' | 'link' | 'document';
   fileUrl?: string;
   fileName?: string;
@@ -521,9 +522,10 @@ const Chat: React.FC = () => {
           name: userName,
           avatar: '',
           lastMessage: 'New conversation',
-          lastMessageTime: new Date(),
+          timestamp: new Date(),
           isGroup: false,
           unreadCount: 0,
+          isOnline: false,
           members: [],
         };
         setConversations([mappedConv, ...conversations]);
