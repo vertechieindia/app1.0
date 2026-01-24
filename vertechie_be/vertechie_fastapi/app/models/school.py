@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, String, Text, Boolean, Integer, Float, DateTime, 
     ForeignKey, JSON, Enum as SQLEnum
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -36,7 +36,7 @@ class School(Base):
     """Educational institution model."""
     __tablename__ = "schools"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # Basic Info
     name = Column(String(200), nullable=False)
@@ -106,14 +106,14 @@ class Department(Base):
     """School departments."""
     __tablename__ = "departments"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    school_id = Column(GUID(), ForeignKey("schools.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"))
     
     name = Column(String(200), nullable=False)
     short_name = Column(String(20))
     description = Column(Text)
     
-    head_id = Column(GUID(), ForeignKey("users.id"))
+    head_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     students_count = Column(Integer, default=0)
     
@@ -135,9 +135,9 @@ class Program(Base):
     """Academic programs."""
     __tablename__ = "programs"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    school_id = Column(GUID(), ForeignKey("schools.id"))
-    department_id = Column(GUID(), ForeignKey("departments.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"))
+    department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id"))
     
     name = Column(String(200), nullable=False)
     slug = Column(String(250))
@@ -172,8 +172,8 @@ class StudentBatch(Base):
     """Student batches/cohorts."""
     __tablename__ = "student_batches"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    school_id = Column(GUID(), ForeignKey("schools.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"))
     
     name = Column(String(100), nullable=False)  # "Batch 2024", "Cohort 15"
     start_year = Column(Integer)
@@ -197,15 +197,15 @@ class SchoolMember(Base):
     """School members (students, alumni, faculty)."""
     __tablename__ = "school_members"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    school_id = Column(GUID(), ForeignKey("schools.id"))
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     member_type = Column(SQLEnum(MemberType))
     student_id = Column(String(50))  # Roll number
     
-    department_id = Column(GUID(), ForeignKey("departments.id"))
-    batch_id = Column(GUID(), ForeignKey("student_batches.id"))
+    department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id"))
+    batch_id = Column(UUID(as_uuid=True), ForeignKey("student_batches.id"))
     
     graduation_year = Column(Integer)
     
@@ -230,12 +230,12 @@ class SchoolAdmin(Base):
     """School administrators."""
     __tablename__ = "school_admins"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    school_id = Column(GUID(), ForeignKey("schools.id"))
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     role = Column(SQLEnum(AdminRole))
-    department_id = Column(GUID(), ForeignKey("departments.id"))
+    department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id"))
     
     # Permissions
     can_manage_students = Column(Boolean, default=True)
@@ -254,15 +254,15 @@ class Placement(Base):
     """Placement records."""
     __tablename__ = "placements"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    school_id = Column(GUID(), ForeignKey("schools.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"))
     
     # Student
-    student_id = Column(GUID(), ForeignKey("users.id"))
-    batch_id = Column(GUID(), ForeignKey("student_batches.id"))
+    student_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    batch_id = Column(UUID(as_uuid=True), ForeignKey("student_batches.id"))
     
     # Company
-    company_id = Column(GUID(), ForeignKey("companies.id"))
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"))
     company_name = Column(String(200))  # Backup if company not in system
     
     # Job

@@ -11,7 +11,7 @@ from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum,
     Text, JSON, ForeignKey, Integer
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -77,7 +77,7 @@ class Group(Base, UUIDMixin, TimestampMixin):
     is_featured = Column(Boolean, default=False)
     
     # Creator
-    created_by_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Relationships
     created_by = relationship("User", foreign_keys=[created_by_id], backref="groups_created")
@@ -90,8 +90,8 @@ class GroupMember(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "group_members"
     
-    group_id = Column(GUID(), ForeignKey("groups.id"), nullable=False)
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    group_id = Column(UUID(as_uuid=True), ForeignKey("groups.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Role
     role = Column(Enum(GroupMemberRole), default=GroupMemberRole.MEMBER)
@@ -118,10 +118,10 @@ class Post(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "posts"
     
     # Author
-    author_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Group (optional - can be personal feed post)
-    group_id = Column(GUID(), ForeignKey("groups.id"), nullable=True)
+    group_id = Column(UUID(as_uuid=True), ForeignKey("groups.id"), nullable=True)
     
     # Type
     post_type = Column(Enum(PostType), default=PostType.TEXT)
@@ -174,11 +174,11 @@ class Comment(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "comments"
     
-    post_id = Column(GUID(), ForeignKey("posts.id"), nullable=False)
-    author_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    post_id = Column(UUID(as_uuid=True), ForeignKey("posts.id"), nullable=False)
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Parent (for replies)
-    parent_id = Column(GUID(), ForeignKey("comments.id"), nullable=True)
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("comments.id"), nullable=True)
     
     # Content
     content = Column(Text, nullable=False)
@@ -209,8 +209,8 @@ class PostReaction(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "post_reactions"
     
-    post_id = Column(GUID(), ForeignKey("posts.id"), nullable=False)
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    post_id = Column(UUID(as_uuid=True), ForeignKey("posts.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Reaction type
     reaction_type = Column(String(20), default="like")  # like, love, celebrate, etc.

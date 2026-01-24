@@ -11,7 +11,7 @@ from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum,
     Text, JSON, ForeignKey, Integer, Float
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -35,8 +35,8 @@ class Quiz(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "quizzes"
     
     # References
-    lesson_id = Column(GUID(), ForeignKey("lessons.id"), nullable=True)
-    course_id = Column(GUID(), ForeignKey("courses.id"), nullable=True)
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id"), nullable=True)
+    course_id = Column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=True)
     
     # Basic Info
     title = Column(String(200), nullable=False)
@@ -69,7 +69,7 @@ class Question(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "questions"
     
-    quiz_id = Column(GUID(), ForeignKey("quizzes.id"), nullable=False)
+    quiz_id = Column(UUID(as_uuid=True), ForeignKey("quizzes.id"), nullable=False)
     
     # Question
     question_text = Column(Text, nullable=False)
@@ -104,7 +104,7 @@ class QuestionOption(Base, UUIDMixin):
     
     __tablename__ = "question_options"
     
-    question_id = Column(GUID(), ForeignKey("questions.id"), nullable=False)
+    question_id = Column(UUID(as_uuid=True), ForeignKey("questions.id"), nullable=False)
     
     text = Column(Text, nullable=False)
     is_correct = Column(Boolean, default=False)
@@ -122,8 +122,8 @@ class QuizAttempt(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "quiz_attempts"
     
-    quiz_id = Column(GUID(), ForeignKey("quizzes.id"), nullable=False)
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    quiz_id = Column(UUID(as_uuid=True), ForeignKey("quizzes.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Results
     score = Column(Float, default=0)

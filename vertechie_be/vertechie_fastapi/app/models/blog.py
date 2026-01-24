@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, String, Text, Boolean, Integer, DateTime, 
     ForeignKey, JSON, Enum as SQLEnum, Table
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -20,16 +20,16 @@ from app.db.base import Base
 article_tags = Table(
     'article_tags',
     Base.metadata,
-    Column('article_id', GUID(), ForeignKey('articles.id')),
-    Column('tag_id', GUID(), ForeignKey('article_tag.id'))
+    Column('article_id', UUID(as_uuid=True), ForeignKey('articles.id')),
+    Column('tag_id', UUID(as_uuid=True), ForeignKey('article_tag.id'))
 )
 
 # Association table for co-authors
 article_coauthors = Table(
     'article_coauthors',
     Base.metadata,
-    Column('article_id', GUID(), ForeignKey('articles.id')),
-    Column('user_id', GUID(), ForeignKey('users.id'))
+    Column('article_id', UUID(as_uuid=True), ForeignKey('articles.id')),
+    Column('user_id', UUID(as_uuid=True), ForeignKey('users.id'))
 )
 
 
@@ -37,7 +37,7 @@ class ArticleCategory(Base):
     """Article categories."""
     __tablename__ = "article_categories"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     name = Column(String(100), unique=True, nullable=False)
     slug = Column(String(100), unique=True, nullable=False)
@@ -45,7 +45,7 @@ class ArticleCategory(Base):
     icon = Column(String(50))
     color = Column(String(7), default="#3498db")
     
-    parent_id = Column(GUID(), ForeignKey("article_categories.id"))
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("article_categories.id"))
     
     order = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
@@ -61,7 +61,7 @@ class ArticleTag(Base):
     """Article tags."""
     __tablename__ = "article_tag"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     name = Column(String(50), unique=True, nullable=False)
     slug = Column(String(50), unique=True, nullable=False)
@@ -73,7 +73,7 @@ class ArticleSeries(Base):
     """Article series/collection."""
     __tablename__ = "article_series"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     title = Column(String(200), nullable=False)
     slug = Column(String(250), unique=True, nullable=False)
@@ -81,7 +81,7 @@ class ArticleSeries(Base):
     
     cover_image = Column(String(500))
     
-    author_id = Column(GUID(), ForeignKey("users.id"))
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     is_complete = Column(Boolean, default=False)
     is_published = Column(Boolean, default=True)
@@ -114,7 +114,7 @@ class Article(Base):
     """Blog article/post."""
     __tablename__ = "articles"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # Basic Info
     title = Column(String(200), nullable=False)
@@ -133,11 +133,11 @@ class Article(Base):
     thumbnail = Column(String(500))
     
     # Author
-    author_id = Column(GUID(), ForeignKey("users.id"))
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Classification
-    category_id = Column(GUID(), ForeignKey("article_categories.id"))
-    series_id = Column(GUID(), ForeignKey("article_series.id"))
+    category_id = Column(UUID(as_uuid=True), ForeignKey("article_categories.id"))
+    series_id = Column(UUID(as_uuid=True), ForeignKey("article_series.id"))
     series_order = Column(Integer)
     
     # SEO
@@ -180,11 +180,11 @@ class ArticleComment(Base):
     """Comments on articles."""
     __tablename__ = "article_comments"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    article_id = Column(GUID(), ForeignKey("articles.id"))
-    author_id = Column(GUID(), ForeignKey("users.id"))
-    parent_id = Column(GUID(), ForeignKey("article_comments.id"))
+    article_id = Column(UUID(as_uuid=True), ForeignKey("articles.id"))
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("article_comments.id"))
     
     content = Column(Text, nullable=False)
     
@@ -213,10 +213,10 @@ class ArticleReaction(Base):
     """Reactions on articles."""
     __tablename__ = "article_reactions"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    article_id = Column(GUID(), ForeignKey("articles.id"))
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    article_id = Column(UUID(as_uuid=True), ForeignKey("articles.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     reaction_type = Column(SQLEnum(ReactionType))
     
@@ -230,10 +230,10 @@ class ArticleBookmark(Base):
     """Bookmarked articles."""
     __tablename__ = "article_bookmarks"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    article_id = Column(GUID(), ForeignKey("articles.id"))
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    article_id = Column(UUID(as_uuid=True), ForeignKey("articles.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -249,7 +249,7 @@ class Newsletter(Base):
     """Email newsletters."""
     __tablename__ = "newsletters"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     subject = Column(String(200), nullable=False)
     preview_text = Column(String(200))
@@ -276,10 +276,10 @@ class NewsletterSubscriber(Base):
     """Newsletter subscribers."""
     __tablename__ = "newsletter_subscribers"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     email = Column(String(255), unique=True, nullable=False)
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Preferences
     preferences = Column(JSON, default=dict)

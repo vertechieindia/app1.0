@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 
 import enum
 
@@ -52,8 +52,8 @@ class VerificationStatus(str, enum.Enum):
 user_roles = Table(
     "user_roles",
     Base.metadata,
-    Column("user_id", GUID(), ForeignKey("users.id"), primary_key=True),
-    Column("role_id", GUID(), ForeignKey("user_role.id"), primary_key=True),
+    Column("user_id", UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True),
+    Column("role_id", UUID(as_uuid=True), ForeignKey("user_role.id"), primary_key=True),
 )
 
 
@@ -90,7 +90,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     
     # Admin Review Workflow
     verification_status = Column(String(50), default=VerificationStatus.PENDING)
-    reviewed_by_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
+    reviewed_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     rejection_reason = Column(Text, nullable=True)
     admin_notes = Column(Text, nullable=True)  # Internal notes for admin
@@ -99,7 +99,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     is_blocked = Column(Boolean, default=False)
     blocked_at = Column(DateTime, nullable=True)
     blocked_reason = Column(Text, nullable=True)
-    blocked_by_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
+    blocked_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     
     # Face verification
     face_verification = Column(JSON, nullable=True)
@@ -149,7 +149,7 @@ class UserProfile(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "user_profile"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), unique=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True)
     
     # Professional Info
     headline = Column(String(200), nullable=True)
@@ -204,12 +204,12 @@ class Experience(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "experiences"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Job Details
     title = Column(String(200), nullable=False)
     company_name = Column(String(200), nullable=False)
-    company_id = Column(GUID(), ForeignKey("companies.id"), nullable=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
     
     employment_type = Column(Enum(EmploymentType))
     
@@ -228,7 +228,7 @@ class Experience(Base, UUIDMixin, TimestampMixin):
     
     # Verification
     is_verified = Column(Boolean, default=False)
-    verified_by_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
+    verified_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     verified_at = Column(DateTime, nullable=True)
     
     # Relationships
@@ -240,11 +240,11 @@ class Education(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "educations"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # School Info
     school_name = Column(String(200), nullable=False)
-    school_id = Column(GUID(), ForeignKey("schools.id"), nullable=True)
+    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"), nullable=True)
     
     # Degree
     degree = Column(String(100), nullable=True)  # Bachelor's, Master's, etc.
@@ -261,7 +261,7 @@ class Education(Base, UUIDMixin, TimestampMixin):
     
     # Verification
     is_verified = Column(Boolean, default=False)
-    verified_by_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
+    verified_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     verified_at = Column(DateTime, nullable=True)
     
     # Relationships
@@ -285,8 +285,8 @@ class BlockedProfileHistory(Base, UUIDMixin):
     
     __tablename__ = "blocked_profile_history"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    blocked_by_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    blocked_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     action = Column(String(20), nullable=False)  # blocked, unblocked
     reason = Column(Text, nullable=True)
@@ -299,8 +299,8 @@ class ProfileReviewHistory(Base, UUIDMixin):
     
     __tablename__ = "profile_review_history"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    reviewer_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    reviewer_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Review action
     previous_status = Column(Enum(VerificationStatus), nullable=True)

@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, String, Text, Boolean, Integer, Float, DateTime, 
     ForeignKey, JSON, Enum as SQLEnum, Table
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -20,8 +20,8 @@ from app.db.base import Base
 assessment_problems = Table(
     'assessment_problems',
     Base.metadata,
-    Column('assessment_id', GUID(), ForeignKey('assessments.id')),
-    Column('problem_id', GUID(), ForeignKey('problems.id'))
+    Column('assessment_id', UUID(as_uuid=True), ForeignKey('assessments.id')),
+    Column('problem_id', UUID(as_uuid=True), ForeignKey('problems.id'))
 )
 
 
@@ -29,9 +29,9 @@ class HiringPipeline(Base):
     """Hiring pipeline/workflow."""
     __tablename__ = "hiring_pipelines"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    company_id = Column(GUID(), ForeignKey("companies.id"))
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"))
     
     name = Column(String(100), nullable=False)
     description = Column(Text)
@@ -63,9 +63,9 @@ class PipelineStage(Base):
     """Stage in a hiring pipeline."""
     __tablename__ = "pipeline_stages"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    pipeline_id = Column(GUID(), ForeignKey("hiring_pipelines.id"))
+    pipeline_id = Column(UUID(as_uuid=True), ForeignKey("hiring_pipelines.id"))
     
     name = Column(String(100), nullable=False)
     stage_type = Column(SQLEnum(StageType))
@@ -90,14 +90,14 @@ class CandidateInPipeline(Base):
     """Candidate's position in a pipeline."""
     __tablename__ = "candidates_in_pipeline"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    application_id = Column(GUID(), ForeignKey("job_applications.id"))
-    pipeline_id = Column(GUID(), ForeignKey("hiring_pipelines.id"))
-    current_stage_id = Column(GUID(), ForeignKey("pipeline_stages.id"))
+    application_id = Column(UUID(as_uuid=True), ForeignKey("job_applications.id"))
+    pipeline_id = Column(UUID(as_uuid=True), ForeignKey("hiring_pipelines.id"))
+    current_stage_id = Column(UUID(as_uuid=True), ForeignKey("pipeline_stages.id"))
     
     # Assigned recruiter
-    assigned_to_id = Column(GUID(), ForeignKey("users.id"))
+    assigned_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Stage history
     stage_history = Column(JSON, default=list)  # [{stage, entered_at, left_at}]
@@ -131,9 +131,9 @@ class Assessment(Base):
     """Pre-hire assessment/test."""
     __tablename__ = "assessments"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    company_id = Column(GUID(), ForeignKey("companies.id"))
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"))
     
     title = Column(String(200), nullable=False)
     description = Column(Text)
@@ -176,9 +176,9 @@ class AssessmentQuestion(Base):
     """Question in an assessment."""
     __tablename__ = "assessment_questions"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    assessment_id = Column(GUID(), ForeignKey("assessments.id"))
+    assessment_id = Column(UUID(as_uuid=True), ForeignKey("assessments.id"))
     
     question_type = Column(SQLEnum(QuestionType))
     question_text = Column(Text, nullable=False)
@@ -214,11 +214,11 @@ class CandidateAssessment(Base):
     """Candidate's assessment attempt."""
     __tablename__ = "candidate_assessments"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    assessment_id = Column(GUID(), ForeignKey("assessments.id"))
-    candidate_id = Column(GUID(), ForeignKey("users.id"))
-    application_id = Column(GUID(), ForeignKey("job_applications.id"))
+    assessment_id = Column(UUID(as_uuid=True), ForeignKey("assessments.id"))
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    application_id = Column(UUID(as_uuid=True), ForeignKey("job_applications.id"))
     
     status = Column(SQLEnum(CandidateAssessmentStatus), default=CandidateAssessmentStatus.NOT_STARTED)
     
@@ -243,17 +243,17 @@ class AssessmentResult(Base):
     """Detailed result for each question."""
     __tablename__ = "assessment_results"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    attempt_id = Column(GUID(), ForeignKey("candidate_assessments.id"))
-    question_id = Column(GUID(), ForeignKey("assessment_questions.id"))
+    attempt_id = Column(UUID(as_uuid=True), ForeignKey("candidate_assessments.id"))
+    question_id = Column(UUID(as_uuid=True), ForeignKey("assessment_questions.id"))
     
     answer = Column(JSON, default=dict)
     is_correct = Column(Boolean)
     points_earned = Column(Float, default=0)
     
     grader_notes = Column(Text)
-    graded_by_id = Column(GUID(), ForeignKey("users.id"))
+    graded_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Relationships
     attempt = relationship("CandidateAssessment", back_populates="results")
@@ -281,9 +281,9 @@ class Interview(Base):
     """Interview schedule."""
     __tablename__ = "interviews"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    application_id = Column(GUID(), ForeignKey("job_applications.id"))
+    application_id = Column(UUID(as_uuid=True), ForeignKey("job_applications.id"))
     
     interview_type = Column(SQLEnum(InterviewType))
     
@@ -315,10 +315,10 @@ class InterviewScorecard(Base):
     """Interview scorecard/feedback."""
     __tablename__ = "interview_scorecards"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    interview_id = Column(GUID(), ForeignKey("interviews.id"))
-    interviewer_id = Column(GUID(), ForeignKey("users.id"))
+    interview_id = Column(UUID(as_uuid=True), ForeignKey("interviews.id"))
+    interviewer_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Scores
     overall_score = Column(Integer)  # 1-5
@@ -353,9 +353,9 @@ class JobOffer(Base):
     """Job offer."""
     __tablename__ = "job_offers"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    application_id = Column(GUID(), ForeignKey("job_applications.id"))
+    application_id = Column(UUID(as_uuid=True), ForeignKey("job_applications.id"))
     
     # Compensation
     base_salary = Column(Float, nullable=False)

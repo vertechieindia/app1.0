@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, String, Text, Boolean, DateTime, 
     ForeignKey, Enum as SQLEnum
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -36,10 +36,10 @@ class Notification(Base):
     """In-app notifications for users."""
     __tablename__ = "notifications"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # Who receives the notification
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     
     # Notification content
     title = Column(String(200), nullable=False)
@@ -50,7 +50,7 @@ class Notification(Base):
     link = Column(String(500), nullable=True)  # e.g., /techie/my-interviews
     
     # Reference to related entity
-    reference_id = Column(GUID(), nullable=True)  # e.g., interview_id, job_id
+    reference_id = Column(UUID(as_uuid=True), nullable=True)  # e.g., interview_id, job_id
     reference_type = Column(String(50), nullable=True)  # e.g., "interview", "job", "application"
     
     # Status

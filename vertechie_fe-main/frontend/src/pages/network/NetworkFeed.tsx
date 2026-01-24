@@ -2,11 +2,11 @@
  * NetworkFeed - Feed page for posts and updates
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Box, Typography, Card, CardContent, Avatar, Button, IconButton,
   TextField, Divider, Dialog, DialogTitle, DialogContent, DialogActions,
-  Badge, Tooltip, Snackbar, Alert, useTheme, alpha,
+  Badge, Tooltip, Snackbar, Alert, useTheme, alpha, CircularProgress,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
@@ -15,8 +15,13 @@ import {
   EmojiEmotions, Poll, Videocam, Article, Close,
   ThumbUp, ThumbUpOutlined, Celebration, Lightbulb, 
   SentimentVerySatisfied, Whatshot, LocalFireDepartment,
+  Refresh,
 } from '@mui/icons-material';
+import { formatDistanceToNow } from 'date-fns';
 import NetworkLayout from '../../components/network/NetworkLayout';
+import { api } from '../../services/apiClient';
+import { API_ENDPOINTS } from '../../config/api';
+import { communityService } from '../../services/communityService';
 
 // ============================================
 // STYLED COMPONENTS
@@ -140,7 +145,9 @@ const commonEmojis = ['😀', '😂', '❤️', '👍', '🎉', '🔥', '💡', 
 // ============================================
 const NetworkFeed: React.FC = () => {
   const theme = useTheme();
-  const [posts, setPosts] = useState<Post[]>(mockPosts);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [createPostOpen, setCreatePostOpen] = useState(false);
   const [postContent, setPostContent] = useState('');
   const [attachedImages, setAttachedImages] = useState<File[]>([]);
@@ -157,6 +164,58 @@ const NetworkFeed: React.FC = () => {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
+  // Fetch feed from API
+  useEffect(() => {
+    fetchFeed();
+  }, []);
+
+  const fetchFeed = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Fetch from unified-network/feed endpoint
+      const feedItems = await api.get<any[]>(API_ENDPOINTS.UNIFIED_NETWORK.FEED, {
+        params: { limit: 20 }
+      });
+      
+      // Map FeedItem to Post interface
+      const mappedPosts: Post[] = feedItems.map((item) => ({
+        id: item.id,
+        author: {
+          id: item.author_id,
+          name: item.author_name,
+          avatar: item.author_avatar || undefined,
+          title: item.author_title || undefined,
+          is_verified: item.author_verified || false,
+        },
+        content: item.content || '',
+        likes_count: item.likes_count || 0,
+        comments_count: item.comments_count || 0,
+        shares_count: item.shares_count || 0,
+        is_liked: item.is_liked || false,
+        is_saved: item.is_saved || false,
+        created_at: item.created_at 
+          ? formatDistanceToNow(new Date(item.created_at), { addSuffix: true })
+          : 'Just now',
+        group: item.group_id && item.group_name 
+          ? { id: item.group_id, name: item.group_name }
+          : undefined,
+        reactions: undefined, // Backend doesn't provide detailed reactions yet
+        hashtags: undefined, // Extract from content if needed
+      }));
+      
+      setPosts(mappedPosts.length > 0 ? mappedPosts : mockPosts);
+    } catch (err: any) {
+      console.error('Error fetching feed:', err);
+      setError('Failed to load feed. Showing sample posts.');
+      // Fallback to mock data if API fails
+      setPosts(mockPosts);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Handle reaction selection
   const handleReaction = (postId: string, reactionType: string) => {
     setSelectedReactions(prev => ({
@@ -172,12 +231,28 @@ const NetworkFeed: React.FC = () => {
   };
 
   // Like post
-  const handleLikePost = (postId: string) => {
+  const handleLikePost = async (postId: string) => {
+    const post = posts.find(p => p.id === postId);
+    if (!post) return;
+    
+    // Optimistic update
     setPosts(prev => prev.map(p => 
       p.id === postId 
         ? { ...p, is_liked: !p.is_liked, likes_count: p.is_liked ? p.likes_count - 1 : p.likes_count + 1 }
         : p
     ));
+    
+    try {
+      // Call API to like/unlike
+      await communityService.likePost(postId);
+    } catch (err) {
+      console.error('Error liking post:', err);
+      // Revert on error
+      setPosts(prev => prev.map(p => 
+        p.id === postId ? post : p
+      ));
+      setSnackbar({ open: true, message: 'Failed to like post', severity: 'error' });
+    }
   };
 
   // Save post
@@ -189,20 +264,20 @@ const NetworkFeed: React.FC = () => {
   };
 
   // Create post
-  const handleCreatePost = () => {
-    if (postContent.trim()) {
-      const newPost: Post = {
-        id: `new-${Date.now()}`,
-        author: { id: 'me', name: 'Admin A', title: 'Super Admin at VerTechie', is_verified: true },
+  const handleCreatePost = async () => {
+    if (!postContent.trim()) return;
+    
+    try {
+      // Call API to create post
+      const result = await communityService.createPost({
         content: postContent,
-        likes_count: 0,
-        comments_count: 0,
-        shares_count: 0,
-        is_liked: false,
-        is_saved: false,
-        created_at: 'Just now',
-      };
-      setPosts(prev => [newPost, ...prev]);
+        visibility: 'public',
+        ...(articleLink && { link_url: articleLink }),
+      });
+      
+      // Refresh feed to get the new post
+      await fetchFeed();
+      
       setPostContent('');
       setAttachedImages([]);
       setAttachedVideo(null);
@@ -212,6 +287,9 @@ const NetworkFeed: React.FC = () => {
       setShowArticleInput(false);
       setCreatePostOpen(false);
       setSnackbar({ open: true, message: 'Post created successfully!', severity: 'success' });
+    } catch (err) {
+      console.error('Error creating post:', err);
+      setSnackbar({ open: true, message: 'Failed to create post. Please try again.', severity: 'error' });
     }
   };
 
@@ -259,6 +337,22 @@ const NetworkFeed: React.FC = () => {
 
   return (
     <NetworkLayout>
+      {/* Header with Refresh */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+          Feed
+        </Typography>
+        <Button
+          startIcon={<Refresh />}
+          onClick={fetchFeed}
+          disabled={loading}
+          size="small"
+          sx={{ borderRadius: 2 }}
+        >
+          Refresh
+        </Button>
+      </Box>
+
       {/* Create Post Card */}
       <StyledCard sx={{ mb: 3 }}>
         <CardContent>
@@ -287,7 +381,32 @@ const NetworkFeed: React.FC = () => {
         </CardContent>
       </StyledCard>
 
+      {/* Loading State */}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
+
+      {/* Error State */}
+      {error && !loading && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       {/* Posts */}
+      {!loading && posts.length === 0 && (
+        <Box sx={{ textAlign: 'center', py: 4 }}>
+          <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
+            No posts yet
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Connect with others or join groups to see posts in your feed
+          </Typography>
+        </Box>
+      )}
+
       {posts.map(post => (
         <PostCard key={post.id}>
           <CardContent>

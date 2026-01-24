@@ -11,7 +11,7 @@ from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum, Date,
     Text, JSON, ForeignKey, Integer, Float
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -42,7 +42,7 @@ class CourseCategory(Base, UUIDMixin, TimestampMixin):
     icon = Column(String(50), nullable=True)
     color = Column(String(20), nullable=True)
     
-    parent_id = Column(GUID(), ForeignKey("course_categories.id"), nullable=True)
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("course_categories.id"), nullable=True)
     order = Column(Integer, default=0)
     
     is_active = Column(Boolean, default=True)
@@ -72,10 +72,10 @@ class Course(Base, UUIDMixin, TimestampMixin):
     preview_video = Column(String(500), nullable=True)
     
     # Category
-    category_id = Column(GUID(), ForeignKey("course_categories.id"), nullable=True)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("course_categories.id"), nullable=True)
     
     # Instructor
-    instructor_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    instructor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Details
     difficulty = Column(Enum(DifficultyLevel), default=DifficultyLevel.BEGINNER)
@@ -128,8 +128,8 @@ class CourseEnrollment(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "course_enrollments"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    course_id = Column(GUID(), ForeignKey("courses.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    course_id = Column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False)
     
     # Status
     status = Column(Enum(EnrollmentStatus), default=EnrollmentStatus.ACTIVE)
@@ -137,7 +137,7 @@ class CourseEnrollment(Base, UUIDMixin, TimestampMixin):
     # Progress
     progress_percentage = Column(Float, default=0)
     completed_lessons = Column(Integer, default=0)
-    current_lesson_id = Column(GUID(), ForeignKey("lessons.id"), nullable=True)
+    current_lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id"), nullable=True)
     
     # Payment
     is_paid = Column(Boolean, default=False)

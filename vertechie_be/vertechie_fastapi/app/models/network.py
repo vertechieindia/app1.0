@@ -11,7 +11,7 @@ from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum,
     Text, JSON, ForeignKey, Integer
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -36,10 +36,10 @@ class Connection(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "connections"
     
     # User who initiated
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # User being connected to
-    connected_user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    connected_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Type
     connection_type = Column(Enum(FollowType), default=FollowType.CONNECT)
@@ -61,10 +61,10 @@ class ConnectionRequest(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "connection_requests"
     
     # Sender
-    sender_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    sender_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Receiver
-    receiver_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    receiver_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Type
     request_type = Column(Enum(FollowType), default=FollowType.CONNECT)
@@ -89,8 +89,8 @@ class Follow(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "follows"
     
-    follower_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    following_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    follower_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    following_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Notifications
     notify_on_post = Column(Boolean, default=True)
@@ -105,8 +105,8 @@ class BlockedUser(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "blocked_users"
     
-    blocker_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    blocked_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    blocker_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    blocked_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     reason = Column(Text, nullable=True)
     

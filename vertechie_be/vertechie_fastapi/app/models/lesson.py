@@ -11,7 +11,7 @@ from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum,
     Text, JSON, ForeignKey, Integer, Float
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -37,7 +37,7 @@ class Module(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "modules"
     
-    course_id = Column(GUID(), ForeignKey("courses.id"), nullable=False)
+    course_id = Column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False)
     
     title = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
@@ -59,7 +59,7 @@ class Lesson(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "lessons"
     
-    module_id = Column(GUID(), ForeignKey("modules.id"), nullable=False)
+    module_id = Column(UUID(as_uuid=True), ForeignKey("modules.id"), nullable=False)
     
     # Basic Info
     title = Column(String(200), nullable=False)
@@ -104,9 +104,9 @@ class LessonProgress(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "lesson_progress"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    lesson_id = Column(GUID(), ForeignKey("lessons.id"), nullable=False)
-    enrollment_id = Column(GUID(), ForeignKey("course_enrollments.id"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id"), nullable=False)
+    enrollment_id = Column(UUID(as_uuid=True), ForeignKey("course_enrollments.id"), nullable=True)
     
     # Progress
     status = Column(Enum(LessonStatus), default=LessonStatus.NOT_STARTED)
