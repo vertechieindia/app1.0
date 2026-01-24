@@ -226,7 +226,7 @@ async def login(
         "admin_roles": user.admin_roles or [],
         "groups": [{"name": r.role_type.value} for r in user_role_list] if user_role_list else [],
         "user_permissions": [],
-        "verification_status": user.verification_status.value if user.verification_status else "pending",
+        "verification_status": user.verification_status or "PENDING",
         "role": user_role_list[0].role_type.value if user_role_list else "techie",
     }
     
@@ -453,9 +453,14 @@ async def admin_create_user(
     # Generate vertechie_id
     vertechie_id = f"VT{uuid4().hex[:8].upper()}"
     
-    # Generate username
-    base_username = slugify(f"{user_in.first_name}-{user_in.last_name}")
-    username = f"{base_username}-{uuid4().hex[:4]}"
+    # Generate username - use email prefix if names not provided (for admin users)
+    if user_in.first_name and user_in.last_name:
+        base_username = slugify(f"{user_in.first_name}-{user_in.last_name}")
+        username = f"{base_username}-{uuid4().hex[:4]}"
+    else:
+        # For admin users created with only email/password, use email prefix
+        email_prefix = user_in.email.split('@')[0]
+        username = f"{slugify(email_prefix)}-{uuid4().hex[:4]}"
     
     # Parse DOB if provided as string
     dob = None
@@ -519,11 +524,11 @@ async def admin_create_user(
     db.add(user)
     await db.flush()
     
-    # Create profile with summary
+    # Create profile (only if any profile data is provided, or always create empty profile)
     profile = UserProfile(
         user_id=user.id,
-        bio=user_in.profile,
-        current_company=user_in.company_name,
+        bio=user_in.profile if user_in.profile else None,
+        current_company=user_in.company_name if user_in.company_name else None,
     )
     db.add(profile)
     

@@ -78,7 +78,7 @@ async def list_users(
             "admin_roles": user.admin_roles or [],  # Include admin_roles for frontend filtering
             "date_joined": user.created_at,  # Alias for frontend compatibility
             "last_login": user.last_login,
-            "verification_status": user.verification_status.value if user.verification_status else "pending",
+            "verification_status": user.verification_status or "PENDING",
         }
         for user in users
     ]
@@ -617,7 +617,7 @@ async def reject_user(
         }
     else:
         # Just mark as rejected, keep data
-        user.verification_status = VerificationStatus.REJECTED
+        user.verification_status = VerificationStatus.REJECTED.value.value
         user.reviewed_by_id = admin_user.id
         user.reviewed_at = datetime.utcnow()
         user.rejection_reason = reason

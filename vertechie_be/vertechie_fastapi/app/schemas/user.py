@@ -5,7 +5,7 @@ User schemas.
 from typing import Optional, List
 from datetime import datetime, date
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class UserBase(BaseModel):
@@ -203,8 +203,30 @@ class AdminUserCreate(BaseModel):
     # Core fields
     email: EmailStr
     password: str = Field(..., min_length=6)
-    first_name: str
-    last_name: str
+    
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_email(cls, v):
+        """Normalize email: strip whitespace, lowercase, and fix common typos."""
+        if isinstance(v, str):
+            # Strip all whitespace (leading, trailing, and internal)
+            v = ''.join(v.split())
+            # Lowercase
+            v = v.lower()
+            # Fix common typo: comma instead of dot after @
+            # e.g., "user@domain,com" -> "user@domain.com"
+            if '@' in v:
+                parts = v.split('@', 1)
+                if len(parts) == 2:
+                    domain = parts[1]
+                    # Replace comma with dot in domain part (common typo)
+                    domain = domain.replace(',', '.')
+                    v = f"{parts[0]}@{domain}"
+        return v
+    
+    # Name fields - optional for admin users (can be created with just email/password)
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     middle_name: Optional[str] = None
     mobile_number: Optional[str] = None
     dob: Optional[str] = None  # Accept string for flexibility
