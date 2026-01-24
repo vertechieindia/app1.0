@@ -149,11 +149,10 @@ class PostResponse(BaseModel):
 class CommentCreate(BaseModel):
     """Create comment."""
     
-    post_id: UUID
     content: str
     parent_id: Optional[UUID] = None
     media_url: Optional[str] = None
-    mentions: List[UUID] = []
+    mentions: Optional[List[UUID]] = []
 
 
 class CommentUpdate(BaseModel):
@@ -189,4 +188,103 @@ class ReactionCreate(BaseModel):
     """Create reaction."""
     
     reaction_type: str = "like"
+
+
+# ============================================
+# EVENT SCHEMAS
+# ============================================
+
+class EventCreate(BaseModel):
+    """Create event."""
+    
+    title: str
+    description: Optional[str] = None
+    start_date: str  # ISO format datetime
+    end_date: Optional[str] = None
+    timezone: str = "UTC"
+    event_type: str = "webinar"  # webinar, workshop, meetup, conference
+    location: Optional[str] = None
+    is_virtual: bool = False
+    meeting_link: Optional[str] = None
+    cover_image: Optional[str] = None
+    is_public: bool = True
+    requires_approval: bool = False
+    max_attendees: Optional[int] = None
+
+
+class EventResponse(BaseModel):
+    """Event response."""
+    
+    id: UUID
+    title: str
+    description: Optional[str] = None
+    host_id: UUID
+    host_name: Optional[str] = None
+    start_date: datetime
+    end_date: Optional[datetime] = None
+    timezone: str
+    event_type: str
+    location: Optional[str] = None
+    is_virtual: bool
+    meeting_link: Optional[str] = None
+    cover_image: Optional[str] = None
+    is_public: bool
+    max_attendees: Optional[int] = None
+    attendees_count: int = 0
+    views_count: int = 0
+    is_registered: bool = False
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# ============================================
+# COMBINATOR SCHEMAS
+# ============================================
+
+class StartupIdeaCreate(BaseModel):
+    """Create startup idea."""
+    
+    title: str
+    description: str
+    problem: str
+    target_market: Optional[str] = None
+    stage: str = "idea"  # idea, validating, mvp, launched, revenue
+    commitment: str = "exploring"  # full-time, part-time, side-project, exploring
+    funding_status: Optional[str] = None
+    roles_needed: List[str] = []
+    skills_needed: List[str] = []
+    team_size: int = 0
+    founder_roles: List[str] = []
+    founder_skills: List[str] = []
+    founder_commitment: Optional[str] = None
+    founder_funding: Optional[str] = None
+
+
+class StartupIdeaResponse(BaseModel):
+    """Startup idea response."""
+    
+    id: UUID
+    founder_id: UUID
+    founder_name: Optional[str] = None
+    title: str
+    description: str
+    problem: str
+    target_market: Optional[str] = None
+    stage: str
+    commitment: str
+    funding_status: Optional[str] = None
+    roles_needed: List[str] = []
+    skills_needed: List[str] = []
+    team_size: int = 0
+    founder_roles: List[str] = []
+    founder_skills: List[str] = []
+    views_count: int = 0
+    connections_count: int = 0
+    is_active: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
 

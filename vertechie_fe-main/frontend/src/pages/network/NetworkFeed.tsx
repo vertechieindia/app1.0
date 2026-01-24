@@ -75,6 +75,15 @@ interface Post {
   group?: { id: string; name: string };
   reactions?: Reactions;
   hashtags?: string[];
+  post_type?: string;  // text, poll, link, image, video, article
+  poll_data?: {
+    question?: string;
+    options?: string[];
+    vote_counts?: Record<number, number>;  // {0: 5, 1: 3} means option 0 has 5 votes, option 1 has 3 votes
+    total_votes?: number;
+    user_vote?: number;  // Index of option user voted for
+  };
+  link_url?: string;
 }
 
 // Reaction types for the hover picker
@@ -95,48 +104,7 @@ const trendingHashtags = [
 // ============================================
 // MOCK DATA
 // ============================================
-const mockPosts: Post[] = [
-  { 
-    id: '1', 
-    author: { id: '1', name: 'Sarah Chen', title: 'Senior Software Engineer at Google', is_verified: true }, 
-    content: '🚀 Excited to share that I just completed the Google Cloud Architecture certification! The journey of learning never stops. If you\'re considering cloud certifications, I highly recommend starting with the fundamentals. Happy to answer any questions!',
-    likes_count: 142,
-    comments_count: 23,
-    shares_count: 8,
-    is_liked: false,
-    is_saved: false,
-    created_at: '2 hours ago',
-    reactions: { like: 89, love: 32, celebrate: 15, insightful: 4, funny: 2 },
-    hashtags: ['#CloudComputing', '#GoogleCloud', '#Learning'],
-  },
-  { 
-    id: '2', 
-    author: { id: '2', name: 'Michael Brown', title: 'Product Manager at Microsoft', is_verified: true }, 
-    content: 'Just published a new article on "The Future of AI in Product Development". Key takeaways:\n\n1. AI is augmenting, not replacing product managers\n2. Data-driven decisions are becoming the norm\n3. User empathy remains irreplaceable\n\nCheck out the full article in the comments!',
-    likes_count: 89,
-    comments_count: 15,
-    shares_count: 12,
-    is_liked: true,
-    is_saved: true,
-    created_at: '5 hours ago',
-    group: { id: '1', name: 'Product Managers Community' },
-    reactions: { like: 45, love: 12, celebrate: 8, insightful: 22, funny: 2 },
-    hashtags: ['#AITools', '#ProductManagement', '#FutureTech'],
-  },
-  { 
-    id: '3', 
-    author: { id: '3', name: 'Emily Zhang', title: 'Data Scientist at Meta', is_verified: false }, 
-    content: 'Pro tip for fellow data scientists: When working with large datasets, always profile your data first! 📊\n\nI saved 3 hours of debugging today just by running a quick data quality check before training my model. Sometimes the basics are the most powerful tools.',
-    likes_count: 256,
-    comments_count: 42,
-    shares_count: 35,
-    is_liked: false,
-    is_saved: false,
-    created_at: '1 day ago',
-    reactions: { like: 156, love: 45, celebrate: 23, insightful: 28, funny: 4 },
-    hashtags: ['#DataScience', '#MachineLearning', '#ProTip'],
-  },
-];
+// Mock posts removed - using real data only
 
 const commonEmojis = ['😀', '😂', '❤️', '👍', '🎉', '🔥', '💡', '✨', '🚀', '💪', '👏', '🙌', '💯', '⭐', '🎯', '📈'];
 
@@ -160,6 +128,10 @@ const NetworkFeed: React.FC = () => {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
   const [reactionPickerPostId, setReactionPickerPostId] = useState<string | null>(null);
   const [selectedReactions, setSelectedReactions] = useState<Record<string, string>>({});
+  const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
+  const [commentTexts, setCommentTexts] = useState<Record<string, string>>({});
+  const [postComments, setPostComments] = useState<Record<string, any[]>>({});
+  const [loadingComments, setLoadingComments] = useState<Record<string, boolean>>({});
   
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -196,21 +168,35 @@ const NetworkFeed: React.FC = () => {
         is_liked: item.is_liked || false,
         is_saved: item.is_saved || false,
         created_at: item.created_at 
-          ? formatDistanceToNow(new Date(item.created_at), { addSuffix: true })
-          : 'Just now',
+          ? `posted ${formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}` 
+          : 'posted just now',
         group: item.group_id && item.group_name 
           ? { id: item.group_id, name: item.group_name }
           : undefined,
         reactions: undefined, // Backend doesn't provide detailed reactions yet
         hashtags: undefined, // Extract from content if needed
+        post_type: item.post_type || item.type || 'text',
+        poll_data: item.poll_data ? {
+          ...item.poll_data,
+          vote_counts: item.poll_data.vote_counts || {},
+          total_votes: item.poll_data.total_votes || 0,
+          user_vote: item.poll_data.user_vote !== undefined ? item.poll_data.user_vote : undefined,
+        } : undefined,
+        link_url: item.link_url || undefined,
       }));
       
-      setPosts(mappedPosts.length > 0 ? mappedPosts : mockPosts);
+      // Only use real data, don't fallback to mock
+      if (mappedPosts.length > 0) {
+        setPosts(mappedPosts);
+      } else {
+        setPosts([]);
+        setError('No posts found. Be the first to post!');
+      }
     } catch (err: any) {
       console.error('Error fetching feed:', err);
-      setError('Failed to load feed. Showing sample posts.');
-      // Fallback to mock data if API fails
-      setPosts(mockPosts);
+      setError('Failed to load feed. Please try again.');
+      // Don't show mock data - show empty state instead
+      setPosts([]);
     } finally {
       setLoading(false);
     }
@@ -263,17 +249,136 @@ const NetworkFeed: React.FC = () => {
     setSnackbar({ open: true, message: 'Post saved!', severity: 'success' });
   };
 
+  // Toggle comments
+  const handleToggleComments = async (postId: string) => {
+    const isExpanded = expandedComments[postId];
+    setExpandedComments(prev => ({ ...prev, [postId]: !isExpanded }));
+    
+    // Load comments if expanding
+    if (!isExpanded && !postComments[postId]) {
+      await loadComments(postId);
+    }
+  };
+
+  // Load comments for a post
+  const loadComments = async (postId: string) => {
+    try {
+      setLoadingComments(prev => ({ ...prev, [postId]: true }));
+      const comments = await communityService.getComments(postId);
+      setPostComments(prev => ({ ...prev, [postId]: comments }));
+    } catch (err) {
+      console.error('Error loading comments:', err);
+      setSnackbar({ open: true, message: 'Failed to load comments', severity: 'error' });
+    } finally {
+      setLoadingComments(prev => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  // Vote on poll
+  const handleVotePoll = async (postId: string, optionIndex: number, optionText: string) => {
+    try {
+      // Call the vote endpoint with option_index as query parameter
+      const response: any = await api.post(
+        `/community/posts/${postId}/vote?option_index=${optionIndex}`,
+        {}
+      );
+      
+      // Optimistically update the UI
+      setPosts(prev => prev.map(p => {
+        if (p.id === postId && p.poll_data) {
+          const updatedPollData = { ...p.poll_data };
+          updatedPollData.user_vote = optionIndex;
+          // Update vote counts if returned
+          if (response && response.vote_counts) {
+            updatedPollData.vote_counts = response.vote_counts;
+            updatedPollData.total_votes = response.total_votes || 0;
+          }
+          return { ...p, poll_data: updatedPollData };
+        }
+        return p;
+      }));
+      
+      // Refresh feed to get updated vote counts from server
+      await fetchFeed();
+      
+      setSnackbar({ 
+        open: true, 
+        message: `You voted for: ${optionText}`, 
+        severity: 'success' 
+      });
+    } catch (err: any) {
+      console.error('Error voting:', err);
+      const errorMessage = err?.response?.data?.detail || err?.message || 'Failed to vote. Please try again.';
+      setSnackbar({ 
+        open: true, 
+        message: errorMessage, 
+        severity: 'error' 
+      });
+    }
+  };
+
+  // Add comment
+  const handleAddComment = async (postId: string) => {
+    const commentText = commentTexts[postId]?.trim();
+    if (!commentText) return;
+
+    try {
+      await communityService.addComment(postId, { content: commentText });
+      
+      // Clear comment input
+      setCommentTexts(prev => {
+        const { [postId]: _, ...rest } = prev;
+        return rest;
+      });
+      
+      // Reload comments
+      await loadComments(postId);
+      
+      // Update post comment count
+      setPosts(prev => prev.map(p => 
+        p.id === postId ? { ...p, comments_count: p.comments_count + 1 } : p
+      ));
+      
+      setSnackbar({ open: true, message: 'Comment added!', severity: 'success' });
+    } catch (err) {
+      console.error('Error adding comment:', err);
+      setSnackbar({ open: true, message: 'Failed to add comment', severity: 'error' });
+    }
+  };
+
   // Create post
   const handleCreatePost = async () => {
-    if (!postContent.trim()) return;
+    // Validate: need content OR poll
+    if (!postContent.trim() && (!showPollCreator || pollOptions.filter(opt => opt.trim()).length < 2)) {
+      setSnackbar({ open: true, message: 'Please add content or create a poll with at least 2 options', severity: 'error' });
+      return;
+    }
     
     try {
-      // Call API to create post
-      const result = await communityService.createPost({
-        content: postContent,
+      // Prepare post data
+      const postData: any = {
         visibility: 'public',
-        ...(articleLink && { link_url: articleLink }),
-      });
+      };
+      
+      // Add content if provided
+      if (postContent.trim()) {
+        postData.content = postContent;
+      }
+      
+      // Add poll data if poll is being created
+      if (showPollCreator && pollOptions.filter(opt => opt.trim()).length >= 2) {
+        postData.post_type = 'poll';
+        postData.poll_data = {
+          question: postContent.trim() || 'What do you think?',
+          options: pollOptions.filter(opt => opt.trim()),
+        };
+      } else if (articleLink) {
+        postData.post_type = 'link';
+        postData.link_url = articleLink;
+      }
+      
+      // Call API to create post
+      const result = await communityService.createPost(postData);
       
       // Refresh feed to get the new post
       await fetchFeed();
@@ -430,9 +535,131 @@ const NetworkFeed: React.FC = () => {
             </Box>
 
             {/* Post Content */}
-            <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
-              {post.content}
-            </Typography>
+            {post.post_type !== 'poll' && (
+              <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
+                {post.content}
+              </Typography>
+            )}
+
+            {/* Poll Display */}
+            {post.post_type === 'poll' && post.poll_data && (
+              <Box sx={{ mb: 2 }}>
+                {post.poll_data.question && (
+                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+                    {post.poll_data.question}
+                  </Typography>
+                )}
+                {post.content && (
+                  <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
+                    {post.content}
+                  </Typography>
+                )}
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {post.poll_data.options && post.poll_data.options.map((option: string, index: number) => {
+                    const voteCount = post.poll_data?.vote_counts?.[index] || 0;
+                    const totalVotes = post.poll_data?.total_votes || 0;
+                    const percentage = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
+                    const userVote = post.poll_data?.user_vote;
+                    const isUserVote = userVote === index;
+                    // Only disable if user has voted for a different option
+                    const isDisabled = userVote !== undefined && userVote !== null && userVote !== index;
+                    
+                    return (
+                      <Button
+                        key={index}
+                        variant={isUserVote ? "contained" : "outlined"}
+                        fullWidth
+                        disabled={isDisabled}
+                        sx={{
+                          justifyContent: 'flex-start',
+                          textTransform: 'none',
+                          py: 1.5,
+                          position: 'relative',
+                          borderColor: isUserVote ? 'primary.main' : 'divider',
+                          bgcolor: isUserVote ? alpha(theme.palette.primary.main, 0.1) : 'transparent',
+                          '&:hover': {
+                            borderColor: 'primary.main',
+                            bgcolor: isUserVote 
+                              ? alpha(theme.palette.primary.main, 0.15) 
+                              : alpha(theme.palette.primary.main, 0.05),
+                          },
+                          '&:disabled': {
+                            borderColor: 'divider',
+                            opacity: 0.7,
+                          },
+                        }}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (!isDisabled) {
+                            handleVotePoll(post.id, index, option);
+                          }
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', position: 'relative', zIndex: 1 }}>
+                          <Poll sx={{ color: isUserVote ? 'primary.main' : 'text.secondary', fontSize: 20 }} />
+                          <Typography variant="body2" sx={{ flex: 1, textAlign: 'left', fontWeight: isUserVote ? 600 : 400 }}>
+                            {option}
+                          </Typography>
+                          {totalVotes > 0 && (
+                            <Typography variant="caption" sx={{ color: isUserVote ? 'primary.main' : 'text.secondary', fontWeight: 600 }}>
+                              {voteCount} ({percentage}%)
+                            </Typography>
+                          )}
+                        </Box>
+                        {/* Progress bar */}
+                        {totalVotes > 0 && (
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              left: 0,
+                              top: 0,
+                              bottom: 0,
+                              width: `${percentage}%`,
+                              bgcolor: alpha(theme.palette.primary.main, 0.2),
+                              borderRadius: 1,
+                              zIndex: 0,
+                            }}
+                          />
+                        )}
+                      </Button>
+                    );
+                  })}
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  {post.poll_data?.total_votes 
+                    ? `${post.poll_data.total_votes} ${post.poll_data.total_votes === 1 ? 'vote' : 'votes'}`
+                    : (post.poll_data?.user_vote !== undefined && post.poll_data?.user_vote !== null)
+                      ? 'You have already voted'
+                      : 'Click an option to vote'}
+                </Typography>
+              </Box>
+            )}
+
+            {/* Link Preview */}
+            {post.post_type === 'link' && post.link_url && (
+              <Box sx={{ mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+                <Box sx={{ p: 2 }}>
+                  <Typography variant="body1" sx={{ mb: 1 }}>
+                    {post.content || 'Shared a link'}
+                  </Typography>
+                  <Typography 
+                    variant="body2" 
+                    component="a"
+                    href={post.link_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    sx={{ 
+                      color: 'primary.main', 
+                      textDecoration: 'none',
+                      '&:hover': { textDecoration: 'underline' }
+                    }}
+                  >
+                    {post.link_url}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
 
             {/* Post Stats */}
             {/* Reaction Summary */}
@@ -534,12 +761,93 @@ const NetworkFeed: React.FC = () => {
                   ? reactionTypes.find(r => r.type === selectedReactions[post.id])?.label 
                   : 'Like'}
               </Button>
-              <Button color="inherit" startIcon={<Comment />}>Comment</Button>
+              <Button 
+                color="inherit" 
+                startIcon={<Comment />}
+                onClick={() => handleToggleComments(post.id)}
+              >
+                Comment
+              </Button>
               <Button color="inherit" startIcon={<Share />}>Share</Button>
               <IconButton onClick={() => handleSavePost(post.id)}>
                 {post.is_saved ? <Bookmark color="primary" /> : <BookmarkBorder />}
               </IconButton>
             </Box>
+
+            {/* Comments Section */}
+            {expandedComments[post.id] && (
+              <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                {/* Comment Input */}
+                <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                  <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}>A</Avatar>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    placeholder="Write a comment..."
+                    value={commentTexts[post.id] || ''}
+                    onChange={(e) => setCommentTexts(prev => ({ ...prev, [post.id]: e.target.value }))}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleAddComment(post.id);
+                      }
+                    }}
+                    multiline
+                    maxRows={3}
+                  />
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={() => handleAddComment(post.id)}
+                    disabled={!commentTexts[post.id]?.trim()}
+                  >
+                    Post
+                  </Button>
+                </Box>
+
+                {/* Comments List */}
+                {loadingComments[post.id] ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                    <CircularProgress size={24} />
+                  </Box>
+                ) : postComments[post.id] && postComments[post.id].length > 0 ? (
+                  <Box sx={{ maxHeight: 400, overflowY: 'auto' }}>
+                    {postComments[post.id].map((comment: any) => {
+                      // Handle different comment response formats
+                      const authorName = comment.author?.name || 
+                                        (comment.author_id ? 'User' : 'Unknown');
+                      const commentContent = comment.content || '';
+                      const commentDate = comment.created_at || comment.createdAt;
+                      
+                      return (
+                        <Box key={comment.id} sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                          <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}>
+                            {authorName.charAt(0).toUpperCase()}
+                          </Avatar>
+                          <Box sx={{ flex: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                                {authorName}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {commentDate 
+                                  ? formatDistanceToNow(new Date(commentDate), { addSuffix: true })
+                                  : 'just now'}
+                              </Typography>
+                            </Box>
+                            <Typography variant="body2">{commentContent}</Typography>
+                          </Box>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+                    No comments yet. Be the first to comment!
+                  </Typography>
+                )}
+              </Box>
+            )}
           </CardContent>
         </PostCard>
       ))}

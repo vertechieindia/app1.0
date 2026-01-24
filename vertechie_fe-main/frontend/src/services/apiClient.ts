@@ -7,8 +7,11 @@ import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } f
 import { API_BASE_URL } from '../config/api';
 
 // Token storage keys
-const ACCESS_TOKEN_KEY = 'vertechie_access_token';
-const REFRESH_TOKEN_KEY = 'vertechie_refresh_token';
+// Support both old and new token keys for compatibility
+const ACCESS_TOKEN_KEY = 'authToken';
+const REFRESH_TOKEN_KEY = 'refreshToken';
+const LEGACY_ACCESS_TOKEN_KEY = 'vertechie_access_token';
+const LEGACY_REFRESH_TOKEN_KEY = 'vertechie_refresh_token';
 
 // Types
 export interface AuthTokens {
@@ -98,21 +101,28 @@ apiClient.interceptors.response.use(
 
 // Token management
 export const getAccessToken = (): string | null => {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+  // Check new key first, then legacy key for compatibility
+  return localStorage.getItem(ACCESS_TOKEN_KEY) || localStorage.getItem(LEGACY_ACCESS_TOKEN_KEY);
 };
 
 export const getRefreshToken = (): string | null => {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
+  // Check new key first, then legacy key for compatibility
+  return localStorage.getItem(REFRESH_TOKEN_KEY) || localStorage.getItem(LEGACY_REFRESH_TOKEN_KEY);
 };
 
 export const setTokens = (accessToken: string, refreshToken: string): void => {
+  // Store in both new and legacy keys for compatibility
   localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+  localStorage.setItem(LEGACY_ACCESS_TOKEN_KEY, accessToken);
+  localStorage.setItem(LEGACY_REFRESH_TOKEN_KEY, refreshToken);
 };
 
 export const clearTokens = (): void => {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_REFRESH_TOKEN_KEY);
 };
 
 export const isAuthenticated = (): boolean => {

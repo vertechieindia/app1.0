@@ -2,15 +2,16 @@
  * Combinator - Y Combinator-style founder matching platform
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Card, CardContent, Avatar, Button, Grid, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem,
-  Divider, Snackbar, Alert, useTheme, alpha,
+  Divider, Snackbar, Alert, useTheme, alpha, CircularProgress,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { Verified, Handshake, Celebration, Lightbulb } from '@mui/icons-material';
+import { Verified, Handshake, Celebration, Lightbulb, Refresh } from '@mui/icons-material';
 import NetworkLayout from '../../components/network/NetworkLayout';
+import { combinatorService, StartupIdea as BackendIdea } from '../../services/combinatorService';
 
 // ============================================
 // STYLED COMPONENTS
@@ -30,6 +31,9 @@ const StyledCard = styled(Card)(({ theme }) => ({
 // ============================================
 const Combinator: React.FC = () => {
   const theme = useTheme();
+  const [ideas, setIdeas] = useState<BackendIdea[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [submitIdeaDialogOpen, setSubmitIdeaDialogOpen] = useState(false);
   const [ideaData, setIdeaData] = useState({
     title: '',
@@ -49,6 +53,31 @@ const Combinator: React.FC = () => {
   });
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
 
+  // Fetch startup ideas from API
+  useEffect(() => {
+    fetchIdeas();
+  }, []);
+
+  const fetchIdeas = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const backendIdeas = await combinatorService.getIdeas({ limit: 20 });
+      setIdeas(backendIdeas);
+    } catch (err: any) {
+      console.error('Error fetching ideas:', err);
+      const errorMessage = err?.response?.data?.detail || err?.message || 'Failed to load startup ideas.';
+      if (errorMessage.includes('migrations') || errorMessage.includes('table not found')) {
+        setError('Database tables not found. Please run migrations: alembic upgrade head');
+      } else {
+        setError(errorMessage);
+      }
+      setIdeas([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleRoleToggle = (role: string) => {
     setIdeaData(prev => ({
       ...prev,
@@ -58,61 +87,80 @@ const Combinator: React.FC = () => {
     }));
   };
 
-  const handleSubmitIdea = () => {
-    if (ideaData.title.trim() && ideaData.description.trim() && ideaData.problem.trim()) {
+  const handleSubmitIdea = async () => {
+    if (!ideaData.title.trim() || !ideaData.description.trim() || !ideaData.problem.trim()) {
+      setSnackbar({ open: true, message: 'Please fill in all required fields (Title, Description, Problem).', severity: 'error' });
+      return;
+    }
+    
+    try {
+      // Parse skills from comma-separated string
+      const skillsNeededArray = ideaData.skillsNeeded
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+      
+      const founderRolesArray = ideaData.founderRoles
+        .split(',')
+        .map(r => r.trim())
+        .filter(r => r.length > 0);
+      
+      const founderSkillsArray = ideaData.founderSkills
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+      
+      await combinatorService.submitIdea({
+        title: ideaData.title,
+        description: ideaData.description,
+        problem: ideaData.problem,
+        target_market: ideaData.market || undefined,
+        stage: ideaData.stage || undefined,
+        commitment: ideaData.commitment || undefined,
+        funding_status: ideaData.funding || undefined,
+        roles_needed: ideaData.rolesNeeded,
+        skills_needed: skillsNeededArray,
+        team_size: ideaData.teamSize,
+        founder_roles: founderRolesArray,
+        founder_skills: founderSkillsArray,
+        founder_commitment: ideaData.founderCommitment || undefined,
+        founder_funding: ideaData.founderFunding || undefined,
+      });
+      
       setSnackbar({ open: true, message: 'Your startup idea has been submitted successfully! We will match you with co-founders soon.', severity: 'success' });
       setSubmitIdeaDialogOpen(false);
       setIdeaData({
         title: '', description: '', problem: '', market: '', stage: '', commitment: '', funding: '',
         rolesNeeded: [], skillsNeeded: '', teamSize: 0, founderRoles: '', founderSkills: '', founderCommitment: '', founderFunding: '',
       });
-    } else {
-      setSnackbar({ open: true, message: 'Please fill in all required fields.', severity: 'error' });
+      
+      // Refresh ideas list
+      await fetchIdeas();
+    } catch (err) {
+      console.error('Error submitting idea:', err);
+      setSnackbar({ open: true, message: 'Failed to submit idea. Please try again.', severity: 'error' });
     }
   };
 
-  const featuredFounders = [
-    { 
-      name: 'Alex Chen', 
-      title: 'Technical Founder', 
-      skills: ['Full-Stack', 'AI/ML', 'System Design'],
-      looking: 'Business Co-Founder',
-      idea: 'AI-powered healthcare diagnostics platform',
-      avatar: 'A',
-      raised: '$50K Pre-seed',
-      color: '#4caf50',
-    },
-    { 
-      name: 'Sarah Johnson', 
-      title: 'Business Founder', 
-      skills: ['Sales', 'Marketing', 'Fundraising'],
-      looking: 'Technical Co-Founder',
-      idea: 'Sustainable fashion marketplace',
-      avatar: 'S',
-      raised: 'Bootstrapped',
-      color: '#2196f3',
-    },
-    { 
-      name: 'Marcus Williams', 
-      title: 'Product Founder', 
-      skills: ['Product', 'UX Design', 'Growth'],
-      looking: 'Engineering Co-Founder',
-      idea: 'Remote team collaboration tool',
-      avatar: 'M',
-      raised: '$100K Angel',
-      color: '#ff9800',
-    },
-    { 
-      name: 'Priya Patel', 
-      title: 'Technical Founder', 
-      skills: ['Backend', 'DevOps', 'Blockchain'],
-      looking: 'Marketing Co-Founder',
-      idea: 'Decentralized identity verification',
-      avatar: 'P',
-      raised: '$200K Pre-seed',
-      color: '#e91e63',
-    },
-  ];
+  // Map backend ideas to featured founders format
+  const featuredFounders = ideas.slice(0, 4).map((idea, idx) => {
+    const colors = ['#4caf50', '#2196f3', '#ff9800', '#e91e63'];
+    const roles = idea.founder_roles.length > 0 ? idea.founder_roles[0] : 'Founder';
+    const skills = idea.founder_skills.length > 0 ? idea.founder_skills : idea.skills_needed.slice(0, 3);
+    const lookingFor = idea.roles_needed.length > 0 ? `${idea.roles_needed[0]} Co-Founder` : 'Co-Founder';
+    
+    return {
+      id: idea.id,
+      name: idea.founder_name || 'Founder',
+      title: roles,
+      skills: skills,
+      looking: lookingFor,
+      idea: idea.title,
+      avatar: (idea.founder_name || 'F').charAt(0).toUpperCase(),
+      raised: idea.funding_status || 'Exploring',
+      color: colors[idx % colors.length],
+    };
+  });
 
   const successStories = [
     { 
@@ -291,11 +339,42 @@ const Combinator: React.FC = () => {
       {/* Featured Founders */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h6" sx={{ fontWeight: 600 }}>🔥 Featured Founders</Typography>
-        <Button variant="outlined" sx={{ borderRadius: 2 }}>View All</Button>
+        <Button 
+          variant="outlined" 
+          startIcon={<Refresh />}
+          onClick={fetchIdeas}
+          disabled={loading}
+          sx={{ borderRadius: 2 }}
+        >
+          Refresh
+        </Button>
       </Box>
 
+      {/* Loading State */}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
+
+      {/* Error State */}
+      {error && !loading && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       <Grid container spacing={2}>
-        {featuredFounders.map((founder, idx) => (
+        {!loading && featuredFounders.length === 0 && (
+          <Grid item xs={12}>
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Typography variant="body1" color="text.secondary">
+                No startup ideas yet. Be the first to submit one!
+              </Typography>
+            </Box>
+          </Grid>
+        )}
+        {!loading && featuredFounders.map((founder, idx) => (
           <Grid item xs={12} sm={6} key={idx}>
             <StyledCard sx={{ height: '100%' }}>
               <CardContent>
@@ -343,6 +422,24 @@ const Combinator: React.FC = () => {
                   fullWidth 
                   startIcon={<Handshake />}
                   sx={{ borderRadius: 2, mt: 1 }}
+                  onClick={async () => {
+                    try {
+                      await combinatorService.connectFounder(founder.id);
+                      setSnackbar({ 
+                        open: true, 
+                        message: `Connection request sent to ${founder.name}!`, 
+                        severity: 'success' 
+                      });
+                      await fetchIdeas();
+                    } catch (err) {
+                      console.error('Error connecting with founder:', err);
+                      setSnackbar({ 
+                        open: true, 
+                        message: 'Failed to send connection request. Please try again.', 
+                        severity: 'error' 
+                      });
+                    }
+                  }}
                 >
                   Connect
                 </Button>

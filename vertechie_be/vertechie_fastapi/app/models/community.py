@@ -9,7 +9,7 @@ import enum
 
 from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum,
-    Text, JSON, ForeignKey, Integer
+    Text, JSON, ForeignKey, Integer, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -218,4 +218,147 @@ class PostReaction(Base, UUIDMixin, TimestampMixin):
     # Relationships
     post = relationship("Post", back_populates="reactions")
     user = relationship("User", backref="post_reactions")
+
+
+class PollVote(Base, UUIDMixin, TimestampMixin):
+    """Poll vote."""
+    
+    __tablename__ = "poll_votes"
+    
+    post_id = Column(UUID(as_uuid=True), ForeignKey("posts.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    
+    # Option index (0-based) that the user voted for
+    option_index = Column(Integer, nullable=False)
+    
+    # Relationships
+    post = relationship("Post", backref="poll_votes")
+    user = relationship("User", backref="poll_votes")
+
+
+class Event(Base, UUIDMixin, TimestampMixin):
+    """Network event."""
+    
+    __tablename__ = "events"
+    
+    # Basic Info
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    
+    # Host
+    host_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    
+    # Schedule
+    start_date = Column(DateTime, nullable=False)
+    end_date = Column(DateTime, nullable=True)
+    timezone = Column(String(50), default="UTC")
+    
+    # Type
+    event_type = Column(String(50), default="webinar")  # webinar, workshop, meetup, conference
+    
+    # Location
+    location = Column(String(500), nullable=True)  # Physical or virtual
+    is_virtual = Column(Boolean, default=False)
+    meeting_link = Column(String(500), nullable=True)
+    
+    # Media
+    cover_image = Column(String(500), nullable=True)
+    
+    # Settings
+    is_public = Column(Boolean, default=True)
+    requires_approval = Column(Boolean, default=False)
+    max_attendees = Column(Integer, nullable=True)
+    
+    # Stats
+    attendees_count = Column(Integer, default=0)
+    views_count = Column(Integer, default=0)
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    is_cancelled = Column(Boolean, default=False)
+    
+    # Relationships
+    host = relationship("User", foreign_keys=[host_id], backref="hosted_events")
+
+
+class EventRegistration(Base, UUIDMixin, TimestampMixin):
+    """Event registration/RSVP."""
+    
+    __tablename__ = "event_registrations"
+    
+    event_id = Column(UUID(as_uuid=True), ForeignKey("events.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    
+    # Status
+    status = Column(String(20), default="registered")  # registered, cancelled, waitlisted
+    
+    # Relationships
+    event = relationship("Event", backref="registrations")
+    user = relationship("User", backref="event_registrations")
+    
+    # Unique constraint: one registration per user per event
+    __table_args__ = (
+        UniqueConstraint('event_id', 'user_id', name='uq_event_registration_user_event'),
+    )
+
+
+class StartupIdea(Base, UUIDMixin, TimestampMixin):
+    """Startup idea for Combinator matching."""
+    
+    __tablename__ = "startup_ideas"
+    
+    # Founder
+    founder_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    
+    # Idea Details
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=False)
+    problem = Column(Text, nullable=False)
+    target_market = Column(String(200), nullable=True)
+    
+    # Stage
+    stage = Column(String(50), default="idea")  # idea, validating, mvp, launched, revenue
+    commitment = Column(String(50), default="exploring")  # full-time, part-time, side-project, exploring
+    funding_status = Column(String(50), nullable=True)  # bootstrapped, seeking-pre-seed, seeking-seed, funded
+    
+    # Team Needs
+    roles_needed = Column(JSON, default=list)  # ["CTO", "Marketing Lead"]
+    skills_needed = Column(JSON, default=list)  # ["React", "Node.js"]
+    team_size = Column(Integer, default=0)
+    
+    # Founder Info
+    founder_roles = Column(JSON, default=list)
+    founder_skills = Column(JSON, default=list)
+    founder_commitment = Column(String(50), nullable=True)
+    founder_funding = Column(String(50), nullable=True)
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    is_matched = Column(Boolean, default=False)
+    
+    # Stats
+    views_count = Column(Integer, default=0)
+    connections_count = Column(Integer, default=0)
+    
+    # Relationships
+    founder = relationship("User", foreign_keys=[founder_id], backref="startup_ideas")
+
+
+class FounderMatch(Base, UUIDMixin, TimestampMixin):
+    """Founder matching/connection."""
+    
+    __tablename__ = "founder_matches"
+    
+    idea_id = Column(UUID(as_uuid=True), ForeignKey("startup_ideas.id"), nullable=False)
+    founder_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)  # The other founder
+    
+    # Status
+    status = Column(String(20), default="pending")  # pending, accepted, rejected, connected
+    
+    # Match score (AI/algorithm calculated)
+    match_score = Column(Integer, nullable=True)
+    
+    # Relationships
+    idea = relationship("StartupIdea", backref="matches")
+    founder = relationship("User", foreign_keys=[founder_id], backref="founder_matches")
 

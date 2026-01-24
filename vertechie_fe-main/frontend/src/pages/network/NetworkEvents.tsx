@@ -2,16 +2,18 @@
  * NetworkEvents - Events discovery and management page
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Card, CardContent, Button, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   FormControl, InputLabel, Select, MenuItem, Snackbar, Alert,
-  useTheme, alpha,
+  useTheme, alpha, CircularProgress,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { Add } from '@mui/icons-material';
+import { Add, Refresh } from '@mui/icons-material';
 import NetworkLayout from '../../components/network/NetworkLayout';
+import { eventService, Event as BackendEvent } from '../../services/eventService';
+import { formatDistanceToNow } from 'date-fns';
 
 // ============================================
 // STYLED COMPONENTS
@@ -64,7 +66,9 @@ const mockEvents: NetworkEvent[] = [
 // ============================================
 const NetworkEvents: React.FC = () => {
   const theme = useTheme();
-  const [events, setEvents] = useState<NetworkEvent[]>(mockEvents);
+  const [events, setEvents] = useState<NetworkEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [createEventDialogOpen, setCreateEventDialogOpen] = useState(false);
   const [newEventData, setNewEventData] = useState({
     title: '',
@@ -75,41 +79,137 @@ const NetworkEvents: React.FC = () => {
   });
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
 
+  // Fetch events from API
+  useEffect(() => {
+    fetchEvents();
+  }, []);
+
+  const fetchEvents = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const backendEvents = await eventService.getEvents({ limit: 50 });
+      
+      // Map backend events to frontend format
+      const mappedEvents: NetworkEvent[] = backendEvents.map((event: BackendEvent) => {
+        let dateStr = 'TBD';
+        let timeStr = 'TBD';
+        
+        if (event.start_date) {
+          try {
+            const startDate = new Date(event.start_date);
+            if (!isNaN(startDate.getTime())) {
+              dateStr = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+              timeStr = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+            }
+          } catch (e) {
+            console.error('Error parsing date:', e);
+          }
+        }
+        
+        return {
+          id: event.id,
+          title: event.title,
+          description: event.description || '',
+          date: dateStr,
+          time: timeStr,
+          attendees_count: event.attendees_count || 0,
+          host: {
+            id: event.host_id,
+            name: event.host_name || 'Unknown',
+            avatar: undefined,
+          },
+          cover_image: event.cover_image,
+          type: event.event_type as any,
+          is_registered: event.is_registered || false,
+        };
+      });
+      
+      setEvents(mappedEvents.length > 0 ? mappedEvents : []);
+    } catch (err: any) {
+      console.error('Error fetching events:', err);
+      const errorMessage = err?.response?.data?.detail || err?.message || 'Failed to load events.';
+      if (errorMessage.includes('migrations') || errorMessage.includes('table not found')) {
+        setError('Database tables not found. Please run migrations: alembic upgrade head');
+      } else {
+        setError(errorMessage);
+      }
+      setEvents([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Register for event
-  const handleRegisterEvent = (eventId: string) => {
-    setEvents(prev => prev.map(e => 
-      e.id === eventId 
-        ? { ...e, is_registered: !e.is_registered, attendees_count: e.is_registered ? e.attendees_count - 1 : e.attendees_count + 1 }
-        : e
-    ));
+  const handleRegisterEvent = async (eventId: string) => {
     const event = events.find(e => e.id === eventId);
-    if (event) {
+    if (!event) return;
+    
+    try {
+      await eventService.registerEvent(eventId);
+      
+      // Optimistically update UI
+      setEvents(prev => prev.map(e => 
+        e.id === eventId 
+          ? { ...e, is_registered: !e.is_registered, attendees_count: e.is_registered ? e.attendees_count - 1 : e.attendees_count + 1 }
+          : e
+      ));
+      
       setSnackbar({ 
         open: true, 
         message: event.is_registered ? 'Unregistered from event' : 'Registered for event!', 
         severity: 'success' 
       });
+      
+      // Refresh to get accurate counts
+      await fetchEvents();
+    } catch (err) {
+      console.error('Error registering for event:', err);
+      setSnackbar({ 
+        open: true, 
+        message: 'Failed to register for event. Please try again.', 
+        severity: 'error' 
+      });
     }
   };
 
   // Create event
-  const handleCreateEvent = () => {
-    if (newEventData.title.trim() && newEventData.description.trim() && newEventData.date && newEventData.time) {
-      const newEvent: NetworkEvent = {
-        id: `new-${Date.now()}`,
+  const handleCreateEvent = async () => {
+    if (!newEventData.title.trim() || !newEventData.description.trim() || !newEventData.date || !newEventData.time) {
+      setSnackbar({ open: true, message: 'Please fill in all required fields', severity: 'error' });
+      return;
+    }
+    
+    try {
+      // Combine date and time into ISO format
+      // Date format: YYYY-MM-DD, Time format: HH:MM
+      const dateTimeStr = `${newEventData.date}T${newEventData.time}:00`;
+      // Create date object and convert to ISO string
+      const eventDateTime = new Date(dateTimeStr);
+      
+      if (isNaN(eventDateTime.getTime())) {
+        setSnackbar({ open: true, message: 'Invalid date or time format', severity: 'error' });
+        return;
+      }
+      
+      await eventService.createEvent({
         title: newEventData.title,
         description: newEventData.description,
-        date: newEventData.date,
-        time: newEventData.time,
-        type: newEventData.type,
-        attendees_count: 1,
-        host: { id: 'me', name: 'Admin A' },
-        is_registered: true,
-      };
-      setEvents(prev => [newEvent, ...prev]);
+        start_date: eventDateTime.toISOString(),
+        event_type: newEventData.type,
+        is_virtual: true, // Default to virtual
+      });
+      
       setSnackbar({ open: true, message: `Event "${newEventData.title}" created successfully!`, severity: 'success' });
       setCreateEventDialogOpen(false);
       setNewEventData({ title: '', description: '', date: '', time: '', type: 'webinar' });
+      
+      // Refresh events list
+      await fetchEvents();
+    } catch (err: any) {
+      console.error('Error creating event:', err);
+      const errorMessage = err?.response?.data?.detail || err?.message || 'Failed to create event. Please try again.';
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     }
   };
 
@@ -127,18 +227,43 @@ const NetworkEvents: React.FC = () => {
     <NetworkLayout>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h6" sx={{ fontWeight: 600 }}>Upcoming Events</Typography>
-        <Button 
-          variant="contained" 
-          startIcon={<Add />} 
-          sx={{ borderRadius: 2 }}
-          onClick={() => setCreateEventDialogOpen(true)}
-        >
-          Create Event
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button 
+            variant="outlined"
+            startIcon={<Refresh />}
+            onClick={fetchEvents}
+            disabled={loading}
+            sx={{ borderRadius: 2 }}
+          >
+            Refresh
+          </Button>
+          <Button 
+            variant="contained" 
+            startIcon={<Add />} 
+            sx={{ borderRadius: 2 }}
+            onClick={() => setCreateEventDialogOpen(true)}
+          >
+            Create Event
+          </Button>
+        </Box>
       </Box>
 
+      {/* Loading State */}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
+
+      {/* Error State */}
+      {error && !loading && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       {/* Events List */}
-      {events.map(event => (
+      {!loading && events.map(event => (
         <StyledCard key={event.id} sx={{ mb: 2 }}>
           <CardContent>
             <Box sx={{ display: 'flex', gap: 3 }}>
@@ -186,10 +311,10 @@ const NetworkEvents: React.FC = () => {
         </StyledCard>
       ))}
 
-      {events.length === 0 && (
+      {!loading && events.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 4 }}>
           <Typography variant="body1" color="text.secondary">
-            No upcoming events
+            No upcoming events. Be the first to create one!
           </Typography>
         </Box>
       )}
