@@ -8,8 +8,7 @@ import uuid
 
 from sqlalchemy import Column, DateTime
 from sqlalchemy.ext.declarative import as_declarative, declared_attr
-
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 
 
 @as_declarative()
@@ -29,7 +28,7 @@ class UUIDMixin:
     """Mixin that adds a UUID primary key."""
     
     id = Column(
-        GUID(),
+        UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         index=True,

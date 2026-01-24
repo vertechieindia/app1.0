@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, String, Text, Boolean, Integer, Float, DateTime, 
     ForeignKey, JSON, Enum as SQLEnum, Table
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -20,16 +20,16 @@ from app.db.base import Base
 problem_category_association = Table(
     'problem_category_association',
     Base.metadata,
-    Column('problem_id', GUID(), ForeignKey('problems.id')),
-    Column('category_id', GUID(), ForeignKey('problem_categories.id'))
+    Column('problem_id', UUID(as_uuid=True), ForeignKey('problems.id')),
+    Column('category_id', UUID(as_uuid=True), ForeignKey('problem_categories.id'))
 )
 
 # Association table for similar problems
 similar_problems_association = Table(
     'similar_problems_association',
     Base.metadata,
-    Column('problem_id', GUID(), ForeignKey('problems.id')),
-    Column('similar_problem_id', GUID(), ForeignKey('problems.id'))
+    Column('problem_id', UUID(as_uuid=True), ForeignKey('problems.id')),
+    Column('similar_problem_id', UUID(as_uuid=True), ForeignKey('problems.id'))
 )
 
 
@@ -37,7 +37,7 @@ class ProblemCategory(Base):
     """Problem categories/topics."""
     __tablename__ = "problem_categories"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     name = Column(String(100), unique=True, nullable=False)
     slug = Column(String(100), unique=True, nullable=False)
@@ -45,7 +45,7 @@ class ProblemCategory(Base):
     icon = Column(String(50))
     color = Column(String(7), default="#3498db")
     
-    parent_id = Column(GUID(), ForeignKey("problem_categories.id"))
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("problem_categories.id"))
     
     order = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
@@ -72,7 +72,7 @@ class Problem(Base):
     """Coding problem definition."""
     __tablename__ = "problems"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # Basic Info
     problem_number = Column(Integer, unique=True, nullable=False)
@@ -102,7 +102,7 @@ class Problem(Base):
     supported_languages = Column(JSON, default=list)
     
     # Author & Status
-    author_id = Column(GUID(), ForeignKey("users.id"))
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     status = Column(SQLEnum(ProblemStatus), default=ProblemStatus.DRAFT)
     is_premium = Column(Boolean, default=False)
     is_featured = Column(Boolean, default=False)
@@ -135,8 +135,8 @@ class TestCase(Base):
     """Test cases for a problem."""
     __tablename__ = "test_cases"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    problem_id = Column(GUID(), ForeignKey("problems.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    problem_id = Column(UUID(as_uuid=True), ForeignKey("problems.id"))
     
     input_data = Column(Text, nullable=False)
     expected_output = Column(Text, nullable=False)
@@ -155,8 +155,8 @@ class ProblemHint(Base):
     """Hints for problems."""
     __tablename__ = "problem_hints"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    problem_id = Column(GUID(), ForeignKey("problems.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    problem_id = Column(UUID(as_uuid=True), ForeignKey("problems.id"))
     
     content = Column(Text, nullable=False)
     order = Column(Integer, default=0)
@@ -170,9 +170,9 @@ class ProblemSolution(Base):
     """Community and official solutions."""
     __tablename__ = "problem_solutions"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    problem_id = Column(GUID(), ForeignKey("problems.id"))
-    author_id = Column(GUID(), ForeignKey("users.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    problem_id = Column(UUID(as_uuid=True), ForeignKey("problems.id"))
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     title = Column(String(200), nullable=False)
     content = Column(Text, nullable=False)  # Markdown with code blocks
@@ -209,10 +209,10 @@ class Submission(Base):
     """Code submission for a problem."""
     __tablename__ = "submissions"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    problem_id = Column(GUID(), ForeignKey("problems.id"))
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    problem_id = Column(UUID(as_uuid=True), ForeignKey("problems.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Code
     language = Column(String(50), nullable=False)
@@ -255,8 +255,8 @@ class SubmissionTestResult(Base):
     """Individual test case results for a submission."""
     __tablename__ = "submission_test_results"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    submission_id = Column(GUID(), ForeignKey("submissions.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    submission_id = Column(UUID(as_uuid=True), ForeignKey("submissions.id"))
     
     test_case_number = Column(Integer, nullable=False)
     status = Column(SQLEnum(TestResultStatus))
@@ -291,7 +291,7 @@ class Contest(Base):
     """Coding contests."""
     __tablename__ = "contests"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     title = Column(String(200), nullable=False)
     slug = Column(String(250), unique=True, nullable=False)
@@ -330,9 +330,9 @@ class ContestRegistration(Base):
     """Contest registrations."""
     __tablename__ = "contest_registrations"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    contest_id = Column(GUID(), ForeignKey("contests.id"))
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    contest_id = Column(UUID(as_uuid=True), ForeignKey("contests.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Performance
     rank = Column(Integer)
@@ -354,8 +354,8 @@ class UserProgress(Base):
     """User's overall coding progress."""
     __tablename__ = "user_progress"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    user_id = Column(GUID(), ForeignKey("users.id"), unique=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True)
     
     # Problems solved
     easy_solved = Column(Integer, default=0)

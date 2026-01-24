@@ -11,7 +11,7 @@ from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum,
     Text, JSON, ForeignKey, Integer
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -74,8 +74,8 @@ class ChatMember(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "chat_members"
     
-    conversation_id = Column(GUID(), ForeignKey("conversations.id"), nullable=False)
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Role
     role = Column(Enum(MemberRole), default=MemberRole.MEMBER)
@@ -92,7 +92,7 @@ class ChatMember(Base, UUIDMixin, TimestampMixin):
     
     # Read status
     last_read_at = Column(DateTime, nullable=True)
-    last_read_message_id = Column(GUID(), nullable=True)
+    last_read_message_id = Column(UUID(as_uuid=True), nullable=True)
     unread_count = Column(Integer, default=0)
     
     # Timestamps
@@ -109,8 +109,8 @@ class Message(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "messages"
     
-    conversation_id = Column(GUID(), ForeignKey("conversations.id"), nullable=False)
-    sender_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=False)
+    sender_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Message type
     message_type = Column(Enum(MessageType), default=MessageType.TEXT)
@@ -128,10 +128,10 @@ class Message(Base, UUIDMixin, TimestampMixin):
     poll_data = Column(JSON, nullable=True)  # {question, options[], votes{}}
     
     # Reply to
-    reply_to_id = Column(GUID(), ForeignKey("messages.id"), nullable=True)
+    reply_to_id = Column(UUID(as_uuid=True), ForeignKey("messages.id"), nullable=True)
     
     # Forward
-    forwarded_from_id = Column(GUID(), ForeignKey("messages.id"), nullable=True)
+    forwarded_from_id = Column(UUID(as_uuid=True), ForeignKey("messages.id"), nullable=True)
     
     # Reactions
     reactions = Column(JSON, default=dict)  # {emoji: [user_ids]}

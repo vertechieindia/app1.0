@@ -11,7 +11,7 @@ from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum, Date,
     Text, JSON, ForeignKey, Integer, Float
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -66,11 +66,11 @@ class Job(Base, UUIDMixin, TimestampMixin):
     short_description = Column(String(500), nullable=True)
     
     # Company
-    company_id = Column(GUID(), ForeignKey("companies.id"), nullable=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
     company_name = Column(String(200), nullable=True)  # For external postings
     
     # Posted by
-    posted_by_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    posted_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Job Details
     job_type = Column(Enum(JobType), default=JobType.FULL_TIME)
@@ -130,8 +130,8 @@ class JobApplication(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "job_applications"
     
     # References
-    job_id = Column(GUID(), ForeignKey("jobs.id"), nullable=False)
-    applicant_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False)
+    applicant_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Status
     status = Column(Enum(ApplicationStatus), default=ApplicationStatus.SUBMITTED)
@@ -147,7 +147,7 @@ class JobApplication(Base, UUIDMixin, TimestampMixin):
     referral_source = Column(String(100), nullable=True)
     
     # Review
-    reviewed_by_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
+    reviewed_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     reviewer_notes = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)  # 1-5 stars
@@ -171,8 +171,8 @@ class SavedJob(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "saved_jobs"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    job_id = Column(GUID(), ForeignKey("jobs.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False)
     
     notes = Column(Text, nullable=True)
     

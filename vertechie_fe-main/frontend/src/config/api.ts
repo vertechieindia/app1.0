@@ -196,6 +196,17 @@ export const API_ENDPOINTS = {
   },
 
   // ============================================
+  // UNIFIED NETWORK (/unified-network)
+  // ============================================
+  UNIFIED_NETWORK: {
+    FEED: '/unified-network/feed',
+    STATS: '/unified-network/stats',
+    TRENDING: '/unified-network/trending',
+    SUGGESTIONS_PEOPLE: '/unified-network/suggestions/people',
+    SUGGESTIONS_GROUPS: '/unified-network/suggestions/groups',
+  },
+
+  // ============================================
   // HIRING/ATS (/hiring)
   // ============================================
   HIRING: {

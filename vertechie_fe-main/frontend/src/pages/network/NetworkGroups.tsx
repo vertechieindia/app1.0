@@ -2,16 +2,17 @@
  * NetworkGroups - Groups discovery and management page
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Card, CardContent, Button, Grid, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   FormControl, InputLabel, Select, MenuItem, Snackbar, Alert,
-  useTheme, alpha,
+  useTheme, alpha, CircularProgress,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { Groups, Lock, Add } from '@mui/icons-material';
+import { Groups, Lock, Add, Refresh } from '@mui/icons-material';
 import NetworkLayout from '../../components/network/NetworkLayout';
+import { communityService, Group as BackendGroup } from '../../services/communityService';
 
 // ============================================
 // STYLED COMPONENTS
@@ -68,7 +69,9 @@ const mockGroups: Group[] = [
 // ============================================
 const NetworkGroups: React.FC = () => {
   const theme = useTheme();
-  const [groups, setGroups] = useState<Group[]>(mockGroups);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [createGroupDialogOpen, setCreateGroupDialogOpen] = useState(false);
   const [newGroupData, setNewGroupData] = useState({
@@ -82,35 +85,83 @@ const NetworkGroups: React.FC = () => {
 
   const categories = ['All', 'Technology', 'Business', 'Community', 'Career'];
 
+  // Fetch groups from API
+  useEffect(() => {
+    fetchGroups();
+  }, []);
+
+  const fetchGroups = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const backendGroups = await communityService.getGroups({ limit: 50 });
+      
+      // Map backend Group to frontend Group interface
+      const mappedGroups: Group[] = backendGroups.map((bg: BackendGroup) => ({
+        id: bg.id,
+        name: bg.name,
+        description: bg.description || '',
+        cover_image: bg.cover_url || undefined,
+        icon: bg.avatar_url || undefined,
+        member_count: bg.member_count || 0,
+        post_count: bg.post_count || 0,
+        category: bg.category || 'Technology',
+        is_joined: false, // TODO: Check if user is member
+        is_private: false, // TODO: Check group_type from backend
+        is_featured: false, // TODO: Get from backend if available
+      }));
+      
+      setGroups(mappedGroups.length > 0 ? mappedGroups : mockGroups);
+    } catch (err: any) {
+      console.error('Error fetching groups:', err);
+      setError('Failed to load groups. Showing sample groups.');
+      setGroups(mockGroups);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Join group
-  const handleJoinGroup = (groupId: string) => {
-    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, is_joined: true, member_count: g.member_count + 1 } : g));
-    setSnackbar({ open: true, message: 'Joined group successfully!', severity: 'success' });
+  const handleJoinGroup = async (groupId: string) => {
+    try {
+      await communityService.joinGroup(groupId);
+      setGroups(prev => prev.map(g => g.id === groupId ? { ...g, is_joined: true, member_count: g.member_count + 1 } : g));
+      setSnackbar({ open: true, message: 'Joined group successfully!', severity: 'success' });
+    } catch (err) {
+      console.error('Error joining group:', err);
+      setSnackbar({ open: true, message: 'Failed to join group. Please try again.', severity: 'error' });
+    }
   };
 
   // Leave group
-  const handleLeaveGroup = (groupId: string) => {
+  const handleLeaveGroup = async (groupId: string) => {
+    // TODO: Add leave group API endpoint
     setGroups(prev => prev.map(g => g.id === groupId ? { ...g, is_joined: false, member_count: g.member_count - 1 } : g));
     setSnackbar({ open: true, message: 'Left group', severity: 'success' });
   };
 
   // Create group
-  const handleCreateGroup = () => {
-    if (newGroupData.name.trim() && newGroupData.description.trim()) {
-      const newGroup: Group = {
-        id: `new-${Date.now()}`,
+  const handleCreateGroup = async () => {
+    if (!newGroupData.name.trim() || !newGroupData.description.trim()) return;
+    
+    try {
+      const result = await communityService.createGroup({
         name: newGroupData.name,
         description: newGroupData.description,
-        member_count: 1,
-        post_count: 0,
+        type: newGroupData.privacy === 'private' ? 'private' : 'public',
         category: newGroupData.category,
-        is_joined: true,
-        is_private: newGroupData.privacy === 'private',
-      };
-      setGroups(prev => [newGroup, ...prev]);
+      });
+      
+      // Refresh groups list
+      await fetchGroups();
+      
       setSnackbar({ open: true, message: `Group "${newGroupData.name}" created successfully!`, severity: 'success' });
       setCreateGroupDialogOpen(false);
       setNewGroupData({ name: '', description: '', privacy: 'public', category: 'technology', inviteMembers: '' });
+    } catch (err) {
+      console.error('Error creating group:', err);
+      setSnackbar({ open: true, message: 'Failed to create group. Please try again.', severity: 'error' });
     }
   };
 
@@ -123,15 +174,40 @@ const NetworkGroups: React.FC = () => {
     <NetworkLayout>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h6" sx={{ fontWeight: 600 }}>Discover Groups</Typography>
-        <Button 
-          variant="contained" 
-          startIcon={<Add />} 
-          sx={{ borderRadius: 2 }}
-          onClick={() => setCreateGroupDialogOpen(true)}
-        >
-          Create Group
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            startIcon={<Refresh />}
+            onClick={fetchGroups}
+            disabled={loading}
+            size="small"
+            sx={{ borderRadius: 2 }}
+          >
+            Refresh
+          </Button>
+          <Button 
+            variant="contained" 
+            startIcon={<Add />} 
+            sx={{ borderRadius: 2 }}
+            onClick={() => setCreateGroupDialogOpen(true)}
+          >
+            Create Group
+          </Button>
+        </Box>
       </Box>
+
+      {/* Loading State */}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
+
+      {/* Error State */}
+      {error && !loading && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       {/* Filter Chips */}
       <Box sx={{ display: 'flex', gap: 1, mb: 3, flexWrap: 'wrap' }}>
@@ -147,6 +223,14 @@ const NetworkGroups: React.FC = () => {
       </Box>
 
       {/* Groups Grid */}
+      {!loading && filteredGroups.length === 0 && (
+        <Box sx={{ textAlign: 'center', py: 4 }}>
+          <Typography variant="body1" color="text.secondary">
+            No groups found in this category
+          </Typography>
+        </Box>
+      )}
+
       <Grid container spacing={3}>
         {filteredGroups.map(group => (
           <Grid item xs={12} sm={6} key={group.id}>
@@ -189,14 +273,6 @@ const NetworkGroups: React.FC = () => {
           </Grid>
         ))}
       </Grid>
-
-      {filteredGroups.length === 0 && (
-        <Box sx={{ textAlign: 'center', py: 4 }}>
-          <Typography variant="body1" color="text.secondary">
-            No groups found in this category
-          </Typography>
-        </Box>
-      )}
 
       {/* Create Group Dialog */}
       <Dialog 

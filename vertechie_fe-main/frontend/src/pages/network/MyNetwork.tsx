@@ -10,8 +10,9 @@ import {
 import { styled } from '@mui/material/styles';
 import { Search, PersonAdd, Verified } from '@mui/icons-material';
 import NetworkLayout from '../../components/network/NetworkLayout';
-import { getApiUrl } from '../../config/api';
+import { getApiUrl, API_ENDPOINTS } from '../../config/api';
 import { fetchWithAuth } from '../../utils/apiInterceptor';
+import { api } from '../../services/apiClient';
 
 // ============================================
 // STYLED COMPONENTS
@@ -97,6 +98,24 @@ const MyNetwork: React.FC = () => {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
   const [loading, setLoading] = useState(true);
 
+  // Fetch network stats from API
+  const fetchStats = useCallback(async () => {
+    try {
+      const statsData = await api.get(API_ENDPOINTS.UNIFIED_NETWORK.STATS);
+      setStats({
+        connections: statsData.connections_count || 0,
+        followers: statsData.followers_count || 0,
+        following: statsData.following_count || 0,
+        pending_requests: statsData.pending_requests_count || 0,
+        group_memberships: statsData.group_memberships || 0,
+        profile_views: statsData.profile_views || 0,
+      });
+    } catch (err) {
+      console.error('Error fetching stats:', err);
+      // Keep mockStats as fallback
+    }
+  }, []);
+
   // Fetch connections from API
   const fetchConnections = useCallback(async () => {
     try {
@@ -152,8 +171,9 @@ const MyNetwork: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    fetchStats();
     fetchConnections();
-  }, [fetchConnections]);
+  }, [fetchStats, fetchConnections]);
 
   // Accept connection request
   const handleAcceptRequest = async (userId: string) => {

@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, String, Text, Boolean, Integer, Float, DateTime, 
     ForeignKey, JSON, Enum as SQLEnum
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -35,7 +35,7 @@ class Company(Base):
     """Company/Organization model."""
     __tablename__ = "companies"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # Basic Info
     name = Column(String(200), nullable=False)
@@ -114,8 +114,8 @@ class CompanyProfile(Base):
     """Extended company profile for employer branding."""
     __tablename__ = "company_profiles"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    company_id = Column(GUID(), ForeignKey("companies.id"), unique=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), unique=True)
     
     # Mission & Vision
     mission = Column(Text)
@@ -161,8 +161,8 @@ class CompanyLocation(Base):
     """Company office locations."""
     __tablename__ = "company_locations"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    company_id = Column(GUID(), ForeignKey("companies.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"))
     
     name = Column(String(100))  # "Headquarters", "Engineering Hub"
     
@@ -209,8 +209,8 @@ class CompanyBenefit(Base):
     """Company benefits and perks."""
     __tablename__ = "company_benefits"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    company_id = Column(GUID(), ForeignKey("companies.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"))
     
     title = Column(String(100), nullable=False)
     description = Column(Text)
@@ -236,8 +236,8 @@ class CompanyPhoto(Base):
     """Company photos/gallery."""
     __tablename__ = "company_photos"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    company_id = Column(GUID(), ForeignKey("companies.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"))
     
     url = Column(String(500), nullable=False)
     thumbnail_url = Column(String(500))
@@ -257,8 +257,8 @@ class CompanyTeamMember(Base):
     """Company leadership/team members."""
     __tablename__ = "company_team_members"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    company_id = Column(GUID(), ForeignKey("companies.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"))
     
     name = Column(String(100), nullable=False)
     title = Column(String(100))
@@ -278,9 +278,9 @@ class CompanyAdmin(Base):
     """Company administrators."""
     __tablename__ = "company_admins"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    company_id = Column(GUID(), ForeignKey("companies.id"))
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     role = Column(String(50))  # owner, admin, hr, recruiter
     
@@ -310,7 +310,7 @@ class CompanyInvite(Base):
     """Company invite requests from users."""
     __tablename__ = "company_invites"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # Company Details
     company_name = Column(String(200), nullable=False)
@@ -329,7 +329,7 @@ class CompanyInvite(Base):
     status = Column(SQLEnum(InviteStatus), default=InviteStatus.PENDING)
     
     # Who requested
-    requested_by_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
+    requested_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     
     # Notes
     admin_notes = Column(Text)

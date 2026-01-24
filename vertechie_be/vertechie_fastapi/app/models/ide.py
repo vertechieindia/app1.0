@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, String, Text, Boolean, Integer, BigInteger, DateTime, 
     ForeignKey, JSON, Enum as SQLEnum, LargeBinary
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -70,11 +70,11 @@ class Project(Base):
     """Code project that can contain multiple files and folders."""
     __tablename__ = "projects"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     name = Column(String(255), nullable=False)
     description = Column(Text)
-    owner_id = Column(GUID(), ForeignKey("users.id"))
+    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     project_type = Column(SQLEnum(ProjectType), default=ProjectType.WEB)
     framework = Column(SQLEnum(Framework), default=Framework.NONE)
@@ -116,9 +116,9 @@ class ProjectFolder(Base):
     """Folder structure within a project."""
     __tablename__ = "project_folders"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    project_id = Column(GUID(), ForeignKey("projects.id"))
-    parent_id = Column(GUID(), ForeignKey("project_folders.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("project_folders.id"))
     
     name = Column(String(255), nullable=False)
     path = Column(String(1000), nullable=False)
@@ -145,9 +145,9 @@ class ProjectFile(Base):
     """Individual file within a project."""
     __tablename__ = "project_files"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    project_id = Column(GUID(), ForeignKey("projects.id"))
-    folder_id = Column(GUID(), ForeignKey("project_folders.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    folder_id = Column(UUID(as_uuid=True), ForeignKey("project_folders.id"))
     
     name = Column(String(255), nullable=False)
     path = Column(String(1000), nullable=False)
@@ -170,13 +170,13 @@ class ProjectFile(Base):
     checksum = Column(String(64))
     
     # Collaboration
-    locked_by_id = Column(GUID(), ForeignKey("users.id"))
+    locked_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     locked_at = Column(DateTime)
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_edited_by_id = Column(GUID(), ForeignKey("users.id"))
+    last_edited_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Relationships
     project = relationship("Project", back_populates="files")
@@ -188,14 +188,14 @@ class FileVersion(Base):
     """File version history."""
     __tablename__ = "file_versions"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    file_id = Column(GUID(), ForeignKey("project_files.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    file_id = Column(UUID(as_uuid=True), ForeignKey("project_files.id"))
     
     version = Column(Integer, nullable=False)
     content = Column(Text)
     checksum = Column(String(64))
     
-    created_by_id = Column(GUID(), ForeignKey("users.id"))
+    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -213,9 +213,9 @@ class ProjectCollaborator(Base):
     """Collaborators on a project."""
     __tablename__ = "project_collaborators"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    project_id = Column(GUID(), ForeignKey("projects.id"))
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     role = Column(SQLEnum(CollaboratorRole), default=CollaboratorRole.VIEWER)
     
@@ -248,9 +248,9 @@ class CodeExecution(Base):
     """Code execution records."""
     __tablename__ = "code_executions"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    project_id = Column(GUID(), ForeignKey("projects.id"))
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Code
     language = Column(String(50), nullable=False)
@@ -281,8 +281,8 @@ class Workspace(Base):
     """User workspace configuration."""
     __tablename__ = "workspaces"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    user_id = Column(GUID(), ForeignKey("users.id"), unique=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True)
     
     # Settings
     theme = Column(String(50), default="dark")
@@ -309,9 +309,9 @@ class DebugSession(Base):
     """Debug session for IDE."""
     __tablename__ = "debug_sessions"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    project_id = Column(GUID(), ForeignKey("projects.id"))
-    user_id = Column(GUID(), ForeignKey("users.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
     # Session info
     language = Column(String(50))

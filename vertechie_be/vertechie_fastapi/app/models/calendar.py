@@ -11,7 +11,7 @@ from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum, Date, Time,
     Text, JSON, ForeignKey, Integer
 )
-from app.db.types import GUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -37,7 +37,7 @@ class CalendarConnection(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "calendar_connections"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     provider = Column(Enum(CalendarProvider), nullable=False)
     
@@ -66,7 +66,7 @@ class AvailabilitySchedule(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "availability_schedules"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     name = Column(String(100), nullable=False)
     timezone = Column(String(50), default="UTC")
@@ -88,7 +88,7 @@ class MeetingType(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "meeting_types"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Basic Info
     name = Column(String(100), nullable=False)
@@ -100,7 +100,7 @@ class MeetingType(Base, UUIDMixin, TimestampMixin):
     duration_minutes = Column(Integer, default=30)
     
     # Availability
-    schedule_id = Column(GUID(), ForeignKey("availability_schedules.id"), nullable=True)
+    schedule_id = Column(UUID(as_uuid=True), ForeignKey("availability_schedules.id"), nullable=True)
     
     # Buffer times
     buffer_before_minutes = Column(Integer, default=0)
@@ -138,9 +138,9 @@ class Booking(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "bookings"
     
-    meeting_type_id = Column(GUID(), ForeignKey("meeting_types.id"), nullable=False)
-    host_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    invitee_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
+    meeting_type_id = Column(UUID(as_uuid=True), ForeignKey("meeting_types.id"), nullable=False)
+    host_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    invitee_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     
     # Invitee (guest) info
     invitee_name = Column(String(200), nullable=False)
@@ -189,8 +189,8 @@ class SchedulingLink(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "scheduling_links"
     
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    meeting_type_id = Column(GUID(), ForeignKey("meeting_types.id"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    meeting_type_id = Column(UUID(as_uuid=True), ForeignKey("meeting_types.id"), nullable=True)
     
     # Link
     token = Column(String(100), unique=True, index=True)
