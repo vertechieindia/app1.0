@@ -88,7 +88,11 @@ from app.models.chat import Conversation, Message, ChatMember
 from app.models.network import Connection, ConnectionRequest
 
 # Community Models
-from app.models.community import Group, GroupMember, Post, Comment
+from app.models.community import (
+    Group, GroupMember, Post, Comment, PostReaction, PollVote,
+    Event, EventRegistration, StartupIdea, FounderMatch,
+    GroupType, GroupMemberRole, PostType
+)
 
 # Notification Models
 from app.models.notification import Notification, NotificationType
@@ -159,7 +163,9 @@ __all__ = [
     "Connection", "ConnectionRequest",
     
     # Community
-    "Group", "GroupMember", "Post", "Comment",
+    "Group", "GroupMember", "Post", "Comment", "PostReaction", "PollVote",
+    "Event", "EventRegistration", "StartupIdea", "FounderMatch",
+    "GroupType", "GroupMemberRole", "PostType",
     
     # Notifications
     "Notification", "NotificationType",

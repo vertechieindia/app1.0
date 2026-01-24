@@ -193,6 +193,12 @@ export const API_ENDPOINTS = {
     LIKE_POST: (id: string) => `/community/posts/${id}/like`,
     COMMENTS: (postId: string) => `/community/posts/${postId}/comments`,
     ADD_COMMENT: (postId: string) => `/community/posts/${postId}/comments`,
+    EVENTS: '/community/events',
+    CREATE_EVENT: '/community/events',
+    REGISTER_EVENT: (id: string) => `/community/events/${id}/register`,
+    COMBINATOR_IDEAS: '/community/combinator/ideas',
+    SUBMIT_IDEA: '/community/combinator/ideas',
+    CONNECT_FOUNDER: (id: string) => `/community/combinator/ideas/${id}/connect`,
   },
 
   // ============================================

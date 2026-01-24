@@ -60,6 +60,15 @@ interface Connection extends User {
   status: 'connected' | 'pending' | 'following';
 }
 
+interface NetworkStats {
+  connections_count?: number;
+  followers_count?: number;
+  following_count?: number;
+  pending_requests_count?: number;
+  group_memberships?: number;
+  profile_views?: number;
+}
+
 // ============================================
 // MOCK DATA
 // ============================================
@@ -101,7 +110,7 @@ const MyNetwork: React.FC = () => {
   // Fetch network stats from API
   const fetchStats = useCallback(async () => {
     try {
-      const statsData = await api.get(API_ENDPOINTS.UNIFIED_NETWORK.STATS);
+      const statsData = await api.get(API_ENDPOINTS.UNIFIED_NETWORK.STATS) as NetworkStats;
       setStats({
         connections: statsData.connections_count || 0,
         followers: statsData.followers_count || 0,

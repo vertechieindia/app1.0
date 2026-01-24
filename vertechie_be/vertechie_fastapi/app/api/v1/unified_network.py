@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from app.db.session import get_db
 from app.models.network import Connection, ConnectionRequest, Follow, BlockedUser, ConnectionStatus
-from app.models.community import Group, GroupMember, Post, Comment, PostReaction, GroupType, GroupMemberRole, PostType
+from app.models.community import Group, GroupMember, Post, Comment, PostReaction, PollVote, GroupType, GroupMemberRole, PostType
 from app.models.user import User, UserProfile
 from app.core.security import get_current_user
 
@@ -82,6 +82,9 @@ class FeedItem(BaseModel):
     created_at: str
     group_id: Optional[str]
     group_name: Optional[str]
+    post_type: Optional[str] = None  # text, poll, link, image, video, article
+    poll_data: Optional[dict] = None  # {question, options: []}
+    link_url: Optional[str] = None
 
 
 class NetworkEvent(BaseModel):
@@ -384,6 +387,41 @@ async def get_unified_feed(
         )
         is_liked = like_result.scalar_one_or_none() is not None
         
+        # Get poll vote counts if it's a poll
+        poll_data = post.poll_data if post.poll_data else None
+        user_vote = None
+        if post.post_type == PostType.POLL and poll_data:
+            # Get user's vote
+            vote_result = await db.execute(
+                select(PollVote).where(
+                    PollVote.post_id == post.id,
+                    PollVote.user_id == current_user.id
+                )
+            )
+            user_vote_obj = vote_result.scalar_one_or_none()
+            if user_vote_obj:
+                user_vote = user_vote_obj.option_index
+            
+            # Get vote counts for all options
+            vote_counts_result = await db.execute(
+                select(PollVote.option_index, func.count(PollVote.id))
+                .where(PollVote.post_id == post.id)
+                .group_by(PollVote.option_index)
+            )
+            vote_counts = {row[0]: row[1] for row in vote_counts_result.all()}
+            
+            # Update poll_data with vote counts
+            if isinstance(poll_data, dict):
+                poll_data = poll_data.copy()
+                poll_data["vote_counts"] = vote_counts
+                poll_data["total_votes"] = sum(vote_counts.values())
+                # Only include user_vote if user has voted (not None)
+                if user_vote is not None:
+                    poll_data["user_vote"] = user_vote
+                # If user hasn't voted, don't include user_vote field (or set to None explicitly)
+                else:
+                    poll_data["user_vote"] = None
+        
         feed_items.append(FeedItem(
             id=str(post.id),
             type=post.post_type.value if post.post_type else "text",
@@ -401,7 +439,10 @@ async def get_unified_feed(
             is_saved=False,  # TODO: Implement saved posts
             created_at=post.created_at.isoformat() if post.created_at else "",
             group_id=str(group.id) if group else None,
-            group_name=group.name if group else None
+            group_name=group.name if group else None,
+            post_type=post.post_type.value if post.post_type else "text",
+            poll_data=poll_data,
+            link_url=post.link_url if post.link_url else None
         ))
     
     return feed_items
