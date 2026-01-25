@@ -57,12 +57,16 @@ export interface CreateGroupData {
 }
 
 export interface CreatePostData {
-  content: string;
+  content?: string;
   content_html?: string;
   group_id?: string;
   media_urls?: string[];
+  /** Media items for post: [{ url, type?: 'image'|'video' }]. Sent as `media` to API. */
+  media?: { url: string; type?: string }[];
   visibility?: 'public' | 'connections' | 'private';
   link_url?: string;
+  post_type?: string;
+  poll_data?: { question?: string; options?: string[] };
 }
 
 export interface CreateCommentData {
@@ -111,6 +115,15 @@ export const communityService = {
    */
   getPosts: async (params?: PostListParams): Promise<Post[]> => {
     return api.get<Post[]>(API_ENDPOINTS.COMMUNITY.POSTS, { params });
+  },
+
+  /**
+   * Upload an image for a post. Returns { url }.
+   */
+  uploadPostImage: async (file: File): Promise<{ url: string }> => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post(API_ENDPOINTS.COMMUNITY.UPLOAD, form) as Promise<{ url: string }>;
   },
 
   /**

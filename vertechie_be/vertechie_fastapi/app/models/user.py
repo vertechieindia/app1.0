@@ -88,8 +88,12 @@ class User(Base, UUIDMixin, TimestampMixin):
     mobile_verified = Column(Boolean, default=False)
     is_superuser = Column(Boolean, default=False)
     
-    # Admin Review Workflow
-    verification_status = Column(String(50), default=VerificationStatus.PENDING)
+    # Admin Review Workflow (PostgreSQL ENUM verificationstatus; create_type=False = type exists from migrations)
+    verification_status = Column(
+        Enum(VerificationStatus, name="verificationstatus", create_type=False),
+        default=VerificationStatus.PENDING,
+        nullable=True,
+    )
     reviewed_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     rejection_reason = Column(Text, nullable=True)
@@ -302,9 +306,10 @@ class ProfileReviewHistory(Base, UUIDMixin):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     reviewer_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
-    # Review action
-    previous_status = Column(Enum(VerificationStatus), nullable=True)
-    new_status = Column(Enum(VerificationStatus), nullable=False)
+    # Review action (PostgreSQL ENUM verificationstatus)
+    _vs_enum = Enum(VerificationStatus, name="verificationstatus", create_type=False)
+    previous_status = Column(_vs_enum, nullable=True)
+    new_status = Column(_vs_enum, nullable=False)
     
     # Review details
     action = Column(String(50), nullable=False)  # approved, rejected, requested_changes

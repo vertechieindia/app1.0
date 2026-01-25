@@ -27,7 +27,7 @@ from sqlalchemy.orm import selectinload
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.db.session import AsyncSessionLocal
-from app.models.user import User, UserProfile, UserRole, RoleType, user_roles
+from app.models.user import User, UserProfile, UserRole, RoleType, VerificationStatus, user_roles
 from app.core.security import get_password_hash
 
 
@@ -114,7 +114,7 @@ async def create_superadmin(email: str, password: str, first_name: str = None, l
             email_prefix = email.split('@')[0]
             username = f"{email_prefix}_{uuid4().hex[:6]}"
             
-            # Create superuser
+            # Create superuser (verification_status=APPROVED since superadmin is pre-verified)
             superuser = User(
                 id=uuid4(),
                 email=email,
@@ -128,6 +128,7 @@ async def create_superadmin(email: str, password: str, first_name: str = None, l
                 email_verified=True,
                 mobile_verified=True,
                 is_superuser=True,
+                verification_status=VerificationStatus.APPROVED,
                 admin_roles=["superadmin", "admin", "learnadmin"],
             )
             

@@ -8,6 +8,11 @@
 cd vertechie_be/vertechie_fastapi
 source venv_run/bin/activate
 python run.py
+
+```
+cd vertechie_be\vertechie_fastapi
+venv\Scripts\Activate.ps1
+python run.py
 ```
 
 **Backend URL:** http://localhost:8000

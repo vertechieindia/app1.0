@@ -8,7 +8,8 @@ from typing import Any, List, Optional
 from uuid import UUID, uuid4
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from pathlib import Path
+from fastapi import APIRouter, Depends, File, HTTPException, Request, status, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -248,6 +249,44 @@ async def leave_group(
         await db.commit()
 
 
+# ============= Upload (for post images) =============
+
+# Upload directory: project_root/uploads (created at first upload)
+def _upload_dir() -> Path:
+    root = Path(__file__).resolve().parent.parent.parent.parent
+    d = root / "uploads"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _ext(filename: str) -> str:
+    if "." in filename:
+        return "." + filename.rsplit(".", 1)[-1].lower()
+    return ".jpg"
+
+
+@router.post("/upload")
+async def upload_post_image(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Upload an image for a post. Returns { url } (absolute URL to the file)."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only image files are allowed",
+        )
+    ext = _ext(file.filename or "image.jpg")
+    name = f"{uuid4().hex}{ext}"
+    dest = _upload_dir() / name
+    content = await file.read()
+    dest.write_bytes(content)
+    base = str(request.base_url).rstrip("/")
+    url = f"{base}/uploads/{name}"
+    return {"url": url}
+
+
 # ============= Posts =============
 
 @router.get("/posts", response_model=List[PostResponse])
@@ -293,13 +332,15 @@ async def create_post(
 ) -> Any:
     """Create a new post."""
     
-    # Validate content is not empty
-    if not post_in.content or not post_in.content.strip():
+    # Must have content or media
+    has_content = bool(post_in.content and post_in.content.strip())
+    has_media = bool(post_in.media and len(post_in.media) > 0)
+    if not has_content and not has_media:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Post content cannot be empty"
+            detail="Post content or at least one image is required",
         )
-    
+
     # If posting to group, verify membership
     if post_in.group_id:
         result = await db.execute(
