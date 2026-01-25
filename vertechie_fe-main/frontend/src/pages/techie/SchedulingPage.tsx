@@ -773,6 +773,54 @@ const SchedulingPage: React.FC = () => {
         </TabPanel>
       </Paper>
 
+      {/* Share Link Dialog – private link: only people with the link can book; works in incognito */}
+      <Dialog open={showShareLink} onClose={() => setShowShareLink(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Share your scheduling link</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Only people with this link can book a meeting. The link works in private or incognito—no sign-in required for them.
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            label="Your link"
+            value={typeof window !== 'undefined' ? `${window.location.origin}/schedule/johndoe` : 'https://vertechie.com/schedule/johndoe'}
+            InputProps={{
+              readOnly: true,
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      const url = typeof window !== 'undefined' ? `${window.location.origin}/schedule/johndoe` : 'https://vertechie.com/schedule/johndoe';
+                      navigator.clipboard.writeText(url);
+                    }}
+                    title="Copy link"
+                  >
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowShareLink(false)}>Close</Button>
+          <Button
+            variant="contained"
+            startIcon={<ContentCopyIcon />}
+            sx={{ bgcolor: '#0d47a1' }}
+            onClick={() => {
+              const url = typeof window !== 'undefined' ? `${window.location.origin}/schedule/johndoe` : 'https://vertechie.com/schedule/johndoe';
+              navigator.clipboard.writeText(url);
+            }}
+          >
+            Copy link
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Create Meeting Type Dialog */}
       <Dialog open={showCreateMeeting} onClose={() => setShowCreateMeeting(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Create Meeting Type</DialogTitle>

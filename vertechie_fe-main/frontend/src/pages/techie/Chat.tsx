@@ -1837,6 +1837,9 @@ const Chat: React.FC = () => {
         <Dialog open={showLinkDialog} onClose={() => setShowLinkDialog(false)} maxWidth="sm" fullWidth>
           <DialogTitle>Share Link</DialogTitle>
           <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Paste a URL to send. Use a public link if you want it to work in private or incognito.
+            </Typography>
             <TextField
               fullWidth
               label="URL"
@@ -1889,6 +1892,9 @@ const Chat: React.FC = () => {
           <IconButton onClick={() => setShowLinkDialog(false)}><CloseIcon /></IconButton>
         </DialogTitle>
         <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Paste a URL to send. Use a public link if you want it to work in private or incognito.
+          </Typography>
           <TextField
             fullWidth
             label="URL"

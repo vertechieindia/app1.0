@@ -188,6 +188,7 @@ export const API_ENDPOINTS = {
     GROUPS: '/community/groups',
     CREATE_GROUP: '/community/groups',
     JOIN_GROUP: (id: string) => `/community/groups/${id}/join`,
+    UPLOAD: '/community/upload',
     POSTS: '/community/posts',
     CREATE_POST: '/community/posts',
     LIKE_POST: (id: string) => `/community/posts/${id}/like`,

@@ -6,10 +6,14 @@
  * - Main content area
  * - Right sidebar (trending, events)
  * - Navigation tabs
+ * 
+ * Stats (Connections, Followers, Following) are loaded from /unified-network/stats.
  */
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { api } from '../../services/apiClient';
+import { API_ENDPOINTS } from '../../config/api';
 import {
   Box, Container, Grid, Typography, Card, CardContent, Avatar, Button, IconButton,
   Tabs, Tab, Paper, List, ListItem, ListItemText, Badge, Divider, Chip,
@@ -110,6 +114,18 @@ const tabRoutes = [
 ];
 
 // ============================================
+// STATS SHAPE (from API or mock)
+// ============================================
+interface NetworkStatsState {
+  connections: number;
+  followers: number;
+  following: number;
+  pending_requests: number;
+  group_memberships: number;
+  profile_views: number;
+}
+
+// ============================================
 // COMPONENT
 // ============================================
 interface NetworkLayoutProps {
@@ -120,10 +136,38 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  
-  const stats = mockStats;
+
+  const [stats, setStats] = useState<NetworkStatsState>(mockStats);
   const suggestions = mockSuggestions;
   const events = mockEvents;
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const data = await api.get(API_ENDPOINTS.UNIFIED_NETWORK.STATS) as {
+        connections_count?: number;
+        followers_count?: number;
+        following_count?: number;
+        pending_requests_count?: number;
+        group_memberships?: number;
+        profile_views?: number;
+      };
+      setStats({
+        connections: data.connections_count ?? 0,
+        followers: data.followers_count ?? 0,
+        following: data.following_count ?? 0,
+        pending_requests: data.pending_requests_count ?? 0,
+        group_memberships: data.group_memberships ?? 0,
+        profile_views: data.profile_views ?? 0,
+      });
+    } catch (err) {
+      console.error('NetworkLayout: error fetching stats', err);
+      // keep mockStats as fallback (already in state)
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
 
   // Determine active tab based on current route
   const activeTab = tabRoutes.findIndex(route => location.pathname.startsWith(route.path));
@@ -188,6 +232,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                   fullWidth 
                   sx={{ mt: 2, borderRadius: 2 }}
                   startIcon={<People />}
+                  onClick={() => navigate('/techie/profile')}
                 >
                   View Profile
                 </Button>

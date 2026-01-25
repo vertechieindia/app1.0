@@ -3,9 +3,11 @@ VerTechie FastAPI Application Entry Point.
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 import logging
 import time
@@ -33,7 +35,7 @@ async def lifespan(app: FastAPI):
         logger.info("Database initialized")
     except Exception as e:
         logger.warning(f"Database initialization skipped: {e}")
-    
+
     yield
     
     # Shutdown
@@ -136,6 +138,11 @@ async def root():
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+# Static files for uploaded post images (uploads dir at project root)
+_uploads = Path(__file__).resolve().parent.parent / "uploads"
+_uploads.mkdir(exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_uploads)), name="uploads")
 
 # Include legacy v_auth router for backwards compatibility
 app.include_router(v_auth_router, prefix="/api/v_auth")

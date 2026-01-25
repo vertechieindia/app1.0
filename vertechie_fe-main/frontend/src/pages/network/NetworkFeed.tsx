@@ -7,6 +7,7 @@ import {
   Box, Typography, Card, CardContent, Avatar, Button, IconButton,
   TextField, Divider, Dialog, DialogTitle, DialogContent, DialogActions,
   Badge, Tooltip, Snackbar, Alert, useTheme, alpha, CircularProgress,
+  Menu, MenuItem, ListItemIcon, ListItemText,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
@@ -15,7 +16,7 @@ import {
   EmojiEmotions, Poll, Videocam, Article, Close,
   ThumbUp, ThumbUpOutlined, Celebration, Lightbulb, 
   SentimentVerySatisfied, Whatshot, LocalFireDepartment,
-  Refresh,
+  Refresh, ContentCopy,
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 import NetworkLayout from '../../components/network/NetworkLayout';
@@ -76,6 +77,8 @@ interface Post {
   reactions?: Reactions;
   hashtags?: string[];
   post_type?: string;  // text, poll, link, image, video, article
+  /** Media items: [{ url, type?, thumbnail? }]. Rendered as images in the feed. */
+  media?: { url: string; type?: string; thumbnail?: string }[];
   poll_data?: {
     question?: string;
     options?: string[];
@@ -132,7 +135,9 @@ const NetworkFeed: React.FC = () => {
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({});
   const [postComments, setPostComments] = useState<Record<string, any[]>>({});
   const [loadingComments, setLoadingComments] = useState<Record<string, boolean>>({});
-  
+  const [shareAnchor, setShareAnchor] = useState<null | HTMLElement>(null);
+  const [sharePostId, setSharePostId] = useState<string | null>(null);
+
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
@@ -140,6 +145,17 @@ const NetworkFeed: React.FC = () => {
   useEffect(() => {
     fetchFeed();
   }, []);
+
+  // Scroll to post when opening a shared link (e.g. /techie/home/feed#post-{id})
+  useEffect(() => {
+    if (loading || posts.length === 0) return;
+    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    const m = /^#post-(.+)$/.exec(hash);
+    if (m) {
+      const el = document.getElementById(`post-${m[1]}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [loading, posts]);
 
   const fetchFeed = async () => {
     try {
@@ -183,6 +199,7 @@ const NetworkFeed: React.FC = () => {
           user_vote: item.poll_data.user_vote !== undefined ? item.poll_data.user_vote : undefined,
         } : undefined,
         link_url: item.link_url || undefined,
+        media: item.media || [],
       }));
       
       // Only use real data, don't fallback to mock
@@ -247,6 +264,17 @@ const NetworkFeed: React.FC = () => {
       p.id === postId ? { ...p, is_saved: !p.is_saved } : p
     ));
     setSnackbar({ open: true, message: 'Post saved!', severity: 'success' });
+  };
+
+  // Copy link to post (works in private/incognito; only people with the link can view)
+  const handleCopyPostLink = (postId: string) => {
+    const url = typeof window !== 'undefined'
+      ? `${window.location.origin}/techie/home/feed#post-${postId}`
+      : `https://vertechie.com/techie/home/feed#post-${postId}`;
+    navigator.clipboard.writeText(url);
+    setShareAnchor(null);
+    setSharePostId(null);
+    setSnackbar({ open: true, message: 'Link copied. It works in private or incognito.', severity: 'success' });
   };
 
   // Toggle comments
@@ -348,25 +376,42 @@ const NetworkFeed: React.FC = () => {
 
   // Create post
   const handleCreatePost = async () => {
-    // Validate: need content OR poll
-    if (!postContent.trim() && (!showPollCreator || pollOptions.filter(opt => opt.trim()).length < 2)) {
-      setSnackbar({ open: true, message: 'Please add content or create a poll with at least 2 options', severity: 'error' });
+    const hasPoll = showPollCreator && pollOptions.filter(opt => opt.trim()).length >= 2;
+    const hasContent = !!postContent.trim();
+    const hasImages = attachedImages.length > 0;
+    if (!hasContent && !hasPoll && !hasImages) {
+      setSnackbar({ open: true, message: 'Please add content, images, or a poll with at least 2 options', severity: 'error' });
       return;
     }
-    
+
     try {
+      // Upload images first if any
+      let mediaUrls: string[] = [];
+      if (attachedImages.length > 0) {
+        try {
+          mediaUrls = await Promise.all(
+            attachedImages.map(async (file) => {
+              const { url } = await communityService.uploadPostImage(file);
+              return url;
+            })
+          );
+        } catch (upErr) {
+          console.error('Error uploading images:', upErr);
+          setSnackbar({ open: true, message: 'Failed to upload images. Please try again.', severity: 'error' });
+          return;
+        }
+      }
+
       // Prepare post data
-      const postData: any = {
+      const postData: Record<string, unknown> = {
         visibility: 'public',
       };
-      
-      // Add content if provided
-      if (postContent.trim()) {
-        postData.content = postContent;
+      if (hasContent) postData.content = postContent.trim();
+      if (mediaUrls.length > 0) {
+        postData.media = mediaUrls.map((url) => ({ url, type: 'image' }));
+        if (!postData.post_type) postData.post_type = 'image';
       }
-      
-      // Add poll data if poll is being created
-      if (showPollCreator && pollOptions.filter(opt => opt.trim()).length >= 2) {
+      if (hasPoll) {
         postData.post_type = 'poll';
         postData.poll_data = {
           question: postContent.trim() || 'What do you think?',
@@ -376,9 +421,9 @@ const NetworkFeed: React.FC = () => {
         postData.post_type = 'link';
         postData.link_url = articleLink;
       }
-      
+
       // Call API to create post
-      const result = await communityService.createPost(postData);
+      await communityService.createPost(postData as any);
       
       // Refresh feed to get the new post
       await fetchFeed();
@@ -513,7 +558,7 @@ const NetworkFeed: React.FC = () => {
       )}
 
       {posts.map(post => (
-        <PostCard key={post.id}>
+        <PostCard key={post.id} id={`post-${post.id}`}>
           <CardContent>
             {/* Post Header */}
             <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2 }}>
@@ -539,6 +584,37 @@ const NetworkFeed: React.FC = () => {
               <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
                 {post.content}
               </Typography>
+            )}
+
+            {/* Post Images */}
+            {post.media && post.media.length > 0 && (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: post.media.length === 1 ? '1fr' : '1fr 1fr',
+                  gap: 1,
+                  mb: 2,
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                }}
+              >
+                {post.media.map((m, idx) => (
+                  <Box
+                    key={idx}
+                    component="img"
+                    src={m.url}
+                    alt=""
+                    sx={{
+                      width: '100%',
+                      maxHeight: 400,
+                      objectFit: 'cover',
+                      cursor: 'pointer',
+                    }}
+                    loading="lazy"
+                    onClick={() => window.open(m.url, '_blank')}
+                  />
+                ))}
+              </Box>
             )}
 
             {/* Poll Display */}
@@ -768,7 +844,13 @@ const NetworkFeed: React.FC = () => {
               >
                 Comment
               </Button>
-              <Button color="inherit" startIcon={<Share />}>Share</Button>
+              <Button
+                color="inherit"
+                startIcon={<Share />}
+                onClick={(e) => { setShareAnchor(e.currentTarget); setSharePostId(post.id); }}
+              >
+                Share
+              </Button>
               <IconButton onClick={() => handleSavePost(post.id)}>
                 {post.is_saved ? <Bookmark color="primary" /> : <BookmarkBorder />}
               </IconButton>
@@ -1136,13 +1218,29 @@ const NetworkFeed: React.FC = () => {
           <Button 
             variant="contained" 
             onClick={handleCreatePost}
-            disabled={!postContent.trim()}
+            disabled={!postContent.trim() && attachedImages.length === 0 && !(showPollCreator && pollOptions.filter(o => o.trim()).length >= 2)}
             sx={{ borderRadius: 2 }}
           >
             Post
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Share menu – copy link to post (works in private/incognito) */}
+      <Menu
+        anchorEl={shareAnchor}
+        open={Boolean(shareAnchor)}
+        onClose={() => { setShareAnchor(null); setSharePostId(null); }}
+        anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      >
+        <MenuItem
+          onClick={() => sharePostId && handleCopyPostLink(sharePostId)}
+        >
+          <ListItemIcon><ContentCopy fontSize="small" /></ListItemIcon>
+          <ListItemText primary="Copy link to post" secondary="Works in private or incognito" />
+        </MenuItem>
+      </Menu>
 
       {/* Snackbar */}
       <Snackbar
