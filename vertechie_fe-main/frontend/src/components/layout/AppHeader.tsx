@@ -47,6 +47,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import SchoolIcon from '@mui/icons-material/School';
 import ArticleIcon from '@mui/icons-material/Article';
 import NotificationsIcon from '@mui/icons-material/Notifications';
+import MessageIcon from '@mui/icons-material/Message';
 import PersonIcon from '@mui/icons-material/Person';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -59,7 +60,6 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
-import MessageIcon from '@mui/icons-material/Message';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import SearchIcon from '@mui/icons-material/Search';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -132,7 +132,7 @@ const ProfileChip = styled(Chip)(({ theme }) => ({
 }));
 
 // Types
-type UserRole = 'techie' | 'hiring_manager' | 'school_admin' | 'company_admin' | 'admin' | 'super_admin';
+type UserRole = 'techie' | 'hiring_manager' | 'school_admin' | 'company_admin' | 'admin' | 'super_admin' | 'techie_admin' | 'hm_admin' | 'multi_admin';
 
 interface NavItem {
   label: string;
@@ -172,6 +172,24 @@ const roleNavConfig: RoleNavConfig = {
     { label: 'Jobs', path: '/techie/jobs', icon: <WorkIcon /> },
     { label: 'Learn', path: '/techie/learn', icon: <SchoolIcon /> },
   ],
+  techie_admin: [
+    { label: 'Home', path: '/techie/home/feed', icon: <HomeIcon /> },
+    { label: 'Practice', path: '/techie/practice', icon: <CodeIcon /> },
+    { label: 'Learn', path: '/techie/learn', icon: <SchoolIcon /> },
+    { label: 'Chat', path: '/techie/chat', icon: <MessageIcon /> },
+    { label: 'Blog', path: '/techie/blogs', icon: <ArticleIcon /> },
+    { label: 'Admin', path: '/vertechie/techieadmin', icon: <AdminPanelSettingsIcon /> },
+    { label: 'Alerts', path: '/techie/alerts', icon: <NotificationsIcon /> },
+  ],
+  multi_admin: [
+    { label: 'Home', path: '/techie/home/feed', icon: <HomeIcon /> },
+    { label: 'Practice', path: '/techie/practice', icon: <CodeIcon /> },
+    { label: 'Learn', path: '/techie/learn', icon: <SchoolIcon /> },
+    { label: 'Chat', path: '/techie/chat', icon: <MessageIcon /> },
+    { label: 'Blog', path: '/techie/blogs', icon: <ArticleIcon /> },
+    { label: 'Admin', path: '/vertechie/role-admin', icon: <AdminPanelSettingsIcon /> },
+    { label: 'Alerts', path: '/techie/alerts', icon: <NotificationsIcon /> },
+  ],
   admin: [
     { label: 'Dashboard', path: '/vertechie/admin', icon: <DashboardIcon /> },
     { label: 'Users', path: '/vertechie/admin/users', icon: <PeopleIcon /> },
@@ -191,7 +209,10 @@ const roleNavConfig: RoleNavConfig = {
 
 const roleLabels: { [key: string]: string } = {
   techie: 'Tech Professional',
+  techie_admin: 'Techie Admin',
   hiring_manager: 'Hiring Manager',
+  hm_admin: 'HM Admin',
+  multi_admin: 'Admin',
   school_admin: 'School Admin',
   company_admin: 'Company Admin',
   admin: 'Admin',
@@ -204,7 +225,6 @@ const AppHeader: React.FC = () => {
   const [userRole, setUserRole] = useState<UserRole>('techie');
   const [userName, setUserName] = useState('');
   const [userAvatar, setUserAvatar] = useState('');
-  const [notifications, setNotifications] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -230,30 +250,36 @@ const AppHeader: React.FC = () => {
         setUserName(`${firstName} ${lastName}`.trim() || user.email || 'User');
         setUserAvatar(user.profile_image || '');
         
-        // Determine role - check user.role, user.roles array, and user.groups array
+        // Determine role - check user.role, user.roles array, user.groups array, and admin_roles
         const userRoles = user.roles || [];
         const userGroups = user.groups || [];
+        const adminRoles = user.admin_roles || [];
         const hasRole = (roleType: string) => 
           user.role === roleType || 
           userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType) ||
           userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType);
         
-        if (user.is_superuser) {
+        const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
+        const countRoleAdmins = roleAdminTypes.filter((r) => adminRoles.includes(r)).length;
+        if (user.is_superuser || adminRoles.includes('superadmin')) {
           setUserRole('super_admin');
-        } else if (user.is_staff) {
+        } else if (countRoleAdmins > 1) {
+          setUserRole('multi_admin');
+        } else if (adminRoles.includes('techie_admin')) {
+          setUserRole('techie_admin');
+        } else if (adminRoles.includes('hm_admin')) {
+          setUserRole('hm_admin');
+        } else if (adminRoles.includes('company_admin') || hasRole('company_admin') || user.company_id) {
+          setUserRole('company_admin');
+        } else if (adminRoles.includes('school_admin') || hasRole('school_admin') || user.school_id) {
+          setUserRole('school_admin');
+        } else if (user.is_staff || adminRoles.length > 0) {
           setUserRole('admin');
         } else if (hasRole('hiring_manager')) {
           setUserRole('hiring_manager');
-        } else if (hasRole('school_admin') || user.school_id) {
-          setUserRole('school_admin');
-        } else if (hasRole('company_admin') || user.company_id) {
-          setUserRole('company_admin');
         } else {
           setUserRole('techie');
         }
-        
-        // Mock notifications count
-        setNotifications(3);
       } catch (e) {
         console.error('Error parsing user data:', e);
       }
@@ -589,24 +615,6 @@ const AppHeader: React.FC = () => {
               </IconButton>
             </Tooltip>
           </Box>
-          
-          {/* Messages */}
-          <Tooltip title="Messages">
-            <IconButton sx={{ color: 'rgba(255,255,255,0.8)' }}>
-              <Badge badgeContent={2} color="error">
-                <MessageIcon />
-              </Badge>
-            </IconButton>
-          </Tooltip>
-          
-          {/* Notifications */}
-          <Tooltip title="Notifications">
-            <IconButton sx={{ color: 'rgba(255,255,255,0.8)' }}>
-              <Badge badgeContent={notifications} color="error">
-                <NotificationsIcon />
-              </Badge>
-            </IconButton>
-          </Tooltip>
           
           {/* Profile Menu */}
           <Box

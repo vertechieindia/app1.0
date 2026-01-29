@@ -106,10 +106,14 @@ const Home = () => {
       try {
         const userData = JSON.parse(userDataString);
         const adminRoles = userData.admin_roles || [];
-        
+        const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
+        const hasMultipleRoleAdmins = roleAdminTypes.filter((r) => adminRoles.includes(r)).length > 1;
+
         // Route based on admin_roles first
         if (userData.is_superuser || adminRoles.includes('superadmin')) {
           navigate('/super-admin', { replace: true });
+        } else if (hasMultipleRoleAdmins) {
+          navigate('/vertechie/role-admin', { replace: true });
         } else if (adminRoles.includes('hm_admin')) {
           navigate('/vertechie/hmadmin', { replace: true });
         } else if (adminRoles.includes('company_admin')) {

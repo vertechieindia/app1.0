@@ -655,7 +655,7 @@ const SuperAdmin: React.FC = () => {
   const [expandedRoleId, setExpandedRoleId] = useState<number | null>(null);
   const [permissionSearchQuery, setPermissionSearchQuery] = useState('');
 
-  // Fetch Admins
+  // Fetch Admins (use dedicated /admins/ endpoint – GET /users/ excludes admin users)
   const fetchAdmins = useCallback(async () => {
     setLoadingAdmins(true);
     try {
@@ -665,7 +665,7 @@ const SuperAdmin: React.FC = () => {
         return;
       }
 
-      const response = await fetch(getApiUrl(API_ENDPOINTS.USERS), {
+      const response = await fetch(getApiUrl(API_ENDPOINTS.ADMINS), {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
@@ -674,27 +674,33 @@ const SuperAdmin: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        const usersArray = Array.isArray(data) ? data : data.results || [];
-        
-        const adminUsers = usersArray
-          .filter((user: any) => user.is_staff || (user.admin_roles && user.admin_roles.length > 0))
-          .map((user: any) => ({
-            id: String(user.id),
-            email: user.email,
-            first_name: user.first_name || '',
-            last_name: user.last_name || '',
-            is_active: user.is_active,
-            is_staff: user.is_staff,
-            date_joined: user.date_joined,
-            last_login: user.last_login,
-            admin_roles: user.admin_roles || [],
-          }));
-        
+        const list = Array.isArray(data) ? data : data.results || [];
+        const adminUsers: Admin[] = list.map((u: any) => ({
+          id: String(u.id),
+          email: u.email,
+          first_name: u.first_name || '',
+          last_name: u.last_name || '',
+          is_active: u.is_active,
+          is_staff: u.is_staff ?? true,
+          date_joined: u.date_joined || u.created_at || '',
+          last_login: u.last_login,
+          admin_roles: u.admin_roles || [],
+        }));
         setAdmins(adminUsers);
+      } else {
+        setAdmins([]);
+        if (response.status === 401) {
+          setSnackbar({ open: true, message: 'Authentication required', severity: 'error' });
+        } else {
+          const errBody = await response.json().catch(() => ({}));
+          const msg = Array.isArray(errBody.detail) ? errBody.detail.map((e: any) => e.msg || e).join(', ') : (errBody.detail || 'Failed to fetch admins');
+          setSnackbar({ open: true, message: msg, severity: 'error' });
+        }
       }
     } catch (error) {
       console.error('Error fetching admins:', error);
       setSnackbar({ open: true, message: 'Failed to fetch admins', severity: 'error' });
+      setAdmins([]);
     } finally {
       setLoadingAdmins(false);
     }

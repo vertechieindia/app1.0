@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 
 from app.db.session import get_db
-from app.models.user import User, UserProfile, Experience, Education
+from app.models.user import User, UserProfile, Experience, Education, RoleType, VerificationStatus
 from app.models.company import Company, CompanyAdmin
 from app.schemas.user import (
     UserResponse, UserUpdate, UserProfileUpdate, UserProfileResponse,
@@ -18,6 +18,10 @@ from app.schemas.user import (
     EducationCreate, EducationResponse
 )
 from app.core.security import get_current_user, get_current_admin_user
+from sqlalchemy.orm import selectinload
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -29,59 +33,150 @@ async def list_users(
     limit: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
+    current_admin: User = Depends(get_current_admin_user),
 ) -> Any:
-    """List users (admin only)."""
+    """List users (admin only).
     
-    query = select(User)
-    
-    if search:
-        query = query.where(
-            or_(
-                User.email.ilike(f"%{search}%"),
-                User.first_name.ilike(f"%{search}%"),
-                User.last_name.ilike(f"%{search}%"),
-                User.username.ilike(f"%{search}%"),
-            )
-        )
-    
-    if is_active is not None:
-        query = query.where(User.is_active == is_active)
-    
-    query = query.order_by(User.created_at.desc())
-    query = query.offset(skip).limit(limit)
-    
-    result = await db.execute(query)
-    users = result.scalars().all()
-    
-    # Transform to include all necessary fields for frontend
-    return [
-        {
-            "id": user.id,
-            "email": user.email,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "middle_name": user.middle_name,
-            "phone": user.phone,
-            "mobile_number": user.mobile_number,
-            "dob": user.dob,
-            "country": user.country,
-            "address": user.address,
-            "username": user.username,
-            "vertechie_id": user.vertechie_id,
-            "is_active": user.is_active,
-            "is_verified": user.is_verified,
-            "is_superuser": user.is_superuser,
-            "is_staff": user.is_superuser or bool(user.admin_roles),  # Staff if superuser or has admin_roles
-            "email_verified": user.email_verified,
-            "mobile_verified": user.mobile_verified,
-            "created_at": user.created_at,
-            "admin_roles": user.admin_roles or [],  # Include admin_roles for frontend filtering
-            "date_joined": user.created_at,  # Alias for frontend compatibility
-            "last_login": user.last_login,
-            "verification_status": user.verification_status or "PENDING",
+    Role-based filtering:
+    - Super Admin: sees all users
+    - Techie Admin: sees only techies (verified, non-verified, resubmitted)
+    - HM Admin: sees only hiring_manager users
+    - Company Admin: sees only company_admin users
+    - School Admin: sees only school_admin users
+    """
+    try:
+        logger.info(f"[LIST_USERS] Starting request - search={search}, is_active={is_active}, skip={skip}, limit={limit}")
+        logger.info(f"[LIST_USERS] Current admin: {current_admin.email if current_admin else 'None'}, admin_roles={current_admin.admin_roles if current_admin else []}, is_superuser={current_admin.is_superuser if current_admin else False}")
+        
+        # Determine what role types this admin can manage
+        admin_roles = current_admin.admin_roles or []
+        is_superadmin = current_admin.is_superuser or "superadmin" in admin_roles
+        
+        # Map admin roles to the user role types they can manage
+        admin_to_user_role_map = {
+            "superadmin": None,  # Can see all
+            "hm_admin": RoleType.HIRING_MANAGER,
+            "techie_admin": RoleType.TECHIE,
+            "company_admin": RoleType.COMPANY_ADMIN,
+            "school_admin": RoleType.SCHOOL_ADMIN,
+            "bdm_admin": RoleType.BDM_ADMIN,
         }
-        for user in users
-    ]
+        
+        # Determine allowed role types for this admin
+        allowed_role_types = set()
+        for admin_role in admin_roles:
+            role_type = admin_to_user_role_map.get(admin_role)
+            if role_type:
+                allowed_role_types.add(role_type)
+        
+        logger.info(f"[LIST_USERS] Admin roles: {admin_roles}, is_superadmin: {is_superadmin}, allowed_role_types: {allowed_role_types}")
+        
+        # Build query with role loading
+        query = select(User).options(selectinload(User.roles))
+        
+        if search:
+            query = query.where(
+                or_(
+                    User.email.ilike(f"%{search}%"),
+                    User.first_name.ilike(f"%{search}%"),
+                    User.last_name.ilike(f"%{search}%"),
+                    User.username.ilike(f"%{search}%"),
+                )
+            )
+        
+        if is_active is not None:
+            query = query.where(User.is_active == is_active)
+        
+        query = query.order_by(User.created_at.desc())
+        
+        result = await db.execute(query)
+        all_users = result.scalars().all()
+        logger.info(f"[LIST_USERS] Fetched {len(all_users)} users from database")
+        
+        # Filter users based on admin's allowed role types
+        filtered_users = []
+        for user in all_users:
+            try:
+                # Skip admin users (users with admin_roles) - they shouldn't appear in regular user list
+                if user.admin_roles and len(user.admin_roles) > 0:
+                    continue
+                
+                # Determine user's role type
+                user_role_type = None
+                if hasattr(user, 'roles') and user.roles:
+                    for role in user.roles:
+                        if hasattr(role, 'role_type'):
+                            user_role_type = role.role_type
+                            break  # Take first role
+                
+                # For techie_admin: Only show users who explicitly have TECHIE role
+                # Don't default to TECHIE for users without roles
+                if not user_role_type:
+                    # Only default to TECHIE if this is a superadmin viewing all
+                    if is_superadmin:
+                        user_role_type = RoleType.TECHIE
+                    else:
+                        # For role-specific admins, skip users without explicit roles
+                        continue
+                
+                # Check if superadmin or if admin can manage this user type
+                if is_superadmin:
+                    # Superadmin can see all
+                    filtered_users.append(user)
+                elif allowed_role_types:
+                    # Non-superadmin: only show users they can manage
+                    if user_role_type in allowed_role_types:
+                        filtered_users.append(user)
+                else:
+                    # Admin has no specific role mapping, show nothing
+                    pass
+            except Exception as e:
+                logger.warning(f"[LIST_USERS] Error processing user {user.id if hasattr(user, 'id') else 'unknown'}: {e}")
+                continue
+        
+        logger.info(f"[LIST_USERS] After role filtering: {len(filtered_users)} users")
+        
+        # Apply pagination after filtering
+        paginated_users = filtered_users[skip:skip + limit]
+        logger.info(f"[LIST_USERS] After pagination: {len(paginated_users)} users")
+        
+        # Transform to include all necessary fields for frontend
+        return [
+            {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "middle_name": user.middle_name,
+                "phone": user.phone,
+                "mobile_number": user.mobile_number,
+                "dob": user.dob,
+                "country": user.country,
+                "address": user.address,
+                "username": user.username,
+                "vertechie_id": user.vertechie_id,
+                "is_active": user.is_active,
+                "is_verified": user.is_verified,
+                "is_superuser": user.is_superuser,
+                "is_staff": user.is_superuser or bool(user.admin_roles),  # Staff if superuser or has admin_roles
+                "email_verified": user.email_verified,
+                "mobile_verified": user.mobile_verified,
+                "created_at": user.created_at,
+                "admin_roles": user.admin_roles or [],  # Include admin_roles for frontend filtering
+                "date_joined": user.created_at,  # Alias for frontend compatibility
+                "last_login": user.last_login,
+                "verification_status": user.verification_status or "PENDING",
+            }
+            for user in paginated_users
+        ]
+    except Exception as e:
+        logger.error(f"[LIST_USERS] ERROR: {str(e)}")
+        import traceback
+        logger.error(f"[LIST_USERS] Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching users: {str(e)}"
+        )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -203,7 +298,7 @@ async def get_user(
         "admin_roles": user.admin_roles or [],  # Include admin_roles for frontend
         "date_joined": user.created_at,  # Alias for frontend compatibility
         "last_login": user.last_login,
-        "verification_status": user.verification_status.value if user.verification_status else "pending",
+        "verification_status": (user.verification_status or "PENDING").lower(),
     }
 
 
@@ -471,10 +566,10 @@ async def delete_user(
     db: AsyncSession = Depends(get_db),
     admin_user: User = Depends(get_current_admin_user)
 ) -> None:
-    """Admin: Delete a user."""
+    """Admin: Delete a user. Techie admin can only delete techies; superadmin can delete any user."""
     
     result = await db.execute(
-        select(User).where(User.id == user_id)
+        select(User).options(selectinload(User.roles)).where(User.id == user_id)
     )
     user = result.scalar_one_or_none()
     
@@ -483,6 +578,34 @@ async def delete_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+    
+    # Role-scoped admins (e.g. techie_admin) may only delete users of their managed type
+    admin_roles = admin_user.admin_roles or []
+    is_superadmin = admin_user.is_superuser or "superadmin" in admin_roles
+    if not is_superadmin:
+        admin_to_role = {
+            "techie_admin": RoleType.TECHIE,
+            "hm_admin": RoleType.HIRING_MANAGER,
+            "company_admin": RoleType.COMPANY_ADMIN,
+            "school_admin": RoleType.SCHOOL_ADMIN,
+        }
+        target_role = None
+        if user.roles:
+            for r in user.roles:
+                if hasattr(r, "role_type"):
+                    target_role = r.role_type
+                    break
+        allowed = False
+        for ar in admin_roles:
+            allowed_role = admin_to_role.get(ar)
+            if allowed_role and target_role == allowed_role:
+                allowed = True
+                break
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only remove users of the type you manage (e.g. Tech Professionals)."
+            )
     
     await db.delete(user)
     await db.commit()
@@ -617,7 +740,7 @@ async def reject_user(
         }
     else:
         # Just mark as rejected, keep data
-        user.verification_status = VerificationStatus.REJECTED.value.value
+        user.verification_status = VerificationStatus.REJECTED.value
         user.reviewed_by_id = admin_user.id
         user.reviewed_at = datetime.utcnow()
         user.rejection_reason = reason

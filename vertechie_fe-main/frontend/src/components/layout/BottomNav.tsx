@@ -80,8 +80,10 @@ const NavContainer = styled(Box)(({ theme }) => ({
   },
 }));
 
-// Hero accent color: #5AC8FA (cyan)
-const NavItem = styled(Box)<{ active?: boolean }>(({ theme, active }) => ({
+// Hero accent color: #5AC8FA (cyan) — active is custom, don't forward to DOM
+const NavItem = styled(Box, {
+  shouldForwardProp: (prop) => prop !== 'active',
+})<{ active?: boolean }>(({ theme, active }) => ({
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
@@ -136,8 +138,6 @@ const BottomNav: React.FC = () => {
   const [userRole, setUserRole] = useState<string>('techie');
   const [userName, setUserName] = useState('');
   const [userAvatar, setUserAvatar] = useState('');
-  const [notifications, setNotifications] = useState(0);
-  const [messages, setMessages] = useState(2);
   
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -145,35 +145,8 @@ const BottomNav: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Fetch unread notification count from backend
-  const fetchNotificationCount = async () => {
-    try {
-      const token = localStorage.getItem('authToken');
-      if (!token) return;
-      
-      const response = await fetch(`${API_BASE_URL}/hiring/notifications/unread-count`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setNotifications(data.unread_count || 0);
-      }
-    } catch (error) {
-      console.error('Failed to fetch notification count:', error);
-    }
-  };
-
   useEffect(() => {
     loadUserData();
-    fetchNotificationCount();
-    
-    // Refresh notification count every 30 seconds
-    const interval = setInterval(fetchNotificationCount, 30000);
-    return () => clearInterval(interval);
   }, [location.pathname]);
 
   const loadUserData = () => {
@@ -203,9 +176,13 @@ const BottomNav: React.FC = () => {
         const hasAdminRole = (adminRole: string) =>
           adminRoles.includes(adminRole);
         
+        const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
+        const countRoleAdmins = roleAdminTypes.filter((r) => hasAdminRole(r)).length;
         // Check for admin roles first (HM Admin, Techie Admin, etc.)
         if (user.is_superuser || hasAdminRole('superadmin')) {
           setUserRole('super_admin');
+        } else if (countRoleAdmins > 1) {
+          setUserRole('multi_admin');
         } else if (hasAdminRole('hm_admin')) {
           setUserRole('hm_admin');
         } else if (hasAdminRole('techie_admin')) {
@@ -246,7 +223,7 @@ const BottomNav: React.FC = () => {
   };
 
   // Check if user is any type of admin
-  const isAnyAdmin = ['super_admin', 'hm_admin', 'techie_admin', 'company_admin', 'school_admin', 'admin'].includes(userRole);
+  const isAnyAdmin = ['super_admin', 'multi_admin', 'hm_admin', 'techie_admin', 'company_admin', 'school_admin', 'admin'].includes(userRole);
   
   // Core navigation items - same for all users (admins and non-admins)
   const coreNavItems: NavItemConfig[] = [
@@ -259,7 +236,7 @@ const BottomNav: React.FC = () => {
   const secondaryNavItems: NavItemConfig[] = [
     { key: 'interviews', label: 'Interviews', icon: <EventAvailableIcon />, path: '/techie/my-interviews' },
     { key: 'learn', label: 'Learn', icon: <SchoolIcon />, path: '/techie/learn' },
-    { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat', badge: messages },
+    { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat' },
     { key: 'blogs', label: 'Blogs', icon: <ArticleIcon />, path: '/techie/blogs' },
   ];
 
@@ -305,6 +282,13 @@ const BottomNav: React.FC = () => {
         icon: <AdminPanelSettingsIcon />, 
         path: '/super-admin' 
       });
+    } else if (userRole === 'multi_admin') {
+      items.push({ 
+        key: 'admin', 
+        label: 'Admin', 
+        icon: <AdminPanelSettingsIcon />, 
+        path: '/vertechie/role-admin' 
+      });
     } else if (userRole === 'hm_admin') {
       items.push({ 
         key: 'admin', 
@@ -349,6 +333,38 @@ const BottomNav: React.FC = () => {
   const getVisibleItems = () => {
     const roleItems = getRoleSpecificItems();
     
+    // Special handling for techie_admin - only show specified items
+    if (userRole === 'techie_admin') {
+      const techieAdminItems: NavItemConfig[] = [
+        { key: 'home', label: 'Home', icon: <HomeIcon />, path: '/techie/home/feed' },
+        { key: 'practice', label: 'Practice', icon: <CodeIcon />, path: '/techie/practice' },
+        { key: 'learn', label: 'Learn', icon: <SchoolIcon />, path: '/techie/learn' },
+        { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat' },
+        { key: 'blogs', label: 'Blog', icon: <ArticleIcon />, path: '/techie/blogs' },
+        { key: 'admin', label: 'Admin', icon: <AdminPanelSettingsIcon />, path: '/vertechie/techieadmin' },
+        { key: 'alerts', label: 'Alerts', icon: <NotificationsIcon />, path: '/techie/alerts' },
+        // Profile is always shown separately at the end, so not included here
+      ];
+      
+      if (isMobile) return techieAdminItems.slice(0, 4);
+      if (isTablet) return techieAdminItems.slice(0, 6);
+      return techieAdminItems;
+    }
+    if (userRole === 'multi_admin') {
+      const multiAdminItems: NavItemConfig[] = [
+        { key: 'home', label: 'Home', icon: <HomeIcon />, path: '/techie/home/feed' },
+        { key: 'practice', label: 'Practice', icon: <CodeIcon />, path: '/techie/practice' },
+        { key: 'learn', label: 'Learn', icon: <SchoolIcon />, path: '/techie/learn' },
+        { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat' },
+        { key: 'blogs', label: 'Blog', icon: <ArticleIcon />, path: '/techie/blogs' },
+        { key: 'admin', label: 'Admin', icon: <AdminPanelSettingsIcon />, path: '/vertechie/role-admin' },
+        { key: 'alerts', label: 'Alerts', icon: <NotificationsIcon />, path: '/techie/alerts' },
+      ];
+      if (isMobile) return multiAdminItems.slice(0, 4);
+      if (isTablet) return multiAdminItems.slice(0, 6);
+      return multiAdminItems;
+    }
+    
     if (isMobile) {
       // On mobile, show: Home, Jobs, Practice, Chat, Profile + More
       return coreNavItems.slice(0, 3);
@@ -362,6 +378,11 @@ const BottomNav: React.FC = () => {
   };
 
   const getMoreItems = () => {
+    // For techie_admin and multi_admin, no "More" menu needed - all items are visible
+    if (userRole === 'techie_admin' || userRole === 'multi_admin') {
+      return [];
+    }
+    
     const roleItems = getRoleSpecificItems();
     const allItems = [...coreNavItems, ...secondaryNavItems, ...roleItems];
     const visibleItems = getVisibleItems();
@@ -395,33 +416,31 @@ const BottomNav: React.FC = () => {
           </NavItem>
         ))}
         
-        {/* Chat (always visible) */}
-        {isMobile && (
+        {/* Chat (always visible, except for techie_admin who has it in main menu) */}
+        {isMobile && userRole !== 'techie_admin' && userRole !== 'multi_admin' && (
           <NavItem
             active={isActive(userRole === 'hiring_manager' ? '/hr/chat' : '/techie/chat')}
             onClick={() => navigate(userRole === 'hiring_manager' ? '/hr/chat' : '/techie/chat')}
           >
             <NavIcon>
-              <Badge badgeContent={messages} color="error" max={99}>
-                <ChatIcon />
-              </Badge>
+              <ChatIcon />
             </NavIcon>
             <NavLabel>Chat</NavLabel>
           </NavItem>
         )}
         
-        {/* Alerts/Notifications */}
-        <NavItem
-          active={isActive(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
-          onClick={() => navigate(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
-        >
-          <NavIcon>
-            <Badge badgeContent={notifications} color="error" max={99}>
+        {/* Alerts/Notifications (except for techie_admin who has it in main menu) */}
+        {userRole !== 'techie_admin' && userRole !== 'multi_admin' && (
+          <NavItem
+            active={isActive(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
+            onClick={() => navigate(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
+          >
+            <NavIcon>
               <NotificationsIcon />
-            </Badge>
-          </NavIcon>
-          <NavLabel>Alerts</NavLabel>
-        </NavItem>
+            </NavIcon>
+            <NavLabel>Alerts</NavLabel>
+          </NavItem>
+        )}
         
         {/* More Menu (for hidden items) */}
         {moreItems.length > 0 && (
@@ -586,7 +605,6 @@ const BottomNav: React.FC = () => {
               </ListItemIcon>
               <ListItemText 
                 primary="My Interviews" 
-                secondary={notifications > 0 ? `${notifications} upcoming` : undefined}
                 secondaryTypographyProps={{ sx: { color: '#5AC8FA', fontSize: '0.75rem' } }}
               />
             </MenuItem>
