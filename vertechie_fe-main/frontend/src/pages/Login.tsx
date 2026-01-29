@@ -191,21 +191,22 @@ const Login = () => {
       
       // Get admin_roles for routing
       const adminRoles = userData.admin_roles || [];
-      
+      const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
+      const hasMultipleRoleAdmins = roleAdminTypes.filter((r) => adminRoles.includes(r)).length > 1;
+
       // Route based on admin_roles first, then fallback to is_superuser/is_staff
       if (userData.is_superuser || adminRoles.includes('superadmin')) {
         navigate('/super-admin');
+      } else if (hasMultipleRoleAdmins) {
+        // Multiple role admins (e.g. techie + HR) → single screen with tabs
+        navigate('/vertechie/role-admin');
       } else if (adminRoles.includes('hm_admin')) {
-        // HM Admin - route to HM admin panel
         navigate('/vertechie/hmadmin');
       } else if (adminRoles.includes('company_admin')) {
-        // Company Admin - route to company admin panel
         navigate('/vertechie/companyadmin');
       } else if (adminRoles.includes('school_admin')) {
-        // School Admin - route to school admin panel
         navigate('/vertechie/schooladmin');
       } else if (adminRoles.includes('techie_admin')) {
-        // Techie Admin - route to techie admin panel
         navigate('/vertechie/techieadmin');
       } else if (adminRoles.includes('bdm_admin')) {
         // BDM Admin - route to BDM admin panel

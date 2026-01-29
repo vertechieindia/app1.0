@@ -19,6 +19,8 @@ interface UserData {
   last_name?: string;
   groups?: Array<{ id: number; name: string }>;
   user_type?: string;
+  admin_roles?: string[];
+  roles?: Array<{ id: number; name: string; role_type?: string }>;
 }
 
 /**
@@ -75,8 +77,15 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole 
         break;
       
       case 'admin':
-        // Staff members (admins) or superusers can access admin routes
-        if (!userData.is_staff && !userData.is_superuser) {
+        // Staff members (admins), superusers, or users with admin_roles can access admin routes
+        const adminRoles = userData.admin_roles || [];
+        const hasAdminRole = adminRoles.length > 0;
+        const hasAdminGroup = userData.groups?.some((g: any) => 
+          g.name?.toLowerCase().includes('admin') || 
+          g.name?.toLowerCase().includes('staff')
+        );
+        
+        if (!userData.is_staff && !userData.is_superuser && !hasAdminRole && !hasAdminGroup) {
           return <Navigate to="/" replace />;
         }
         break;

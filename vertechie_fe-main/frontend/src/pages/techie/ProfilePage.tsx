@@ -511,19 +511,25 @@ const ProfilePage: React.FC = () => {
   const [educations, setEducations] = useState<EducationData[]>([]);
   const [companyData, setCompanyData] = useState<CompanyData | null>(null);
 
-  // Fetch user data from API
+  // Fetch user data from API - when userId is in URL (and not 'me'), fetch that user's data; otherwise fetch current user
   const fetchUserData = useCallback(async () => {
+    const targetUserId = userId && userId !== 'me' ? userId : null;
+    const isViewingOtherUser = !!targetUserId;
+
     try {
       setLoading(true);
 
-      // Fetch fresh user data from API first
+      // Fetch user basic info
       try {
-        const userUrl = getApiUrl('/users/me');
+        const userUrl = targetUserId
+          ? getApiUrl(API_ENDPOINTS.USERS.GET(targetUserId).replace(/\/$/, ''))
+          : getApiUrl('/users/me');
         const userRes = await fetchWithAuth(userUrl);
         if (userRes.ok) {
           const userData = await userRes.json();
+          const id = userData.id ?? targetUserId;
           setUser({
-            id: userData.id,
+            id,
             email: userData.email,
             first_name: userData.first_name,
             last_name: userData.last_name,
@@ -540,80 +546,95 @@ const ProfilePage: React.FC = () => {
             is_superuser: userData.is_superuser,
             created_at: userData.created_at || userData.date_joined,
           });
-          // Update localStorage with fresh data
-          const stored = localStorage.getItem('userData');
-          if (stored) {
-            const merged = { ...JSON.parse(stored), ...userData };
-            localStorage.setItem('userData', JSON.stringify(merged));
+          if (!isViewingOtherUser) {
+            const stored = localStorage.getItem('userData');
+            if (stored) {
+              const merged = { ...JSON.parse(stored), ...userData };
+              localStorage.setItem('userData', JSON.stringify(merged));
+            }
           }
+        } else if (isViewingOtherUser) {
+          setUser(null);
+          setProfile(null);
+          setExperiences([]);
+          setEducations([]);
+          setSnackbar({ open: true, message: 'User not found', severity: 'error' });
         }
       } catch (err: any) {
-        // Fallback to localStorage if API fails
-        const storedUserData = localStorage.getItem('userData');
-        if (storedUserData) {
-          const parsedUser = JSON.parse(storedUserData);
-          setUser({
-            id: parsedUser.id,
-            email: parsedUser.email,
-            first_name: parsedUser.first_name,
-            last_name: parsedUser.last_name,
-            middle_name: parsedUser.middle_name,
-            username: parsedUser.username,
-            vertechie_id: parsedUser.vertechie_id,
-            phone: parsedUser.phone,
-            mobile_number: parsedUser.mobile_number,
-            dob: parsedUser.dob,
-            country: parsedUser.country,
-            address: parsedUser.address,
-            is_active: parsedUser.is_active,
-            is_verified: parsedUser.is_verified,
-            is_superuser: parsedUser.is_superuser,
-            created_at: parsedUser.created_at || parsedUser.date_joined,
-          });
-        }
         if (err.message?.includes('Session expired')) return;
-        console.warn('Could not fetch user from API, using localStorage:', err);
+        if (isViewingOtherUser) {
+          setUser(null);
+          setSnackbar({ open: true, message: 'Failed to load profile', severity: 'error' });
+        } else {
+          const storedUserData = localStorage.getItem('userData');
+          if (storedUserData) {
+            const parsedUser = JSON.parse(storedUserData);
+            setUser({
+              id: parsedUser.id,
+              email: parsedUser.email,
+              first_name: parsedUser.first_name,
+              last_name: parsedUser.last_name,
+              middle_name: parsedUser.middle_name,
+              username: parsedUser.username,
+              vertechie_id: parsedUser.vertechie_id,
+              phone: parsedUser.phone,
+              mobile_number: parsedUser.mobile_number,
+              dob: parsedUser.dob,
+              country: parsedUser.country,
+              address: parsedUser.address,
+              is_active: parsedUser.is_active,
+              is_verified: parsedUser.is_verified,
+              is_superuser: parsedUser.is_superuser,
+              created_at: parsedUser.created_at || parsedUser.date_joined,
+            });
+          }
+          console.warn('Could not fetch user from API, using localStorage:', err);
+        }
       }
 
-      // Fetch profile data - uses interceptor for 401 handling
+      // Fetch profile data (for current user or viewed user)
       try {
-        const profileUrl = getApiUrl('/users/me/profile');
+        const profileUrl = targetUserId
+          ? getApiUrl(API_ENDPOINTS.USERS.PROFILE(targetUserId).replace(/\/$/, ''))
+          : getApiUrl('/users/me/profile');
         const profileRes = await fetchWithAuth(profileUrl);
         if (profileRes.ok) {
           const profileData = await profileRes.json();
           setProfile(profileData);
         }
       } catch (err: any) {
-        if (err.message?.includes('Session expired')) return; // Already redirecting
+        if (err.message?.includes('Session expired')) return;
         console.warn('Could not fetch profile:', err);
       }
 
-      // Fetch experiences - uses interceptor for 401 handling
+      // Fetch experiences
       try {
-        const expUrl = getApiUrl('/users/me/experiences');
+        const expUrl = targetUserId
+          ? getApiUrl(`/users/${targetUserId}/experiences`)
+          : getApiUrl('/users/me/experiences');
         const expRes = await fetchWithAuth(expUrl);
         if (expRes.ok) {
           const expData = await expRes.json();
-          // Map backend field names to frontend field names
-          const mappedExperiences = expData.map((exp: any) => ({
+          const mappedExperiences = (Array.isArray(expData) ? expData : []).map((exp: any) => ({
             ...exp,
             company: exp.company_name || exp.company || '',
           }));
           setExperiences(mappedExperiences);
         }
       } catch (err: any) {
-        if (err.message?.includes('Session expired')) return; // Already redirecting
+        if (err.message?.includes('Session expired')) return;
         console.warn('Could not fetch experiences:', err);
       }
 
-      // Fetch educations - uses interceptor for 401 handling
+      // Fetch educations
       try {
-        const eduUrl = getApiUrl('/users/me/educations');
+        const eduUrl = targetUserId
+          ? getApiUrl(`/users/${targetUserId}/educations`)
+          : getApiUrl('/users/me/educations');
         const eduRes = await fetchWithAuth(eduUrl);
         if (eduRes.ok) {
           const eduData = await eduRes.json();
-          // Map backend field names to frontend field names
-          const mappedEducations = eduData.map((edu: any) => ({
+          const mappedEducations = (Array.isArray(eduData) ? eduData : []).map((edu: any) => ({
             ...edu,
             institution: edu.school_name || edu.institution || '',
             gpa: edu.grade || edu.gpa || '',
@@ -621,52 +642,77 @@ const ProfilePage: React.FC = () => {
           setEducations(mappedEducations);
         }
       } catch (err: any) {
-        if (err.message?.includes('Session expired')) return; // Already redirecting
+        if (err.message?.includes('Session expired')) return;
         console.warn('Could not fetch educations:', err);
       }
 
-      // Fetch company details for HR users
-      try {
-        const companyUrl = getApiUrl('/users/me/company');
-        const companyRes = await fetchWithAuth(companyUrl);
-        if (companyRes.ok) {
-          const compData = await companyRes.json();
-          if (compData) {
-            setCompanyData(compData);
+      // Fetch company details only for current user (HR)
+      if (!targetUserId) {
+        try {
+          const companyUrl = getApiUrl('/users/me/company');
+          const companyRes = await fetchWithAuth(companyUrl);
+          if (companyRes.ok) {
+            const compData = await companyRes.json();
+            if (compData) setCompanyData(compData);
           }
+        } catch (err: any) {
+          if (err.message?.includes('Session expired')) return;
+          console.warn('Could not fetch company:', err);
         }
-      } catch (err: any) {
-        if (err.message?.includes('Session expired')) return;
-        console.warn('Could not fetch company:', err);
+      } else {
+        setCompanyData(null);
       }
 
     } catch (error: any) {
-      if (error.message?.includes('Session expired')) return; // Already redirecting
+      if (error.message?.includes('Session expired')) return;
       console.error('Error fetching user data:', error);
       setSnackbar({ open: true, message: 'Failed to load profile data', severity: 'error' });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     fetchUserData();
   }, [fetchUserData]);
 
+  // Own profile only when no userId in URL, or 'me', or userId matches the logged-in user (from localStorage)
   useEffect(() => {
-    setIsOwnProfile(!userId || userId === 'me' || userId === user?.id);
-  }, [userId, user?.id]);
+    if (!userId || userId === 'me') {
+      setIsOwnProfile(true);
+      return;
+    }
+    const stored = localStorage.getItem('userData');
+    const currentId = stored ? (JSON.parse(stored).id ?? null) : null;
+    setIsOwnProfile(currentId != null && String(userId) === String(currentId));
+  }, [userId]);
 
   // Check if user is a Hiring Manager
   const storedData = localStorage.getItem('userData');
   const parsedStored = storedData ? JSON.parse(storedData) : {};
   const userRoles = parsedStored.roles || parsedStored.groups || [];
+  const adminRoles = parsedStored.admin_roles || [];
   const isHiringManager = userRoles.some((r: any) => 
     r.role_type === 'hiring_manager' || 
     r.role_type === 'HIRING_MANAGER' ||
     r.name?.toLowerCase() === 'hiring_manager' || 
     r.name?.toLowerCase() === 'hr'
   ) || !!companyData;
+
+  // Check if user is a Techie Admin
+  const isTechieAdmin = adminRoles.includes('techie_admin') || 
+    userRoles.some((r: any) => r.role_type === 'techie_admin' || r.name?.toLowerCase() === 'techie_admin');
+
+  // Determine display title based on role
+  const getDisplayTitle = () => {
+    if (profile?.headline) return profile.headline;
+    if (profile?.current_position) return profile.current_position;
+    if (isHiringManager) return 'Hiring Manager';
+    if (isTechieAdmin) return 'Techie Admin';
+    if (parsedStored.is_superuser) return 'Super Admin';
+    if (parsedStored.is_staff || adminRoles.length > 0) return 'Admin';
+    return 'Tech Professional';
+  };
 
   // Derived data for display
   const displayUser = {
@@ -675,7 +721,7 @@ const ProfilePage: React.FC = () => {
     vertechieId: user?.vertechie_id || '',
     firstName: user?.first_name || 'User',
     lastName: user?.last_name || '',
-    title: profile?.headline || profile?.current_position || (isHiringManager ? 'Hiring Manager' : 'Tech Professional'),
+    title: getDisplayTitle(),
     tagline: profile?.bio || (isHiringManager 
       ? `${profile?.current_company ? `@ ${profile.current_company}` : 'Finding great talent'} 💼`
       : 'Building amazing things with code 🚀'),

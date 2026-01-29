@@ -9,7 +9,7 @@ import Home from './pages/Home';
 import About from './pages/About';
 import HR from './pages/HR';
 import SuperAdmin from './pages/SuperAdmin';
-import { TechieAdminDashboard, HMAdminDashboard, CompanyAdminDashboard, SchoolAdminDashboard } from './pages/RoleAdminDashboard';
+import { TechieAdminDashboard, HMAdminDashboard, CompanyAdminDashboard, SchoolAdminDashboard, MultiRoleAdminDashboard } from './pages/RoleAdminDashboard';
 import BDMAdminDashboard from './pages/BDMAdminDashboard';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Networking from './pages/Networking';
@@ -190,7 +190,7 @@ const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Router>
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <IdleTimeoutProvider>
         <ScrollToTop />
         <Routes>
@@ -316,6 +316,18 @@ const App: React.FC = () => {
             <Route path="/vertechie/hmadmin/*" element={
               <ProtectedRoute requiredRole="admin">
                 <HMAdminDashboard />
+              </ProtectedRoute>
+            } />
+            
+            {/* Multi-Role Admin - One screen with tabs for each role (techie_admin, hm_admin, etc.) */}
+            <Route path="/vertechie/role-admin" element={
+              <ProtectedRoute requiredRole="admin">
+                <MultiRoleAdminDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/vertechie/role-admin/*" element={
+              <ProtectedRoute requiredRole="admin">
+                <MultiRoleAdminDashboard />
               </ProtectedRoute>
             } />
             

@@ -21,8 +21,9 @@ class Settings(BaseSettings):
     PORT: int = 8000
     WORKERS: int = 4
     
-    # Database - Using MySQL for development
-    DATABASE_URL: str = "mysql+aiomysql://root@localhost:3306/vertechie_be"
+    # Database - PostgreSQL (default, can be overridden via .env)
+    # Format: postgresql+asyncpg://user:password@host:port/database
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/vertechie"
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
     

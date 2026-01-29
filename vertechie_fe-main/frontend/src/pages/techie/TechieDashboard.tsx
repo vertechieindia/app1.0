@@ -632,9 +632,7 @@ const TechieDashboard: React.FC = () => {
                     boxShadow: 1,
                   }}
                 >
-                  <Badge badgeContent={3} color="error">
-                    <NotificationsIcon />
-                  </Badge>
+                  <NotificationsIcon />
                 </IconButton>
               </Tooltip>
               <Tooltip title="Search">

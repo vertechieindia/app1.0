@@ -283,10 +283,10 @@ async def get_review_stats(
             .join(User.roles)
             .where(
                 UserRole.role_type == RoleType.TECHIE,
-                User.verification_status == status
+                User.verification_status == status.value
             )
         )
-        stats[status.value] = result.scalar() or 0
+        stats[status.value.lower()] = result.scalar() or 0
     
     # Reviewed today
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -341,7 +341,7 @@ async def list_pending_techies(
     
     # Filter by verification status
     if status_filter:
-        query = query.where(User.verification_status == status_filter)
+        query = query.where(User.verification_status == status_filter.value)
     else:
         # Default: show pending and resubmitted
         query = query.where(
@@ -590,7 +590,7 @@ async def review_techie(
         "status": "success",
         "message": f"Profile {review.action}d successfully",
         "user_id": str(user.id),
-        "new_status": user.verification_status.value
+        "new_status": user.verification_status or "PENDING"
     }
 
 
@@ -642,11 +642,11 @@ async def assign_for_review(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Only allow assigning pending or resubmitted profiles
-    if user.verification_status not in [VerificationStatus.PENDING, VerificationStatus.RESUBMITTED]:
+    # Only allow assigning pending or resubmitted profiles (column is string)
+    if user.verification_status not in [VerificationStatus.PENDING.value, VerificationStatus.RESUBMITTED.value]:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot assign. Profile status is: {user.verification_status.value}"
+            detail=f"Cannot assign. Profile status is: {user.verification_status or 'unknown'}"
         )
     
     user.verification_status = VerificationStatus.UNDER_REVIEW.value

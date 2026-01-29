@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -247,6 +247,8 @@ interface AdminCreateUserWizardProps {
   onClose: () => void;
   onSuccess: () => void;
   onError: (message: string) => void;
+  /** When set, skip role selection and start with this role (e.g. techie admin creates only techies). */
+  initialRole?: 'techie' | 'hr' | 'company' | 'school';
 }
 
 const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
@@ -254,12 +256,24 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
   onClose,
   onSuccess,
   onError,
+  initialRole,
 }) => {
-  // Step management
-  const [activeStep, setActiveStep] = useState(0);
+  // Step management - when initialRole is set, start at step 1 (skip role selection)
+  const [activeStep, setActiveStep] = useState(initialRole ? 1 : 0);
   
   // Role selection
-  const [selectedRole, setSelectedRole] = useState<'techie' | 'hr' | 'company' | 'school'>('techie');
+  const [selectedRole, setSelectedRole] = useState<'techie' | 'hr' | 'company' | 'school'>(initialRole || 'techie');
+
+  // When dialog opens with initialRole, lock role and skip role step; when closes, reset
+  useEffect(() => {
+    if (open && initialRole) {
+      setSelectedRole(initialRole);
+      setActiveStep(1);
+    } else if (!open) {
+      setActiveStep(initialRole ? 1 : 0);
+      setSelectedRole(initialRole || 'techie');
+    }
+  }, [open, initialRole]);
   
   // Form data
   const [formData, setFormData] = useState({
@@ -647,6 +661,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
       if (!formData.first_name) return 'First name is required';
       if (!formData.last_name) return 'Last name is required';
       if (!formData.dob) return 'Date of birth is required';
+      if (!formData.country) return 'Country is required';
       if (!formData.gov_id) return `${getGovIdLabel()} is required`;
       if (!formData.address) return 'Address is required';
       if (!formData.password) return 'Password is required';
@@ -658,6 +673,18 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
         if (!formData.work_authorization) return 'Work authorization is required';
         if (!formData.profile) return 'Profile summary is required';
       }
+    }
+    if (activeStep === 2 && selectedRole === 'hr') {
+      if (!formData.company_name?.trim()) return 'Company name is required for Hiring Manager';
+      const companyEmail = formData.company_email?.trim() || formData.email?.trim();
+      if (!companyEmail) return 'Company email is required for Hiring Manager';
+      if (!companyEmail.includes('@')) return 'Please enter a valid company email address';
+    }
+    if (activeStep === 2 && selectedRole === 'company') {
+      if (!formData.company_name?.trim()) return 'Company name is required';
+    }
+    if (activeStep === 2 && selectedRole === 'school') {
+      if (!formData.school_name?.trim()) return 'School name is required';
     }
     return null;
   };
@@ -686,8 +713,12 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
     setActiveStep(prev => prev + 1);
   };
 
-  // Handle back
+  // Handle back — when initialRole and at first visible step, close instead of going to role step
   const handleBack = () => {
+    if (initialRole && activeStep === 1) {
+      onClose();
+      return;
+    }
     setActiveStep(prev => prev - 1);
   };
 
@@ -730,7 +761,8 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
             job_title: exp.job_title,
             from_date: exp.from_date,
             to_date: exp.to_date,
-            skills: exp.skills,
+            // API expects skills as string[]; frontend stores Skill[] (name, experience, rating)
+            skills: (exp.skills || []).map((s) => (typeof s === 'string' ? s : s.name)).filter(Boolean),
             job_description: exp.job_description,
             manager_name: exp.manager_name,
             manager_email: exp.manager_email,
@@ -1792,7 +1824,8 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
-                    label="Company Name"
+                    required
+                    label="Company Name *"
                     value={formData.company_name}
                     onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
                     sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
@@ -1801,10 +1834,12 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
-                    label="Company Email"
+                    required
+                    label="Company Email *"
                     type="email"
-                    value={formData.company_email}
+                    value={formData.company_email || formData.email}
                     onChange={(e) => setFormData({ ...formData, company_email: e.target.value })}
+                    placeholder={formData.email || 'e.g. hr@company.com'}
                     sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
                   />
                 </Grid>
@@ -2711,6 +2746,48 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                       )}
                     </Box>
                   ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Company Details for HR */}
+            {selectedRole === 'hr' && (formData.company_name || formData.company_email) && (
+              <Card sx={{ borderRadius: '16px', mb: 2 }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                      Company Details
+                    </Typography>
+                    <Tooltip title="Edit Company Details">
+                      <IconButton 
+                        onClick={() => setActiveStep(2)} 
+                        sx={{ color: '#3b82f6' }}
+                        size="small"
+                      >
+                        <Edit />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                  <Grid container spacing={2}>
+                    {formData.company_name && (
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" color="text.secondary">Company Name</Typography>
+                        <Typography variant="body2">{formData.company_name}</Typography>
+                      </Grid>
+                    )}
+                    {formData.company_email && (
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" color="text.secondary">Company Email</Typography>
+                        <Typography variant="body2">{formData.company_email}</Typography>
+                      </Grid>
+                    )}
+                    {formData.company_website && (
+                      <Grid item xs={12}>
+                        <Typography variant="caption" color="text.secondary">Company Website</Typography>
+                        <Typography variant="body2">{formData.company_website}</Typography>
+                      </Grid>
+                    )}
+                  </Grid>
                 </CardContent>
               </Card>
             )}
