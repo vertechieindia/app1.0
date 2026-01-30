@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 
 import enum
 
@@ -88,10 +88,10 @@ class User(Base, UUIDMixin, TimestampMixin):
     mobile_verified = Column(Boolean, default=False)
     is_superuser = Column(Boolean, default=False)
     
-    # Admin Review Workflow (PostgreSQL ENUM verificationstatus; create_type=False = type exists from migrations)
+    # Admin Review Workflow - stored as string (VARCHAR) for compatibility; use VerificationStatus.X.value when assigning
     verification_status = Column(
-        Enum(VerificationStatus, name="verificationstatus", create_type=False),
-        default=VerificationStatus.PENDING,
+        String(50),
+        default=VerificationStatus.PENDING.value,
         nullable=True,
     )
     reviewed_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -228,7 +228,7 @@ class Experience(Base, UUIDMixin, TimestampMixin):
     
     # Description
     description = Column(Text, nullable=True)
-    skills = Column(JSON, default=list)
+    skills = Column(ARRAY(String), default=list)  # PostgreSQL character varying[]
     
     # Verification
     is_verified = Column(Boolean, default=False)

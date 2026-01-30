@@ -19,21 +19,35 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Create poll_votes table
-    op.create_table(
-        'poll_votes',
-        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column('post_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('option_index', sa.Integer(), nullable=False),
-        sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()),
-        sa.ForeignKeyConstraint(['post_id'], ['posts.id'], ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
-        sa.UniqueConstraint('post_id', 'user_id', name='uq_poll_vote_user_post'),
-    )
-    op.create_index('ix_poll_votes_post_id', 'poll_votes', ['post_id'])
-    op.create_index('ix_poll_votes_user_id', 'poll_votes', ['user_id'])
+    # Check if table already exists (idempotent migration)
+    from sqlalchemy import inspect
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    
+    if 'poll_votes' not in inspector.get_table_names():
+        # Create poll_votes table
+        op.create_table(
+            'poll_votes',
+            sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
+            sa.Column('post_id', postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column('option_index', sa.Integer(), nullable=False),
+            sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
+            sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()),
+            sa.ForeignKeyConstraint(['post_id'], ['posts.id'], ondelete='CASCADE'),
+            sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+            sa.UniqueConstraint('post_id', 'user_id', name='uq_poll_vote_user_post'),
+        )
+        op.create_index('ix_poll_votes_post_id', 'poll_votes', ['post_id'])
+        op.create_index('ix_poll_votes_user_id', 'poll_votes', ['user_id'])
+    else:
+        # Table already exists, ensure indexes exist
+        # Check and create indexes if they don't exist
+        indexes = [idx['name'] for idx in inspector.get_indexes('poll_votes')]
+        if 'ix_poll_votes_post_id' not in indexes:
+            op.create_index('ix_poll_votes_post_id', 'poll_votes', ['post_id'])
+        if 'ix_poll_votes_user_id' not in indexes:
+            op.create_index('ix_poll_votes_user_id', 'poll_votes', ['user_id'])
 
 
 def downgrade() -> None:

@@ -66,22 +66,58 @@ Sample emails:
 
 ### Database Migrations (Alembic)
 
+**Prerequisites:**
+- PostgreSQL database must be running
+- `.env` file must contain `DATABASE_URL=postgresql+asyncpg://user:password@host:port/database`
+
+**Initial Setup:**
 ```bash
 cd vertechie_be/vertechie_fastapi
 source venv_run/bin/activate
 
+# Verify Alembic setup (recommended first step)
+python test_alembic_setup.py
+
 # Check current migration status
 alembic current
 
+# View migration history
+alembic history
+
+# Apply all pending migrations
+alembic upgrade head
+```
+
+**Creating New Migrations:**
+```bash
 # After changing models, generate a new migration
 alembic revision --autogenerate -m "description_of_change"
 
-# Apply migrations
+# Review the generated migration file in alembic/versions/
+# Then apply it
 alembic upgrade head
+```
+
+**Migration Management:**
+```bash
+# Check current migration status
+alembic current
+
+# View migration history
+alembic history
 
 # Rollback one migration
 alembic downgrade -1
+
+# Rollback to specific revision
+alembic downgrade <revision_id>
+
+# View pending migrations
+alembic heads
 ```
+
+**Production Migrations:**
+See `PRODUCTION_MIGRATIONS.md` for detailed production migration procedures, backup, and rollback instructions.
 
 ---
 

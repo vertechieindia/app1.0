@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 import logging
@@ -79,6 +80,26 @@ async def add_process_time_header(request: Request, call_next):
 
 # ============= Exception Handlers =============
 
+def _add_cors_headers(response: JSONResponse, request: Request) -> JSONResponse:
+    """Add CORS headers to a response so the browser allows the frontend to read it."""
+    origin = request.headers.get("origin")
+    if origin and origin in settings.CORS_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+    elif settings.CORS_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = settings.CORS_ORIGINS[0]
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
+
+@app.exception_handler(FastAPIHTTPException)
+async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
+    """Handle HTTPException so CORS headers are always present on error responses."""
+    resp = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return _add_cors_headers(resp, request)
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors."""
@@ -90,13 +111,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "type": error["type"]
         })
     
-    return JSONResponse(
+    resp = JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "detail": "Validation error",
             "errors": errors
         }
     )
+    return _add_cors_headers(resp, request)
 
 
 @app.exception_handler(Exception)
@@ -104,13 +126,14 @@ async def general_exception_handler(request: Request, exc: Exception):
     """Handle unexpected errors."""
     logger.error(f"Unexpected error: {exc}", exc_info=True)
     
-    return JSONResponse(
+    resp = JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "detail": "An unexpected error occurred",
             "error": str(exc) if settings.DEBUG else None
         }
     )
+    return _add_cors_headers(resp, request)
 
 
 # ============= Routes =============

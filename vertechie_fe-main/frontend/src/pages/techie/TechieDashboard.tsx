@@ -22,6 +22,7 @@ import {
   Card,
   CardContent,
   CardActions,
+  CardMedia,
   Button,
   IconButton,
   Avatar,
@@ -62,8 +63,9 @@ import {
   Chat as ChatIcon,
   Leaderboard as LeaderboardIcon,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { getApiUrl, API_ENDPOINTS } from '../../config/api';
+import { fetchWithAuth } from '../../utils/apiInterceptor';
 
 // Types
 interface UserStats {
@@ -108,6 +110,22 @@ interface GroupPreview {
   member_count: number;
   avatar?: string;
 }
+
+interface SavedArticle {
+  id: string;
+  title: string;
+  excerpt?: string;
+  cover_image?: string;
+  category_name?: string;
+  published_at?: string;
+  created_at?: string;
+}
+
+const MOCK_SAVED_ARTICLES: SavedArticle[] = [
+  { id: 'mock-1', title: 'The Future of AI in Software Development', excerpt: 'Explore how AI is revolutionizing the way we write code and design software.', cover_image: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800', category_name: 'AI & ML', published_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
+  { id: 'mock-2', title: 'From Junior to Senior: 10 Lessons That Changed My Career', excerpt: 'The most valuable lessons from junior developer to senior engineer.', cover_image: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800', category_name: 'Career', published_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
+  { id: 'mock-3', title: 'Building Scalable Microservices with Kubernetes and Go', excerpt: 'Designing and deploying microservices with Kubernetes and Go.', cover_image: 'https://images.unsplash.com/photo-1667372393119-3d4c48d07fc9?w=800', category_name: 'Technology', published_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
+];
 
 // Tab Panel Component
 interface TabPanelProps {
@@ -497,6 +515,7 @@ const ActiveGroups: React.FC<{ groups: GroupPreview[] }> = ({ groups }) => {
 const TechieDashboard: React.FC = () => {
   const theme = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -514,6 +533,9 @@ const TechieDashboard: React.FC = () => {
   const [dailyProblem, setDailyProblem] = useState<CodingProblem | undefined>();
   const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
   const [groups, setGroups] = useState<GroupPreview[]>([]);
+  const [savedArticles, setSavedArticles] = useState<SavedArticle[]>([]);
+  const [savedBlogsLoading, setSavedBlogsLoading] = useState(false);
+  const [isSavedMockData, setIsSavedMockData] = useState(false);
   
   // Fetch dashboard data
   const fetchDashboardData = useCallback(async () => {
@@ -596,9 +618,57 @@ const TechieDashboard: React.FC = () => {
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
-  
+
+  const fetchSavedBlogs = useCallback(async () => {
+    setSavedBlogsLoading(true);
+    try {
+      const response = await fetchWithAuth(getApiUrl('/blog/bookmarks'));
+      if (response.ok) {
+        const data = await response.json();
+        const list = Array.isArray(data) ? data : [];
+        setSavedArticles(list.length > 0 ? list : MOCK_SAVED_ARTICLES);
+        setIsSavedMockData(list.length === 0);
+      } else {
+        setSavedArticles(MOCK_SAVED_ARTICLES);
+        setIsSavedMockData(true);
+      }
+    } catch (err) {
+      console.error('Error fetching saved blogs:', err);
+      setSavedArticles(MOCK_SAVED_ARTICLES);
+      setIsSavedMockData(true);
+    } finally {
+      setSavedBlogsLoading(false);
+    }
+  }, []);
+
+  // When navigating to Saved Items (/techie/saved or /saved), open Saved tab
+  const isSavedRoute = location.pathname === '/techie/saved' || location.pathname === '/saved';
+  useEffect(() => {
+    if (isSavedRoute) setTabValue(5);
+  }, [isSavedRoute]);
+
+  // Whenever Saved tab is active (index 5), fetch bookmarks so the API is always called
+  useEffect(() => {
+    if (tabValue === 5) fetchSavedBlogs();
+  }, [tabValue, fetchSavedBlogs]);
+
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+    if (newValue === 5) fetchSavedBlogs();
+  };
+
+  const handleRemoveSavedBlog = async (articleId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (articleId.startsWith('mock-')) {
+      setSavedArticles((prev) => prev.filter((a) => a.id !== articleId));
+      return;
+    }
+    try {
+      const response = await fetchWithAuth(getApiUrl(`/blog/articles/${articleId}/bookmark`), { method: 'DELETE' });
+      if (response.ok) setSavedArticles((prev) => prev.filter((a) => a.id !== articleId));
+    } catch (err) {
+      console.error('Error removing bookmark:', err);
+    }
   };
   
   return (
@@ -632,9 +702,7 @@ const TechieDashboard: React.FC = () => {
                     boxShadow: 1,
                   }}
                 >
-                  <Badge badgeContent={3} color="error">
-                    <NotificationsIcon />
-                  </Badge>
+                  <NotificationsIcon />
                 </IconButton>
               </Tooltip>
               <Tooltip title="Search">
@@ -685,6 +753,7 @@ const TechieDashboard: React.FC = () => {
                 <Tab icon={<PeopleIcon />} iconPosition="start" label="Network" />
                 <Tab icon={<GroupIcon />} iconPosition="start" label="Community" />
                 <Tab icon={<SchoolIcon />} iconPosition="start" label="Learn" />
+                <Tab icon={<BookmarkIcon />} iconPosition="start" label="Saved" />
               </Tabs>
             </Paper>
             
@@ -925,6 +994,72 @@ const TechieDashboard: React.FC = () => {
                     </CardActions>
                   </Card>
                 </Grid>
+              </Grid>
+            </TabPanel>
+
+            <TabPanel value={tabValue} index={5}>
+              <Grid container spacing={3}>
+                <Grid item xs={12}>
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
+                    Saved Blogs
+                  </Typography>
+                  <Typography color="text.secondary" sx={{ mb: 2 }}>
+                    Your bookmarked articles — listed here
+                  </Typography>
+                </Grid>
+                {savedBlogsLoading ? (
+                  <Grid item xs={12}>
+                    <LinearProgress sx={{ borderRadius: 2, height: 6 }} />
+                    <Typography color="text.secondary" sx={{ mt: 2 }}>Loading saved blogs...</Typography>
+                  </Grid>
+                ) : savedArticles.length === 0 ? (
+                  <Grid item xs={12}>
+                    <Card sx={{ borderRadius: 3, p: 4, textAlign: 'center' }}>
+                      <BookmarkIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+                      <Typography color="text.secondary" gutterBottom>No saved blogs yet</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Bookmark articles on the blog to see them here.</Typography>
+                      <Button variant="contained" onClick={() => navigate('/techie/blogs')} sx={{ textTransform: 'none' }}>Explore Blogs</Button>
+                    </Card>
+                  </Grid>
+                ) : (
+                  savedArticles.map((article) => (
+                    <Grid item xs={12} sm={6} md={4} key={article.id}>
+                      <Card
+                        sx={{
+                          borderRadius: 3,
+                          overflow: 'hidden',
+                          cursor: 'pointer',
+                          '&:hover': { boxShadow: 4 },
+                        }}
+                        onClick={() => navigate('/techie/blogs')}
+                      >
+                        <CardMedia
+                          component="img"
+                          height="140"
+                          image={article.cover_image || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800'}
+                          alt={article.title}
+                          sx={{ objectFit: 'cover' }}
+                        />
+                        <CardContent sx={{ pb: 1 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            {(article as any).category_name || 'Blog'}
+                            {article.published_at && ` • ${new Date(article.published_at).toLocaleDateString()}`}
+                          </Typography>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }} noWrap>{article.title || 'Untitled'}</Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {(article.excerpt || '').trim() || 'No excerpt'}
+                          </Typography>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1.5 }}>
+                            <Button size="small" onClick={(e) => { e.stopPropagation(); navigate('/techie/blogs'); }} sx={{ textTransform: 'none' }}>Open</Button>
+                            <IconButton size="small" onClick={(e) => handleRemoveSavedBlog(article.id, e)} sx={{ color: 'primary.main' }} title="Remove from saved">
+                              <BookmarkIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))
+                )}
               </Grid>
             </TabPanel>
           </Grid>
