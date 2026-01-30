@@ -367,7 +367,7 @@ const Blogs: React.FC = () => {
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
   const [writeDialogOpen, setWriteDialogOpen] = useState(false);
   const [coverImage, setCoverImage] = useState<string | null>(null);
-  const [savedBlogs, setSavedBlogs] = useState<Set<string>>(new Set(['2']));
+  const [savedBlogs, setSavedBlogs] = useState<Set<string>>(new Set());
   const [likedBlogs, setLikedBlogs] = useState<Set<string>>(new Set(['1', '3']));
   const [shareMenuAnchor, setShareMenuAnchor] = useState<null | HTMLElement>(null);
   const [loading, setLoading] = useState(true);
@@ -439,44 +439,78 @@ const Blogs: React.FC = () => {
     }
   }, []);
 
+  // Fetch my bookmarks so saved state is correct and API is used on load
+  const fetchMyBookmarks = useCallback(async () => {
+    try {
+      const response = await fetchWithAuth(getApiUrl('/blog/bookmarks'));
+      if (response.ok) {
+        const data = await response.json();
+        const ids = Array.isArray(data) ? data.map((a: { id?: string }) => a.id).filter(Boolean) : [];
+        setSavedBlogs(new Set(ids.map(String)));
+      }
+    } catch (err) {
+      console.error('Error fetching bookmarks:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchBlogs();
     fetchCategories();
-  }, [fetchBlogs, fetchCategories]);
+    fetchMyBookmarks();
+  }, [fetchBlogs, fetchCategories, fetchMyBookmarks]);
   const [selectedBlogForShare, setSelectedBlogForShare] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
-  // Toggle save/bookmark
-  const handleToggleSave = (blogId: string, e: React.MouseEvent) => {
+  // Toggle save/bookmark — call API then update local state
+  const handleToggleSave = async (blogId: string, e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
-    setSavedBlogs(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(blogId)) {
-        newSet.delete(blogId);
-      } else {
-        newSet.add(blogId);
+    const id = String(blogId);
+    const isSaved = savedBlogs.has(id);
+    try {
+      const url = getApiUrl(`/blog/articles/${id}/bookmark`);
+      const response = await fetchWithAuth(url, {
+        method: isSaved ? 'DELETE' : 'POST',
+      });
+      if (response.ok) {
+        setSavedBlogs(prev => {
+          const next = new Set(prev);
+          if (isSaved) next.delete(id);
+          else next.add(id);
+          return next;
+        });
       }
-      return newSet;
-    });
+    } catch (err) {
+      console.error('Toggle bookmark failed:', err);
+    }
   };
 
-  // Toggle like
-  const handleToggleLike = (blogId: string, e: React.MouseEvent) => {
+  // Toggle like (react) — call API then update local state and count
+  const handleToggleLike = async (blogId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setLikedBlogs(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(blogId)) {
-        newSet.delete(blogId);
-      } else {
-        newSet.add(blogId);
+    const isLiked = likedBlogs.has(blogId);
+    try {
+      const base = getApiUrl(`/blog/articles/${blogId}/react`);
+      const response = await fetchWithAuth(
+        isLiked ? base : `${base}?reaction_type=like`,
+        { method: isLiked ? 'DELETE' : 'POST' }
+      );
+      if (response.ok) {
+        setLikedBlogs(prev => {
+          const next = new Set(prev);
+          if (isLiked) next.delete(blogId);
+          else next.add(blogId);
+          return next;
+        });
+        setBlogs(prev => prev.map(blog =>
+          blog.id === blogId
+            ? { ...blog, likes: Math.max(0, blog.likes + (isLiked ? -1 : 1)) }
+            : blog
+        ));
       }
-      return newSet;
-    });
-    setBlogs(prev => prev.map(blog => 
-      blog.id === blogId 
-        ? { ...blog, likes: likedBlogs.has(blogId) ? blog.likes - 1 : blog.likes + 1 }
-        : blog
-    ));
+    } catch (err) {
+      console.error('Toggle like failed:', err);
+    }
   };
 
   // Share functionality
@@ -835,6 +869,8 @@ const Blogs: React.FC = () => {
                         }}
                       />
                       <IconButton
+                        type="button"
+                        aria-label={savedBlogs.has(blog.id) ? 'Remove from saved' : 'Save blog'}
                         sx={{
                           position: 'absolute',
                           top: 8,
@@ -842,9 +878,9 @@ const Blogs: React.FC = () => {
                           bgcolor: 'rgba(255,255,255,0.9)',
                           '&:hover': { bgcolor: 'white' },
                         }}
-                        onClick={(e) => { e.stopPropagation(); handleBookmark(blog.id); }}
+                        onClick={(e) => { e.stopPropagation(); handleToggleSave(blog.id, e); }}
                       >
-                        {blog.isBookmarked ? (
+                        {savedBlogs.has(blog.id) ? (
                           <BookmarkIcon sx={{ color: colors.primary }} />
                         ) : (
                           <BookmarkBorderIcon sx={{ color: colors.textLight }} />
@@ -964,7 +1000,9 @@ const Blogs: React.FC = () => {
                           
                           {/* Bookmark Button */}
                           <IconButton
+                            type="button"
                             size="small"
+                            aria-label={savedBlogs.has(blog.id) ? 'Remove from saved' : 'Save blog'}
                             onClick={(e) => handleToggleSave(blog.id, e)}
                             sx={{ 
                               transition: 'transform 0.2s',
