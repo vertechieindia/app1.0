@@ -128,9 +128,9 @@ class Article(Base):
     # Type
     content_type = Column(SQLEnum(ContentType), default=ContentType.ARTICLE)
     
-    # Media
-    cover_image = Column(String(500))
-    thumbnail = Column(String(500))
+    # Media (Text to allow base64 data URLs or long URLs)
+    cover_image = Column(Text)
+    thumbnail = Column(Text)
     
     # Author
     author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))

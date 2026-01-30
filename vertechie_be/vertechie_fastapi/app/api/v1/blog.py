@@ -531,7 +531,7 @@ async def list_my_bookmarks(
     """List my bookmarked articles."""
     result = await db.execute(
         select(Article)
-        .join(ArticleBookmark)
+        .join(ArticleBookmark, Article.id == ArticleBookmark.article_id)
         .where(ArticleBookmark.user_id == current_user.id)
         .order_by(ArticleBookmark.created_at.desc())
         .offset(skip).limit(limit)
