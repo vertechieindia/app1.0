@@ -2,10 +2,10 @@
 Chat and Messaging schemas.
 """
 
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, field_serializer
 
 
 class ConversationCreate(BaseModel):
@@ -14,7 +14,22 @@ class ConversationCreate(BaseModel):
     conversation_type: str = "direct"
     name: Optional[str] = None
     description: Optional[str] = None
-    member_ids: List[UUID] = []
+    member_ids: List[Union[UUID, str]] = []
+    
+    @field_validator('member_ids', mode='before')
+    @classmethod
+    def parse_member_ids(cls, v):
+        """Parse member_ids from strings or UUIDs."""
+        if isinstance(v, list):
+            return [UUID(str(item)) if isinstance(item, str) else item for item in v]
+        return v
+
+
+def _serialize_datetime_utc(dt: Optional[datetime]) -> Optional[str]:
+    """Serialize naive datetime as ISO with Z so frontend interprets as UTC."""
+    if dt is None:
+        return None
+    return dt.isoformat() + 'Z' if dt.tzinfo is None else dt.isoformat()
 
 
 class ConversationResponse(BaseModel):
@@ -29,7 +44,12 @@ class ConversationResponse(BaseModel):
     member_count: int = 0
     last_message_at: Optional[datetime] = None
     last_message_preview: Optional[str] = None
+    unread_count: int = 0  # Added for unread message tracking
     created_at: datetime
+
+    @field_serializer('last_message_at', 'created_at')
+    def serialize_datetimes(self, dt: Optional[datetime]) -> Optional[str]:
+        return _serialize_datetime_utc(dt)
     
     class Config:
         from_attributes = True
@@ -79,6 +99,13 @@ class MessageResponse(BaseModel):
     mentions: List[UUID] = []
     
     created_at: datetime
+
+    @field_serializer('created_at')
+    def serialize_created_at(self, dt: datetime) -> str:
+        """Serialize as ISO with Z so frontend interprets as UTC."""
+        if dt.tzinfo is None:
+            return dt.isoformat() + 'Z'
+        return dt.isoformat()
     
     class Config:
         from_attributes = True

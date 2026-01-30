@@ -9,12 +9,12 @@ const getBaseUrl = (): string => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  
+
   // Development default
   if (import.meta.env.DEV) {
     return 'http://localhost:8000/api/v1';
   }
-  
+
   // Production
   return 'https://api.vertechie.com/api/v1';
 };
@@ -28,12 +28,12 @@ const getLegacyBaseUrl = (): string => {
   if (import.meta.env.VITE_LEGACY_API_URL) {
     return import.meta.env.VITE_LEGACY_API_URL;
   }
-  
+
   // Development default - same host but without /v1
   if (import.meta.env.DEV) {
     return 'http://localhost:8000/api/';
   }
-  
+
   // Production
   return 'https://api.vertechie.com/api/';
 };
@@ -56,13 +56,13 @@ export const API_ENDPOINTS = {
     RESET_PASSWORD: '/auth/reset-password',
     VERIFY_EMAIL: '/auth/verify-email',
   },
-  
+
   // Token endpoint (for getting auth token after registration)
   TOKEN: '/auth/token',
 
   // Admin user creation endpoint
   CREATE_ADMIN: '/auth/admin/users',
-  
+
   // Company invites
   COMPANY_INVITES: '/companies/invites',
 
@@ -71,7 +71,7 @@ export const API_ENDPOINTS = {
   COMPANY: '/companies',
   COMPANY_SIGNUP: '/companies/signup',
   SCHOOL_SIGNUP: '/schools/signup',
-  
+
   // Additional top-level endpoints used across the app
   GROUPS: '/groups/',
   PERMISSIONS: '/permissions/',
@@ -81,7 +81,7 @@ export const API_ENDPOINTS = {
   EXPERIENCES: '/experiences/',
   FORGOT_PASSWORD: '/auth/forgot-password',
   FRONTEND_LOGS: '/logs/frontend/',
-  
+
   // Legacy endpoint shortcuts (also accessible via LEGACY.*)
   SEND_EMAIL_OTP: 'v_auth/auth/send-email-otp/',
   VERIFY_EMAIL_OTP: 'v_auth/auth/verify-email-otp/',
@@ -167,6 +167,9 @@ export const API_ENDPOINTS = {
     MESSAGES: (conversationId: string) => `/chat/conversations/${conversationId}/messages`,
     SEND_MESSAGE: (conversationId: string) => `/chat/conversations/${conversationId}/messages`,
     REACT: (messageId: string) => `/chat/messages/${messageId}/react`,
+    // Backend expects unread-count under conversations path
+    UNREAD_COUNT: '/chat/conversations/unread-count',
+    MARK_READ: (conversationId: string) => `/chat/conversations/${conversationId}/mark-read`,
   },
 
   // ============================================

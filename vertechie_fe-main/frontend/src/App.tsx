@@ -71,6 +71,7 @@ import MyApplications from './pages/user/MyApplications';
 
 // Techie Platform Pages (Phase 1-4)
 import { TechieDashboard, CodingProblems, ProblemDetail, ProblemsPage, IDEPage, Chat, CompanyPageManagement, SchoolPageManagement, ATSPage, SchedulingPage, CalendarView } from './pages/techie';
+import SuperAdminChat from './pages/superadmin/SuperAdminChat';
 import ProfilePage from './pages/techie/ProfilePage';
 import Learn from './pages/techie/Learn';
 import Blogs from './pages/techie/Blogs';
@@ -381,6 +382,11 @@ const App: React.FC = () => {
             <Route path="/super-admin/*" element={
               <ProtectedRoute requiredRole="superadmin">
                 <SuperAdmin />
+              </ProtectedRoute>
+            } />
+            <Route path="/super-admin/chat" element={
+              <ProtectedRoute requiredRole="superadmin">
+                <SuperAdminChat />
               </ProtectedRoute>
             } />
             

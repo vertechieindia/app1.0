@@ -139,9 +139,15 @@ async def root():
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
+# Include WebSocket router for chat
+from app.api.v1.chat_ws import websocket_endpoint
+app.websocket("/ws/chat/{conversation_id}")(websocket_endpoint)
+
 # Static files for uploaded post images (uploads dir at project root)
 _uploads = Path(__file__).resolve().parent.parent / "uploads"
 _uploads.mkdir(exist_ok=True)
+_uploads_chat = _uploads / "chat"
+_uploads_chat.mkdir(exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(_uploads)), name="uploads")
 
 # Include legacy v_auth router for backwards compatibility

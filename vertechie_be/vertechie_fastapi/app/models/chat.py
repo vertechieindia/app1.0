@@ -31,6 +31,7 @@ class MessageType(str, enum.Enum):
     AUDIO = "audio"
     GIF = "gif"
     POLL = "poll"
+    LINK = "link"
     SYSTEM = "system"
 
 

@@ -154,8 +154,9 @@ async def login(
     """Login and get access token with user data."""
     
     # Find user
+    from sqlalchemy import func
     result = await db.execute(
-        select(User).where(User.email == login_data.email)
+        select(User).where(func.lower(User.email) == func.lower(login_data.email))
     )
     user = result.scalar_one_or_none()
     
@@ -245,8 +246,9 @@ async def token_login(
     """OAuth2 compatible token login (form data)."""
     
     # Find user
+    from sqlalchemy import func
     result = await db.execute(
-        select(User).where(User.email == form_data.username)
+        select(User).where(func.lower(User.email) == func.lower(form_data.username))
     )
     user = result.scalar_one_or_none()
     

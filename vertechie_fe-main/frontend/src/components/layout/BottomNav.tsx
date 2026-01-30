@@ -10,7 +10,7 @@
  * - Company Account: CMS (Company Management System)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   BottomNavigation as MuiBottomNav,
@@ -32,6 +32,8 @@ import {
 import { styled, alpha } from '@mui/material/styles';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
 import { API_BASE_URL } from '../../config/api';
+import { chatService } from '../../services/chatService';
+import { notificationService } from '../../services/interviewService';
 
 // Icons
 import HomeIcon from '@mui/icons-material/Home';
@@ -137,8 +139,8 @@ const BottomNav: React.FC = () => {
   const [userName, setUserName] = useState('');
   const [userAvatar, setUserAvatar] = useState('');
   const [notifications, setNotifications] = useState(0);
-  const [messages, setMessages] = useState(2);
-  
+  const [messages, setMessages] = useState(0);
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const isTablet = useMediaQuery(theme.breakpoints.down('md'));
@@ -148,33 +150,62 @@ const BottomNav: React.FC = () => {
   // Fetch unread notification count from backend
   const fetchNotificationCount = async () => {
     try {
-      const token = localStorage.getItem('authToken');
-      if (!token) return;
-      
-      const response = await fetch(`${API_BASE_URL}/hiring/notifications/unread-count`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setNotifications(data.unread_count || 0);
-      }
+      const data = await notificationService.getUnreadCount();
+      setNotifications(data.unread_count || 0);
     } catch (error) {
       console.error('Failed to fetch notification count:', error);
     }
   };
 
+  // Poll control
+  const consecutive404 = useRef(0);
+  const [stopMessagePolling, setStopMessagePolling] = useState(false);
+
+  // Fetch unread message count from backend
+  const fetchMessageCount = async () => {
+    if (stopMessagePolling) return;
+    try {
+      const data = await chatService.getUnreadCount();
+      setMessages(data.unread_count || 0);
+      consecutive404.current = 0;
+    } catch (error: any) {
+      const status = error?.response?.status;
+      console.warn('Failed to fetch message count:', error?.message || error);
+      if (status === 404) {
+        consecutive404.current += 1;
+        if (consecutive404.current > 3) {
+          setStopMessagePolling(true);
+          console.warn('Stopping unread-count polling after repeated 404s');
+        }
+      }
+    }
+  };
+
   useEffect(() => {
     loadUserData();
-    fetchNotificationCount();
-    
-    // Refresh notification count every 30 seconds
-    const interval = setInterval(fetchNotificationCount, 30000);
-    return () => clearInterval(interval);
   }, [location.pathname]);
+
+  // Fetch counts only on mount and then every 30 seconds
+  useEffect(() => {
+    fetchNotificationCount();
+    fetchMessageCount();
+
+    // Listen for real-time chat updates
+    const handleChatUpdate = () => {
+      fetchMessageCount();
+    };
+    window.addEventListener('chat-message-received', handleChatUpdate);
+
+    // Refresh counts every 30 seconds
+    const interval = setInterval(() => {
+      fetchNotificationCount();
+      fetchMessageCount();
+    }, 30000);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('chat-message-received', handleChatUpdate);
+    };
+  }, []); // Run only on mount to prevent frequent API calls during navigation
 
   const loadUserData = () => {
     const userData = localStorage.getItem('userData');
@@ -185,24 +216,24 @@ const BottomNav: React.FC = () => {
         const lastName = user.last_name || '';
         setUserName(`${firstName} ${lastName}`.trim() || user.email || 'User');
         setUserAvatar(user.profile_image || '');
-        
+
         // Determine role - check user.role, user.roles array, user.groups array, and admin_roles
         const userRoles = user.roles || [];
         const userGroups = user.groups || [];
         const adminRoles = user.admin_roles || [];
-        
-        const hasRole = (roleType: string) => 
-          user.role === roleType || 
+
+        const hasRole = (roleType: string) =>
+          user.role === roleType ||
           user.role_type === roleType ||
           userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType.toLowerCase()) ||
           userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType.toLowerCase());
-        
+
         // Check if user is a hiring manager (regular HR, not admin)
         const isHiringManager = hasRole('hiring_manager') || hasRole('hr');
-        
+
         const hasAdminRole = (adminRole: string) =>
           adminRoles.includes(adminRole);
-        
+
         // Check for admin roles first (HM Admin, Techie Admin, etc.)
         if (user.is_superuser || hasAdminRole('superadmin')) {
           setUserRole('super_admin');
@@ -247,7 +278,7 @@ const BottomNav: React.FC = () => {
 
   // Check if user is any type of admin
   const isAnyAdmin = ['super_admin', 'hm_admin', 'techie_admin', 'company_admin', 'school_admin', 'admin'].includes(userRole);
-  
+
   // Core navigation items - same for all users (admins and non-admins)
   const coreNavItems: NavItemConfig[] = [
     { key: 'home', label: 'Home', icon: <HomeIcon />, path: '/techie/home/feed' },
@@ -266,89 +297,89 @@ const BottomNav: React.FC = () => {
   // Get role-specific items - All user-side pages under /techie/
   const getRoleSpecificItems = (): NavItemConfig[] => {
     const items: NavItemConfig[] = [];
-    
+
     // ATS for Hiring Managers and Admins (user-side job posting management)
     if (userRole === 'hiring_manager' || userRole === 'hm_admin' || isAnyAdmin) {
-      items.push({ 
-        key: 'ats', 
-        label: 'ATS', 
-        icon: <TrackChangesIcon />, 
-        path: '/techie/ats' 
+      items.push({
+        key: 'ats',
+        label: 'ATS',
+        icon: <TrackChangesIcon />,
+        path: '/techie/ats'
       });
     }
-    
+
     // SMS for School Page Owners and Admins (user-side school page management)
     if (userRole === 'school' || userRole === 'school_admin' || isAnyAdmin) {
-      items.push({ 
-        key: 'sms', 
-        label: 'SMS', 
-        icon: <BusinessIcon />, 
-        path: '/techie/sms' 
+      items.push({
+        key: 'sms',
+        label: 'SMS',
+        icon: <BusinessIcon />,
+        path: '/techie/sms'
       });
     }
-    
+
     // CMS for Company Page Owners and Admins (user-side company page management)
     if (userRole === 'company' || userRole === 'company_admin' || isAnyAdmin) {
-      items.push({ 
-        key: 'cms', 
-        label: 'CMS', 
-        icon: <DashboardIcon />, 
-        path: '/techie/cms' 
+      items.push({
+        key: 'cms',
+        label: 'CMS',
+        icon: <DashboardIcon />,
+        path: '/techie/cms'
       });
     }
-    
+
     // Admin link - Routes to appropriate admin panel based on role
     if (userRole === 'super_admin') {
-      items.push({ 
-        key: 'admin', 
-        label: 'Admin', 
-        icon: <AdminPanelSettingsIcon />, 
-        path: '/super-admin' 
+      items.push({
+        key: 'admin',
+        label: 'Admin',
+        icon: <AdminPanelSettingsIcon />,
+        path: '/super-admin'
       });
     } else if (userRole === 'hm_admin') {
-      items.push({ 
-        key: 'admin', 
-        label: 'Admin', 
-        icon: <AdminPanelSettingsIcon />, 
-        path: '/vertechie/hmadmin' 
+      items.push({
+        key: 'admin',
+        label: 'Admin',
+        icon: <AdminPanelSettingsIcon />,
+        path: '/vertechie/hmadmin'
       });
     } else if (userRole === 'techie_admin') {
-      items.push({ 
-        key: 'admin', 
-        label: 'Admin', 
-        icon: <AdminPanelSettingsIcon />, 
-        path: '/vertechie/techieadmin' 
+      items.push({
+        key: 'admin',
+        label: 'Admin',
+        icon: <AdminPanelSettingsIcon />,
+        path: '/vertechie/techieadmin'
       });
     } else if (userRole === 'company_admin') {
-      items.push({ 
-        key: 'admin', 
-        label: 'Admin', 
-        icon: <AdminPanelSettingsIcon />, 
-        path: '/vertechie/companyadmin' 
+      items.push({
+        key: 'admin',
+        label: 'Admin',
+        icon: <AdminPanelSettingsIcon />,
+        path: '/vertechie/companyadmin'
       });
     } else if (userRole === 'school_admin') {
-      items.push({ 
-        key: 'admin', 
-        label: 'Admin', 
-        icon: <AdminPanelSettingsIcon />, 
-        path: '/vertechie/schooladmin' 
+      items.push({
+        key: 'admin',
+        label: 'Admin',
+        icon: <AdminPanelSettingsIcon />,
+        path: '/vertechie/schooladmin'
       });
     } else if (userRole === 'admin') {
-      items.push({ 
-        key: 'admin', 
-        label: 'Admin', 
-        icon: <AdminPanelSettingsIcon />, 
-        path: '/vertechie/admin' 
+      items.push({
+        key: 'admin',
+        label: 'Admin',
+        icon: <AdminPanelSettingsIcon />,
+        path: '/vertechie/admin'
       });
     }
-    
+
     return items;
   };
 
   // Determine which items to show based on screen size
   const getVisibleItems = () => {
     const roleItems = getRoleSpecificItems();
-    
+
     if (isMobile) {
       // On mobile, show: Home, Jobs, Practice, Chat, Profile + More
       return coreNavItems.slice(0, 3);
@@ -394,7 +425,7 @@ const BottomNav: React.FC = () => {
             <NavLabel>{item.label}</NavLabel>
           </NavItem>
         ))}
-        
+
         {/* Chat (always visible) */}
         {isMobile && (
           <NavItem
@@ -409,7 +440,7 @@ const BottomNav: React.FC = () => {
             <NavLabel>Chat</NavLabel>
           </NavItem>
         )}
-        
+
         {/* Alerts/Notifications */}
         <NavItem
           active={isActive(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
@@ -422,7 +453,7 @@ const BottomNav: React.FC = () => {
           </NavIcon>
           <NavLabel>Alerts</NavLabel>
         </NavItem>
-        
+
         {/* More Menu (for hidden items) */}
         {moreItems.length > 0 && (
           <>
@@ -434,7 +465,7 @@ const BottomNav: React.FC = () => {
               </NavIcon>
               <NavLabel>More</NavLabel>
             </NavItem>
-            
+
             <Menu
               anchorEl={moreAnchor}
               open={Boolean(moreAnchor)}
@@ -479,7 +510,7 @@ const BottomNav: React.FC = () => {
             </Menu>
           </>
         )}
-        
+
         {/* Profile */}
         <NavItem
           active={isActive(userRole === 'hiring_manager' ? '/hr/profile' : '/techie/profile')}
@@ -488,9 +519,9 @@ const BottomNav: React.FC = () => {
           <NavIcon>
             <Avatar
               src={userAvatar}
-              sx={{ 
-                width: 28, 
-                height: 28, 
+              sx={{
+                width: 28,
+                height: 28,
                 bgcolor: '#0d47a1',
                 border: '2px solid rgba(90, 200, 250, 0.5)',
                 fontSize: '0.8rem',
@@ -501,7 +532,7 @@ const BottomNav: React.FC = () => {
           </NavIcon>
           <NavLabel>Profile</NavLabel>
         </NavItem>
-        
+
         {/* Profile Menu */}
         <Menu
           anchorEl={profileAnchor}
@@ -529,7 +560,7 @@ const BottomNav: React.FC = () => {
             </Typography>
           </Box>
           <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-          
+
           <MenuItem
             onClick={() => {
               navigate(userRole === 'hiring_manager' ? '/hr/profile' : '/techie/profile');
@@ -542,7 +573,7 @@ const BottomNav: React.FC = () => {
             </ListItemIcon>
             <ListItemText primary="View Profile" />
           </MenuItem>
-          
+
           <MenuItem
             onClick={() => {
               navigate(userRole === 'hiring_manager' ? '/hr/saved' : '/techie/saved');
@@ -555,7 +586,7 @@ const BottomNav: React.FC = () => {
             </ListItemIcon>
             <ListItemText primary="Saved Items" />
           </MenuItem>
-          
+
           {/* My Applications - for Techies */}
           {userRole !== 'hiring_manager' && (
             <MenuItem
@@ -571,7 +602,7 @@ const BottomNav: React.FC = () => {
               <ListItemText primary="My Applications" />
             </MenuItem>
           )}
-          
+
           {/* My Interviews - for Techies */}
           {userRole !== 'hiring_manager' && (
             <MenuItem
@@ -584,14 +615,14 @@ const BottomNav: React.FC = () => {
               <ListItemIcon sx={{ color: '#5AC8FA' }}>
                 <EventAvailableIcon />
               </ListItemIcon>
-              <ListItemText 
-                primary="My Interviews" 
+              <ListItemText
+                primary="My Interviews"
                 secondary={notifications > 0 ? `${notifications} upcoming` : undefined}
                 secondaryTypographyProps={{ sx: { color: '#5AC8FA', fontSize: '0.75rem' } }}
               />
             </MenuItem>
           )}
-          
+
           <MenuItem
             onClick={() => {
               navigate(userRole === 'hiring_manager' ? '/hr/settings' : '/techie/settings');
@@ -604,10 +635,10 @@ const BottomNav: React.FC = () => {
             </ListItemIcon>
             <ListItemText primary="Settings" />
           </MenuItem>
-          
+
           {/* Create School/Company Account Option */}
           <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-          
+
           {(userRole === 'techie' || userRole === 'hiring_manager') && (
             <>
               <MenuItem
@@ -622,7 +653,7 @@ const BottomNav: React.FC = () => {
                 </ListItemIcon>
                 <ListItemText primary="Create Company Page" />
               </MenuItem>
-              
+
               <MenuItem
                 onClick={() => {
                   navigate('/techie/create-school');
@@ -635,11 +666,11 @@ const BottomNav: React.FC = () => {
                 </ListItemIcon>
                 <ListItemText primary="Create School Page" />
               </MenuItem>
-              
+
               <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
             </>
           )}
-          
+
           <MenuItem
             onClick={() => {
               navigate(userRole === 'hiring_manager' ? '/hr/help' : '/techie/help');
@@ -652,7 +683,7 @@ const BottomNav: React.FC = () => {
             </ListItemIcon>
             <ListItemText primary="Help Center" />
           </MenuItem>
-          
+
           <MenuItem
             onClick={handleLogout}
             sx={{ py: 1.5, color: '#ff6b6b' }}

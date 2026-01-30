@@ -116,6 +116,10 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -193,3 +197,42 @@ async def get_optional_user(
         return await get_current_user(token)
     except HTTPException:
         return None
+
+
+async def get_current_user_from_token(token: str):
+    """Get current authenticated user from token string (for WebSocket)."""
+    from app.db.session import AsyncSessionLocal
+    from app.models.user import User as UserModel
+    
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    user_id = verify_token(token)
+    if user_id is None:
+        raise credentials_exception
+    
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(UserModel).where(UserModel.id == UUID(user_id))
+        )
+        user = result.scalar_one_or_none()
+    
+    if user is None:
+        raise credentials_exception
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive user"
+        )
+    
+    if user.is_blocked:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is blocked"
+        )
+    
+    return user

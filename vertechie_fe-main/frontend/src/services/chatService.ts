@@ -37,9 +37,11 @@ export interface CreateConversationData {
 }
 
 export interface SendMessageData {
-  type?: 'text' | 'image' | 'file' | 'gif' | 'poll';
+  message_type?: 'text' | 'image' | 'file' | 'gif' | 'poll' | 'link';
   content?: string;
   media_url?: string;
+  media_type?: string;
+  media_name?: string;
   poll_data?: {
     question: string;
     options: string[];
@@ -65,7 +67,7 @@ export const chatService = {
   /**
    * Create a new conversation
    */
-  createConversation: async (data: CreateConversationData): Promise<{ id: string; message: string }> => {
+  createConversation: async (data: CreateConversationData): Promise<Conversation> => {
     return api.post(API_ENDPOINTS.CHAT.CREATE_CONVERSATION, data);
   },
 
@@ -88,6 +90,27 @@ export const chatService = {
    */
   reactToMessage: async (messageId: string, reaction: string): Promise<{ reactions: Record<string, string[]> }> => {
     return api.post(API_ENDPOINTS.CHAT.REACT(messageId), null, { params: { reaction } });
+  },
+
+  /**
+   * Get total unread message count across all conversations
+   */
+  getUnreadCount: async (): Promise<{ unread_count: number }> => {
+    return api.get(API_ENDPOINTS.CHAT.UNREAD_COUNT);
+  },
+
+  /**
+   * Mark a conversation as read
+   */
+  markConversationRead: async (conversationId: string): Promise<void> => {
+    return api.put(`/chat/conversations/${conversationId}/mark-read`);
+  },
+
+  /**
+   * Upload a file for chat
+   */
+  uploadFile: async (file: File): Promise<{ url: string; name: string; size: number; type: string; media_type: string }> => {
+    return api.upload('/chat/upload', file);
   },
 };
 
