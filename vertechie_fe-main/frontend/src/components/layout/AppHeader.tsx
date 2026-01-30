@@ -36,6 +36,8 @@ import {
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
+import { chatService } from '../../services/chatService';
+import { notificationService } from '../../services/interviewService';
 
 // Icons
 import MenuIcon from '@mui/icons-material/Menu';
@@ -225,9 +227,11 @@ const AppHeader: React.FC = () => {
   const [userRole, setUserRole] = useState<UserRole>('techie');
   const [userName, setUserName] = useState('');
   const [userAvatar, setUserAvatar] = useState('');
+  const [notifications, setNotifications] = useState(0);
+  const [messages, setMessages] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('lg'));
   const isTablet = useMediaQuery(theme.breakpoints.down('md'));
@@ -238,17 +242,66 @@ const AppHeader: React.FC = () => {
     loadUserData();
   }, [location.pathname]);
 
+  // Fetch counts on mount and listen for real-time updates
+  useEffect(() => {
+    fetchNotificationCount();
+    fetchMessageCount();
+
+    const handleChatUpdate = () => {
+      fetchMessageCount();
+    };
+    window.addEventListener('chat-message-received', handleChatUpdate);
+
+    const interval = setInterval(() => {
+      fetchNotificationCount();
+      fetchMessageCount();
+    }, 30000);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('chat-message-received', handleChatUpdate);
+    };
+  }, []);
+
+  const fetchNotificationCount = async () => {
+    try {
+      const data = await notificationService.getUnreadCount();
+      setNotifications(data.unread_count || 0);
+    } catch (error) {
+      console.error('Failed to fetch notification count:', error);
+    }
+  };
+
+  const fetchMessageCount = async () => {
+    try {
+      const data = await chatService.getUnreadCount();
+      setMessages(data.unread_count || 0);
+    } catch (error) {
+      console.error('Failed to fetch message count:', error);
+    }
+  };
+
   const loadUserData = () => {
     const userData = localStorage.getItem('userData');
     if (userData) {
       try {
         const user = JSON.parse(userData);
-        
+
         // Set user name
         const firstName = user.first_name || '';
         const lastName = user.last_name || '';
         setUserName(`${firstName} ${lastName}`.trim() || user.email || 'User');
         setUserAvatar(user.profile_image || '');
+
+        // Determine role - check user.role, user.roles array, and user.groups array
+        const userRoles = user.roles || [];
+        const userGroups = user.groups || [];
+        const hasRole = (roleType: string) =>
+          user.role === roleType ||
+          userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType) ||
+          userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType);
+
+        if (user.is_superuser) {
         
         // Determine role - check user.role, user.roles array, user.groups array, and admin_roles
         const userRoles = user.roles || [];
@@ -280,6 +333,9 @@ const AppHeader: React.FC = () => {
         } else {
           setUserRole('techie');
         }
+
+        // Mock notifications count
+        setNotifications(3);
       } catch (e) {
         console.error('Error parsing user data:', e);
       }
@@ -371,9 +427,9 @@ const AppHeader: React.FC = () => {
           <CloseIcon />
         </IconButton>
       </Box>
-      
+
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-      
+
       {/* User Info */}
       <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
         <Avatar src={userAvatar} sx={{ width: 48, height: 48, bgcolor: '#0d47a1' }}>
@@ -386,9 +442,9 @@ const AppHeader: React.FC = () => {
           <ProfileChip label={roleLabels[userRole]} size="small" />
         </Box>
       </Box>
-      
+
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-      
+
       {/* Navigation Items */}
       <List sx={{ px: 1, flex: 1 }}>
         {navItems.map((item) => (
@@ -443,9 +499,9 @@ const AppHeader: React.FC = () => {
           )
         ))}
       </List>
-      
+
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-      
+
       {/* Bottom Actions */}
       <List sx={{ px: 1 }}>
         <ListItem
@@ -461,8 +517,8 @@ const AppHeader: React.FC = () => {
         </ListItem>
         <ListItem
           onClick={handleLogout}
-          sx={{ 
-            borderRadius: 2, 
+          sx={{
+            borderRadius: 2,
             color: '#ff6b6b',
             cursor: 'pointer',
             '&:hover': { bgcolor: alpha('#ff6b6b', 0.1) },
@@ -490,14 +546,14 @@ const AppHeader: React.FC = () => {
             <MenuIcon />
           </IconButton>
         )}
-        
+
         {/* Logo */}
         <Box
           component={RouterLink}
           to="/"
-          sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
             textDecoration: 'none',
             mr: 3,
           }}
@@ -517,12 +573,12 @@ const AppHeader: React.FC = () => {
             VerTechie
           </Typography>
         </Box>
-        
+
         {/* Desktop Navigation */}
         {!isTablet && renderDesktopNav()}
-        
+
         <Box sx={{ flexGrow: 1 }} />
-        
+
         {/* Right Side Actions */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           {/* Inline Search Bar */}
@@ -598,10 +654,10 @@ const AppHeader: React.FC = () => {
                 }}
               />
             </Box>
-            
+
             {/* Search Icon Button */}
             <Tooltip title={searchOpen ? "Close" : "Search"}>
-              <IconButton 
+              <IconButton
                 onClick={() => {
                   if (searchOpen && searchQuery.trim()) {
                     navigate(`/techie/search?q=${encodeURIComponent(searchQuery.trim())}`);
@@ -615,14 +671,33 @@ const AppHeader: React.FC = () => {
               </IconButton>
             </Tooltip>
           </Box>
+
+          {/* Messages */}
+          <Tooltip title="Messages">
+            <IconButton component={RouterLink} to="/techie/chat" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+              <Badge badgeContent={messages} color="error">
+                <MessageIcon />
+              </Badge>
+            </IconButton>
+          </Tooltip>
+
+          {/* Notifications */}
+          <Tooltip title="Notifications">
+            <IconButton sx={{ color: 'rgba(255,255,255,0.8)' }}>
+              <Badge badgeContent={notifications} color="error">
+                <NotificationsIcon />
+              </Badge>
+            </IconButton>
+          </Tooltip>
+
           
           {/* Profile Menu */}
           <Box
             onClick={(e) => setProfileAnchor(e.currentTarget)}
-            sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: 1, 
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
               cursor: 'pointer',
               ml: 1,
               p: 0.5,
@@ -630,8 +705,8 @@ const AppHeader: React.FC = () => {
               '&:hover': { bgcolor: alpha('#fff', 0.1) },
             }}
           >
-            <Avatar 
-              src={userAvatar} 
+            <Avatar
+              src={userAvatar}
               sx={{ width: 36, height: 36, bgcolor: '#0d47a1', border: '2px solid rgba(90, 200, 250, 0.5)' }}
             >
               {userName.charAt(0).toUpperCase()}
@@ -648,7 +723,7 @@ const AppHeader: React.FC = () => {
             )}
             <KeyboardArrowDownIcon sx={{ color: 'rgba(255,255,255,0.6)' }} />
           </Box>
-          
+
           <Menu
             anchorEl={profileAnchor}
             open={Boolean(profileAnchor)}
@@ -671,8 +746,8 @@ const AppHeader: React.FC = () => {
               <ProfileChip label={roleLabels[userRole]} size="small" sx={{ mt: 0.5 }} />
             </Box>
             <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-            <MenuItem 
-              component={RouterLink} 
+            <MenuItem
+              component={RouterLink}
               to="/profile"
               onClick={() => setProfileAnchor(null)}
               sx={{ py: 1.5 }}
@@ -682,8 +757,8 @@ const AppHeader: React.FC = () => {
               </ListItemIcon>
               My Profile
             </MenuItem>
-            <MenuItem 
-              component={RouterLink} 
+            <MenuItem
+              component={RouterLink}
               to="/saved"
               onClick={() => setProfileAnchor(null)}
               sx={{ py: 1.5 }}
@@ -693,8 +768,8 @@ const AppHeader: React.FC = () => {
               </ListItemIcon>
               Saved Items
             </MenuItem>
-            <MenuItem 
-              component={RouterLink} 
+            <MenuItem
+              component={RouterLink}
               to="/settings"
               onClick={() => setProfileAnchor(null)}
               sx={{ py: 1.5 }}
@@ -705,7 +780,7 @@ const AppHeader: React.FC = () => {
               Settings
             </MenuItem>
             <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-            <MenuItem 
+            <MenuItem
               onClick={handleLogout}
               sx={{ py: 1.5, color: '#ff6b6b' }}
             >
@@ -717,7 +792,7 @@ const AppHeader: React.FC = () => {
           </Menu>
         </Box>
       </Toolbar>
-      
+
       {/* Mobile Drawer */}
       {renderMobileDrawer()}
     </StyledAppBar>
