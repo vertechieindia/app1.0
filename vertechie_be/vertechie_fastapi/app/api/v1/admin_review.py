@@ -344,10 +344,10 @@ async def list_pending_techies(
         query = query.where(User.verification_status == status_filter.value)
     else:
         # Default: show pending and resubmitted
-        query = query.where(
+            query = query.where(
             or_(
-                User.verification_status == VerificationStatus.PENDING.value,
-                User.verification_status == VerificationStatus.RESUBMITTED.value
+                User.verification_status == VerificationStatus.PENDING,
+                User.verification_status == VerificationStatus.RESUBMITTED
             )
         )
     
@@ -386,7 +386,7 @@ async def list_pending_techies(
             last_name=user.last_name,
             vertechie_id=user.vertechie_id,
             country=user.country,
-            verification_status=user.verification_status or VerificationStatus.PENDING.value,
+            verification_status=user.verification_status or VerificationStatus.PENDING,
             email_verified=user.email_verified,
             mobile_verified=user.mobile_verified,
             created_at=user.created_at,
@@ -543,16 +543,16 @@ async def review_techie(
     
     # Update user based on action
     if review.action == "approve":
-        user.verification_status = VerificationStatus.APPROVED.value
+        user.verification_status = VerificationStatus.APPROVED
         user.is_verified = True
         user.verified_at = datetime.utcnow()
         user.rejection_reason = None
     elif review.action == "reject":
-        user.verification_status = VerificationStatus.REJECTED.value
+        user.verification_status = VerificationStatus.REJECTED
         user.is_verified = False
         user.rejection_reason = review.reason
     elif review.action == "request_changes":
-        user.verification_status = VerificationStatus.REJECTED.value
+        user.verification_status = VerificationStatus.REJECTED
         user.rejection_reason = review.reason
     
     # Update review info
@@ -642,14 +642,14 @@ async def assign_for_review(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Only allow assigning pending or resubmitted profiles (column is string)
-    if user.verification_status not in [VerificationStatus.PENDING.value, VerificationStatus.RESUBMITTED.value]:
+    # Only allow assigning pending or resubmitted profiles
+    if user.verification_status not in [VerificationStatus.PENDING, VerificationStatus.RESUBMITTED]:
         raise HTTPException(
             status_code=400,
             detail=f"Cannot assign. Profile status is: {user.verification_status or 'unknown'}"
         )
     
-    user.verification_status = VerificationStatus.UNDER_REVIEW.value
+    user.verification_status = VerificationStatus.UNDER_REVIEW
     user.reviewed_by_id = current_admin.id
     
     await db.commit()
@@ -678,13 +678,13 @@ async def unassign_from_review(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    if user.verification_status != VerificationStatus.UNDER_REVIEW.value:
+    if user.verification_status != VerificationStatus.UNDER_REVIEW:
         raise HTTPException(
             status_code=400,
             detail=f"Cannot unassign. Profile status is: {user.verification_status}"
         )
     
-    user.verification_status = VerificationStatus.PENDING.value
+    user.verification_status = VerificationStatus.PENDING
     user.reviewed_by_id = None
     
     await db.commit()

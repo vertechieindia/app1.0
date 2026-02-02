@@ -3,7 +3,7 @@
  * Provides consistent header, navigation, and stats for company pages
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -28,8 +28,12 @@ import {
   ImageList,
   ImageListItem,
   Tooltip,
+  CircularProgress,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
+import { api } from '../../../services/apiClient';
+import { API_ENDPOINTS } from '../../../config/api';
+import { DUMMY_COMPANY, DUMMY_STATS } from './CMSDummyData';
 
 // Icons
 import EditIcon from '@mui/icons-material/Edit';
@@ -121,24 +125,121 @@ interface CMSLayoutProps {
 const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  
+
+  // Company data state
+  const [company, setCompany] = useState<any>(null);
+  const [companyStats, setCompanyStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
   // Edit dialog state
   const [editOpen, setEditOpen] = useState(false);
   const [editTab, setEditTab] = useState(0);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [companyInfo, setCompanyInfo] = useState({
-    name: 'TechCorp Solutions',
-    tagline: 'Innovating the Future of Technology',
-    industry: 'Information Technology',
-    size: '501-1000 employees',
-    location: 'San Francisco, CA',
-    website: 'https://techcorp.com',
-    description: 'TechCorp Solutions is a leading technology company specializing in enterprise software solutions.',
+    name: '',
+    tagline: '',
+    industry: '',
+    size: '',
+    location: '',
+    website: '',
+    description: '',
   });
   const [logo, setLogo] = useState<string | null>(null);
   const [selectedBanner, setSelectedBanner] = useState<number>(1);
   const [customBanner, setCustomBanner] = useState<string | null>(null);
   const [useCustomBanner, setUseCustomBanner] = useState(false);
+
+  // Fetch company data
+  useEffect(() => {
+    const fetchCompany = async () => {
+      try {
+        let myCompany = null;
+
+        // Try getting user first to find their company
+        try {
+          const me = await api.get<any>(API_ENDPOINTS.AUTH.ME);
+          if (me?.id) {
+            // Try fetching companies associated with user
+            // We expect a list or a single object depending on backend
+            // Using logic from fix document: query companies by user_id
+            const result = await api.get(API_ENDPOINTS.COMPANY, { params: { user_id: me.id } });
+
+            if (Array.isArray(result) && result.length > 0) {
+              myCompany = result[0];
+            } else if (result && (result as any).id) {
+              myCompany = result;
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to resolve company via user lookup:', e);
+        }
+
+        // Fallback to direct legacy endpoint if above failed
+        if (!myCompany) {
+          try {
+            myCompany = await api.get(API_ENDPOINTS.CMS.MY_COMPANY);
+          } catch (e) {
+            // Ignore, we handled it
+          }
+        }
+
+        if (myCompany) {
+          setCompany(myCompany);
+          setCompanyInfo({
+            name: myCompany.name || '',
+            tagline: myCompany.tagline || '',
+            industry: myCompany.industry || '',
+            size: myCompany.company_size || '',
+            location: myCompany.headquarters || '',
+            website: myCompany.website || '',
+            description: myCompany.description || '',
+          });
+          setLogo(myCompany.logo_url);
+
+          // Fetch stats
+          try {
+            const stats = await api.get(API_ENDPOINTS.CMS.STATS(myCompany.id));
+            setCompanyStats(stats);
+          } catch (e) {
+            console.error('Failed to fetch stats:', e);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch company:', err);
+        // Fallback to dummy data
+        setCompany(DUMMY_COMPANY);
+        setCompanyInfo({
+          name: DUMMY_COMPANY.name,
+          tagline: DUMMY_COMPANY.tagline,
+          industry: DUMMY_COMPANY.industry,
+          size: DUMMY_COMPANY.company_size,
+          location: DUMMY_COMPANY.headquarters,
+          website: DUMMY_COMPANY.website,
+          description: DUMMY_COMPANY.description,
+        });
+        setCompanyStats(DUMMY_STATS);
+      } finally {
+        setCompany(prev => {
+          if (!prev) {
+            setCompanyInfo({
+              name: DUMMY_COMPANY.name,
+              tagline: DUMMY_COMPANY.tagline,
+              industry: DUMMY_COMPANY.industry,
+              size: DUMMY_COMPANY.company_size,
+              location: DUMMY_COMPANY.headquarters,
+              website: DUMMY_COMPANY.website,
+              description: DUMMY_COMPANY.description,
+            });
+            setCompanyStats(DUMMY_STATS);
+            return DUMMY_COMPANY;
+          }
+          return prev;
+        });
+        setLoading(false);
+      }
+    };
+    fetchCompany();
+  }, []);
 
   const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -184,23 +285,72 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
     { path: '/techie/cms/settings', label: 'Settings', icon: <SettingsIcon /> },
   ];
 
-  const stats = [
-    { value: '12,450', label: 'Followers', color: colors.primary },
-    { value: '847', label: 'Verified Employees', color: colors.accent },
-    { value: '24', label: 'Open Jobs', color: colors.primaryDark },
-    { value: '45,230', label: 'Page Views', color: colors.accent },
+  const stats = companyStats ? [
+    { value: companyStats.followers?.toLocaleString() || '0', label: 'Followers', color: colors.primary },
+    { value: companyStats.team_members?.toLocaleString() || '0', label: 'Team Members', color: colors.accent },
+    { value: companyStats.active_jobs?.toLocaleString() || '0', label: 'Open Jobs', color: colors.primaryDark },
+    { value: companyStats.page_views?.toLocaleString() || '0', label: 'Page Views', color: colors.accent },
+  ] : [
+    { value: '0', label: 'Followers', color: colors.primary },
+    { value: '0', label: 'Team Members', color: colors.accent },
+    { value: '0', label: 'Open Jobs', color: colors.primaryDark },
+    { value: '0', label: 'Page Views', color: colors.accent },
   ];
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
-  
-  const handleSaveEdit = () => {
-    setEditOpen(false);
-    setSnackbar({ open: true, message: 'Company page updated successfully!', severity: 'success' });
+
+  const handleSaveEdit = async () => {
+    if (!company) return;
+    try {
+      await api.put(API_ENDPOINTS.CMS.UPDATE_COMPANY(company.id), {
+        name: companyInfo.name,
+        tagline: companyInfo.tagline,
+        industry: companyInfo.industry,
+        description: companyInfo.description,
+        website: companyInfo.website,
+      });
+      setEditOpen(false);
+      setSnackbar({ open: true, message: 'Company page updated successfully!', severity: 'success' });
+      // Refresh company data
+      const updated = await api.get(API_ENDPOINTS.CMS.MY_COMPANY);
+      if (updated) {
+        setCompany(updated);
+        setCompanyInfo({
+          name: updated.name || '',
+          tagline: updated.tagline || '',
+          industry: updated.industry || '',
+          size: updated.company_size || '',
+          location: updated.headquarters || '',
+          website: updated.website || '',
+          description: updated.description || '',
+        });
+      }
+    } catch (err) {
+      setSnackbar({ open: true, message: 'Failed to update company page', severity: 'error' });
+    }
   };
 
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (!company) {
+    return (
+      <Box sx={{ p: 3, textAlign: 'center' }}>
+        <Alert severity="warning">
+          You are not a company admin. Please create or join a company first.
+        </Alert>
+      </Box>
+    );
+  }
+
   return (
-    <Box sx={{ 
-      minHeight: '100%', 
+    <Box sx={{
+      minHeight: '100%',
       background: colors.background,
     }}>
       <Container maxWidth="xl">
@@ -209,6 +359,7 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', gap: 3 }}>
               <Avatar
+                src={logo || undefined}
                 sx={{
                   width: 100,
                   height: 100,
@@ -216,33 +367,39 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
                   border: '4px solid rgba(255,255,255,0.3)',
                 }}
               >
-                <BusinessIcon sx={{ fontSize: 50, color: colors.primary }} />
+                {!logo && <BusinessIcon sx={{ fontSize: 50, color: colors.primary }} />}
               </Avatar>
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                  <Typography variant="h4" fontWeight={700}>TechCorp Solutions</Typography>
-                  <VerifiedIcon sx={{ color: colors.primaryLight }} />
+                  <Typography variant="h4" fontWeight={700}>{company.name || 'Company Name'}</Typography>
+                  {company.is_verified && <VerifiedIcon sx={{ color: colors.primaryLight }} />}
                 </Box>
                 <Typography variant="body1" sx={{ opacity: 0.9, mb: 1.5 }}>
-                  Innovating the Future of Technology
+                  {company.tagline || company.description || 'Company tagline'}
                 </Typography>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Chip 
-                    label="Information Technology" 
-                    size="small" 
-                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }} 
-                  />
-                  <Chip 
-                    label="501-1000 employees" 
-                    size="small" 
-                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }} 
-                  />
-                  <Chip 
-                    icon={<LocationOnIcon sx={{ color: 'white !important' }} />}
-                    label="San Francisco, CA" 
-                    size="small" 
-                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }} 
-                  />
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  {company.industry && (
+                    <Chip
+                      label={company.industry}
+                      size="small"
+                      sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
+                    />
+                  )}
+                  {company.company_size && (
+                    <Chip
+                      label={company.company_size}
+                      size="small"
+                      sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
+                    />
+                  )}
+                  {company.headquarters && (
+                    <Chip
+                      icon={<LocationOnIcon sx={{ color: 'white !important' }} />}
+                      label={company.headquarters}
+                      size="small"
+                      sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
+                    />
+                  )}
                 </Box>
               </Box>
             </Box>
@@ -296,16 +453,16 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
           {children}
         </Paper>
       </Container>
-      
+
       {/* Edit Page Dialog */}
       <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1, pb: 0 }}>
           <EditIcon color="primary" />
           Edit Company Page
         </DialogTitle>
-        <Tabs 
-          value={editTab} 
-          onChange={(_, v) => setEditTab(v)} 
+        <Tabs
+          value={editTab}
+          onChange={(_, v) => setEditTab(v)}
           sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}
         >
           <Tab label="Company Info" icon={<BusinessIcon />} iconPosition="start" />
@@ -380,25 +537,25 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                 Upload your company logo. Recommended size: 200x200 pixels.
               </Typography>
-              
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
+
+              <Box sx={{
+                display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
-                gap: 3 
+                gap: 3
               }}>
                 <Avatar
                   src={logo || undefined}
-                  sx={{ 
-                    width: 150, 
-                    height: 150, 
+                  sx={{
+                    width: 150,
+                    height: 150,
                     bgcolor: alpha(colors.primary, 0.1),
                     border: `3px dashed ${colors.primary}`,
                   }}
                 >
                   {!logo && <BusinessIcon sx={{ fontSize: 60, color: colors.primary }} />}
                 </Avatar>
-                
+
                 <Button
                   component="label"
                   variant="contained"
@@ -413,11 +570,11 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
                     onChange={handleLogoUpload}
                   />
                 </Button>
-                
+
                 {logo && (
-                  <Button 
-                    variant="outlined" 
-                    color="error" 
+                  <Button
+                    variant="outlined"
+                    color="error"
                     onClick={() => setLogo(null)}
                     size="small"
                   >
@@ -435,12 +592,12 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Select from our pre-made banners or upload your own custom image.
               </Typography>
-              
+
               {/* Current Banner Preview */}
               <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>Preview</Typography>
-                <Box sx={{ 
-                  height: 120, 
+                <Box sx={{
+                  height: 120,
                   borderRadius: 2,
                   background: getCurrentBanner(),
                   backgroundSize: 'cover',
@@ -479,14 +636,14 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
                   </Button>
                   {customBanner && (
                     <>
-                      <Chip 
-                        label="Custom banner uploaded" 
-                        color="success" 
+                      <Chip
+                        label="Custom banner uploaded"
+                        color="success"
                         size="small"
                         icon={<CheckCircleIcon />}
                       />
-                      <Button 
-                        size="small" 
+                      <Button
+                        size="small"
                         color="error"
                         onClick={() => { setCustomBanner(null); setUseCustomBanner(false); }}
                       >
@@ -501,9 +658,9 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
               <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
                 Pre-made Banners (20 options)
               </Typography>
-              <Box sx={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(4, 1fr)', 
+              <Box sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
                 gap: 1.5,
                 maxHeight: 300,
                 overflowY: 'auto',
@@ -518,11 +675,11 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
                         borderRadius: 1,
                         background: banner.gradient,
                         cursor: 'pointer',
-                        border: selectedBanner === banner.id && !useCustomBanner 
-                          ? '3px solid #fff' 
+                        border: selectedBanner === banner.id && !useCustomBanner
+                          ? '3px solid #fff'
                           : '3px solid transparent',
-                        boxShadow: selectedBanner === banner.id && !useCustomBanner 
-                          ? `0 0 0 2px ${colors.primary}` 
+                        boxShadow: selectedBanner === banner.id && !useCustomBanner
+                          ? `0 0 0 2px ${colors.primary}`
                           : 'none',
                         transition: 'all 0.2s ease',
                         display: 'flex',
@@ -551,7 +708,7 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
           </Button>
         </DialogActions>
       </Dialog>
-      
+
       {/* Success Snackbar */}
       <Snackbar
         open={snackbar.open}

@@ -85,6 +85,8 @@ import MeetingLobby from './pages/techie/MeetingLobby';
 import ScheduleInterview from './pages/techie/ScheduleInterview';
 import MyInterviews from './pages/techie/MyInterviews';
 import ProfileCompletion from './pages/techie/ProfileCompletion';
+import GitHubCallback from './pages/GitHubCallback';
+import GitLabCallback from './pages/GitLabCallback';
 
 // ATS Pages (Separate Routes)
 import {
@@ -217,6 +219,11 @@ const App: React.FC = () => {
             <Route path="/status/accepted" element={<StatusAccepted />} />
             <Route path="/status/rejected" element={<StatusRejected />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            
+            {/* GitHub OAuth Callback */}
+            <Route path="/github/callback" element={<GitHubCallback />} />
+            {/* GitLab OAuth Callback */}
+            <Route path="/gitlab/callback" element={<GitLabCallback />} />
             
             {/* Profile Completion Route */}
             <Route path="/complete-profile" element={<CompleteProfile />} />

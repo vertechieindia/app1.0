@@ -2,6 +2,7 @@
 Authentication API endpoints.
 """
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -13,7 +14,7 @@ from sqlalchemy import select, insert
 from slugify import slugify
 
 from app.db.session import get_db
-from app.models.user import User, UserRole, UserProfile, Experience, Education, RoleType, user_roles
+from app.models.user import User, UserRole, UserProfile, Experience, Education, RoleType, VerificationStatus, user_roles
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, TokenRefresh,
     PasswordReset, PasswordResetConfirm, PasswordChange,
@@ -27,6 +28,7 @@ from app.core.security import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -227,7 +229,7 @@ async def login(
         "admin_roles": user.admin_roles or [],
         "groups": [{"name": r.role_type.value} for r in user_role_list] if user_role_list else [],
         "user_permissions": [],
-        "verification_status": user.verification_status or "PENDING",
+        "verification_status": user.verification_status.value if user.verification_status else "PENDING",
         "role": user_role_list[0].role_type.value if user_role_list else "techie",
     }
     
@@ -441,175 +443,192 @@ async def admin_create_user(
     
     Handles all user types: techie, hr, company, school, admin
     """
-    
-    # Check if email exists
-    result = await db.execute(
-        select(User).where(User.email == user_in.email)
-    )
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+    try:
+        # Check if email exists
+        result = await db.execute(
+            select(User).where(User.email == user_in.email)
         )
-    
-    # Generate vertechie_id
-    vertechie_id = f"VT{uuid4().hex[:8].upper()}"
-    
-    # Generate username - use email prefix if names not provided (for admin users)
-    if user_in.first_name and user_in.last_name:
-        base_username = slugify(f"{user_in.first_name}-{user_in.last_name}")
-        username = f"{base_username}-{uuid4().hex[:4]}"
-    else:
-        # For admin users created with only email/password, use email prefix
-        email_prefix = user_in.email.split('@')[0]
-        username = f"{slugify(email_prefix)}-{uuid4().hex[:4]}"
-    
-    # Parse DOB if provided as string
-    dob = None
-    if user_in.dob:
-        try:
-            from datetime import datetime as dt
-            dob = dt.strptime(user_in.dob, "%Y-%m-%d").date()
-        except (ValueError, TypeError):
-            pass
-    
-    # Determine role type based on role field
-    role_mapping = {
-        "techie": RoleType.TECHIE,
-        "hr": RoleType.HIRING_MANAGER,
-        "company": RoleType.COMPANY_ADMIN,
-        "school": RoleType.SCHOOL_ADMIN,
-        "admin": RoleType.SUPER_ADMIN,
-    }
-    role_type = role_mapping.get(user_in.role, RoleType.TECHIE)
-    
-    # Set admin_roles - prefer frontend-provided roles, fallback to mapping
-    # Frontend sends specific admin_roles like ["hm_admin", "company_admin"]
-    if user_in.admin_roles and len(user_in.admin_roles) > 0:
-        # Use frontend-provided admin_roles
-        admin_roles = user_in.admin_roles
-    else:
-        # Fallback to mapping based on role type
-        admin_roles_mapping = {
-            "admin": ["superadmin", "admin"],
-            "hr": ["hm_admin"],  # Hiring Manager Admin
-            "company": ["company_admin"],
-            "school": ["school_admin"],
-        }
-        admin_roles = admin_roles_mapping.get(user_in.role, [])
-    
-    # Determine if user is superuser - only if admin_roles includes "superadmin"
-    # HM Admin, Company Admin, etc. should NOT be superusers
-    is_superuser = "superadmin" in admin_roles if admin_roles else False
-    
-    # Create user
-    user = User(
-        email=user_in.email,
-        hashed_password=get_password_hash(user_in.password),
-        first_name=user_in.first_name,
-        last_name=user_in.last_name,
-        middle_name=user_in.middle_name,
-        mobile_number=user_in.mobile_number,
-        dob=dob,
-        country=user_in.country,
-        gov_id=user_in.gov_id,
-        address=user_in.address,
-        username=username,
-        vertechie_id=vertechie_id,
-        email_verified=True,  # Admin-created users are pre-verified
-        mobile_verified=True,
-        is_verified=True,
-        is_superuser=is_superuser,
-        admin_roles=admin_roles,  # Set admin roles for panel visibility
-    )
-    
-    db.add(user)
-    await db.flush()
-    
-    # Create profile (only if any profile data is provided, or always create empty profile)
-    profile = UserProfile(
-        user_id=user.id,
-        bio=user_in.profile if user_in.profile else None,
-        current_company=user_in.company_name if user_in.company_name else None,
-    )
-    db.add(profile)
-    
-    # Get or create role
-    result = await db.execute(
-        select(UserRole).where(UserRole.role_type == role_type)
-    )
-    role = result.scalar_one_or_none()
-    
-    if not role:
-        role = UserRole(
-            name=role_type.value.replace("_", " ").title(),
-            role_type=role_type,
-        )
-        db.add(role)
-        await db.flush()
-    
-    # Add role association using SQL to avoid lazy loading issues
-    await db.execute(
-        insert(user_roles).values(user_id=user.id, role_id=role.id)
-    )
-    
-    # Add experiences for techie users
-    if user_in.experiences:
-        for exp_data in user_in.experiences:
-            # Parse dates
-            start_date = None
-            end_date = None
+        if result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+        
+        # Generate vertechie_id
+        vertechie_id = f"VT{uuid4().hex[:8].upper()}"
+        
+        # Generate username - use email prefix if names not provided (for admin users)
+        if user_in.first_name and user_in.last_name:
+            base_username = slugify(f"{user_in.first_name}-{user_in.last_name}")
+            username = f"{base_username}-{uuid4().hex[:4]}"
+        else:
+            # For admin users created with only email/password, use email prefix
+            email_prefix = user_in.email.split('@')[0]
+            username = f"{slugify(email_prefix)}-{uuid4().hex[:4]}"
+        
+        # Parse DOB if provided as string
+        dob = None
+        if user_in.dob:
             try:
                 from datetime import datetime as dt
-                if exp_data.from_date:
-                    start_date = dt.strptime(exp_data.from_date, "%Y-%m-%d").date()
-                if exp_data.to_date:
-                    end_date = dt.strptime(exp_data.to_date, "%Y-%m-%d").date()
+                dob = dt.strptime(user_in.dob, "%Y-%m-%d").date()
             except (ValueError, TypeError):
                 pass
-            
-            experience = Experience(
-                user_id=user.id,
-                title=exp_data.job_title or "Position",
-                company_name=exp_data.client_name or "Company",
-                location=exp_data.work_location,
-                start_date=start_date or datetime.utcnow().date(),
-                end_date=end_date,
-                is_current=not exp_data.to_date,
-                description=exp_data.job_description,
-                skills=exp_data.skills or [],
+        
+        # Determine role type based on role field
+        role_mapping = {
+            "techie": RoleType.TECHIE,
+            "hr": RoleType.HIRING_MANAGER,
+            "company": RoleType.COMPANY_ADMIN,
+            "school": RoleType.SCHOOL_ADMIN,
+            "admin": RoleType.SUPER_ADMIN,
+        }
+        role_type = role_mapping.get(user_in.role, RoleType.TECHIE)
+        
+        # Set admin_roles - prefer frontend-provided roles, fallback to mapping
+        # Frontend sends specific admin_roles like ["hm_admin", "company_admin"]
+        if user_in.admin_roles and len(user_in.admin_roles) > 0:
+            # Use frontend-provided admin_roles
+            admin_roles = user_in.admin_roles
+        else:
+            # Fallback to mapping based on role type
+            admin_roles_mapping = {
+                "admin": ["superadmin", "admin"],
+                "hr": ["hm_admin"],  # Hiring Manager Admin
+                "company": ["company_admin"],
+                "school": ["school_admin"],
+            }
+            admin_roles = admin_roles_mapping.get(user_in.role, [])
+        
+        # Ensure admin_roles is always a list (not None)
+        if admin_roles is None:
+            admin_roles = []
+        
+        # Determine if user is superuser - only if admin_roles includes "superadmin"
+        # HM Admin, Company Admin, etc. should NOT be superusers
+        is_superuser = "superadmin" in admin_roles if admin_roles else False
+        
+        # Create user
+        # Admin-created users should be APPROVED (not PENDING) since admin is creating them
+        user = User(
+            email=user_in.email,
+            hashed_password=get_password_hash(user_in.password),
+            first_name=user_in.first_name,
+            last_name=user_in.last_name,
+            middle_name=user_in.middle_name,
+            mobile_number=user_in.mobile_number,
+            dob=dob,
+            country=user_in.country,
+            gov_id=user_in.gov_id,
+            address=user_in.address,
+            username=username,
+            vertechie_id=vertechie_id,
+            email_verified=True,  # Admin-created users are pre-verified
+            mobile_verified=True,
+            is_verified=True,
+            is_superuser=is_superuser,
+            admin_roles=admin_roles,  # Set admin roles for panel visibility
+            verification_status=VerificationStatus.APPROVED,  # Admin-created users are pre-approved
+        )
+        
+        db.add(user)
+        await db.flush()
+        
+        # Create profile (only if any profile data is provided, or always create empty profile)
+        profile = UserProfile(
+            user_id=user.id,
+            bio=user_in.profile if user_in.profile else None,
+            current_company=user_in.company_name if user_in.company_name else None,
+        )
+        db.add(profile)
+        
+        # Get or create role
+        result = await db.execute(
+            select(UserRole).where(UserRole.role_type == role_type)
+        )
+        role = result.scalar_one_or_none()
+        
+        if not role:
+            role = UserRole(
+                name=role_type.value.replace("_", " ").title(),
+                role_type=role_type,
             )
-            db.add(experience)
-    
-    # Add educations for techie users
-    if user_in.educations:
-        for edu_data in user_in.educations:
-            # Parse years from dates
-            start_year = None
-            end_year = None
-            try:
-                if edu_data.from_date:
-                    start_year = int(edu_data.from_date[:4])
-                if edu_data.to_date:
-                    end_year = int(edu_data.to_date[:4])
-            except (ValueError, TypeError):
-                pass
-            
-            education = Education(
-                user_id=user.id,
-                school_name=edu_data.institution_name or "Institution",
-                degree=edu_data.level_of_education,
-                field_of_study=edu_data.field_of_study,
-                start_year=start_year,
-                end_year=end_year,
-                grade=edu_data.gpa_score,
-            )
-            db.add(education)
-    
-    await db.commit()
-    await db.refresh(user)
-    
-    return user
+            db.add(role)
+            await db.flush()
+        
+        # Add role association using SQL to avoid lazy loading issues
+        await db.execute(
+            insert(user_roles).values(user_id=user.id, role_id=role.id)
+        )
+        
+        # Add experiences for techie users
+        if user_in.experiences:
+            for exp_data in user_in.experiences:
+                # Parse dates
+                start_date = None
+                end_date = None
+                try:
+                    from datetime import datetime as dt
+                    if exp_data.from_date:
+                        start_date = dt.strptime(exp_data.from_date, "%Y-%m-%d").date()
+                    if exp_data.to_date:
+                        end_date = dt.strptime(exp_data.to_date, "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    pass
+                
+                experience = Experience(
+                    user_id=user.id,
+                    title=exp_data.job_title or "Position",
+                    company_name=exp_data.client_name or "Company",
+                    location=exp_data.work_location,
+                    start_date=start_date or datetime.utcnow().date(),
+                    end_date=end_date,
+                    is_current=not exp_data.to_date,
+                    description=exp_data.job_description,
+                    skills=exp_data.skills or [],
+                )
+                db.add(experience)
+        
+        # Add educations for techie users
+        if user_in.educations:
+            for edu_data in user_in.educations:
+                # Parse years from dates
+                start_year = None
+                end_year = None
+                try:
+                    if edu_data.from_date:
+                        start_year = int(edu_data.from_date[:4])
+                    if edu_data.to_date:
+                        end_year = int(edu_data.to_date[:4])
+                except (ValueError, TypeError):
+                    pass
+                
+                education = Education(
+                    user_id=user.id,
+                    school_name=edu_data.institution_name or "Institution",
+                    degree=edu_data.level_of_education,
+                    field_of_study=edu_data.field_of_study,
+                    start_year=start_year,
+                    end_year=end_year,
+                    grade=edu_data.gpa_score,
+                )
+                db.add(education)
+        
+        await db.commit()
+        await db.refresh(user)
+        
+        return user
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (400, 403, etc.)
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.exception(f"Error creating admin user: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create user: {str(e)}"
+        )
 
 
 @router.post("/logout")

@@ -790,3 +790,436 @@ async def admin_delete_company(
     
     return {"status": "deleted"}
 
+
+# ============= CMS Endpoints (Company Management) =============
+
+class CompanyTeamMemberCreate(BaseModel):
+    name: str
+    title: Optional[str] = None
+    bio: Optional[str] = None
+    photo_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    twitter_url: Optional[str] = None
+    is_leadership: bool = False
+    order: int = 0
+
+class CompanyTeamMemberResponse(CompanyTeamMemberCreate):
+    id: UUID
+    company_id: UUID
+    
+    class Config:
+        from_attributes = True
+
+class CompanyAdminCreate(BaseModel):
+    user_id: UUID
+    role: str = "admin"  # owner, admin, hr, recruiter
+    can_manage_jobs: bool = True
+    can_manage_candidates: bool = True
+    can_manage_team: bool = False
+    can_manage_billing: bool = False
+    can_manage_admins: bool = False
+
+class CompanyAdminResponse(BaseModel):
+    id: UUID
+    company_id: UUID
+    user_id: UUID
+    role: str
+    can_manage_jobs: bool
+    can_manage_candidates: bool
+    can_manage_team: bool
+    can_manage_billing: bool
+    can_manage_admins: bool
+    added_at: datetime
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+@router.get("/{company_id}/team-members", response_model=List[CompanyTeamMemberResponse])
+async def get_company_team_members(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get company team members (admin only)."""
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    if not admin_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.execute(
+        select(CompanyTeamMember)
+        .where(CompanyTeamMember.company_id == company_id)
+        .order_by(CompanyTeamMember.order, CompanyTeamMember.name)
+    )
+    return result.scalars().all()
+
+
+@router.post("/{company_id}/team-members", response_model=CompanyTeamMemberResponse)
+async def add_company_team_member(
+    company_id: UUID,
+    member: CompanyTeamMemberCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a team member (admin only)."""
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    admin = admin_check.scalar_one_or_none()
+    if not admin or not admin.can_manage_team:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    db_member = CompanyTeamMember(company_id=company_id, **member.model_dump())
+    db.add(db_member)
+    await db.commit()
+    await db.refresh(db_member)
+    return db_member
+
+
+@router.delete("/{company_id}/team-members/{member_id}")
+async def delete_company_team_member(
+    company_id: UUID,
+    member_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a team member (admin only)."""
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    admin = admin_check.scalar_one_or_none()
+    if not admin or not admin.can_manage_team:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.execute(
+        select(CompanyTeamMember).where(
+            CompanyTeamMember.id == member_id,
+            CompanyTeamMember.company_id == company_id
+        )
+    )
+    member = result.scalar_one_or_none()
+    if not member:
+        raise HTTPException(status_code=404, detail="Team member not found")
+    
+    await db.delete(member)
+    await db.commit()
+    return {"status": "deleted"}
+
+
+@router.get("/{company_id}/admins", response_model=List[CompanyAdminResponse])
+async def get_company_admins(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get company admins (admin only)."""
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    admin = admin_check.scalar_one_or_none()
+    if not admin or not admin.can_manage_admins:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.execute(
+        select(CompanyAdmin)
+        .options(selectinload(CompanyAdmin.user))
+        .where(CompanyAdmin.company_id == company_id)
+        .order_by(CompanyAdmin.added_at.desc())
+    )
+    admins = result.scalars().all()
+    
+    return [
+        CompanyAdminResponse(
+            id=a.id,
+            company_id=a.company_id,
+            user_id=a.user_id,
+            role=a.role,
+            can_manage_jobs=a.can_manage_jobs,
+            can_manage_candidates=a.can_manage_candidates,
+            can_manage_team=a.can_manage_team,
+            can_manage_billing=a.can_manage_billing,
+            can_manage_admins=a.can_manage_admins,
+            added_at=a.added_at,
+            user_email=a.user.email if a.user else None,
+            user_name=f"{a.user.first_name} {a.user.last_name}".strip() if a.user else None,
+        )
+        for a in admins
+    ]
+
+
+@router.post("/{company_id}/admins", response_model=CompanyAdminResponse)
+async def add_company_admin(
+    company_id: UUID,
+    admin_data: CompanyAdminCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a company admin (admin only)."""
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    admin = admin_check.scalar_one_or_none()
+    if not admin or not admin.can_manage_admins:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if user exists
+    user_result = await db.execute(
+        select(User).where(User.id == admin_data.user_id)
+    )
+    if not user_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if already an admin
+    existing = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == admin_data.user_id
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="User is already an admin")
+    
+    db_admin = CompanyAdmin(company_id=company_id, **admin_data.model_dump())
+    db.add(db_admin)
+    await db.commit()
+    await db.refresh(db_admin)
+    
+    # Load user for response
+    await db.refresh(db_admin, ["user"])
+    return CompanyAdminResponse(
+        id=db_admin.id,
+        company_id=db_admin.company_id,
+        user_id=db_admin.user_id,
+        role=db_admin.role,
+        can_manage_jobs=db_admin.can_manage_jobs,
+        can_manage_candidates=db_admin.can_manage_candidates,
+        can_manage_team=db_admin.can_manage_team,
+        can_manage_billing=db_admin.can_manage_billing,
+        can_manage_admins=db_admin.can_manage_admins,
+        added_at=db_admin.added_at,
+        user_email=db_admin.user.email if db_admin.user else None,
+        user_name=f"{db_admin.user.first_name} {db_admin.user.last_name}".strip() if db_admin.user else None,
+    )
+
+
+@router.delete("/{company_id}/admins/{admin_id}")
+async def remove_company_admin(
+    company_id: UUID,
+    admin_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove a company admin (admin only, cannot remove yourself)."""
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    admin = admin_check.scalar_one_or_none()
+    if not admin or not admin.can_manage_admins:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.id == admin_id,
+            CompanyAdmin.company_id == company_id
+        )
+    )
+    target_admin = result.scalar_one_or_none()
+    if not target_admin:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    
+    # Prevent removing yourself
+    if target_admin.user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot remove yourself")
+    
+    await db.delete(target_admin)
+    await db.commit()
+    return {"status": "deleted"}
+
+
+@router.get("/{company_id}/stats")
+async def get_company_stats(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get company statistics (admin only)."""
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    if not admin_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get company
+    company_result = await db.execute(
+        select(Company).where(Company.id == company_id)
+    )
+    company = company_result.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    # Import Job model
+    from app.models.job import Job, JobStatus
+    
+    # Count jobs
+    jobs_count = await db.execute(
+        select(func.count(Job.id)).where(Job.company_id == company_id)
+    )
+    
+    # Count active jobs
+    active_jobs_count = await db.execute(
+        select(func.count(Job.id)).where(
+            Job.company_id == company_id,
+            Job.status == JobStatus.PUBLISHED
+        )
+    )
+    
+    # Count team members
+    team_count = await db.execute(
+        select(func.count(CompanyTeamMember.id)).where(
+            CompanyTeamMember.company_id == company_id
+        )
+    )
+    
+    # Count admins
+    admins_count = await db.execute(
+        select(func.count(CompanyAdmin.id)).where(
+            CompanyAdmin.company_id == company_id
+        )
+    )
+    
+    return {
+        "company_id": str(company_id),
+        "company_name": company.name,
+        "total_jobs": jobs_count.scalar() or 0,
+        "active_jobs": active_jobs_count.scalar() or 0,
+        "team_members": team_count.scalar() or 0,
+        "admins": admins_count.scalar() or 0,
+        "followers": 0,  # TODO: Implement followers
+        "page_views": 0,  # TODO: Implement page views tracking
+    }
+
+
+@router.get("/{company_id}/posts")
+async def get_company_posts(
+    company_id: UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get company posts (admin only). For now returns posts by company admins."""
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    if not admin_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get admin user IDs
+    admins_result = await db.execute(
+        select(CompanyAdmin.user_id).where(CompanyAdmin.company_id == company_id)
+    )
+    admin_user_ids = [row[0] for row in admins_result.all()]
+    
+    if not admin_user_ids:
+        return []
+    
+    # Get posts by company admins (for now - TODO: add company_id to Post model)
+    from app.models.community import Post
+    posts_result = await db.execute(
+        select(Post)
+        .where(Post.author_id.in_(admin_user_ids))
+        .order_by(Post.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    posts = posts_result.scalars().all()
+    
+    # Format response
+    return [
+        {
+            "id": str(p.id),
+            "content": p.content,
+            "media": p.media or [],
+            "author_id": str(p.author_id),
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "likes_count": p.likes_count or 0,
+            "comments_count": p.comments_count or 0,
+            "shares_count": p.shares_count or 0,
+        }
+        for p in posts
+    ]
+
+
+class CompanyPostCreate(BaseModel):
+    content: str
+    media: Optional[List[str]] = None
+
+@router.post("/{company_id}/posts")
+async def create_company_post(
+    company_id: UUID,
+    post_data: CompanyPostCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a company post (admin only)."""
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    if not admin_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    from app.models.community import Post, PostType
+    
+    post = Post(
+        author_id=current_user.id,
+        content=post_data.content,
+        media=[{"url": url, "type": "image"} for url in (post_data.media or [])],
+        post_type=PostType.TEXT,
+        visibility="public",
+    )
+    db.add(post)
+    await db.commit()
+    await db.refresh(post)
+    
+    return {
+        "id": str(post.id),
+        "content": post.content,
+        "media": post.media or [],
+        "author_id": str(post.author_id),
+        "created_at": post.created_at.isoformat() if post.created_at else None,
+        "likes_count": 0,
+        "comments_count": 0,
+        "shares_count": 0,
+    }
+

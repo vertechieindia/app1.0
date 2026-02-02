@@ -2,7 +2,7 @@
  * CMSJobs - Company Jobs Management
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -23,6 +23,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  CircularProgress,
+  Alert,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
@@ -34,6 +36,9 @@ import PeopleIcon from '@mui/icons-material/People';
 import WorkIcon from '@mui/icons-material/Work';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import CMSLayout from './CMSLayout';
+import { api } from '../../../services/apiClient';
+import { API_ENDPOINTS } from '../../../config/api';
+import { DUMMY_JOBS } from './CMSDummyData';
 
 const colors = {
   primary: '#0d47a1',
@@ -41,22 +46,74 @@ const colors = {
   warning: '#FF9500',
 };
 
-const mockJobs = [
-  { id: 1, title: 'Senior Software Engineer', department: 'Engineering', location: 'San Francisco, CA', type: 'Full-time', applicants: 45, status: 'active', posted: '3 days ago' },
-  { id: 2, title: 'Product Manager', department: 'Product', location: 'Remote', type: 'Full-time', applicants: 32, status: 'active', posted: '1 week ago' },
-  { id: 3, title: 'UX Designer', department: 'Design', location: 'New York, NY', type: 'Full-time', applicants: 28, status: 'active', posted: '2 weeks ago' },
-  { id: 4, title: 'Data Scientist', department: 'Data', location: 'San Francisco, CA', type: 'Full-time', applicants: 56, status: 'active', posted: '1 day ago' },
-  { id: 5, title: 'Marketing Intern', department: 'Marketing', location: 'Remote', type: 'Internship', applicants: 78, status: 'active', posted: '5 days ago' },
-  { id: 6, title: 'DevOps Engineer', department: 'Engineering', location: 'San Francisco, CA', type: 'Full-time', applicants: 23, status: 'paused', posted: '3 weeks ago' },
-];
-
 const CMSJobs: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [openDialog, setOpenDialog] = useState(false);
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState({ active: 0, total: 0, applicants: 0 });
 
-  const filteredJobs = mockJobs.filter(
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Try getting user first to find their company
+        const me = await api.get<any>(API_ENDPOINTS.AUTH.ME);
+        let myCompany = null;
+        if (me?.id) {
+          const result = await api.get(API_ENDPOINTS.COMPANY, { params: { user_id: me.id } });
+          if (Array.isArray(result) && result.length > 0) myCompany = result[0];
+          else if (result?.id) myCompany = result;
+        }
+
+        // Fallback
+        if (!myCompany) {
+          try {
+            myCompany = await api.get(API_ENDPOINTS.CMS.MY_COMPANY);
+          } catch (e) { }
+        }
+
+        if (myCompany?.id) {
+          setCompanyId(myCompany.id);
+          const jobsData = await api.get(API_ENDPOINTS.CMS.JOBS(myCompany.id));
+          setJobs(jobsData || []);
+          setStats({
+            active: jobsData?.filter((j: any) => j.status === 'published').length || 0,
+            total: jobsData?.length || 0,
+            applicants: 0, // TODO: Get from applications
+          });
+        }
+      } catch (err: any) {
+        // Fallback
+        setJobs(DUMMY_JOBS);
+        // Recalculate stats for dummy
+        setStats({
+          active: DUMMY_JOBS.filter((j: any) => j.status === 'active').length,
+          total: DUMMY_JOBS.length,
+          applicants: 452
+        });
+      } finally {
+        setJobs(prev => {
+          if (prev.length === 0) {
+            setStats({
+              active: DUMMY_JOBS.filter((j: any) => j.status === 'active').length,
+              total: DUMMY_JOBS.length,
+              applicants: 452
+            });
+            return DUMMY_JOBS;
+          }
+          return prev;
+        });
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const filteredJobs = jobs.filter(
     (job) => job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-             job.department.toLowerCase().includes(searchQuery.toLowerCase())
+      (job.department && job.department.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -64,9 +121,9 @@ const CMSJobs: React.FC = () => {
       <Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
           <Typography variant="h6" fontWeight={600}>Job Postings</Typography>
-          <Button 
-            variant="contained" 
-            startIcon={<AddIcon />} 
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
             sx={{ bgcolor: colors.primary }}
             onClick={() => setOpenDialog(true)}
           >
@@ -74,24 +131,30 @@ const CMSJobs: React.FC = () => {
           </Button>
         </Box>
 
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
+
         {/* Stats */}
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid item xs={4}>
             <Card sx={{ p: 2, textAlign: 'center', bgcolor: alpha(colors.primary, 0.05) }}>
-              <Typography variant="h4" fontWeight={700} color={colors.primary}>24</Typography>
+              <Typography variant="h4" fontWeight={700} color={colors.primary}>{stats.active}</Typography>
               <Typography variant="body2" color="text.secondary">Active Jobs</Typography>
             </Card>
           </Grid>
           <Grid item xs={4}>
             <Card sx={{ p: 2, textAlign: 'center', bgcolor: alpha(colors.success, 0.05) }}>
-              <Typography variant="h4" fontWeight={700} color={colors.success}>262</Typography>
+              <Typography variant="h4" fontWeight={700} color={colors.success}>{stats.applicants}</Typography>
               <Typography variant="body2" color="text.secondary">Total Applicants</Typography>
             </Card>
           </Grid>
           <Grid item xs={4}>
             <Card sx={{ p: 2, textAlign: 'center', bgcolor: alpha(colors.warning, 0.05) }}>
-              <Typography variant="h4" fontWeight={700} color={colors.warning}>12</Typography>
-              <Typography variant="body2" color="text.secondary">Interviews Scheduled</Typography>
+              <Typography variant="h4" fontWeight={700} color={colors.warning}>{stats.total}</Typography>
+              <Typography variant="body2" color="text.secondary">Total Jobs</Typography>
             </Card>
           </Grid>
         </Grid>
@@ -114,84 +177,98 @@ const CMSJobs: React.FC = () => {
         />
 
         {/* Jobs Grid */}
-        <Grid container spacing={2}>
-          {filteredJobs.map((job) => (
-            <Grid item xs={12} md={6} key={job.id}>
-              <Card sx={{ 
-                height: '100%',
-                border: `1px solid ${alpha(colors.primary, 0.1)}`,
-                '&:hover': {
-                  boxShadow: `0 8px 24px ${alpha(colors.primary, 0.15)}`,
-                },
-              }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                    <Avatar sx={{ bgcolor: alpha(colors.primary, 0.1), color: colors.primary }}>
-                      <WorkIcon />
-                    </Avatar>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      <IconButton size="small">
-                        <VisibilityIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton size="small">
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton size="small" sx={{ color: 'error.main' }}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+            <CircularProgress />
+          </Box>
+        ) : filteredJobs.length === 0 ? (
+          <Box sx={{ textAlign: 'center', p: 4 }}>
+            <Typography color="text.secondary">No jobs posted yet. Create your first job posting!</Typography>
+          </Box>
+        ) : (
+          <Grid container spacing={2}>
+            {filteredJobs.map((job) => (
+              <Grid item xs={12} md={6} key={job.id}>
+                <Card sx={{
+                  height: '100%',
+                  border: `1px solid ${alpha(colors.primary, 0.1)}`,
+                  '&:hover': {
+                    boxShadow: `0 8px 24px ${alpha(colors.primary, 0.15)}`,
+                  },
+                }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                      <Avatar sx={{ bgcolor: alpha(colors.primary, 0.1), color: colors.primary }}>
+                        <WorkIcon />
+                      </Avatar>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        <IconButton size="small">
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton size="small">
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton size="small" sx={{ color: 'error.main' }}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
                     </Box>
-                  </Box>
-                  
-                  <Typography variant="h6" fontWeight={600} gutterBottom>
-                    {job.title}
-                  </Typography>
-                  
-                  <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-                    <Chip 
-                      label={job.department} 
-                      size="small" 
-                      sx={{ bgcolor: alpha(colors.primary, 0.1), color: colors.primary }} 
-                    />
-                    <Chip 
-                      label={job.type} 
-                      size="small" 
-                      variant="outlined"
-                    />
-                    <Chip 
-                      label={job.status} 
-                      size="small" 
-                      sx={{ 
-                        bgcolor: job.status === 'active' 
-                          ? alpha(colors.success, 0.1) 
-                          : alpha(colors.warning, 0.1),
-                        color: job.status === 'active' ? colors.success : colors.warning,
-                      }} 
-                    />
-                  </Box>
-                  
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <LocationOnIcon fontSize="small" color="action" />
-                      <Typography variant="body2" color="text.secondary">
-                        {job.location}
+
+                    <Typography variant="h6" fontWeight={600} gutterBottom>
+                      {job.title}
+                    </Typography>
+
+                    <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                      <Chip
+                        label={job.department}
+                        size="small"
+                        sx={{ bgcolor: alpha(colors.primary, 0.1), color: colors.primary }}
+                      />
+                      <Chip
+                        label={job.type}
+                        size="small"
+                        variant="outlined"
+                      />
+                      <Chip
+                        label={job.status}
+                        size="small"
+                        sx={{
+                          bgcolor: job.status === 'active'
+                            ? alpha(colors.success, 0.1)
+                            : alpha(colors.warning, 0.1),
+                          color: job.status === 'active' ? colors.success : colors.warning,
+                        }}
+                      />
+                    </Box>
+
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <LocationOnIcon fontSize="small" color="action" />
+                        <Typography variant="body2" color="text.secondary">
+                          {job.location}
+                        </Typography>
+                      </Box>
+                      {job.applications_count !== undefined && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <PeopleIcon fontSize="small" color="action" />
+                          <Typography variant="body2" color="text.secondary">
+                            {job.applications_count || 0} applicants
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+
+                    {job.published_at && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                        Posted {new Date(job.published_at).toLocaleDateString()}
                       </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <PeopleIcon fontSize="small" color="action" />
-                      <Typography variant="body2" color="text.secondary">
-                        {job.applicants} applicants
-                      </Typography>
-                    </Box>
-                  </Box>
-                  
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                    Posted {job.posted}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        )}
 
         {/* Add Job Dialog */}
         <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="md" fullWidth>

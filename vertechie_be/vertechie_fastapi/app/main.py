@@ -149,6 +149,32 @@ async def health_check():
     }
 
 
+@app.get("/health/db", tags=["Health"])
+async def health_check_db():
+    """Database health check endpoint."""
+    from app.db.session import AsyncSessionLocal
+    from sqlalchemy import text
+    
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(text("SELECT 1"))
+            result.scalar()
+            return {
+                "status": "healthy",
+                "database": "connected",
+            }
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "database": "disconnected",
+                "error": str(e)
+            }
+        )
+
+
 @app.get("/", tags=["Root"])
 async def root():
     """Root endpoint."""

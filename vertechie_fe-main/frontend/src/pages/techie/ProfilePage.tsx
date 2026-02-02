@@ -289,6 +289,10 @@ interface UserProfileData {
   website?: string;
   github_url?: string;
   gitlab_url?: string;
+  github_username?: string;  // From OAuth
+  github_connected_at?: string;
+  gitlab_username?: string;  // From OAuth
+  gitlab_connected_at?: string;
   linkedin_url?: string;
   twitter_url?: string;
   skills?: string[];
@@ -733,7 +737,8 @@ const ProfilePage: React.FC = () => {
     rank: 'Bronze',
     joinedDate: user?.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Recently',
     website: profile?.website || '',
-    github: profile?.github_url?.replace('https://github.com/', '') || '',
+    github: profile?.github_username || profile?.github_url?.replace('https://github.com/', '') || '',
+    gitlab: profile?.gitlab_username || profile?.gitlab_url?.replace('https://gitlab.com/', '') || '',
     currentCompany: profile?.current_company || '',
     currentPosition: profile?.current_position || '',
     isHiringManager,
@@ -1348,14 +1353,52 @@ const ProfilePage: React.FC = () => {
                   </IconButton>
                 </Box>
                 
-                <Box sx={{ display: 'flex', gap: 1 }}>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                   {displayUser.github && (
-                    <IconButton 
-                      onClick={() => window.open(`https://github.com/${displayUser.github}`, '_blank')}
-                      sx={{ color: 'rgba(0,0,0,0.7)', '&:hover': { color: '#1e293b' } }}
-                    >
-                      <GitHubIcon />
-                    </IconButton>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <IconButton 
+                        onClick={() => window.open(`https://github.com/${displayUser.github}`, '_blank')}
+                        sx={{ color: 'rgba(0,0,0,0.7)', '&:hover': { color: '#1e293b' } }}
+                      >
+                        <GitHubIcon />
+                      </IconButton>
+                      {profile?.github_username && isOwnProfile && (
+                        <Chip 
+                          size="small" 
+                          label="Connected" 
+                          sx={{ 
+                            bgcolor: '#238636', 
+                            color: 'white',
+                            height: 20,
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                          }} 
+                        />
+                      )}
+                    </Box>
+                  )}
+                  {displayUser.gitlab && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <IconButton
+                        onClick={() => window.open(`https://gitlab.com/${displayUser.gitlab}`, '_blank')}
+                        sx={{ color: 'rgba(0,0,0,0.7)', '&:hover': { color: '#1e293b' } }}
+                      >
+                        <Box component="img" src="https://about.gitlab.com/images/press/logo/svg/gitlab-icon-rgb.svg" alt="GitLab" sx={{ width: 24, height: 24 }} />
+                      </IconButton>
+                      {profile?.gitlab_username && isOwnProfile && (
+                        <Chip
+                          size="small"
+                          label="Connected"
+                          sx={{
+                            bgcolor: '#fc6d26',
+                            color: 'white',
+                            height: 20,
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                          }}
+                        />
+                      )}
+                    </Box>
                   )}
                   {displayUser.website && (
                     <IconButton 
@@ -1444,7 +1487,7 @@ const ProfilePage: React.FC = () => {
                     Activity
                   </Typography>
                 </Box>
-                <ContributionHeatmap showControls={true} compact={false} />
+                <ContributionHeatmap showControls={true} compact={false} onConnectionChange={fetchUserData} />
               </Box>
             </GlassCard>
 

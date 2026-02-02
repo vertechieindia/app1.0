@@ -887,7 +887,7 @@ async def approve_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     # Update verification status
-    user.verification_status = VerificationStatus.APPROVED.value
+    user.verification_status = VerificationStatus.APPROVED
     user.is_verified = True
     user.reviewed_by_id = current_admin.id
     user.reviewed_at = datetime.utcnow()
@@ -923,7 +923,7 @@ async def reject_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     # Update verification status
-    user.verification_status = VerificationStatus.REJECTED.value
+    user.verification_status = VerificationStatus.REJECTED
     user.is_verified = False
     user.reviewed_by_id = current_admin.id
     user.reviewed_at = datetime.utcnow()
@@ -965,8 +965,8 @@ async def get_admin_stats(
     pending_result = await db.execute(
         select(func.count(User.id)).where(
             or_(
-                User.verification_status == VerificationStatus.PENDING.value,
-                User.verification_status == VerificationStatus.RESUBMITTED.value
+                User.verification_status == VerificationStatus.PENDING,
+                User.verification_status == VerificationStatus.RESUBMITTED
             )
         )
     )
