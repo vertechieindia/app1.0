@@ -43,7 +43,7 @@ const apiClient: AxiosInstance = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // 30 seconds
+  timeout: 60000, // 60 seconds - increased for slow database operations
 });
 
 // Request interceptor - Add auth token; for FormData, drop Content-Type so browser sets multipart/form-data with boundary

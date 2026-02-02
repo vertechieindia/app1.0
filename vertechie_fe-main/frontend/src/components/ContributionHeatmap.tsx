@@ -1,10 +1,11 @@
 /**
- * ContributionHeatmap - Shared GitHub-style Contribution Heatmap
- * Used in Practice page and Profile page
- * Shows coding activity, commits, and project work throughout the year
+ * ContributionHeatmap - GitHub-style Contribution Heatmap
+ *
+ * GitHub and GitLab both use OAuth for authentication.
+ * Only activity from connected accounts is displayed.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -19,12 +20,17 @@ import {
   Tooltip,
   Chip,
   Grid,
+  CircularProgress,
+  Alert,
 } from '@mui/material';
+import { api } from '../services/apiClient';
+import { API_ENDPOINTS } from '../config/api';
 import { styled, alpha } from '@mui/material/styles';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import LinkOffIcon from '@mui/icons-material/LinkOff';
 
 // GitLab Icon Component
 const GitLabIcon = () => (
@@ -50,29 +56,117 @@ interface ContributionHeatmapProps {
   compact?: boolean;
   showControls?: boolean;
   title?: string;
+  /** Called when user connects/disconnects - parent can refresh profile */
+  onConnectionChange?: () => void;
+}
+
+interface ConnectionStatus {
+  github: { connected: boolean; username: string | null; connected_at: string | null };
+  gitlab: { connected: boolean; username: string | null; connected_at: string | null };
 }
 
 const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({ 
   compact = false, 
   showControls = true,
   title = 'Contribution Activity',
+  onConnectionChange,
 }) => {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
-  const [connectedServices, setConnectedServices] = useState<{ github: boolean; gitlab: boolean }>({
-    github: false,
-    gitlab: false,
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
+    github: { connected: false, username: null, connected_at: null },
+    gitlab: { connected: false, username: null, connected_at: null },
   });
-  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
-  const [selectedService, setSelectedService] = useState<'github' | 'gitlab' | null>(null);
 
-  // Generate contribution data for a specific year
-  const generateYearData = (year: number) => {
+  const [githubConnecting, setGithubConnecting] = useState(false);
+  const [gitlabConnecting, setGitlabConnecting] = useState(false);
+
+  // Disconnect confirmation dialog
+  const [disconnectDialog, setDisconnectDialog] = useState<{ open: boolean; service: 'github' | 'gitlab' | null }>({
+    open: false,
+    service: null,
+  });
+  const [disconnecting, setDisconnecting] = useState(false);
+  
+  // Contributions data
+  const [realContributions, setRealContributions] = useState<{ date: string; count: number; level: number }[] | null>(null);
+  const [loadingContributions, setLoadingContributions] = useState(false);
+  const [hasRealData, setHasRealData] = useState(false);
+  const [contributionError, setContributionError] = useState<string | null>(null);
+
+  // Fetch connection status
+  const fetchConnectionStatus = useCallback(async () => {
+    try {
+      const status = await api.get<ConnectionStatus>(API_ENDPOINTS.GITHUB_GITLAB.STATUS);
+      setConnectionStatus(status);
+    } catch {
+      // Not logged in or error - leave as disconnected
+    }
+  }, []);
+
+  // Check connection status on mount
+  useEffect(() => {
+    fetchConnectionStatus();
+  }, [fetchConnectionStatus]);
+
+  // Fetch contributions when we have connected accounts
+  useEffect(() => {
+    if (!connectionStatus.github.connected && !connectionStatus.gitlab.connected) {
+      setRealContributions(null);
+      setHasRealData(false);
+      setContributionError(null);
+      return;
+    }
+    
+    let cancelled = false;
+    setLoadingContributions(true);
+    setContributionError(null);
+    
+    api
+      .get<{ 
+        year: number; 
+        contributions: { date: string; count: number; level: number }[]; 
+        total: number;
+        errors?: { github?: string; gitlab?: string };
+      }>(`${API_ENDPOINTS.GITHUB_GITLAB.CONTRIBUTIONS}?year=${selectedYear}`)
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.contributions?.length) {
+          setRealContributions(data.contributions);
+          setHasRealData(true);
+          
+          // Check for errors
+          if (data.errors?.github || data.errors?.gitlab) {
+            const errors = [];
+            if (data.errors.github) errors.push(`GitHub: ${data.errors.github}`);
+            if (data.errors.gitlab) errors.push(`GitLab: ${data.errors.gitlab}`);
+            setContributionError(errors.join('. '));
+          }
+        } else {
+          setRealContributions(null);
+          setHasRealData(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setRealContributions(null);
+          setHasRealData(false);
+          setContributionError(err.message || 'Failed to fetch contributions');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingContributions(false);
+      });
+    
+    return () => { cancelled = true; };
+  }, [selectedYear, connectionStatus.github.connected, connectionStatus.gitlab.connected]);
+
+  // Generate sample data when not connected
+  const generateYearData = useCallback((year: number) => {
     const data: { date: Date; count: number; level: number; type: string }[] = [];
     const startDate = new Date(year, 0, 1);
     const endDate = new Date(year, 11, 31);
     
-    // Use a seeded random to get consistent data
     const seedRandom = (seed: number) => {
       const x = Math.sin(seed) * 10000;
       return x - Math.floor(x);
@@ -103,14 +197,22 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
       dayIndex++;
     }
     return data;
-  };
+  }, []);
 
-  const yearData = generateYearData(selectedYear);
+  // Use real data when available
+  const yearData = hasRealData && realContributions && realContributions.length > 0
+    ? realContributions.map((c) => ({
+        date: new Date(c.date),
+        count: c.count,
+        level: c.level,
+        type: 'commits' as string,
+      }))
+    : generateYearData(selectedYear);
   
-  // Get level color
+  // Get level color (GitHub's exact colors)
   const getLevelColor = (level: number) => {
-    const colors = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
-    return colors[level] || colors[0];
+    const levelColors = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
+    return levelColors[level] || levelColors[0];
   };
   
   // Group by weeks
@@ -118,7 +220,6 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
     const weeks: { date: Date; count: number; level: number; type: string }[][] = [];
     let currentWeek: { date: Date; count: number; level: number; type: string }[] = [];
     
-    // Add padding for first week
     const firstDay = yearData[0]?.date.getDay() || 0;
     for (let i = 0; i < firstDay; i++) {
       currentWeek.push({ date: new Date(0), count: -1, level: -1, type: '' });
@@ -138,12 +239,11 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
   
   const weeks = getWeeks();
   
-  // Calculate stats
+  // Stats
   const totalContributions = yearData.reduce((sum, d) => sum + Math.max(0, d.count), 0);
   const activeDays = yearData.filter(d => d.count > 0).length;
   const bestDay = yearData.reduce((max, d) => d.count > max.count ? d : max, yearData[0]);
   
-  // Calculate current streak
   const calculateStreak = () => {
     let streak = 0;
     const today = new Date();
@@ -156,7 +256,6 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
   };
   const currentStreak = calculateStreak();
 
-  // Month labels
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   
   const getMonthPositions = () => {
@@ -179,17 +278,64 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
   
   const monthPositions = getMonthPositions();
 
-  const handleConnectService = (service: 'github' | 'gitlab') => {
-    setSelectedService(service);
-    setConnectDialogOpen(true);
+  // ============================================
+  // GITHUB OAUTH FLOW
+  // ============================================
+  
+  const handleConnectGitHub = async () => {
+    setGithubConnecting(true);
+    try {
+      // Get OAuth URL from backend
+      const response = await api.get<{ auth_url: string; state: string }>(API_ENDPOINTS.GITHUB_GITLAB.GITHUB_AUTH);
+      
+      // Store state in sessionStorage for callback verification
+      sessionStorage.setItem('github_oauth_state', response.state);
+      
+      // Redirect to GitHub for authorization
+      window.location.href = response.auth_url;
+    } catch (err) {
+      setGithubConnecting(false);
+      console.error('Failed to start GitHub OAuth:', err);
+    }
   };
 
-  const confirmConnect = () => {
-    if (selectedService) {
-      setConnectedServices(prev => ({ ...prev, [selectedService]: true }));
+  // ============================================
+  // GITLAB OAUTH FLOW
+  // ============================================
+
+  const handleConnectGitLab = async () => {
+    setGitlabConnecting(true);
+    try {
+      const response = await api.get<{ auth_url: string; state: string }>(API_ENDPOINTS.GITHUB_GITLAB.GITLAB_AUTH);
+      sessionStorage.setItem('gitlab_oauth_state', response.state);
+      window.location.href = response.auth_url;
+    } catch (err) {
+      setGitlabConnecting(false);
+      console.error('Failed to start GitLab OAuth:', err);
     }
-    setConnectDialogOpen(false);
-    setSelectedService(null);
+  };
+
+  // ============================================
+  // DISCONNECT
+  // ============================================
+  
+  const handleDisconnect = async () => {
+    if (!disconnectDialog.service) return;
+    setDisconnecting(true);
+    try {
+      if (disconnectDialog.service === 'github') {
+        await api.delete(API_ENDPOINTS.GITHUB_GITLAB.GITHUB_DISCONNECT);
+      } else {
+        await api.delete(API_ENDPOINTS.GITHUB_GITLAB.GITLAB_DISCONNECT);
+      }
+      await fetchConnectionStatus();
+      onConnectionChange?.();
+      setDisconnectDialog({ open: false, service: null });
+    } catch (err) {
+      console.error('Disconnect failed:', err);
+    } finally {
+      setDisconnecting(false);
+    }
   };
 
   const cellSize = compact ? 10 : 14;
@@ -202,46 +348,85 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
         <Box>
           <Typography variant="h6" fontWeight={600}>{title}</Typography>
           <Typography variant="body2" color="text.secondary">
-            {totalContributions.toLocaleString()} contributions in {selectedYear}
+            {hasRealData 
+              ? `${totalContributions.toLocaleString()} contributions in ${selectedYear}`
+              : 'Connect GitHub or GitLab to see your real activity'}
           </Typography>
         </Box>
         
         {showControls && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {/* Git Integration Buttons */}
-            <Tooltip title={connectedServices.github ? 'GitHub Connected' : 'Connect GitHub'}>
-              <Button
-                size="small"
-                variant={connectedServices.github ? 'contained' : 'outlined'}
-                startIcon={connectedServices.github ? <CheckCircleIcon /> : <GitHubIcon />}
-                onClick={() => !connectedServices.github && handleConnectService('github')}
-                sx={{
-                  bgcolor: connectedServices.github ? '#238636' : 'transparent',
-                  borderColor: '#333',
-                  color: connectedServices.github ? 'white' : '#333',
-                  '&:hover': { bgcolor: connectedServices.github ? '#2ea043' : alpha('#333', 0.05) },
-                }}
-              >
-                {connectedServices.github ? 'Connected' : 'GitHub'}
-              </Button>
-            </Tooltip>
+            {/* GitHub Button */}
+            {connectionStatus.github.connected ? (
+              <Tooltip title={`Connected as ${connectionStatus.github.username}. Click to disconnect.`}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={<CheckCircleIcon />}
+                  endIcon={<LinkOffIcon sx={{ fontSize: 14, ml: -0.5 }} />}
+                  onClick={() => setDisconnectDialog({ open: true, service: 'github' })}
+                  sx={{
+                    bgcolor: '#238636',
+                    '&:hover': { bgcolor: '#d32f2f' },
+                  }}
+                >
+                  {connectionStatus.github.username}
+                </Button>
+              </Tooltip>
+            ) : (
+              <Tooltip title="Connect with GitHub OAuth">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={githubConnecting ? <CircularProgress size={16} /> : <GitHubIcon />}
+                  onClick={handleConnectGitHub}
+                  disabled={githubConnecting}
+                  sx={{
+                    borderColor: '#333',
+                    color: '#333',
+                    '&:hover': { bgcolor: alpha('#333', 0.05) },
+                  }}
+                >
+                  {githubConnecting ? 'Connecting...' : 'GitHub'}
+                </Button>
+              </Tooltip>
+            )}
             
-            <Tooltip title={connectedServices.gitlab ? 'GitLab Connected' : 'Connect GitLab'}>
-              <Button
-                size="small"
-                variant={connectedServices.gitlab ? 'contained' : 'outlined'}
-                startIcon={connectedServices.gitlab ? <CheckCircleIcon /> : <GitLabIcon />}
-                onClick={() => !connectedServices.gitlab && handleConnectService('gitlab')}
-                sx={{
-                  bgcolor: connectedServices.gitlab ? '#fc6d26' : 'transparent',
-                  borderColor: '#fc6d26',
-                  color: connectedServices.gitlab ? 'white' : '#fc6d26',
-                  '&:hover': { bgcolor: connectedServices.gitlab ? '#e24329' : alpha('#fc6d26', 0.05) },
-                }}
-              >
-                {connectedServices.gitlab ? 'Connected' : 'GitLab'}
-              </Button>
-            </Tooltip>
+            {/* GitLab Button */}
+            {connectionStatus.gitlab.connected ? (
+              <Tooltip title={`Connected as ${connectionStatus.gitlab.username}. Click to disconnect.`}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={<CheckCircleIcon />}
+                  endIcon={<LinkOffIcon sx={{ fontSize: 14, ml: -0.5 }} />}
+                  onClick={() => setDisconnectDialog({ open: true, service: 'gitlab' })}
+                  sx={{
+                    bgcolor: '#fc6d26',
+                    '&:hover': { bgcolor: '#d32f2f' },
+                  }}
+                >
+                  {connectionStatus.gitlab.username}
+                </Button>
+              </Tooltip>
+            ) : (
+              <Tooltip title="Connect with GitLab OAuth">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={gitlabConnecting ? <CircularProgress size={16} /> : <GitLabIcon />}
+                  onClick={handleConnectGitLab}
+                  disabled={gitlabConnecting}
+                  sx={{
+                    borderColor: '#fc6d26',
+                    color: '#fc6d26',
+                    '&:hover': { bgcolor: alpha('#fc6d26', 0.05) },
+                  }}
+                >
+                  {gitlabConnecting ? 'Connecting...' : 'GitLab'}
+                </Button>
+              </Tooltip>
+            )}
             
             {/* Year Navigation */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
@@ -267,7 +452,22 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
         )}
       </Box>
       
+      {/* Error Alert */}
+      {contributionError && (
+        <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setContributionError(null)}>
+          {contributionError}
+        </Alert>
+      )}
+      
+      {/* Loading state */}
+      {loadingContributions && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress size={32} sx={{ color: colors.primary }} />
+        </Box>
+      )}
+
       {/* Heatmap Grid */}
+      {!loadingContributions && (
       <Box sx={{ overflowX: 'auto', pb: 1 }}>
         <Box sx={{ display: 'inline-flex', flexDirection: 'column', minWidth: 'fit-content' }}>
           {/* Month Labels Row */}
@@ -328,11 +528,6 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
                           <Typography variant="caption" display="block">
                             {day.date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
                           </Typography>
-                          {day.count > 0 && (
-                            <Typography variant="caption" display="block" sx={{ opacity: 0.8 }}>
-                              Type: {day.type}
-                            </Typography>
-                          )}
                         </Box>
                       }
                       arrow
@@ -363,15 +558,19 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
         </Box>
         </Box>
       </Box>
-      
+      )}
+
       {/* Legend and Stats */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 2 }}>
-        {/* Activity Types */}
-        {!compact && (
+        {/* Source indicators */}
+        {!compact && hasRealData && (
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Chip size="small" label="Practice" sx={{ bgcolor: alpha('#40c463', 0.2), color: '#216e39' }} />
-            <Chip size="small" label="Commits" sx={{ bgcolor: alpha(colors.primary, 0.2), color: colors.primary }} />
-            <Chip size="small" label="Projects" sx={{ bgcolor: alpha('#8b5cf6', 0.2), color: '#8b5cf6' }} />
+            {connectionStatus.github.connected && (
+              <Chip size="small" icon={<GitHubIcon sx={{ fontSize: 14 }} />} label="GitHub" sx={{ bgcolor: alpha('#333', 0.1) }} />
+            )}
+            {connectionStatus.gitlab.connected && (
+              <Chip size="small" icon={<Box component="span" sx={{ display: 'flex' }}><GitLabIcon /></Box>} label="GitLab" sx={{ bgcolor: alpha('#fc6d26', 0.1) }} />
+            )}
           </Box>
         )}
         
@@ -395,7 +594,7 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
       </Box>
       
       {/* Stats Row */}
-      {!compact && (
+      {!compact && hasRealData && (
         <Grid container spacing={2} sx={{ mt: 2 }}>
           <Grid item xs={6} sm={3}>
             <Box sx={{ textAlign: 'center', p: 1.5, bgcolor: alpha(colors.success, 0.05), borderRadius: 2 }}>
@@ -432,34 +631,28 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
         </Grid>
       )}
       
-      {/* Connect Dialog */}
-      <Dialog open={connectDialogOpen} onClose={() => setConnectDialogOpen(false)} maxWidth="xs" fullWidth>
+      {/* Disconnect Confirmation Dialog */}
+      <Dialog open={disconnectDialog.open} onClose={() => !disconnecting && setDisconnectDialog({ open: false, service: null })}>
         <DialogTitle>
-          Connect {selectedService === 'github' ? 'GitHub' : 'GitLab'}
+          Disconnect {disconnectDialog.service === 'github' ? 'GitHub' : 'GitLab'}?
         </DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Authorize VerTechie to access your {selectedService === 'github' ? 'GitHub' : 'GitLab'} contributions. 
-            Your commits and activity will be synced to your heatmap.
+          <Typography variant="body2" color="text.secondary">
+            Your {disconnectDialog.service === 'github' ? 'GitHub' : 'GitLab'} account will be disconnected and contributions from this account will no longer appear on your profile.
+            You can reconnect {disconnectDialog.service === 'github' ? 'with the same or a different GitHub account' : 'anytime'}.
           </Typography>
-          <TextField
-            fullWidth
-            label={`${selectedService === 'github' ? 'GitHub' : 'GitLab'} Username`}
-            placeholder="Enter your username"
-            sx={{ mt: 1 }}
-          />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConnectDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => setDisconnectDialog({ open: false, service: null })} disabled={disconnecting}>
+            Cancel
+          </Button>
           <Button 
             variant="contained" 
-            onClick={confirmConnect}
-            sx={{ 
-              bgcolor: selectedService === 'github' ? '#238636' : '#fc6d26',
-              '&:hover': { bgcolor: selectedService === 'github' ? '#2ea043' : '#e24329' },
-            }}
+            color="error"
+            onClick={handleDisconnect}
+            disabled={disconnecting}
           >
-            Authorize
+            {disconnecting ? 'Disconnecting...' : 'Disconnect'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -468,4 +661,3 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
 };
 
 export default ContributionHeatmap;
-

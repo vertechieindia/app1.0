@@ -740,7 +740,7 @@ async def reject_user(
         }
     else:
         # Just mark as rejected, keep data
-        user.verification_status = VerificationStatus.REJECTED.value
+        user.verification_status = VerificationStatus.REJECTED
         user.reviewed_by_id = admin_user.id
         user.reviewed_at = datetime.utcnow()
         user.rejection_reason = reason

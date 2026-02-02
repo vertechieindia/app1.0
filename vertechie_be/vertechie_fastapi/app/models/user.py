@@ -88,10 +88,10 @@ class User(Base, UUIDMixin, TimestampMixin):
     mobile_verified = Column(Boolean, default=False)
     is_superuser = Column(Boolean, default=False)
     
-    # Admin Review Workflow - stored as string (VARCHAR) for compatibility; use VerificationStatus.X.value when assigning
+    # Admin Review Workflow - PostgreSQL ENUM type
     verification_status = Column(
-        String(50),
-        default=VerificationStatus.PENDING.value,
+        Enum(VerificationStatus, name="verificationstatus", create_type=False),
+        default=VerificationStatus.PENDING,
         nullable=True,
     )
     reviewed_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -177,6 +177,18 @@ class UserProfile(Base, UUIDMixin, TimestampMixin):
     gitlab_url = Column(String(255), nullable=True)
     twitter_url = Column(String(255), nullable=True)
     portfolio_url = Column(String(255), nullable=True)
+
+    # GitHub OAuth - stores encrypted access token for GraphQL API access
+    github_access_token = Column(String(500), nullable=True)  # Encrypted token
+    github_username = Column(String(255), nullable=True)  # GitHub username from OAuth
+    github_user_id = Column(String(50), nullable=True)  # GitHub user ID for verification
+    github_connected_at = Column(DateTime, nullable=True)  # When OAuth was completed
+
+    # GitLab OAuth - same pattern as GitHub
+    gitlab_access_token = Column(String(500), nullable=True)
+    gitlab_username = Column(String(255), nullable=True)
+    gitlab_user_id = Column(String(50), nullable=True)
+    gitlab_connected_at = Column(DateTime, nullable=True)
     
     # Preferences
     open_to_work = Column(Boolean, default=False)

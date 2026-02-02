@@ -221,7 +221,7 @@ const roleLabels: { [key: string]: string } = {
   super_admin: 'Super Admin',
 };
 
-const AppHeader: React.FC = () => {
+const AppHeader = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileAnchor, setProfileAnchor] = useState<null | HTMLElement>(null);
   const [userRole, setUserRole] = useState<UserRole>('techie');
@@ -293,27 +293,18 @@ const AppHeader: React.FC = () => {
         setUserName(`${firstName} ${lastName}`.trim() || user.email || 'User');
         setUserAvatar(user.profile_image || '');
 
-        // Determine role - check user.role, user.roles array, and user.groups array
+        // Determine role - check user.role, user.roles array, user.groups array, and admin_roles
         const userRoles = user.roles || [];
         const userGroups = user.groups || [];
+        const adminRoles = user.admin_roles || [];
         const hasRole = (roleType: string) =>
           user.role === roleType ||
           userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType) ||
           userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType);
 
-        if (user.is_superuser) {
-        
-        // Determine role - check user.role, user.roles array, user.groups array, and admin_roles
-        const userRoles = user.roles || [];
-        const userGroups = user.groups || [];
-        const adminRoles = user.admin_roles || [];
-        const hasRole = (roleType: string) => 
-          user.role === roleType || 
-          userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType) ||
-          userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType);
-        
         const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
-        const countRoleAdmins = roleAdminTypes.filter((r) => adminRoles.includes(r)).length;
+        const countRoleAdmins = roleAdminTypes.filter((r: string) => adminRoles.includes(r)).length;
+
         if (user.is_superuser || adminRoles.includes('superadmin')) {
           setUserRole('super_admin');
         } else if (countRoleAdmins > 1) {
@@ -690,7 +681,7 @@ const AppHeader: React.FC = () => {
             </IconButton>
           </Tooltip>
 
-          
+
           {/* Profile Menu */}
           <Box
             onClick={(e) => setProfileAnchor(e.currentTarget)}

@@ -79,6 +79,8 @@ class UserProfileUpdate(BaseModel):
     linkedin_url: Optional[str] = None
     github_url: Optional[str] = None
     gitlab_url: Optional[str] = None
+    github_username: Optional[str] = None
+    gitlab_username: Optional[str] = None
     twitter_url: Optional[str] = None
     portfolio_url: Optional[str] = None
     open_to_work: Optional[bool] = None
@@ -104,6 +106,8 @@ class UserProfileResponse(BaseModel):
     linkedin_url: Optional[str] = None
     github_url: Optional[str] = None
     gitlab_url: Optional[str] = None
+    github_username: Optional[str] = None
+    gitlab_username: Optional[str] = None
     twitter_url: Optional[str] = None
     portfolio_url: Optional[str] = None
     open_to_work: bool = False

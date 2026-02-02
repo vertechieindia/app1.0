@@ -64,8 +64,24 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     LINKEDIN_CLIENT_ID: Optional[str] = None
     LINKEDIN_CLIENT_SECRET: Optional[str] = None
+    # Environment: "development" or "production" – chooses which OAuth credentials to use
+    ENVIRONMENT: str = "development"
+    # GitHub – development (local)
     GITHUB_CLIENT_ID: Optional[str] = None
     GITHUB_CLIENT_SECRET: Optional[str] = None
+    GITHUB_CALLBACK_URL: Optional[str] = None  # e.g. http://localhost:5173/github/callback
+    # GitHub – production (set when ENVIRONMENT=production)
+    GITHUB_CLIENT_ID_PRODUCTION: Optional[str] = None
+    GITHUB_CLIENT_SECRET_PRODUCTION: Optional[str] = None
+    GITHUB_CALLBACK_URL_PRODUCTION: Optional[str] = None  # e.g. https://yourdomain.com/github/callback
+    # GitLab – development
+    GITLAB_CLIENT_ID: Optional[str] = None
+    GITLAB_CLIENT_SECRET: Optional[str] = None
+    GITLAB_CALLBACK_URL: Optional[str] = None
+    # GitLab – production
+    GITLAB_CLIENT_ID_PRODUCTION: Optional[str] = None
+    GITLAB_CLIENT_SECRET_PRODUCTION: Optional[str] = None
+    GITLAB_CALLBACK_URL_PRODUCTION: Optional[str] = None
     
     # External APIs
     GIPHY_API_KEY: Optional[str] = None

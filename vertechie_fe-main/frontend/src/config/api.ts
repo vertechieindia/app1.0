@@ -68,9 +68,28 @@ export const API_ENDPOINTS = {
 
   // Shorthand aliases for backwards compatibility
   REGISTER: '/auth/register',
-  COMPANY: '/companies',
+  COMPANY: '/companies/',
   COMPANY_SIGNUP: '/companies/signup',
   SCHOOL_SIGNUP: '/schools/signup',
+
+  // ============================================
+  // CMS (Company Management System)
+  // ============================================
+  CMS: {
+    MY_COMPANY: '/users/me/company',
+    COMPANY: (id: string) => `/companies/${id}`,
+    UPDATE_COMPANY: (id: string) => `/companies/${id}`,
+    TEAM_MEMBERS: (id: string) => `/companies/${id}/team-members`,
+    ADD_TEAM_MEMBER: (id: string) => `/companies/${id}/team-members`,
+    DELETE_TEAM_MEMBER: (id: string, memberId: string) => `/companies/${id}/team-members/${memberId}`,
+    ADMINS: (id: string) => `/companies/${id}/admins`,
+    ADD_ADMIN: (id: string) => `/companies/${id}/admins`,
+    REMOVE_ADMIN: (id: string, adminId: string) => `/companies/${id}/admins/${adminId}`,
+    POSTS: (id: string) => `/companies/${id}/posts`,
+    CREATE_POST: (id: string) => `/companies/${id}/posts`,
+    JOBS: (id: string) => `/jobs/?company_id=${id}`,
+    STATS: (id: string) => `/companies/${id}/stats`,
+  },
 
   // Additional top-level endpoints used across the app
   GROUPS: '/groups/',
@@ -171,6 +190,24 @@ export const API_ENDPOINTS = {
     // Backend expects unread-count under conversations path
     UNREAD_COUNT: '/chat/conversations/unread-count',
     MARK_READ: (conversationId: string) => `/chat/conversations/${conversationId}/mark-read`,
+  },
+
+  // ============================================
+  // GITHUB / GITLAB (activity / contributions)
+  // ============================================
+  GITHUB_GITLAB: {
+    CONTRIBUTIONS: '/github-gitlab/contributions',
+    STATUS: '/github-gitlab/status',
+    // GitHub OAuth
+    GITHUB_AUTH: '/github-gitlab/github/auth',
+    GITHUB_CALLBACK: '/github-gitlab/github/callback',
+    GITHUB_DISCONNECT: '/github-gitlab/github/disconnect',
+    GITHUB_STATUS: '/github-gitlab/github/status',
+    // GitLab OAuth (same as GitHub)
+    GITLAB_AUTH: '/github-gitlab/gitlab/auth',
+    GITLAB_CALLBACK: '/github-gitlab/gitlab/callback',
+    GITLAB_DISCONNECT: '/github-gitlab/gitlab/disconnect',
+    GITLAB_STATUS: '/github-gitlab/gitlab/status',
   },
 
   // ============================================
