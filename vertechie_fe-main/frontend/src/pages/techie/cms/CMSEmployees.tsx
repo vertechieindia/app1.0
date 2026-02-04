@@ -25,6 +25,10 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Tabs,
+  Tab,
+  Tooltip,
+  Grid,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import SearchIcon from '@mui/icons-material/Search';
@@ -35,6 +39,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DownloadIcon from '@mui/icons-material/Download';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import CMSLayout from './CMSLayout';
 import { api } from '../../../services/apiClient';
 import { API_ENDPOINTS } from '../../../config/api';
@@ -44,97 +49,132 @@ const colors = {
   primary: '#0d47a1',
   success: '#34C759',
   warning: '#FF9500',
-  error: '#FF3B30',
 };
 
 const CMSEmployees: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [tabIndex, setTabIndex] = useState(0);
+  const [members, setMembers] = useState<any[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [newMember, setNewMember] = useState({ name: '', title: '', bio: '', linkedin_url: '' });
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      // Try getting user first to find their company
+      const me = await api.get<any>(API_ENDPOINTS.AUTH.ME);
+      let myCompany = null;
+      if (me?.id) {
+        const result = await api.get<any>(API_ENDPOINTS.COMPANY, { params: { user_id: me.id } });
+        if (Array.isArray(result) && result.length > 0) myCompany = result[0];
+        else if (result?.id) myCompany = result;
+      }
+
+      if (!myCompany) {
+        try {
+          myCompany = await api.get<any>(API_ENDPOINTS.CMS.MY_COMPANY);
+        } catch (e) { }
+      }
+
+      if (myCompany?.id) {
+        setCompanyId(myCompany.id);
+        const membersData = await api.get<any>(API_ENDPOINTS.CMS.TEAM_MEMBERS(myCompany.id));
+        setMembers(membersData || []);
+
+        // Fetch verification requests
+        try {
+          const requestsData = await api.get<any>(API_ENDPOINTS.CMS.UNVERIFIED_EMPLOYEES(myCompany.id));
+          setPendingRequests(requestsData || []);
+        } catch (e) {
+          console.error("Failed to fetch verification requests", e);
+        }
+      }
+    } catch (err: any) {
+      setMembers(DUMMY_EMPLOYEES);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Try getting user first to find their company
-        const me = await api.get<any>(API_ENDPOINTS.AUTH.ME);
-        let myCompany = null;
-        if (me?.id) {
-          const result = await api.get(API_ENDPOINTS.COMPANY, { params: { user_id: me.id } });
-          if (Array.isArray(result) && result.length > 0) myCompany = result[0];
-          else if (result?.id) myCompany = result;
-        }
-
-        // Fallback
-        if (!myCompany) {
-          try {
-            myCompany = await api.get(API_ENDPOINTS.CMS.MY_COMPANY);
-          } catch (e) { }
-        }
-
-        if (myCompany?.id) {
-          setCompanyId(myCompany.id);
-          const members = await api.get(API_ENDPOINTS.CMS.TEAM_MEMBERS(myCompany.id));
-          setTeamMembers(members || []);
-        }
-      } catch (err: any) {
-        // Fallback
-        setTeamMembers(DUMMY_EMPLOYEES);
-      } finally {
-        setTeamMembers(prev => {
-          if (prev.length === 0) return DUMMY_EMPLOYEES;
-          return prev;
-        });
-        setLoading(false);
-      }
-    };
     fetchData();
   }, []);
 
   const handleAddMember = async () => {
-    if (!newMember.name.trim() || !companyId) return;
+    if (!newMemberEmail.trim() || !companyId) return;
     try {
-      const added = await api.post(API_ENDPOINTS.CMS.ADD_TEAM_MEMBER(companyId), newMember);
-      setTeamMembers([...teamMembers, added]);
-      setAddDialogOpen(false);
-      setNewMember({ name: '', title: '', bio: '', linkedin_url: '' });
+      // Use dedicated invite endpoint so backend can handle email-based invites
+      await api.post(API_ENDPOINTS.CMS.INVITE_TEAM_MEMBER(companyId), {
+        email: newMemberEmail,
+        role: 'member',
+      });
+      setOpenDialog(false);
+      setNewMemberEmail('');
+      fetchData();
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to add team member');
+      const detail =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        err.message;
+      setError(detail || 'Failed to send invite');
     }
   };
 
   const handleDeleteMember = async (memberId: string) => {
-    if (!companyId || !confirm('Delete this team member?')) return;
+    if (!companyId || !confirm('Remove this member?')) return;
     try {
       await api.delete(API_ENDPOINTS.CMS.DELETE_TEAM_MEMBER(companyId, memberId));
-      setTeamMembers(teamMembers.filter(m => m.id !== memberId));
+      fetchData();
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to delete team member');
+      setError('Failed to delete member');
     }
   };
 
-  const filteredMembers = teamMembers.filter(
-    (m) => m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (m.title && m.title.toLowerCase().includes(searchQuery.toLowerCase()))
+  const handleVerifyExperience = async (experienceId: string) => {
+    if (!companyId) return;
+    try {
+      await api.post(API_ENDPOINTS.CMS.VERIFY_EMPLOYEE(companyId, experienceId));
+      fetchData();
+    } catch (err: any) {
+      setError('Failed to verify employee');
+    }
+  };
+
+  const filteredMembers = members.filter(
+    (member) => member.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      member.email?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
     <CMSLayout>
       <Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
-          <Typography variant="h6" fontWeight={600}>Team Members</Typography>
+          <Box>
+            <Typography variant="h6" fontWeight={600}>Employee & Team Management</Typography>
+            <Typography variant="body2" color="text.secondary">Manage your team members and verify employee work history.</Typography>
+          </Box>
           <Button
             variant="contained"
-            sx={{ bgcolor: colors.primary }}
-            startIcon={<AddIcon />}
-            onClick={() => setAddDialogOpen(true)}
+            startIcon={<PersonAddIcon />}
+            sx={{ bgcolor: colors.primary, borderRadius: 2 }}
+            onClick={() => setOpenDialog(true)}
           >
             Add Team Member
           </Button>
         </Box>
+
+        <Tabs
+          value={tabIndex}
+          onChange={(_, v) => setTabIndex(v)}
+          sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}
+        >
+          <Tab label={`Team Members (${members.length})`} />
+          <Tab label={`Verification Requests (${pendingRequests.length})`} />
+        </Tabs>
 
         {error && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
@@ -142,157 +182,160 @@ const CMSEmployees: React.FC = () => {
           </Alert>
         )}
 
-        {/* Stats */}
-        <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-          <Card sx={{ flex: 1, p: 2, textAlign: 'center', bgcolor: alpha(colors.success, 0.1) }}>
-            <Typography variant="h4" fontWeight={700} color={colors.success}>{teamMembers.length}</Typography>
-            <Typography variant="body2" color="text.secondary">Total Team Members</Typography>
-          </Card>
-          <Card sx={{ flex: 1, p: 2, textAlign: 'center', bgcolor: alpha(colors.primary, 0.1) }}>
-            <Typography variant="h4" fontWeight={700} color={colors.primary}>
-              {teamMembers.filter(m => m.is_leadership).length}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">Leadership</Typography>
-          </Card>
-        </Box>
+        {tabIndex === 0 && (
+          <>
+            <TextField
+              fullWidth
+              placeholder="Search members..."
+              size="small"
+              sx={{ mb: 3, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+            />
 
-        {/* Search & Filter */}
-        <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-          <TextField
-            placeholder="Search employees..."
-            size="small"
-            sx={{ flex: 1 }}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
-          <Button variant="outlined" startIcon={<FilterListIcon />}>
-            Filter
-          </Button>
-        </Box>
-
-        {/* Team Members Table */}
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Title</TableCell>
-                  <TableCell>Bio</TableCell>
-                  <TableCell>LinkedIn</TableCell>
-                  <TableCell>Role</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredMembers.length === 0 ? (
+            <TableContainer component={Card} sx={{ borderRadius: 3, boxShadow: 'none', border: '1px solid rgba(0,0,0,0.05)' }}>
+              <Table>
+                <TableHead sx={{ bgcolor: alpha(colors.primary, 0.02) }}>
                   <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                      <Typography color="text.secondary">No team members yet. Add your first team member!</Typography>
-                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Member</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Email</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Role</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Joined</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>Actions</TableCell>
                   </TableRow>
-                ) : (
-                  filteredMembers.map((member) => (
-                    <TableRow key={member.id} hover>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                          <Avatar
-                            src={member.photo_url || undefined}
-                            sx={{ bgcolor: colors.primary, width: 32, height: 32 }}
-                          >
-                            {member.name[0]}
-                          </Avatar>
-                          <Typography fontWeight={500}>{member.name}</Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell>{member.title || '-'}</TableCell>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {member.bio || '-'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        {member.linkedin_url ? (
-                          <Button size="small" href={member.linkedin_url} target="_blank">View</Button>
-                        ) : '-'}
-                      </TableCell>
-                      <TableCell>
-                        {member.is_leadership && (
-                          <Chip label="Leadership" size="small" sx={{ bgcolor: alpha(colors.primary, 0.1), color: colors.primary }} />
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleDeleteMember(member.id)}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                </TableHead>
+                <TableBody>
+                  {loading ? (
+                    <TableRow><TableCell colSpan={6} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                  ) : filteredMembers.length === 0 ? (
+                    <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4 }}>No members found.</TableCell></TableRow>
+                  ) : (
+                    filteredMembers.map((member) => (
+                      <TableRow key={member.id} hover>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <Avatar src={member.avatar} sx={{ width: 32, height: 32, bgcolor: colors.primary }}>
+                              {member.name?.[0]}
+                            </Avatar>
+                            <Typography variant="body2" fontWeight={500}>{member.name || 'Unknown'}</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell><Typography variant="body2">{member.email}</Typography></TableCell>
+                        <TableCell>
+                          <Chip label={member.role} size="small" variant="outlined" sx={{ borderRadius: 1 }} />
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={member.status}
+                            size="small"
+                            sx={{
+                              borderRadius: 1,
+                              bgcolor: member.status === 'active' ? alpha(colors.success, 0.1) : alpha(colors.warning, 0.1),
+                              color: member.status === 'active' ? colors.success : colors.warning,
+                              fontWeight: 600,
+                              fontSize: '0.75rem'
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell><Typography variant="body2" color="text.secondary">{new Date(member.joined_at).toLocaleDateString()}</Typography></TableCell>
+                        <TableCell align="right">
+                          <Tooltip title="Remove Member">
+                            <IconButton size="small" color="error" onClick={() => handleDeleteMember(member.id)}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </>
         )}
 
-        {/* Add Team Member Dialog */}
-        <Dialog open={addDialogOpen} onClose={() => setAddDialogOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle>Add Team Member</DialogTitle>
+        {tabIndex === 1 && (
+          <Box>
+            {pendingRequests.length === 0 ? (
+              <Box sx={{ textAlign: 'center', py: 8, bgcolor: 'white', borderRadius: 4, border: '1px dashed #ccc' }}>
+                <CheckCircleIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                <Typography color="text.secondary">All set! No pending verification requests.</Typography>
+              </Box>
+            ) : (
+              <Grid container spacing={2}>
+                {pendingRequests.map((req) => (
+                  <Grid item xs={12} key={req.experience_id}>
+                    <Card sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: 3, border: `1px solid ${alpha(colors.primary, 0.1)}` }}>
+                      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                        <Avatar sx={{ bgcolor: alpha(colors.primary, 0.1), color: colors.primary }}>
+                          {req.full_name?.[0]}
+                        </Avatar>
+                        <Box>
+                          <Typography variant="subtitle2" fontWeight={700}>{req.full_name}</Typography>
+                          <Typography variant="body2" color="text.secondary">{req.title} • {req.employment_type}</Typography>
+                          <Typography variant="caption" color="text.disabled">
+                            {req.start_date} - {req.is_current ? 'Present' : req.end_date}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          startIcon={<CheckCircleIcon />}
+                          onClick={() => handleVerifyExperience(req.experience_id)}
+                          sx={{ borderRadius: 2 }}
+                        >
+                          Verify
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="error"
+                          startIcon={<CancelIcon />}
+                          sx={{ borderRadius: 2 }}
+                        >
+                          Reject
+                        </Button>
+                      </Box>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </Box>
+        )}
+
+        <Dialog open={openDialog} onClose={() => setOpenDialog(false)} PaperProps={{ sx: { borderRadius: 4 } }}>
+          <DialogTitle sx={{ fontWeight: 700 }}>Add Team Member</DialogTitle>
           <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Invite a new member to your company page by their email address.
+            </Typography>
             <TextField
               fullWidth
-              label="Name"
-              value={newMember.name}
-              onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
-              sx={{ mb: 2, mt: 1 }}
-              required
-            />
-            <TextField
-              fullWidth
-              label="Title"
-              value={newMember.title}
-              onChange={(e) => setNewMember({ ...newMember, title: e.target.value })}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              multiline
-              rows={3}
-              label="Bio"
-              value={newMember.bio}
-              onChange={(e) => setNewMember({ ...newMember, bio: e.target.value })}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="LinkedIn URL"
-              value={newMember.linkedin_url}
-              onChange={(e) => setNewMember({ ...newMember, linkedin_url: e.target.value })}
+              autoFocus
+              label="Email Address"
+              type="email"
+              placeholder="e.g. employee@company.com"
+              value={newMemberEmail}
+              onChange={(e) => setNewMemberEmail(e.target.value)}
+              sx={{ mt: 1 }}
             />
           </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setAddDialogOpen(false)}>Cancel</Button>
-            <Button
-              variant="contained"
-              onClick={handleAddMember}
-              disabled={!newMember.name.trim()}
-              sx={{ bgcolor: colors.primary }}
-            >
-              Add
+          <DialogActions sx={{ p: 3, pt: 0 }}>
+            <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
+            <Button variant="contained" onClick={handleAddMember} disabled={!newMemberEmail.trim()} sx={{ bgcolor: colors.primary, borderRadius: 2, px: 3 }}>
+              Send Invite
             </Button>
           </DialogActions>
         </Dialog>

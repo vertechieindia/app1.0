@@ -110,6 +110,10 @@ class Job(Base, UUIDMixin, TimestampMixin):
     external_apply_url = Column(String(500), nullable=True)
     application_deadline = Column(Date, nullable=True)
     
+    # Assessment Questions
+    coding_questions = Column(JSON, default=list)
+    screening_questions = Column(JSON, default=list)
+    
     # Stats (denormalized)
     views_count = Column(Integer, default=0)
     applications_count = Column(Integer, default=0)

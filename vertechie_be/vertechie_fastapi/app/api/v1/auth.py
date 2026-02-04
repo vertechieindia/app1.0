@@ -10,11 +10,13 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert
+from sqlalchemy import select, insert, func
 from slugify import slugify
 
 from app.db.session import get_db
 from app.models.user import User, UserRole, UserProfile, Experience, Education, RoleType, VerificationStatus, user_roles
+from app.models.company import Company, CompanyAdmin, CompanyStatus
+from app.models.school import School, SchoolAdmin, SchoolStatus, SchoolType
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, TokenRefresh,
     PasswordReset, PasswordResetConfirm, PasswordChange,
@@ -156,7 +158,6 @@ async def login(
     """Login and get access token with user data."""
     
     # Find user
-    from sqlalchemy import func
     result = await db.execute(
         select(User).where(func.lower(User.email) == func.lower(login_data.email))
     )
@@ -248,7 +249,6 @@ async def token_login(
     """OAuth2 compatible token login (form data)."""
     
     # Find user
-    from sqlalchemy import func
     result = await db.execute(
         select(User).where(func.lower(User.email) == func.lower(form_data.username))
     )
@@ -613,6 +613,108 @@ async def admin_create_user(
                     grade=edu_data.gpa_score,
                 )
                 db.add(education)
+        
+        await db.commit()
+        await db.refresh(user)
+        
+        # Determine organization association based on role
+        if user_in.role in ["hr", "company"] and user_in.company_name:
+            # Handle Company association
+            company_name = user_in.company_name
+            company_slug = slugify(company_name)
+            
+            # Find or create company
+            result = await db.execute(
+                select(Company).where(
+                    (func.lower(Company.name) == func.lower(company_name)) |
+                    (Company.slug == company_slug)
+                )
+            )
+            company = result.scalar_one_or_none()
+            
+            if not company:
+                # Create new company
+                company = Company(
+                    name=company_name,
+                    slug=company_slug,
+                    email=user_in.company_email or user_in.email,
+                    website=user_in.company_website,
+                    description=user_in.about,
+                    status=CompanyStatus.ACTIVE,
+                    is_verified=True
+                )
+                db.add(company)
+                await db.flush()
+            
+            # Create CompanyAdmin link
+            # role="hr" -> recruiter/hr role in company
+            # role="company" -> owner role in company
+            link_role = "hr" if user_in.role == "hr" else "owner"
+            
+            # Check if association already exists
+            admin_result = await db.execute(
+                select(CompanyAdmin).where(
+                    CompanyAdmin.company_id == company.id,
+                    CompanyAdmin.user_id == user.id
+                )
+            )
+            if not admin_result.scalar_one_or_none():
+                company_admin = CompanyAdmin(
+                    company_id=company.id,
+                    user_id=user.id,
+                    role=link_role,
+                    can_manage_jobs=True,
+                    can_manage_candidates=True,
+                    can_manage_team=(link_role == "owner"),
+                    can_manage_admins=(link_role == "owner")
+                )
+                db.add(company_admin)
+        
+        elif user_in.role == "school" and user_in.school_name:
+            # Handle School association
+            school_name = user_in.school_name
+            school_slug = slugify(school_name)
+            
+            # Find or create school
+            result = await db.execute(
+                select(School).where(
+                    (func.lower(School.name) == func.lower(school_name)) |
+                    (School.slug == school_slug)
+                )
+            )
+            school = result.scalar_one_or_none()
+            
+            if not school:
+                # Create new school
+                school = School(
+                    name=school_name,
+                    slug=school_slug,
+                    email=user_in.email,
+                    school_type=SchoolType.UNIVERSITY, # Default
+                    status=SchoolStatus.ACTIVE,
+                    is_verified=True
+                )
+                db.add(school)
+                await db.flush()
+            
+            # Create SchoolAdmin link
+            admin_result = await db.execute(
+                select(SchoolAdmin).where(
+                    SchoolAdmin.school_id == school.id,
+                    SchoolAdmin.user_id == user.id
+                )
+            )
+            if not admin_result.scalar_one_or_none():
+                school_admin = SchoolAdmin(
+                    school_id=school.id,
+                    user_id=user.id,
+                    role="owner",
+                    can_manage_students=True,
+                    can_manage_programs=True,
+                    can_manage_placements=True,
+                    can_manage_admins=True
+                )
+                db.add(school_admin)
         
         await db.commit()
         await db.refresh(user)

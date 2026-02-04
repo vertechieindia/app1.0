@@ -78,7 +78,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     vertechie_id = Column(String(50), unique=True, nullable=True, index=True)
     dob = Column(Date, nullable=True)
     country = Column(String(50), nullable=True)
-    gov_id = Column(String(4), nullable=True)  # Last 4 digits only
+    gov_id = Column(String(50), nullable=True)  # Up to 50 characters
     address = Column(Text, nullable=True)
     
     # Status

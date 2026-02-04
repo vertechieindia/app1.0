@@ -265,7 +265,8 @@ def _ext(filename: str) -> str:
     return ".jpg"
 
 
-@router.post("/upload")
+@router.post("/upload", include_in_schema=True)
+@router.post("/upload/", include_in_schema=False)
 async def upload_post_image(
     request: Request,
     file: UploadFile = File(...),

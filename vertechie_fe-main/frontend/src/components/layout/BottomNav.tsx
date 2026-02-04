@@ -316,8 +316,8 @@ const BottomNav: React.FC = () => {
       });
     }
 
-    // SMS for School Page Owners and Admins (user-side school page management)
-    if (userRole === 'school' || userRole === 'school_admin' || isAnyAdmin) {
+    // SMS - visible only to school users and superusers (not to other admins or company users)
+    if (userRole === 'school' || userRole === 'school_admin' || userRole === 'super_admin') {
       items.push({
         key: 'sms',
         label: 'SMS',
@@ -326,8 +326,8 @@ const BottomNav: React.FC = () => {
       });
     }
 
-    // CMS for Company Page Owners and Admins (user-side company page management)
-    if (userRole === 'company' || userRole === 'company_admin' || isAnyAdmin) {
+    // CMS - visible only to company users and superusers (not to other admins or school users)
+    if (userRole === 'company' || userRole === 'company_admin' || userRole === 'super_admin') {
       items.push({
         key: 'cms',
         label: 'CMS',
@@ -492,7 +492,7 @@ const BottomNav: React.FC = () => {
           </NavItem>
         )}
 
-        {/* Alerts/Notifications */}
+        {/* Alerts/Notifications - single entry with badge */}
         <NavItem
           active={isActive(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
           onClick={() => navigate(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
@@ -505,20 +505,6 @@ const BottomNav: React.FC = () => {
           <NavLabel>Alerts</NavLabel>
         </NavItem>
 
-        
-        {/* Alerts/Notifications (except for techie_admin who has it in main menu) */}
-        {userRole !== 'techie_admin' && userRole !== 'multi_admin' && (
-          <NavItem
-            active={isActive(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
-            onClick={() => navigate(userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts')}
-          >
-            <NavIcon>
-              <NotificationsIcon />
-            </NavIcon>
-            <NavLabel>Alerts</NavLabel>
-          </NavItem>
-        )}
-        
         {/* More Menu (for hidden items) */}
         {moreItems.length > 0 && (
           <>

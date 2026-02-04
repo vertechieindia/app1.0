@@ -42,6 +42,9 @@ class JobCreate(BaseModel):
     external_apply_url: Optional[str] = None
     application_deadline: Optional[date] = None
     
+    coding_questions: List[dict] = []
+    screening_questions: List[dict] = []
+    
     # Allow setting status on creation (default to published for immediate visibility)
     status: str = "published"
 
@@ -63,6 +66,8 @@ class JobUpdate(BaseModel):
     benefits: Optional[List[str]] = None
     status: Optional[str] = None
     is_featured: Optional[bool] = None
+    coding_questions: Optional[List[dict]] = None
+    screening_questions: Optional[List[dict]] = None
 
 
 class JobResponse(BaseModel):
@@ -91,6 +96,8 @@ class JobResponse(BaseModel):
     
     skills_required: List[str] = []
     benefits: List[str] = []
+    coding_questions: List[dict] = []
+    screening_questions: List[dict] = []
     
     status: str
     is_featured: bool = False

@@ -33,6 +33,14 @@ class UserRegister(BaseModel):
     # Work authorization
     work_authorization: Optional[str] = None
     
+    # Organization fields (for HR, Company, School roles)
+    company_name: Optional[str] = None
+    company_email: Optional[str] = None
+    company_website: Optional[str] = None
+    about: Optional[str] = None
+    school_name: Optional[str] = None
+    est_year: Optional[str] = None
+    
     class Config:
         extra = "ignore"  # Ignore extra fields from frontend
     

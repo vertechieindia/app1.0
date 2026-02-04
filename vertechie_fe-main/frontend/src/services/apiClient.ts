@@ -71,6 +71,9 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
+      // Check if this is a job creation/update request - handle differently
+      const isJobRequest = originalRequest.url?.includes('/jobs');
+      
       try {
         const refreshToken = getRefreshToken();
         if (refreshToken) {
@@ -87,10 +90,29 @@ apiClient.interceptors.response.use(
             originalRequest.headers.Authorization = `Bearer ${access_token}`;
           }
           return apiClient(originalRequest);
+        } else {
+          // No refresh token available
+          clearTokens();
+          
+          if (isJobRequest) {
+            // Return error instead of redirecting - let the component handle it
+            return Promise.reject(new Error('Session expired. Please refresh the page and try again.'));
+          }
+          
+          // For other requests, redirect to login
+          window.location.href = '/login';
+          return Promise.reject(new Error('Authentication required'));
         }
       } catch (refreshError) {
-        // Refresh failed - clear tokens and redirect to login
+        // Refresh failed - clear tokens
         clearTokens();
+        
+        if (isJobRequest) {
+          // Return error instead of redirecting - let the component handle it
+          return Promise.reject(new Error('Session expired. Please refresh the page and try again.'));
+        }
+        
+        // For other requests, redirect to login
         window.location.href = '/login';
         return Promise.reject(refreshError);
       }

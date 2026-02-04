@@ -142,6 +142,10 @@ class TechieDetailResponse(BaseModel):
     experiences: List[ExperienceResponse] = []
     educations: List[EducationResponse] = []
     
+    # Age verification
+    age: Optional[int] = None
+    is_min_age_met: bool = False
+    
     class Config:
         from_attributes = True
 
@@ -438,37 +442,56 @@ async def get_techie_details(
     
     # Build experiences
     experiences = []
-    for exp in user.experiences or []:
-        experiences.append(ExperienceResponse(
-            id=exp.id,
-            title=exp.title,
-            company_name=exp.company_name,
-            employment_type=exp.employment_type.value if exp.employment_type else None,
-            location=exp.location,
-            is_remote=exp.is_remote or False,
-            start_date=str(exp.start_date) if exp.start_date else None,
-            end_date=str(exp.end_date) if exp.end_date else None,
-            is_current=exp.is_current or False,
-            description=exp.description,
-            skills=exp.skills or [],
-            is_verified=exp.is_verified or False
-        ))
+    if user.experiences:
+        for exp in user.experiences:
+            experiences.append(ExperienceResponse(
+                id=exp.id,
+                title=exp.title,
+                company_name=exp.company_name,
+                employment_type=exp.employment_type.value if hasattr(exp.employment_type, 'value') else str(exp.employment_type) if exp.employment_type else None,
+                location=exp.location,
+                is_remote=exp.is_remote or False,
+                start_date=str(exp.start_date) if exp.start_date else None,
+                end_date=str(exp.end_date) if exp.end_date else None,
+                is_current=exp.is_current or False,
+                description=exp.description,
+                skills=exp.skills or [],
+                is_verified=exp.is_verified or False
+            ))
     
     # Build educations
     educations = []
-    for edu in user.educations or []:
-        educations.append(EducationResponse(
-            id=edu.id,
-            school_name=edu.school_name,
-            degree=edu.degree,
-            field_of_study=edu.field_of_study,
-            start_year=edu.start_year,
-            end_year=edu.end_year,
-            grade=edu.grade,
-            description=edu.description,
-            is_verified=edu.is_verified or False
-        ))
-    
+    if user.educations:
+        for edu in user.educations:
+            educations.append(EducationResponse(
+                id=edu.id,
+                school_name=edu.school_name,
+                degree=edu.degree,
+                field_of_study=edu.field_of_study,
+                start_year=edu.start_year,
+                end_year=edu.end_year,
+                grade=edu.grade,
+                description=edu.description,
+                is_verified=edu.is_verified or False
+            ))
+
+    # Calculate age
+    age = None
+    is_min_age_met = False
+    if user.dob:
+        if isinstance(user.dob, str):
+            try:
+                dob_date = datetime.strptime(user.dob, "%Y-%m-%d").date()
+            except:
+                dob_date = None
+        else:
+            dob_date = user.dob
+            
+        if dob_date:
+            today = datetime.now().date()
+            age = today.year - dob_date.year - ((today.month, today.day) < (dob_date.month, dob_date.day))
+            is_min_age_met = age >= 18 # Default minimum age is 18
+
     return TechieDetailResponse(
         id=user.id,
         email=user.email,
@@ -497,7 +520,9 @@ async def get_techie_details(
         updated_at=user.updated_at,
         profile=profile_data,
         experiences=experiences,
-        educations=educations
+        educations=educations,
+        age=age,
+        is_min_age_met=is_min_age_met
     )
 
 

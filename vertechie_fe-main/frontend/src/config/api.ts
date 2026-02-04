@@ -5,17 +5,32 @@
 
 // Environment-based API URL
 const getBaseUrl = (): string => {
-  // Check for environment variable first
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-
-  // Development default
+  // In local development, always talk to the Vite proxy at /api/v1
+  // so we don't depend on VITE_API_URL being set correctly.
   if (import.meta.env.DEV) {
-    return 'http://localhost:8000/api/v1';
+    return '/api/v1';
   }
 
-  // Production
+  // In non-dev environments, prefer explicit VITE_API_URL
+  const rawEnv = import.meta.env.VITE_API_URL as string | undefined;
+  if (rawEnv) {
+    const base = rawEnv.replace(/\/+$/, ''); // trim trailing slashes
+
+    // If it already includes /api/v1 anywhere, trust it as-is
+    if (base.includes('/api/v1')) {
+      return base;
+    }
+
+    // If it ends with /api, upgrade to /api/v1
+    if (/\/api$/i.test(base)) {
+      return `${base}/v1`;
+    }
+
+    // Otherwise, append /api/v1 so FastAPI routes like /auth, /users, /companies work
+    return `${base}/api/v1`;
+  }
+
+  // Production default (API host)
   return 'https://api.vertechie.com/api/v1';
 };
 
@@ -81,14 +96,42 @@ export const API_ENDPOINTS = {
     UPDATE_COMPANY: (id: string) => `/companies/${id}`,
     TEAM_MEMBERS: (id: string) => `/companies/${id}/team-members`,
     ADD_TEAM_MEMBER: (id: string) => `/companies/${id}/team-members`,
+    INVITE_TEAM_MEMBER: (id: string) => `/companies/${id}/team-members/invite`,
     DELETE_TEAM_MEMBER: (id: string, memberId: string) => `/companies/${id}/team-members/${memberId}`,
+    JOBS: (id: string) => `/companies/${id}/jobs`, // Added from instruction
     ADMINS: (id: string) => `/companies/${id}/admins`,
     ADD_ADMIN: (id: string) => `/companies/${id}/admins`,
     REMOVE_ADMIN: (id: string, adminId: string) => `/companies/${id}/admins/${adminId}`,
-    POSTS: (id: string) => `/companies/${id}/posts`,
-    CREATE_POST: (id: string) => `/companies/${id}/posts`,
-    JOBS: (id: string) => `/jobs/?company_id=${id}`,
+    UNVERIFIED_EMPLOYEES: (id: string) => `/companies/${id}/unverified-employees`,
+    VERIFY_EMPLOYEE: (cid: string, eid: string) => `/companies/${cid}/verify-experience/${eid}`,
+    POSTS: (id: string) => `/companies/${id}/posts/`,
+    CREATE_POST: (id: string) => `/companies/${id}/posts/`,
+    LIKE_POST: (id: string) => `/community/posts/${id}/like`,
+    GET_COMMENTS: (id: string) => `/community/posts/${id}/comments`,
+    ADD_COMMENT: (id: string) => `/community/posts/${id}/comments`,
+    UPDATE_POST: (id: string) => `/community/posts/${id}`,
+    UPLOAD: '/community/upload/',
     STATS: (id: string) => `/companies/${id}/stats`,
+  },
+
+  // ============================================
+  // SMS (School Management System)
+  // ============================================
+  SMS: {
+    MY_SCHOOL: '/users/me/school',
+    POSTS: (id: string) => `/schools/${id}/posts/`,
+    CREATE_POST: (id: string) => `/schools/${id}/posts/`,
+    MEMBERS: (id: string) => `/schools/${id}/members`,
+    INVITE_MEMBER: (id: string) => `/schools/${id}/members/invite`,
+    VERIFY_MEMBER: (schoolId: string, memberId: string) => `/schools/${schoolId}/members/${memberId}/verify`,
+    PROGRAMS: (schoolId: string) => `/schools/${schoolId}/programs`,
+    ADD_PROGRAM: (schoolId: string) => `/schools/${schoolId}/programs`,
+    UPDATE_PROGRAM: (schoolId: string, programId: string) => `/schools/${schoolId}/programs/${programId}`,
+    DELETE_PROGRAM: (schoolId: string, programId: string) => `/schools/${schoolId}/programs/${programId}`,
+    ADMINS: (schoolId: string) => `/schools/${schoolId}/admins`,
+    ADD_ADMIN: (schoolId: string) => `/schools/${schoolId}/admins`,
+    REMOVE_ADMIN: (schoolId: string, adminId: string) => `/schools/${schoolId}/admins/${adminId}`,
+    UPDATE_SCHOOL: (schoolId: string) => `/schools/${schoolId}`,
   },
 
   // Additional top-level endpoints used across the app
@@ -135,9 +178,9 @@ export const API_ENDPOINTS = {
   JOBS: {
     LIST: '/jobs/',
     CREATE: '/jobs/',
-    GET: (id: string) => `/jobs/${id}/`,
-    UPDATE: (id: string) => `/jobs/${id}/`,
-    DELETE: (id: string) => `/jobs/${id}/`,
+    GET: (id: string) => `/jobs/${id}`,
+    UPDATE: (id: string) => `/jobs/${id}`,
+    DELETE: (id: string) => `/jobs/${id}`,
     APPLY: (id: string) => `/jobs/${id}/apply/`,
     APPLICATIONS: (id: string) => `/jobs/${id}/applications/`,
     SAVE: (id: string) => `/jobs/${id}/save/`,
