@@ -181,12 +181,12 @@ export const API_ENDPOINTS = {
     GET: (id: string) => `/jobs/${id}`,
     UPDATE: (id: string) => `/jobs/${id}`,
     DELETE: (id: string) => `/jobs/${id}`,
-    APPLY: (id: string) => `/jobs/${id}/apply/`,
+    APPLY: (id: string) => `/jobs/${id}/apply`,
     APPLICATIONS: (id: string) => `/jobs/${id}/applications/`,
-    SAVE: (id: string) => `/jobs/${id}/save/`,
-    UNSAVE: (id: string) => `/jobs/${id}/save/`,
+    /** POST /jobs/saved with body { job_id }; GET /jobs/saved returns list of saved jobs */
+    SAVED_LIST: '/jobs/saved',
+    SAVED_DELETE: (jobId: string) => `/jobs/saved/${jobId}`,
     MY_APPLICATIONS: '/jobs/my/applications/',
-    SAVED: '/jobs/my/saved/',
   },
 
   // ============================================

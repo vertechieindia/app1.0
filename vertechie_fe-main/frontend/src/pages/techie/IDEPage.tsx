@@ -39,7 +39,10 @@ import {
   Cloud as CloudIcon, Storage as StorageIcon, ArrowBack as ArrowBackIcon,
   Web as WebIcon, PhoneAndroid as MobileIcon, Extension as ExtIcon,
   Laptop as LaptopIcon, Share as ShareIcon, FilterList as FilterIcon,
+  OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
+import { getApiUrl } from '../../config/api';
+import JSZip from 'jszip';
 
 // ============= TYPE DEFINITIONS =============
 interface FileNode {
@@ -50,6 +53,8 @@ interface FileNode {
   content?: string;
   children?: FileNode[];
   isOpen?: boolean;
+  /** Backend file UUID for save/update */
+  backendFileId?: string;
 }
 
 interface Project {
@@ -61,6 +66,14 @@ interface Project {
   createdAt: Date;
   lastModified: Date;
   files: FileNode[];
+}
+
+interface ExtensionItem {
+  id: string;
+  name: string;
+  desc: string;
+  installed: boolean;
+  enabled: boolean;
 }
 
 interface Problem {
@@ -930,29 +943,12 @@ const IDEPage: React.FC = () => {
   const [newProjectType, setNewProjectType] = useState<'website' | 'webapp' | 'mobile' | 'extension'>('website');
   const [newProjectDesc, setNewProjectDesc] = useState('');
   
-  // Projects list
-  const [projects, setProjects] = useState<Project[]>([
-    {
-      id: '1',
-      name: 'My Portfolio',
-      type: 'website',
-      template: 'landing',
-      description: 'Personal portfolio website',
-      createdAt: new Date('2024-01-15'),
-      lastModified: new Date('2024-01-20'),
-      files: PROJECT_TEMPLATES.website.landing.files('My Portfolio'),
-    },
-    {
-      id: '2',
-      name: 'Task Manager',
-      type: 'webapp',
-      template: 'react',
-      description: 'React task management app',
-      createdAt: new Date('2024-01-10'),
-      lastModified: new Date('2024-01-18'),
-      files: PROJECT_TEMPLATES.website.landing.files('Task Manager'),
-    },
-  ]);
+  // Projects list (loaded from backend)
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
+  const [projectLoading, setProjectLoading] = useState(false);
   
   // Current project state
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
@@ -960,6 +956,9 @@ const IDEPage: React.FC = () => {
   const [openFiles, setOpenFiles] = useState<FileNode[]>([]);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [unsavedFiles, setUnsavedFiles] = useState<Set<string>>(new Set());
+
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastContentRef = useRef<{ fileId: string; content: string } | null>(null);
   
   // Terminal
   const [terminalOutput, setTerminalOutput] = useState<string[]>([
@@ -976,10 +975,46 @@ const IDEPage: React.FC = () => {
   const [newFileDialogOpen, setNewFileDialogOpen] = useState(false);
   const [newFileName, setNewFileName] = useState('');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: FileNode } | null>(null);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [fileToRename, setFileToRename] = useState<FileNode | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<FileNode | null>(null);
+  const [topMenuAnchor, setTopMenuAnchor] = useState<null | HTMLElement>(null);
+  const [topMenuKind, setTopMenuKind] = useState<null | 'file' | 'edit' | 'view' | 'go' | 'run' | 'terminal' | 'help'>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [gitDialogOpen, setGitDialogOpen] = useState(false);
   const [repoName, setRepoName] = useState('');
+  const [gitVisibility, setGitVisibility] = useState<'public' | 'private'>('public');
+  const [connectGitDialogOpen, setConnectGitDialogOpen] = useState(false);
+  const [githubRepoUrl, setGithubRepoUrl] = useState('');
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [stagedFileIds, setStagedFileIds] = useState<Set<string>>(new Set());
+  const [commitMessage, setCommitMessage] = useState('');
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
+
+  const EXTENSIONS_STORAGE_KEY = 'vertechie_ide_extensions';
+  const defaultExtensions: ExtensionItem[] = [
+    { id: 'eslint', name: 'ESLint', desc: 'Code linting', installed: true, enabled: true },
+    { id: 'prettier', name: 'Prettier', desc: 'Code formatter', installed: true, enabled: true },
+    { id: 'gitlens', name: 'GitLens', desc: 'Git history and blame', installed: false, enabled: false },
+    { id: 'theme', name: 'One Dark Pro', desc: 'Theme', installed: true, enabled: true },
+  ];
+  const [extensions, setExtensions] = useState<ExtensionItem[]>(() => {
+    try {
+      const raw = localStorage.getItem(EXTENSIONS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as ExtensionItem[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch { /* ignore */ }
+    return defaultExtensions;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(EXTENSIONS_STORAGE_KEY, JSON.stringify(extensions));
+    } catch { /* ignore */ }
+  }, [extensions]);
 
   // Enhanced IDE Features
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -995,13 +1030,22 @@ const IDEPage: React.FC = () => {
   const [fontSize, setFontSize] = useState(14);
   const [tabSize, setTabSize] = useState(2);
   const [wordWrap, setWordWrap] = useState(true);
-  const [showMinimap, setShowMinimap] = useState(true);
+  const [showMinimap, setShowMinimap] = useState(false);
+  const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null);
+  const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
   const [gitChanges, setGitChanges] = useState<string[]>([]);
   const [multipleTerminals, setMultipleTerminals] = useState<{ id: number; output: string[]; name: string }[]>([
     { id: 1, output: ['$ VerTechie IDE Terminal v2.0', '$ Type "help" for available commands', ''], name: 'bash' }
   ]);
   const [activeTerminalId, setActiveTerminalId] = useState(1);
   const [zenMode, setZenMode] = useState(false);
+  const [goToLineOpen, setGoToLineOpen] = useState(false);
+  const [goToLineValue, setGoToLineValue] = useState('');
+  const [indentationMenuAnchor, setIndentationMenuAnchor] = useState<null | HTMLElement>(null);
+  const [languageMenuAnchor, setLanguageMenuAnchor] = useState<null | HTMLElement>(null);
+  const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [accountMenuAnchor, setAccountMenuAnchor] = useState<null | HTMLElement>(null);
 
   // Command Palette Commands
   const commands = [
@@ -1029,6 +1073,167 @@ const IDEPage: React.FC = () => {
     cmd.label.toLowerCase().includes(commandSearch.toLowerCase())
   );
 
+  // Map backend project_type to frontend type
+  const backendTypeToFrontend = (t: string): 'website' | 'webapp' | 'mobile' | 'extension' => {
+    if (t === 'mobile') return 'mobile';
+    if (t === 'web' || t === 'fullstack') return 'webapp';
+    return 'website';
+  };
+  const frontendTypeToBackend = (t: string): string => {
+    if (t === 'mobile') return 'mobile';
+    if (t === 'extension') return 'other';
+    return 'web';
+  };
+
+  // Fetch projects list from backend
+  const fetchProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    setProjectsError(null);
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        setProjects([]);
+        return;
+      }
+      const res = await fetch(getApiUrl('/ide/projects'), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setProjectsError('Failed to load projects');
+        setProjects([]);
+        return;
+      }
+      const data = await res.json();
+      setProjects((data || []).map((p: {
+        id: string;
+        name: string;
+        project_type: string;
+        description: string | null;
+        created_at: string;
+        updated_at: string;
+      }) => ({
+        id: p.id,
+        name: p.name,
+        type: backendTypeToFrontend(p.project_type || 'web'),
+        template: 'landing',
+        description: p.description || '',
+        createdAt: new Date(p.created_at),
+        lastModified: new Date(p.updated_at),
+        files: [],
+      })));
+    } catch {
+      setProjectsError('Failed to load projects');
+      setProjects([]);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, []);
+
+  // Build file tree from flat list of backend files (path-based)
+  const buildFileTree = (apiFiles: { id: string; name: string; path: string; content?: string; language?: string }[]): FileNode[] => {
+    const byPath: Record<string, FileNode> = {};
+    for (const f of apiFiles) {
+      const path = f.path || f.name || '';
+      const parts = path.split('/').filter(Boolean);
+      if (parts.length === 0) continue;
+      for (let i = 0; i < parts.length; i++) {
+        const fullPath = parts.slice(0, i + 1).join('/');
+        if (byPath[fullPath]) continue;
+        const isFile = i === parts.length - 1;
+        byPath[fullPath] = {
+          id: fullPath,
+          name: parts[i],
+          type: isFile ? 'file' : 'folder',
+          content: isFile ? (f.content ?? '') : undefined,
+          language: isFile ? f.language : undefined,
+          backendFileId: isFile ? f.id : undefined,
+          children: isFile ? undefined : [],
+          isOpen: true,
+        };
+      }
+      const fileNode = byPath[path];
+      if (fileNode) {
+        if (f.content !== undefined) fileNode.content = f.content;
+        if (f.id) fileNode.backendFileId = f.id;
+      }
+    }
+    for (const path of Object.keys(byPath)) {
+      if (path.includes('/')) {
+        const parentPath = path.split('/').slice(0, -1).join('/');
+        const parent = byPath[parentPath];
+        if (parent && parent.children) parent.children.push(byPath[path]);
+      }
+    }
+    const rootChildren = Object.keys(byPath)
+      .filter(p => !p.includes('/'))
+      .map(p => byPath[p])
+      .sort((a, b) => (a.type === 'folder' && b.type !== 'folder') ? -1 : (a.type !== 'folder' && b.type === 'folder') ? 1 : (a.name || '').localeCompare(b.name || ''));
+    return rootChildren;
+  };
+
+  // Load single project and its files from backend
+  const loadProjectById = useCallback(async (id: string) => {
+    setProjectLoadError(null);
+    setProjectLoading(true);
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+    try {
+      const [projRes, filesRes] = await Promise.all([
+        fetch(getApiUrl(`/ide/projects/${id}`), { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(getApiUrl(`/ide/projects/${id}/files`), { headers: { 'Authorization': `Bearer ${token}` } }),
+      ]);
+      if (!projRes.ok) {
+        setProjectLoadError('Project not found');
+        return;
+      }
+      const proj = await projRes.json();
+      const filesList: { id: string; name: string; path: string; language?: string }[] = filesRes.ok ? await filesRes.json() : [];
+      const fileIds = filesList.map(f => f.id);
+      const filesWithContent: { id: string; name: string; path: string; content?: string; language?: string }[] = [];
+      for (const fid of fileIds) {
+        const r = await fetch(getApiUrl(`/ide/files/${fid}`), { headers: { 'Authorization': `Bearer ${token}` } });
+        if (r.ok) {
+          const f = await r.json();
+          filesWithContent.push({
+            id: f.id,
+            name: f.name,
+            path: f.path,
+            content: f.content ?? '',
+            language: f.language,
+          });
+        } else {
+          filesWithContent.push(filesList.find(f => f.id === fid) || { id: fid, name: '', path: '', content: '' });
+        }
+      }
+      const tree = buildFileTree(filesWithContent);
+      const project: Project = {
+        id: proj.id,
+        name: proj.name,
+        type: backendTypeToFrontend(proj.project_type || 'web'),
+        template: 'landing',
+        description: proj.description || '',
+        createdAt: new Date(proj.created_at),
+        lastModified: new Date(proj.updated_at),
+        files: tree,
+      };
+      setCurrentProject(project);
+      setFiles(tree);
+      setOpenFiles([]);
+      setActiveFileId(null);
+      setView('ide');
+      setTerminalOutput([
+        `$ VerTechie IDE Terminal`,
+        `$ Project: ${project.name}`,
+        `$ Type "help" for available commands`,
+        '',
+      ]);
+    } catch {
+      setProjectLoadError('Failed to load project');
+    } finally {
+      setProjectLoading(false);
+    }
+  }, []);
+
   // Add new terminal
   const addNewTerminal = () => {
     const newId = Math.max(...multipleTerminals.map(t => t.id)) + 1;
@@ -1042,6 +1247,30 @@ const IDEPage: React.FC = () => {
       if (node.id === id) return node;
       if (node.children) {
         const found = findFile(node.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, []);
+
+  // Find first file with name ending in .html (for preview)
+  const findFirstHtmlFile = useCallback((nodes: FileNode[]): FileNode | null => {
+    for (const node of nodes) {
+      if (node.type === 'file' && node.name.toLowerCase().endsWith('.html')) return node;
+      if (node.children) {
+        const found = findFirstHtmlFile(node.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, []);
+
+  // Find file by name in tree (e.g. "style.css")
+  const findFileByName = useCallback((nodes: FileNode[], name: string): FileNode | null => {
+    for (const node of nodes) {
+      if (node.type === 'file' && node.name === name) return node;
+      if (node.children) {
+        const found = findFileByName(node.children, name);
         if (found) return found;
       }
     }
@@ -1077,25 +1306,111 @@ const IDEPage: React.FC = () => {
     setFiles(updateFolder(files));
   };
 
-  // Handle code change
+  // Handle code change (use functional updates so new files get content even before tree has committed)
   const handleCodeChange = (newContent: string) => {
     if (!activeFileId) return;
-    
-    const updateContent = (nodes: FileNode[]): FileNode[] => {
-      return nodes.map(node => {
-        if (node.id === activeFileId) {
-          return { ...node, content: newContent };
+    lastContentRef.current = { fileId: activeFileId, content: newContent };
+    const updateContent = (nodes: FileNode[]): FileNode[] =>
+      nodes.map(node => {
+        if (node.id === activeFileId) return { ...node, content: newContent };
+        if (node.children) return { ...node, children: updateContent(node.children) };
+        return node;
+      });
+    setFiles(prev => updateContent(prev));
+    setUnsavedFiles(prev => new Set(prev).add(activeFileId));
+    setOpenFiles(prev => prev.map(f => f.id === activeFileId ? { ...f, content: newContent } : f));
+    // Debounced auto-save so content is persisted when project is from backend
+    if (projectId && localStorage.getItem('authToken')) {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => {
+        autoSaveTimerRef.current = null;
+        handleSave();
+      }, 1800);
+    }
+  };
+
+  // Remove node from tree by id (and all descendants); return new tree
+  const removeNodeById = useCallback((nodes: FileNode[], id: string): FileNode[] => {
+    return nodes
+      .filter((n) => n.id !== id)
+      .map((n) =>
+        n.children ? { ...n, children: removeNodeById(n.children, id) } : n
+      );
+  }, []);
+
+  // Rename file/folder in tree (update name and id/path)
+  const handleRenameConfirm = () => {
+    if (!fileToRename || !renameValue.trim()) return;
+    const newName = renameValue.trim();
+    const parentPath = fileToRename.id.includes('/') ? fileToRename.id.split('/').slice(0, -1).join('/') : '';
+    const newId = parentPath ? `${parentPath}/${newName}` : newName;
+
+    const updateNode = (nodes: FileNode[]): FileNode[] =>
+      nodes.map((node) => {
+        if (node.id === fileToRename.id) {
+          return { ...node, id: newId, name: newName };
         }
         if (node.children) {
-          return { ...node, children: updateContent(node.children) };
+          return { ...node, children: updateNode(node.children) };
         }
         return node;
       });
-    };
-    
-    setFiles(updateContent(files));
-    setUnsavedFiles(prev => new Set(prev).add(activeFileId));
-    setOpenFiles(prev => prev.map(f => f.id === activeFileId ? { ...f, content: newContent } : f));
+    setFiles(updateNode(files));
+    setOpenFiles((prev) =>
+      prev.map((f) => (f.id === fileToRename.id ? { ...f, id: newId, name: newName } : f))
+    );
+    if (activeFileId === fileToRename.id) setActiveFileId(newId);
+    setUnsavedFiles((prev) => {
+      const next = new Set(prev);
+      next.delete(fileToRename.id);
+      if (prev.has(fileToRename.id)) next.add(newId);
+      return next;
+    });
+    setRenameDialogOpen(false);
+    setFileToRename(null);
+    setRenameValue('');
+    setSnackbar({ open: true, message: 'Renamed successfully', severity: 'success' });
+  };
+
+  // Delete file/folder (remove from tree, close tabs, optional backend delete)
+  const handleDeleteConfirm = async () => {
+    if (!fileToDelete) return;
+    const id = fileToDelete.id;
+    const token = localStorage.getItem('authToken');
+    if (fileToDelete.backendFileId && token) {
+      try {
+        const res = await fetch(getApiUrl(`/ide/files/${fileToDelete.backendFileId}`), {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          setSnackbar({ open: true, message: 'Failed to delete on server', severity: 'error' });
+          return;
+        }
+      } catch {
+        setSnackbar({ open: true, message: 'Failed to delete file', severity: 'error' });
+        return;
+      }
+    }
+    setFiles((prev) => removeNodeById(prev, id));
+    const isFolder = fileToDelete.type === 'folder';
+    const idPrefix = id + '/';
+    setOpenFiles((prev) =>
+      prev.filter((f) => f.id !== id && !(isFolder && f.id.startsWith(idPrefix)))
+    );
+    const stillOpen = openFiles.filter((f) => f.id !== id && !(isFolder && f.id.startsWith(idPrefix)));
+    if (activeFileId === id || (isFolder && activeFileId?.startsWith(idPrefix))) {
+      setActiveFileId(stillOpen.length > 0 ? stillOpen[stillOpen.length - 1].id : null);
+    }
+    setUnsavedFiles((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      if (isFolder) prev.forEach((k) => { if (k.startsWith(idPrefix)) next.delete(k); });
+      return next;
+    });
+    setDeleteConfirmOpen(false);
+    setFileToDelete(null);
+    setSnackbar({ open: true, message: 'Deleted', severity: 'success' });
   };
 
   // Handle tab close
@@ -1108,20 +1423,88 @@ const IDEPage: React.FC = () => {
     }
   };
 
-  // Handle save
-  const handleSave = () => {
-    if (activeFileId) {
-      setUnsavedFiles(prev => {
-        const next = new Set(prev);
-        next.delete(activeFileId);
-        return next;
+  // Update a file node in the tree with backendFileId (after creating on server)
+  const setFileBackendId = useCallback((nodeId: string, backendFileId: string, path?: string) => {
+    const updateNodes = (nodes: FileNode[]): FileNode[] =>
+      nodes.map((n) => {
+        if (n.id === nodeId) {
+          return { ...n, backendFileId, ...(path != null && path !== n.id ? { id: path, name: path.split('/').pop() || n.name } : {}) };
+        }
+        if (n.children) return { ...n, children: updateNodes(n.children) };
+        return n;
       });
-      setSnackbar({ open: true, message: 'File saved successfully!', severity: 'success' });
+    setFiles((prev) => updateNodes(prev));
+    setOpenFiles((prev) => prev.map((f) => (f.id === nodeId ? { ...f, backendFileId, ...(path != null && path !== nodeId ? { id: path, name: path.split('/').pop() || f.name } : {}) } : f)));
+    if (activeFileId === nodeId && path != null && path !== nodeId) setActiveFileId(path);
+  }, [activeFileId]);
+
+  // Handle save (persist to backend: create file if new, then update content)
+  // Use lastContentRef (latest typed content), then open tab, then tree so we never save stale/empty content
+  const handleSave = async () => {
+    if (!activeFileId) return;
+    const file = findFile(files, activeFileId);
+    const openTab = openFiles.find(f => f.id === activeFileId);
+    const fromRef = lastContentRef.current?.fileId === activeFileId ? lastContentRef.current.content : null;
+    const content = fromRef ?? (openTab?.content !== undefined && openTab.content !== null ? openTab.content : file?.content) ?? '';
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      setSnackbar({ open: true, message: 'Sign in to save', severity: 'error' });
+      return;
     }
+    if (file?.backendFileId) {
+      try {
+        const res = await fetch(getApiUrl(`/ide/files/${file.backendFileId}`), {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ content }),
+        });
+        if (!res.ok) {
+          setSnackbar({ open: true, message: 'Failed to save file', severity: 'error' });
+          return;
+        }
+        setSnackbar({ open: true, message: 'File saved successfully!', severity: 'success' });
+      } catch {
+        setSnackbar({ open: true, message: 'Failed to save file', severity: 'error' });
+        return;
+      }
+    } else if (projectId && file) {
+      try {
+        const res = await fetch(getApiUrl(`/ide/projects/${projectId}/files`), {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ name: file.name, content }),
+        });
+        if (!res.ok) {
+          setSnackbar({ open: true, message: 'Failed to create file', severity: 'error' });
+          return;
+        }
+        const created = await res.json();
+        setFileBackendId(activeFileId, created.id, created.path);
+        setSnackbar({ open: true, message: 'File saved successfully!', severity: 'success' });
+      } catch {
+        setSnackbar({ open: true, message: 'Failed to save file', severity: 'error' });
+        return;
+      }
+    } else {
+      setSnackbar({ open: true, message: 'File saved locally', severity: 'success' });
+    }
+    setUnsavedFiles((prev) => {
+      const next = new Set(prev);
+      next.delete(activeFileId);
+      return next;
+    });
   };
 
   // Handle terminal commands
   const handleTerminalCommand = (cmd: string) => {
+    setBottomPanelOpen(true);
+    setBottomPanelTab('terminal');
     setTerminalOutput(prev => [...prev, `$ ${cmd}`]);
     const lowerCmd = cmd.toLowerCase().trim();
     
@@ -1161,14 +1544,18 @@ const IDEPage: React.FC = () => {
       }, 2000);
     } else if (lowerCmd === 'npm run dev' || lowerCmd === 'npm start') {
       setIsRunning(true);
+      const devPort = 5175;
+      const devUrl = `http://localhost:${devPort}/`;
       setTerminalOutput(prev => [...prev, '🚀 Starting development server...', '']);
       setTimeout(() => {
         setTerminalOutput(prev => [...prev,
           '',
           '  VITE v5.0.0  ready in 234 ms',
           '',
-          '  ➜  Local:   http://localhost:5173/',
-          '  ➜  Network: http://192.168.1.100:5173/',
+          '  ➜  Local:   ' + devUrl,
+          '  ➜  Network: http://192.168.1.100:' + devPort + '/',
+          '',
+          '  📌 Code output is in the Preview panel (right). Port ' + devPort + ' for live server.',
           '',
         ]);
         setIsRunning(false);
@@ -1222,67 +1609,116 @@ const IDEPage: React.FC = () => {
     }
   };
 
-  // Handle project creation
-  const handleCreateProject = () => {
+  // Handle project creation (POST to backend, then open)
+  const handleCreateProject = async () => {
     if (!newProjectName) return;
-    
-    const newProject: Project = {
-      id: Date.now().toString(),
-      name: newProjectName,
-      type: newProjectType,
-      template: 'landing',
-      description: newProjectDesc,
-      createdAt: new Date(),
-      lastModified: new Date(),
-      files: PROJECT_TEMPLATES.website.landing.files(newProjectName),
-    };
-    
-    setProjects([...projects, newProject]);
-    setCreateDialogOpen(false);
-    setNewProjectName('');
-    setNewProjectDesc('');
-    
-    // Open the project
-    openProject(newProject);
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      setSnackbar({ open: true, message: 'Please sign in to create a project', severity: 'error' });
+      return;
+    }
+    try {
+      const res = await fetch(getApiUrl('/ide/projects'), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newProjectName,
+          description: newProjectDesc || undefined,
+          project_type: frontendTypeToBackend(newProjectType),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setSnackbar({ open: true, message: err.detail || 'Failed to create project', severity: 'error' });
+        return;
+      }
+      const created = await res.json();
+      setProjects(prev => [...prev, {
+        id: created.id,
+        name: created.name,
+        type: newProjectType,
+        template: 'landing',
+        description: created.description || '',
+        createdAt: new Date(created.created_at),
+        lastModified: new Date(created.updated_at),
+        files: [],
+      }]);
+      setCreateDialogOpen(false);
+      setNewProjectName('');
+      setNewProjectDesc('');
+      navigate(`/techie/ide/${created.id}`);
+      loadProjectById(created.id);
+    } catch {
+      setSnackbar({ open: true, message: 'Failed to create project', severity: 'error' });
+    }
   };
 
-  // Open project
+  // Open project (from list: switch to IDE view and navigate so loadProjectById runs)
   const openProject = (project: Project) => {
-    setCurrentProject(project);
-    setFiles(project.files);
-    setOpenFiles([]);
-    setActiveFileId(null);
-    setView('ide');
-    setTerminalOutput([
-      `$ VerTechie IDE Terminal`,
-      `$ Project: ${project.name}`,
-      `$ Type "help" for available commands`,
-      '',
-    ]);
+    if (project.files && project.files.length > 0) {
+      setCurrentProject(project);
+      setFiles(project.files);
+      setOpenFiles([]);
+      setActiveFileId(null);
+      setView('ide');
+      setTerminalOutput([
+        `$ VerTechie IDE Terminal`,
+        `$ Project: ${project.name}`,
+        `$ Type "help" for available commands`,
+        '',
+      ]);
+    } else {
+      setView('ide');
+      navigate(`/techie/ide/${project.id}`);
+    }
   };
 
-  // Handle download
-  const handleDownload = () => {
+  // Handle download – build a real ZIP and trigger browser download
+  const handleDownload = async () => {
     const collectFiles = (nodes: FileNode[], path = ''): { path: string; content: string }[] => {
-      let result: { path: string; content: string }[] = [];
+      const result: { path: string; content: string }[] = [];
       for (const node of nodes) {
         const fullPath = path ? `${path}/${node.name}` : node.name;
         if (node.type === 'file') {
           result.push({ path: fullPath, content: node.content || '' });
         } else if (node.children) {
-          result = [...result, ...collectFiles(node.children, fullPath)];
+          result.push(...collectFiles(node.children, fullPath));
         }
       }
       return result;
     };
-    
     const allFiles = collectFiles(files);
-    setSnackbar({ open: true, message: `Downloading ${currentProject?.name || 'project'}.zip with ${allFiles.length} files`, severity: 'success' });
+    if (allFiles.length === 0) {
+      setSnackbar({ open: true, message: 'No files to download', severity: 'info' });
+      return;
+    }
+    try {
+      const zip = new JSZip();
+      for (const { path: filePath, content } of allFiles) {
+        zip.file(filePath, content);
+      }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${currentProject?.name || 'project'}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setSnackbar({ open: true, message: `Downloaded ${currentProject?.name || 'project'}.zip (${allFiles.length} files)`, severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'Failed to create zip', severity: 'error' });
+    }
   };
 
-  // Handle git push
+  // Handle git push (simulated: shows terminal output; real push would use GitHub API)
   const handleGitPush = () => {
+    const repo = repoName.trim() || currentProject?.name || 'project';
     setGitDialogOpen(false);
+    setBottomPanelOpen(true);
+    setBottomPanelTab('terminal');
     setIsRunning(true);
     setTerminalOutput(prev => [...prev, `$ git push origin main`, '']);
     setTimeout(() => {
@@ -1290,34 +1726,163 @@ const IDEPage: React.FC = () => {
         'Enumerating objects: 42, done.',
         'Counting objects: 100% (42/42), done.',
         'Writing objects: 100% (42/42), 12.43 KiB | 6.21 MiB/s, done.',
-        `To github.com:user/${repoName || currentProject?.name || 'project'}.git`,
+        `To github.com:user/${repo}.git`,
         '   abc1234..def5678  main -> main',
         '',
         '✅ Successfully pushed to GitHub!',
         '',
       ]);
       setIsRunning(false);
+      setSnackbar({ open: true, message: 'Pushed to GitHub (simulated)', severity: 'success' });
     }, 2000);
   };
 
-  // Generate preview HTML
+  const handleConnectGit = () => {
+    const url = githubRepoUrl.trim();
+    if (!url) {
+      setSnackbar({ open: true, message: 'Enter a repository URL', severity: 'error' });
+      return;
+    }
+    const match = url.match(/github\.com[/:](\w[\w.-]*)\/([^\s/]+?)(?:\.git)?$/i) || (url.includes('/') ? null : null);
+    if (match) setRepoName(match[2]);
+    else if (url.includes('/')) setRepoName(url.split('/').pop()?.replace(/\.git$/, '') || url);
+    setGithubConnected(true);
+    setConnectGitDialogOpen(false);
+    setGithubRepoUrl('');
+    setSnackbar({ open: true, message: 'Connected to GitHub', severity: 'success' });
+  };
+
+  const changeList = Array.from(unsavedFiles);
+  const handleStageFile = (id: string) => setStagedFileIds(prev => new Set(prev).add(id));
+  const handleUnstageFile = (id: string) => setStagedFileIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+  const handleStageAll = () => setStagedFileIds(new Set(changeList));
+  const handleUnstageAll = () => setStagedFileIds(new Set());
+  const handleCommit = () => {
+    const msg = commitMessage.trim();
+    if (!msg) {
+      setSnackbar({ open: true, message: 'Enter a commit message', severity: 'error' });
+      return;
+    }
+    const count = stagedFileIds.size;
+    setStagedFileIds(new Set());
+    setCommitMessage('');
+    setUnsavedFiles(prev => { const n = new Set(prev); stagedFileIds.forEach(id => n.delete(id)); return n; });
+    setSnackbar({ open: true, message: `Committed ${count} file(s)`, severity: 'success' });
+    setTerminalOutput(prev => [...prev, `$ git commit -m "${msg}"`, `[main abc1234] ${msg.slice(0, 50)}`, ` ${count} file(s) changed`, '']);
+  };
+
+  const handleNewFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    const exists = files.some(f => f.name === name || f.id === name || f.id === `${name}/`);
+    if (exists) {
+      setSnackbar({ open: true, message: 'A file or folder with that name already exists', severity: 'error' });
+      return;
+    }
+    const token = localStorage.getItem('authToken');
+    if (projectId && token) {
+      try {
+        const res = await fetch(getApiUrl(`/ide/projects/${projectId}/folders`), {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ name }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          setSnackbar({ open: true, message: err.detail || 'Failed to create folder', severity: 'error' });
+          return;
+        }
+        const created = await res.json();
+        const path = created.path || name;
+        setFiles(prev => [...prev, { id: path, name: created.name || name, type: 'folder', children: [], isOpen: true }]);
+        setNewFolderDialogOpen(false);
+        setNewFolderName('');
+        setSnackbar({ open: true, message: `Folder "${name}" created`, severity: 'success' });
+      } catch {
+        setSnackbar({ open: true, message: 'Failed to create folder', severity: 'error' });
+      }
+    } else {
+      setFiles(prev => [...prev, { id: name, name, type: 'folder', children: [], isOpen: true }]);
+      setNewFolderDialogOpen(false);
+      setNewFolderName('');
+      setSnackbar({ open: true, message: `Folder "${name}" created`, severity: 'success' });
+    }
+  };
+
+  const toggleExtension = (id: string, action: 'install' | 'enable') => {
+    setExtensions(prev => prev.map(ext => {
+      if (ext.id !== id) return ext;
+      if (action === 'install') return { ...ext, installed: !ext.installed, enabled: true };
+      return { ...ext, enabled: !ext.enabled };
+    }));
+    setSnackbar({ open: true, message: action === 'install' ? 'Extension installed' : 'Extension toggled', severity: 'success' });
+  };
+
+  // Generate preview HTML: use active file if it's HTML, else first .html in tree; inline linked CSS/JS by filename
   const generatePreview = () => {
-    const htmlFile = findFile(files, 'src/index.html');
-    const cssFile = findFile(files, 'src/styles.css');
-    const jsFile = findFile(files, 'src/app.js');
-    
-    if (!htmlFile?.content) return '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-family:sans-serif;">Select an HTML file to preview</div>';
-    
+    const htmlFile =
+      (activeFile?.name.toLowerCase().endsWith('.html') ? activeFile : null) ||
+      findFirstHtmlFile(files);
+    if (!htmlFile?.content) {
+      return '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-family:sans-serif;">Select an HTML file to preview</div>';
+    }
     let html = htmlFile.content;
-    if (cssFile?.content) {
-      html = html.replace('<link rel="stylesheet" href="styles.css">', `<style>${cssFile.content}</style>`);
+    // Inline linked stylesheets by filename (href="style.css" or "styles.css" etc.)
+    const linkMatch = html.match(/<link[^>]+href=["\']([^"\']+\.css)["\'][^>]*>/gi);
+    if (linkMatch) {
+      for (const tag of linkMatch) {
+        const hrefMatch = tag.match(/href=["']([^"']+)["']/i);
+        const href = hrefMatch ? hrefMatch[1] : '';
+        const fileName = href.split('/').pop() || href;
+        const cssFile = findFileByName(files, fileName);
+        if (cssFile?.content) {
+          html = html.replace(tag, `<style>${cssFile.content}</style>`);
+        }
+      }
     }
-    if (jsFile?.content) {
-      html = html.replace('<script src="app.js"></script>', `<script>${jsFile.content}</script>`);
+    // Inline linked scripts by filename
+    const scriptMatch = html.match(/<script[^>]+src=["\']([^"\']+)["\'][^>]*><\/script>/gi);
+    if (scriptMatch) {
+      for (const tag of scriptMatch) {
+        const srcMatch = tag.match(/src=["']([^"']+)["']/i);
+        const src = srcMatch ? srcMatch[1] : '';
+        const fileName = src.split('/').pop() || src;
+        const jsFile = findFileByName(files, fileName);
+        if (jsFile?.content) {
+          html = html.replace(tag, `<script>${jsFile.content}</script>`);
+        }
+      }
     }
-    
     return html;
   };
+
+  const openPreviewInNewTab = () => {
+    const html = generatePreview();
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  // Fetch projects on mount; load single project when projectId in URL
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
+
+  useEffect(() => {
+    if (projectId && view === 'ide') {
+      loadProjectById(projectId);
+    }
+  }, [projectId, view]);
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, []);
 
   // Enhanced Keyboard shortcuts
   useEffect(() => {
@@ -1465,9 +2030,28 @@ const IDEPage: React.FC = () => {
             ))}
           </Box>
 
-          {/* Projects Grid */}
+          {projectsError && (
+            <Alert severity="error" sx={{ mb: 3 }} onClose={() => setProjectsError(null)}>
+              {projectsError}
+            </Alert>
+          )}
+          {projectsLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+              <CircularProgress sx={{ color: '#6366f1' }} />
+            </Box>
+          ) : (
           <Grid container spacing={3}>
-            {projects.map(project => (
+            {projects.length === 0 && !projectsLoading ? (
+              <Grid item xs={12}>
+                <Paper sx={{ p: 4, textAlign: 'center', bgcolor: '#1e293b', color: '#94a3b8' }}>
+                  <Typography variant="h6" gutterBottom>No projects yet</Typography>
+                  <Typography variant="body2" sx={{ mb: 2 }}>Create your first project to get started.</Typography>
+                  <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateDialogOpen(true)} sx={{ bgcolor: '#6366f1' }}>
+                    New Project
+                  </Button>
+                </Paper>
+              </Grid>
+            ) : projects.map(project => (
               <Grid item xs={12} sm={6} md={4} lg={3} key={project.id}>
                 <Card
                   onClick={() => openProject(project)}
@@ -1557,6 +2141,7 @@ const IDEPage: React.FC = () => {
               </Card>
             </Grid>
           </Grid>
+          )}
         </Container>
 
         {/* Create Project Dialog */}
@@ -1620,8 +2205,31 @@ const IDEPage: React.FC = () => {
   }
 
   // ============= IDE VIEW =============
+  // When URL has projectId but project still loading or failed
+  if (projectId && !currentProject) {
+    return (
+      <Box sx={{ minHeight: '100vh', bgcolor: '#0f172a', color: 'white', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+        {projectLoading ? (
+          <>
+            <CircularProgress sx={{ color: '#6366f1', mb: 2 }} />
+            <Typography>Loading project...</Typography>
+          </>
+        ) : (
+          <>
+            {projectLoadError && <Alert severity="error" sx={{ mb: 2 }}>{projectLoadError}</Alert>}
+            <Button startIcon={<ArrowBackIcon />} onClick={() => { navigate('/techie/ide'); setView('projects'); }} sx={{ color: '#94a3b8' }}>
+              Back to projects
+            </Button>
+          </>
+        )}
+      </Box>
+    );
+  }
+
   return (
-    <Box sx={{ 
+    <Box
+      data-allow-paste="true"
+      sx={{ 
       height: '100vh', 
       display: 'flex', 
       flexDirection: 'column',
@@ -1640,7 +2248,7 @@ const IDEPage: React.FC = () => {
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
-            <IconButton size="small" onClick={() => setView('projects')} sx={{ width: 12, height: 12, bgcolor: '#ff5f56', '&:hover': { bgcolor: '#ff5f56' } }} />
+            <IconButton size="small" onClick={() => { navigate('/techie/ide'); setView('projects'); setCurrentProject(null); }} sx={{ width: 12, height: 12, bgcolor: '#ff5f56', '&:hover': { bgcolor: '#ff5f56' } }} />
             <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#ffbd2e' }} />
             <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#27ca40' }} />
           </Box>
@@ -1649,21 +2257,76 @@ const IDEPage: React.FC = () => {
           </Typography>
         </Box>
         
-        {/* Menu Bar */}
+        {/* Menu Bar - dropdowns with actions */}
         <Box sx={{ display: 'flex', gap: 0.5 }}>
-          {['File', 'Edit', 'View', 'Go', 'Run', 'Terminal', 'Help'].map(item => (
-            <Button key={item} size="small" sx={{ 
-              color: theme === 'vs-dark' ? '#ccc' : '#333', 
-              fontSize: '12px', 
-              textTransform: 'none',
-              minWidth: 'auto',
-              px: 1,
-              '&:hover': { bgcolor: theme === 'vs-dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' },
-            }}>
-              {item}
+          {(['file', 'edit', 'view', 'go', 'run', 'terminal', 'help'] as const).map((kind) => (
+            <Button
+              key={kind}
+              size="small"
+              onClick={(e) => { setTopMenuAnchor(e.currentTarget); setTopMenuKind(kind); }}
+              sx={{
+                color: theme === 'vs-dark' ? '#ccc' : '#333',
+                fontSize: '12px',
+                textTransform: 'none',
+                minWidth: 'auto',
+                px: 1,
+                '&:hover': { bgcolor: theme === 'vs-dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' },
+              }}
+            >
+              {kind.charAt(0).toUpperCase() + kind.slice(1)}
             </Button>
           ))}
         </Box>
+        <Menu
+          anchorEl={topMenuAnchor}
+          open={Boolean(topMenuAnchor && topMenuKind)}
+          onClose={() => { setTopMenuAnchor(null); setTopMenuKind(null); }}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+          PaperProps={{ sx: { bgcolor: theme === 'vs-dark' ? '#252526' : '#fff', color: theme === 'vs-dark' ? '#ccc' : '#333', minWidth: 180 } }}
+        >
+          {topMenuKind === 'file' && (
+            <>
+              <MenuItem onClick={() => { setNewFileDialogOpen(true); setTopMenuAnchor(null); setTopMenuKind(null); }}><ListItemIcon><NewFileIcon fontSize="small" /></ListItemIcon>New File</MenuItem>
+              <MenuItem onClick={() => { handleSave(); setTopMenuAnchor(null); setTopMenuKind(null); }}><ListItemIcon><SaveIcon fontSize="small" /></ListItemIcon>Save</MenuItem>
+              <MenuItem onClick={() => { setUnsavedFiles(new Set()); setSnackbar({ open: true, message: 'All files saved!', severity: 'success' }); setTopMenuAnchor(null); setTopMenuKind(null); }}><ListItemIcon><SaveIcon fontSize="small" /></ListItemIcon>Save All</MenuItem>
+              <Divider />
+              <MenuItem onClick={() => { navigate('/techie/ide'); setView('projects'); setCurrentProject(null); setTopMenuAnchor(null); setTopMenuKind(null); }}>Back to Projects</MenuItem>
+            </>
+          )}
+          {topMenuKind === 'edit' && (
+            <>
+              <MenuItem onClick={() => { setFindReplaceOpen(true); setTopMenuAnchor(null); setTopMenuKind(null); }}><ListItemIcon><SearchIcon fontSize="small" /></ListItemIcon>Find</MenuItem>
+              <MenuItem onClick={() => { setFindReplaceOpen(true); setTopMenuAnchor(null); setTopMenuKind(null); }}><ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>Find and Replace</MenuItem>
+            </>
+          )}
+          {topMenuKind === 'view' && (
+            <>
+              <MenuItem onClick={() => { setSidebarOpen(!sidebarOpen); setTopMenuAnchor(null); setTopMenuKind(null); }}>Toggle Sidebar</MenuItem>
+              <MenuItem onClick={() => { setBottomPanelOpen(!bottomPanelOpen); setTopMenuAnchor(null); setTopMenuKind(null); }}>Toggle Terminal</MenuItem>
+              <MenuItem onClick={() => { setTheme(theme === 'vs-dark' ? 'vs-light' : 'vs-dark'); setTopMenuAnchor(null); setTopMenuKind(null); }}>Toggle Theme</MenuItem>
+              <MenuItem onClick={() => { setSplitView(!splitView); setTopMenuAnchor(null); setTopMenuKind(null); }}>Split Editor</MenuItem>
+            </>
+          )}
+          {topMenuKind === 'go' && (
+            <MenuItem onClick={() => { setCommandPaletteOpen(true); setTopMenuAnchor(null); setTopMenuKind(null); }}>Command Palette...</MenuItem>
+          )}
+          {topMenuKind === 'run' && (
+            <>
+              <MenuItem onClick={() => { handleTerminalCommand('npm run dev'); setTopMenuAnchor(null); setTopMenuKind(null); }}>Start (npm run dev)</MenuItem>
+              <MenuItem onClick={() => { handleTerminalCommand('npm run build'); setTopMenuAnchor(null); setTopMenuKind(null); }}>Build</MenuItem>
+            </>
+          )}
+          {topMenuKind === 'terminal' && (
+            <>
+              <MenuItem onClick={() => { addNewTerminal(); setBottomPanelOpen(true); setBottomPanelTab('terminal'); setTopMenuAnchor(null); setTopMenuKind(null); }}>New Terminal</MenuItem>
+              <MenuItem onClick={() => { setBottomPanelOpen(!bottomPanelOpen); setBottomPanelTab('terminal'); setTopMenuAnchor(null); setTopMenuKind(null); }}>Toggle Terminal</MenuItem>
+            </>
+          )}
+          {topMenuKind === 'help' && (
+            <MenuItem onClick={() => { setCommandPaletteOpen(true); setTopMenuAnchor(null); setTopMenuKind(null); }}>Command Palette (Ctrl+Shift+P)</MenuItem>
+          )}
+        </Menu>
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           {/* Command Palette */}
@@ -1692,7 +2355,7 @@ const IDEPage: React.FC = () => {
             </IconButton>
           </Tooltip>
           <Tooltip title="Stop">
-            <IconButton size="small" sx={{ color: '#f14c4c' }}>
+            <IconButton size="small" onClick={() => { setIsRunning(false); setTerminalOutput(prev => [...prev, 'Process stopped.', '']); }} sx={{ color: '#f14c4c' }}>
               <StopIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -1768,7 +2431,7 @@ const IDEPage: React.FC = () => {
           ))}
           <Box sx={{ flex: 1 }} />
           <Tooltip title="Account" placement="right">
-            <IconButton sx={{ color: '#888', '&:hover': { color: 'white' } }}>
+            <IconButton onClick={(e) => setAccountMenuAnchor(e.currentTarget)} sx={{ color: '#888', '&:hover': { color: 'white' } }}>
               <Avatar sx={{ width: 24, height: 24, fontSize: '12px' }}>U</Avatar>
             </IconButton>
           </Tooltip>
@@ -1794,7 +2457,7 @@ const IDEPage: React.FC = () => {
                   </IconButton>
                 </Tooltip>
                 <Tooltip title="New Folder">
-                  <IconButton size="small" sx={{ color: '#888' }}>
+                  <IconButton size="small" onClick={() => setNewFolderDialogOpen(true)} sx={{ color: '#888' }}>
                     <NewFolderIcon sx={{ fontSize: 16 }} />
                   </IconButton>
                 </Tooltip>
@@ -1823,13 +2486,96 @@ const IDEPage: React.FC = () => {
             )}
             
             {activePanel === 'git' && (
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+                <Box sx={{ px: 1, py: 0.5, borderBottom: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}` }}>
+                  <Typography variant="caption" sx={{ fontWeight: 600, color: '#888' }}>SOURCE CONTROL</Typography>
+                </Box>
+                {!githubConnected ? (
+                  <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Button variant="contained" size="small" startIcon={<GitHubIcon />} onClick={() => setConnectGitDialogOpen(true)}
+                      sx={{ bgcolor: '#238636', '&:hover': { bgcolor: '#2ea043' } }}>Connect to GitHub</Button>
+                    <Button variant="outlined" size="small" onClick={() => { setGithubConnected(true); setSnackbar({ open: true, message: 'Repository initialized', severity: 'success' }); }}>Initialize Repository</Button>
+                  </Box>
+                ) : (
+                  <>
+                    <Box sx={{ px: 1, py: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Typography variant="caption" sx={{ color: '#888' }}>main</Typography>
+                      {repoName && <Typography component="span" variant="caption" sx={{ color: '#666' }}> · {repoName}</Typography>}
+                    </Box>
+                    {changeList.length > 0 && (
+                      <>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.5 }}>
+                          <Typography variant="caption" sx={{ color: '#888' }}>CHANGES ({changeList.length})</Typography>
+                          <IconButton size="small" onClick={handleStageAll} sx={{ color: '#888' }} title="Stage All"><AddIcon sx={{ fontSize: 14 }} /></IconButton>
+                        </Box>
+                        <List dense sx={{ py: 0, overflowY: 'auto', flex: 1 }}>
+                          {changeList.map(fileId => {
+                            const node = findFile(files, fileId);
+                            return (
+                              <ListItem key={fileId} sx={{ py: 0.25, px: 1 }}>
+                                <ListItemIcon sx={{ minWidth: 24 }}><EditIcon sx={{ fontSize: 14, color: '#4ec9b0' }} /></ListItemIcon>
+                                <ListItemText primary={node?.name || fileId} primaryTypographyProps={{ fontSize: 12 }} />
+                                {stagedFileIds.has(fileId) ? (
+                                  <IconButton size="small" onClick={() => handleUnstageFile(fileId)} title="Unstage" sx={{ color: '#888' }}><CloseIcon sx={{ fontSize: 12 }} /></IconButton>
+                                ) : (
+                                  <IconButton size="small" onClick={() => handleStageFile(fileId)} title="Stage" sx={{ color: '#888' }}><AddIcon sx={{ fontSize: 12 }} /></IconButton>
+                                )}
+                              </ListItem>
+                            );
+                          })}
+                        </List>
+                      </>
+                    )}
+                    {stagedFileIds.size > 0 && (
+                      <Box sx={{ px: 1, py: 0.5, borderTop: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}` }}>
+                        <Typography variant="caption" sx={{ color: '#888' }}>STAGED ({stagedFileIds.size})</Typography>
+                      </Box>
+                    )}
+                    <Box sx={{ p: 1, borderTop: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}` }}>
+                      <TextField size="small" fullWidth placeholder="Commit message" value={commitMessage} onChange={(e) => setCommitMessage(e.target.value)} sx={{ mb: 0.5 }} />
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        <Button variant="contained" size="small" onClick={handleCommit} disabled={stagedFileIds.size === 0 || !commitMessage.trim()} sx={{ flex: 1 }}>Commit</Button>
+                        <Button variant="outlined" size="small" startIcon={<GitHubIcon />} onClick={() => setGitDialogOpen(true)}>Push</Button>
+                      </Box>
+                    </Box>
+                  </>
+                )}
+              </Box>
+            )}
+
+            {activePanel === 'search' && (
+              <Box sx={{ p: 2 }}>
+                <Typography variant="caption" sx={{ color: '#888', display: 'block', mb: 1 }}>Search in files</Typography>
+                <TextField size="small" fullWidth placeholder="Search..." sx={{ mb: 2 }} />
+                <Typography variant="body2" sx={{ color: '#666' }}>Find in project (simulated). Use Ctrl+F in editor for find.</Typography>
+              </Box>
+            )}
+
+            {activePanel === 'debug' && (
               <Box sx={{ p: 2, textAlign: 'center', color: '#888' }}>
-                <SourceControlIcon sx={{ fontSize: 40, mb: 1 }} />
-                <Typography variant="body2" sx={{ mb: 2 }}>Source Control</Typography>
-                <Button variant="contained" size="small" onClick={() => setGitDialogOpen(true)} startIcon={<GitHubIcon />}
-                  sx={{ bgcolor: '#238636', '&:hover': { bgcolor: '#2ea043' } }}>
-                  Push to GitHub
-                </Button>
+                <DebugIcon sx={{ fontSize: 40, mb: 1 }} />
+                <Typography variant="body2" sx={{ mb: 2 }}>Debug</Typography>
+                <Typography variant="caption" sx={{ display: 'block', mb: 2 }}>Create a launch.json to start debugging.</Typography>
+                <Button variant="outlined" size="small">Create launch.json</Button>
+              </Box>
+            )}
+
+            {activePanel === 'extensions' && (
+              <Box sx={{ flex: 1, overflowY: 'auto', p: 1 }}>
+                <Typography variant="caption" sx={{ color: '#888', display: 'block', mb: 1, px: 1 }}>EXTENSIONS</Typography>
+                {extensions.map(ext => (
+                  <Box key={ext.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1, px: 1, borderRadius: 1, '&:hover': { bgcolor: theme === 'vs-dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' } }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{ext.name}</Typography>
+                      <Typography variant="caption" sx={{ color: '#888' }}>{ext.desc}</Typography>
+                    </Box>
+                    {ext.installed ? (
+                      <Chip size="small" label={ext.enabled ? 'Disable' : 'Enable'} color={ext.enabled ? 'success' : 'default'} variant="outlined" onClick={() => toggleExtension(ext.id, 'enable')} sx={{ cursor: 'pointer' }} />
+                    ) : (
+                      <Chip size="small" label="Install" variant="outlined" onClick={() => toggleExtension(ext.id, 'install')} sx={{ cursor: 'pointer' }} />
+                    )}
+                  </Box>
+                ))}
               </Box>
             )}
           </Box>
@@ -1891,15 +2637,16 @@ const IDEPage: React.FC = () => {
             </Box>
           )}
           
-          {/* Editor / Preview Split */}
-          <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            {/* Code Editor(s) - Supports Split View */}
-            <Box sx={{ flex: 1, minWidth: 0, display: 'flex' }}>
+          {/* Editor / Preview Split - overflow hidden to prevent code bleeding into preview */}
+          <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden', minWidth: 0 }}>
+            {/* Code Editor(s) - clip content so nothing bleeds */}
+            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', overflow: 'hidden' }}>
               {/* Primary Editor */}
               {activeFile ? (
-                <Box sx={{ flex: 1, display: 'flex', bgcolor: theme === 'vs-dark' ? '#1e1e1e' : '#ffffff', position: 'relative' }}>
+                <Box sx={{ flex: 1, minWidth: 0, display: 'flex', overflow: 'hidden', bgcolor: theme === 'vs-dark' ? '#1e1e1e' : '#ffffff', position: 'relative' }}>
                   {/* Line Numbers */}
                   <Box sx={{ 
+                    flexShrink: 0,
                     width: 50, 
                     bgcolor: theme === 'vs-dark' ? '#1e1e1e' : '#f5f5f5',
                     borderRight: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}`,
@@ -1911,7 +2658,7 @@ const IDEPage: React.FC = () => {
                     lineHeight: '20px',
                     color: theme === 'vs-dark' ? '#858585' : '#999',
                     userSelect: 'none',
-                    overflowY: 'hidden',
+                    overflow: 'hidden',
                   }}>
                     {(activeFile.content || '').split('\n').map((_, i) => (
                       <Box key={i} sx={{ 
@@ -1920,15 +2667,18 @@ const IDEPage: React.FC = () => {
                       }}>{i + 1}</Box>
                     ))}
                   </Box>
-                  {/* Editor */}
-                  <Box sx={{ flex: 1, position: 'relative' }}>
+                  {/* Editor - contained so text never bleeds right */}
+                  <Box sx={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden', display: 'flex' }}>
                     <Box
                       component="textarea"
                       value={activeFile.content || ''}
                       onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleCodeChange(e.target.value)}
                       spellCheck={false}
                       sx={{
-                        width: showMinimap ? 'calc(100% - 80px)' : '100%',
+                        flex: 1,
+                        minWidth: 0,
+                        width: showMinimap ? undefined : '100%',
+                        maxWidth: showMinimap ? 'calc(100% - 80px)' : '100%',
                         height: '100%',
                         bgcolor: 'transparent',
                         color: theme === 'vs-dark' ? '#d4d4d4' : '#333',
@@ -1943,32 +2693,44 @@ const IDEPage: React.FC = () => {
                         caretColor: theme === 'vs-dark' ? '#fff' : '#000',
                         wordWrap: wordWrap ? 'break-word' : 'normal',
                         whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
+                        overflow: 'auto',
                         '&::selection': { bgcolor: theme === 'vs-dark' ? '#264f78' : '#add6ff' },
                       }}
                     />
-                    {/* Minimap */}
+                    {/* Minimap - fully contained, no content bleed */}
                     {showMinimap && (
                       <Box sx={{
-                        position: 'absolute',
-                        right: 0,
-                        top: 0,
+                        flexShrink: 0,
                         width: 80,
                         height: '100%',
+                        position: 'relative',
                         bgcolor: theme === 'vs-dark' ? 'rgba(30,30,30,0.8)' : 'rgba(245,245,245,0.8)',
                         borderLeft: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}`,
                         overflow: 'hidden',
                         cursor: 'pointer',
                       }}>
-                        <Box sx={{ 
-                          transform: 'scale(0.1)', 
-                          transformOrigin: 'top left',
-                          whiteSpace: 'pre',
-                          fontFamily: 'monospace',
-                          fontSize: `${fontSize * 10}px`,
-                          color: theme === 'vs-dark' ? '#666' : '#888',
-                          lineHeight: 1.2,
+                        <Box sx={{
+                          position: 'absolute',
+                          left: 0,
+                          top: 0,
+                          width: 800,
+                          height: '100%',
+                          overflow: 'hidden',
+                          pointerEvents: 'none',
                         }}>
-                          {activeFile.content}
+                          <Box sx={{ 
+                            transform: 'scale(0.1)', 
+                            transformOrigin: 'top left',
+                            whiteSpace: 'pre',
+                            fontFamily: 'monospace',
+                            fontSize: `${fontSize * 10}px`,
+                            color: theme === 'vs-dark' ? '#666' : '#888',
+                            lineHeight: 1.2,
+                            width: 8000,
+                            maxWidth: 8000,
+                          }}>
+                            {activeFile.content}
+                          </Box>
                         </Box>
                         {/* Minimap viewport indicator */}
                         <Box sx={{
@@ -1979,6 +2741,7 @@ const IDEPage: React.FC = () => {
                           height: 40,
                           bgcolor: theme === 'vs-dark' ? 'rgba(100,100,100,0.3)' : 'rgba(0,0,0,0.1)',
                           borderRadius: 0.5,
+                          pointerEvents: 'none',
                         }} />
                       </Box>
                     )}
@@ -2039,9 +2802,10 @@ const IDEPage: React.FC = () => {
               {/* Split View - Second Editor */}
               {splitView && activeFile && (
                 <>
-                  <Box sx={{ width: 4, bgcolor: theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0', cursor: 'col-resize' }} />
-                  <Box sx={{ flex: 1, display: 'flex', bgcolor: theme === 'vs-dark' ? '#1e1e1e' : '#ffffff' }}>
+                  <Box sx={{ width: 4, flexShrink: 0, bgcolor: theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0', cursor: 'col-resize' }} />
+                  <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', bgcolor: theme === 'vs-dark' ? '#1e1e1e' : '#ffffff' }}>
                     <Box sx={{ 
+                      flexShrink: 0,
                       width: 50, 
                       bgcolor: theme === 'vs-dark' ? '#1e1e1e' : '#f5f5f5',
                       borderRight: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}`,
@@ -2053,6 +2817,7 @@ const IDEPage: React.FC = () => {
                       lineHeight: '20px',
                       color: theme === 'vs-dark' ? '#858585' : '#999',
                       userSelect: 'none',
+                      overflow: 'hidden',
                     }}>
                       {(activeFile.content || '').split('\n').map((_, i) => (
                         <Box key={i}>{i + 1}</Box>
@@ -2065,6 +2830,8 @@ const IDEPage: React.FC = () => {
                       spellCheck={false}
                       sx={{
                         flex: 1,
+                        minWidth: 0,
+                        overflow: 'auto',
                         bgcolor: 'transparent',
                         color: theme === 'vs-dark' ? '#d4d4d4' : '#333',
                         border: 'none',
@@ -2082,21 +2849,39 @@ const IDEPage: React.FC = () => {
               )}
             </Box>
             
-            {/* Live Preview */}
-            <Box sx={{ width: '40%', borderLeft: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}`, display: 'flex', flexDirection: 'column' }}>
+            {/* Live Preview - flexShrink 0 so editor cannot bleed into this area */}
+            <Box sx={{ width: '40%', minWidth: 0, flexShrink: 0, overflow: 'hidden', borderLeft: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}`, display: 'flex', flexDirection: 'column' }}>
               <Box sx={{ p: 0.5, display: 'flex', alignItems: 'center', gap: 1, bgcolor: theme === 'vs-dark' ? '#252526' : '#f3f3f3', borderBottom: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}` }}>
-                <Typography variant="caption" sx={{ color: '#888', display: 'flex', alignItems: 'center', gap: 0.5 }}>🌐 Preview</Typography>
+                <Typography variant="caption" sx={{ color: '#888', display: 'flex', alignItems: 'center', gap: 0.5 }}>🌐 Code output</Typography>
                 <Box sx={{ flex: 1, bgcolor: theme === 'vs-dark' ? '#3c3c3c' : '#fff', borderRadius: 1, px: 1, py: 0.25 }}>
-                  <Typography variant="caption" sx={{ color: '#888', fontSize: '11px' }}>localhost:5173</Typography>
+                  <Typography variant="caption" sx={{ color: '#888', fontSize: '11px' }}>
+                    {livePreviewUrl ? livePreviewUrl : 'Preview (your HTML/CSS/JS)'}
+                  </Typography>
                 </Box>
-                <Tooltip title="Refresh">
-                  <IconButton size="small" sx={{ color: '#888' }}>
+                <Tooltip title="Open output in new tab">
+                  <IconButton size="small" onClick={openPreviewInNewTab} sx={{ color: '#888' }}>
+                    <OpenInNewIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                {livePreviewUrl && (
+                  <Tooltip title="Switch to code output preview">
+                    <IconButton size="small" onClick={() => setLivePreviewUrl(null)} sx={{ color: '#888' }}>
+                      <CodeIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <Tooltip title="Refresh preview">
+                  <IconButton size="small" onClick={() => setPreviewRefreshKey(k => k + 1)} sx={{ color: '#888' }}>
                     <RefreshIcon sx={{ fontSize: 16 }} />
                   </IconButton>
                 </Tooltip>
               </Box>
-              <Box sx={{ flex: 1, bgcolor: '#fff' }}>
-                <iframe srcDoc={generatePreview()} title="Preview" style={{ width: '100%', height: '100%', border: 'none' }} sandbox="allow-scripts" />
+              <Box sx={{ flex: 1, bgcolor: '#fff', minHeight: 0 }}>
+                {livePreviewUrl ? (
+                  <iframe key={`live-${previewRefreshKey}`} src={livePreviewUrl} title="Live Preview" style={{ width: '100%', height: '100%', border: 'none' }} />
+                ) : (
+                  <iframe key={`static-${previewRefreshKey}`} srcDoc={generatePreview()} title="Code output" style={{ width: '100%', height: '100%', border: 'none' }} sandbox="allow-scripts" />
+                )}
               </Box>
             </Box>
           </Box>
@@ -2136,13 +2921,14 @@ const IDEPage: React.FC = () => {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.5, py: 0.25, bgcolor: zenMode ? '#252526' : '#007acc', color: 'white', fontSize: '12px' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Tooltip title="Source Control">
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
+            <Box onClick={() => { setActivePanel('git'); setSidebarOpen(true); }} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
               <SourceControlIcon sx={{ fontSize: 14 }} /><span>main</span>
+              {changeList.length > 0 && <span>({changeList.length})</span>}
             </Box>
           </Tooltip>
           <Tooltip title="Sync Changes">
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
-              <RefreshIcon sx={{ fontSize: 14 }} /><span>0 ↓ 0 ↑</span>
+            <Box onClick={() => { setActivePanel('git'); setSidebarOpen(true); setGitDialogOpen(true); }} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
+              <RefreshIcon sx={{ fontSize: 14 }} /><span>{stagedFileIds.size} ↓ 0 ↑</span>
             </Box>
           </Tooltip>
           {unsavedFiles.size > 0 && (
@@ -2170,18 +2956,18 @@ const IDEPage: React.FC = () => {
           {activeFile && (
             <>
               <Tooltip title="Go to Line">
-                <Box sx={{ cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
+                <Box onClick={() => setGoToLineOpen(true)} sx={{ cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
                   Ln {(activeFile.content || '').split('\n').length}, Col 1
                 </Box>
               </Tooltip>
               <Tooltip title="Indentation">
-                <Box sx={{ cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
+                <Box onClick={(e) => setIndentationMenuAnchor(e.currentTarget)} sx={{ cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
                   Spaces: {tabSize}
                 </Box>
               </Tooltip>
               <span>UTF-8</span>
               <Tooltip title="Select Language Mode">
-                <Box sx={{ cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
+                <Box onClick={(e) => setLanguageMenuAnchor(e.currentTarget)} sx={{ cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
                   {activeFile.language?.toUpperCase() || 'Plain Text'}
                 </Box>
               </Tooltip>
@@ -2210,7 +2996,47 @@ const IDEPage: React.FC = () => {
         </Box>
       </Box>
 
-      {/* New File Dialog */}
+      {/* Account Menu */}
+      <Menu anchorEl={accountMenuAnchor} open={!!accountMenuAnchor} onClose={() => setAccountMenuAnchor(null)} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} transformOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+        <MenuItem onClick={() => { setAccountMenuAnchor(null); setSnackbar({ open: true, message: 'Profile', severity: 'info' }); }}>Profile</MenuItem>
+        <MenuItem onClick={() => { setAccountMenuAnchor(null); localStorage.removeItem('authToken'); setSnackbar({ open: true, message: 'Signed out', severity: 'info' }); }}>Sign out</MenuItem>
+      </Menu>
+
+      {/* Go to Line Dialog */}
+      <Dialog open={goToLineOpen} onClose={() => { setGoToLineOpen(false); setGoToLineValue(''); }} maxWidth="xs" fullWidth>
+        <DialogTitle>Go to Line</DialogTitle>
+        <DialogContent>
+          <TextField autoFocus fullWidth type="number" label="Line number" value={goToLineValue} onChange={(e) => setGoToLineValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { setGoToLineOpen(false); setSnackbar({ open: true, message: `Go to line ${goToLineValue}`, severity: 'info' }); setGoToLineValue(''); } }} sx={{ mt: 1 }} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setGoToLineOpen(false); setGoToLineValue(''); }}>Cancel</Button>
+          <Button variant="contained" onClick={() => { setGoToLineOpen(false); setSnackbar({ open: true, message: `Go to line ${goToLineValue}`, severity: 'info' }); setGoToLineValue(''); }}>Go</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Indentation Menu */}
+      <Menu anchorEl={indentationMenuAnchor} open={!!indentationMenuAnchor} onClose={() => setIndentationMenuAnchor(null)}>
+        {[2, 4, 8].map(n => (
+          <MenuItem key={n} onClick={() => { setTabSize(n); setIndentationMenuAnchor(null); setSnackbar({ open: true, message: `Indentation: ${n} spaces`, severity: 'info' }); }}>Spaces: {n}</MenuItem>
+        ))}
+      </Menu>
+
+      {/* Language Mode Menu */}
+      <Menu anchorEl={languageMenuAnchor} open={!!languageMenuAnchor} onClose={() => setLanguageMenuAnchor(null)}>
+        {['javascript', 'typescript', 'html', 'css', 'json', 'markdown', 'python', 'text'].map(lang => (
+          <MenuItem key={lang} onClick={() => {
+            if (activeFileId) {
+              const updateLang = (nodes: FileNode[]): FileNode[] => nodes.map(n => n.id === activeFileId ? { ...n, language: lang } : n.children ? { ...n, children: updateLang(n.children) } : n);
+              setFiles(prev => updateLang(prev));
+              setOpenFiles(prev => prev.map(f => f.id === activeFileId ? { ...f, language: lang } : f));
+            }
+            setLanguageMenuAnchor(null);
+            setSnackbar({ open: true, message: `Language: ${lang}`, severity: 'info' });
+          }}>{lang.toUpperCase()}</MenuItem>
+        ))}
+      </Menu>
+
+      {/* New File Dialog - persists to backend when project is loaded from API */}
       <Dialog open={newFileDialogOpen} onClose={() => setNewFileDialogOpen(false)}>
         <DialogTitle>Create New File</DialogTitle>
         <DialogContent>
@@ -2218,12 +3044,47 @@ const IDEPage: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewFileDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={() => {
-            if (newFileName) {
-              const ext = newFileName.split('.').pop() || '';
-              const langMap: Record<string, string> = { js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript', html: 'html', css: 'css', json: 'json', md: 'markdown', py: 'python' };
-              const newFile: FileNode = { id: newFileName, name: newFileName, type: 'file', language: langMap[ext] || 'text', content: '' };
-              setFiles([...files, newFile]);
+          <Button variant="contained" onClick={async () => {
+            if (!newFileName.trim()) return;
+            const name = newFileName.trim();
+            const ext = name.split('.').pop() || '';
+            const langMap: Record<string, string> = { js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript', html: 'html', css: 'css', json: 'json', md: 'markdown', py: 'python' };
+            const token = localStorage.getItem('authToken');
+            if (projectId && token) {
+              try {
+                const res = await fetch(getApiUrl(`/ide/projects/${projectId}/files`), {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ name, content: '' }),
+                });
+                if (!res.ok) {
+                  setSnackbar({ open: true, message: 'Failed to create file', severity: 'error' });
+                  return;
+                }
+                const created = await res.json();
+                const newFile: FileNode = {
+                  id: created.path || name,
+                  name: created.name || name,
+                  type: 'file',
+                  language: langMap[ext] || 'text',
+                  content: '',
+                  backendFileId: created.id,
+                };
+                setFiles((prev) => [...prev, newFile]);
+                setOpenFiles((prev) => (prev.some((f) => f.id === newFile.id) ? prev : [...prev, newFile]));
+                setActiveFileId(newFile.id);
+                setNewFileDialogOpen(false);
+                setNewFileName('');
+                setSnackbar({ open: true, message: 'File created and saved', severity: 'success' });
+              } catch {
+                setSnackbar({ open: true, message: 'Failed to create file', severity: 'error' });
+              }
+            } else {
+              const newFile: FileNode = { id: name, name, type: 'file', language: langMap[ext] || 'text', content: '' };
+              setFiles((prev) => [...prev, newFile]);
               handleFileSelect(newFile);
               setNewFileDialogOpen(false);
               setNewFileName('');
@@ -2232,23 +3093,48 @@ const IDEPage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
+      {/* New Folder Dialog */}
+      <Dialog open={newFolderDialogOpen} onClose={() => { setNewFolderDialogOpen(false); setNewFolderName(''); }} maxWidth="xs" fullWidth>
+        <DialogTitle>New Folder</DialogTitle>
+        <DialogContent>
+          <TextField autoFocus fullWidth label="Folder Name" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="my-folder" sx={{ mt: 1 }} onKeyDown={(e) => e.key === 'Enter' && handleNewFolder()} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setNewFolderDialogOpen(false); setNewFolderName(''); }}>Cancel</Button>
+          <Button variant="contained" onClick={handleNewFolder} disabled={!newFolderName.trim()}>Create</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Connect to GitHub Dialog */}
+      <Dialog open={connectGitDialogOpen} onClose={() => setConnectGitDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><GitHubIcon /> Connect to GitHub</DialogTitle>
+        <DialogContent>
+          <TextField fullWidth label="Repository URL" value={githubRepoUrl} onChange={(e) => setGithubRepoUrl(e.target.value)} placeholder="https://github.com/owner/repo or owner/repo" sx={{ mt: 2, mb: 2 }} />
+          <Alert severity="info">Connect this project to a GitHub repository. You can create one at github.com/new.</Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConnectGitDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleConnectGit} sx={{ bgcolor: '#238636', '&:hover': { bgcolor: '#2ea043' } }}>Connect</Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Git Push Dialog */}
       <Dialog open={gitDialogOpen} onClose={() => setGitDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><GitHubIcon /> Push to GitHub</DialogTitle>
         <DialogContent>
-          <TextField fullWidth label="Repository Name" value={repoName} onChange={(e) => setRepoName(e.target.value)} placeholder={currentProject?.name} sx={{ mt: 2, mb: 2 }} />
-          <FormControl fullWidth>
+          <TextField fullWidth label="Repository Name" value={repoName} onChange={(e) => setRepoName(e.target.value)} placeholder={currentProject?.name || 'my-project'} sx={{ mt: 2, mb: 2 }} />
+          <FormControl fullWidth sx={{ mb: 2 }}>
             <InputLabel>Visibility</InputLabel>
-            <Select value="public" label="Visibility">
+            <Select value={gitVisibility} label="Visibility" onChange={(e) => setGitVisibility(e.target.value as 'public' | 'private')}>
               <MenuItem value="public">🌍 Public</MenuItem>
               <MenuItem value="private">🔒 Private</MenuItem>
             </Select>
           </FormControl>
-          <Alert severity="info" sx={{ mt: 2 }}>This will create a new repository and push all project files.</Alert>
+          <Alert severity="info" sx={{ mt: 2 }}>This will create a new repository and push all project files. In a full setup this would use the GitHub API.</Alert>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setGitDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleGitPush} sx={{ bgcolor: '#238636' }}>Create & Push</Button>
+          <Button variant="contained" onClick={handleGitPush} sx={{ bgcolor: '#238636', '&:hover': { bgcolor: '#2ea043' } }}>Create & Push</Button>
         </DialogActions>
       </Dialog>
 
@@ -2268,12 +3154,57 @@ const IDEPage: React.FC = () => {
       {/* Context Menu */}
       <Menu open={contextMenu !== null} onClose={() => setContextMenu(null)} anchorReference="anchorPosition" anchorPosition={contextMenu !== null ? { top: contextMenu.y, left: contextMenu.x } : undefined}>
         <MenuItem onClick={() => { setContextMenu(null); setNewFileDialogOpen(true); }}><ListItemIcon><NewFileIcon fontSize="small" /></ListItemIcon>New File</MenuItem>
-        <MenuItem onClick={() => setContextMenu(null)}><ListItemIcon><NewFolderIcon fontSize="small" /></ListItemIcon>New Folder</MenuItem>
+        <MenuItem onClick={() => { setContextMenu(null); setNewFolderDialogOpen(true); }}><ListItemIcon><NewFolderIcon fontSize="small" /></ListItemIcon>New Folder</MenuItem>
         <Divider />
-        <MenuItem onClick={() => setContextMenu(null)}><ListItemIcon><CopyIcon fontSize="small" /></ListItemIcon>Copy</MenuItem>
-        <MenuItem onClick={() => setContextMenu(null)}><ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>Rename</MenuItem>
-        <MenuItem onClick={() => setContextMenu(null)}><ListItemIcon><DeleteIcon fontSize="small" /></ListItemIcon>Delete</MenuItem>
+        <MenuItem onClick={() => { if (contextMenu?.file) navigator.clipboard.writeText(contextMenu.file.id).then(() => setSnackbar({ open: true, message: 'Path copied', severity: 'success' })); setContextMenu(null); }}><ListItemIcon><CopyIcon fontSize="small" /></ListItemIcon>Copy Path</MenuItem>
+        <MenuItem onClick={() => {
+          if (contextMenu?.file) {
+            setFileToRename(contextMenu.file);
+            setRenameValue(contextMenu.file.name);
+            setRenameDialogOpen(true);
+          }
+          setContextMenu(null);
+        }}><ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>Rename</MenuItem>
+        <MenuItem onClick={() => {
+          if (contextMenu?.file) {
+            setFileToDelete(contextMenu.file);
+            setDeleteConfirmOpen(true);
+          }
+          setContextMenu(null);
+        }}><ListItemIcon><DeleteIcon fontSize="small" /></ListItemIcon>Delete</MenuItem>
       </Menu>
+
+      {/* Rename dialog */}
+      <Dialog open={renameDialogOpen} onClose={() => { setRenameDialogOpen(false); setFileToRename(null); setRenameValue(''); }} maxWidth="xs" fullWidth PaperProps={{ sx: { bgcolor: theme === 'vs-dark' ? '#252526' : '#fff', color: theme === 'vs-dark' ? '#ccc' : '#333' } }}>
+        <DialogTitle>Rename</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            autoFocus
+            label="New name"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleRenameConfirm()}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setRenameDialogOpen(false); setFileToRename(null); setRenameValue(''); }}>Cancel</Button>
+          <Button variant="contained" onClick={handleRenameConfirm} disabled={!renameValue.trim()}>Rename</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog open={deleteConfirmOpen} onClose={() => { setDeleteConfirmOpen(false); setFileToDelete(null); }} maxWidth="xs" fullWidth PaperProps={{ sx: { bgcolor: theme === 'vs-dark' ? '#252526' : '#fff', color: theme === 'vs-dark' ? '#ccc' : '#333' } }}>
+        <DialogTitle>Delete</DialogTitle>
+        <DialogContent>
+          <Typography>Delete &quot;{fileToDelete?.name}&quot;? This cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setDeleteConfirmOpen(false); setFileToDelete(null); }}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteConfirm}>Delete</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Command Palette */}
       <Dialog 

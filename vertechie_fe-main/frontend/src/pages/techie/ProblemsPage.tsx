@@ -73,17 +73,27 @@ const glow = keyframes`
   50% { box-shadow: 0 0 20px rgba(255, 165, 0, 0.8); }
 `;
 
-// Styled Components for Achievements
+// Styled Card used for compact, professional-looking streak tiles
 const StreakCard = styled(Card)(({ theme }) => ({
-  background: 'linear-gradient(135deg, #FF6B35 0%, #F7931E 100%)',
-  color: 'white',
-  borderRadius: 16,
-  animation: `${pulse} 2s ease-in-out infinite`,
+  borderRadius: 10,
+  boxShadow:
+    theme.palette.mode === 'dark'
+      ? '0 8px 20px rgba(15,23,42,0.9)'
+      : '0 6px 16px rgba(15,23,42,0.12)',
+  background:
+    theme.palette.mode === 'dark'
+      ? 'linear-gradient(135deg, #1f2933 0%, #0b1120 100%)'
+      : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+  border: `1px solid ${
+    theme.palette.mode === 'dark'
+      ? 'rgba(148, 163, 184, 0.35)'
+      : 'rgba(148, 163, 184, 0.25)'
+  }`,
 }));
 
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../../config/api';
-import ContributionHeatmap from '../../components/ContributionHeatmap';
+// import ContributionHeatmap from '../../components/ContributionHeatmap';
 
 // Types
 interface Problem {
@@ -92,10 +102,11 @@ interface Problem {
   title: string;
   slug: string;
   difficulty: 'easy' | 'medium' | 'hard';
-  categories: string[];
+  tags?: string[];            // from backend ProblemListResponse
+  categories?: string[];      // optional, not required
   acceptance_rate: number;
-  submission_count: number;
-  is_solved: boolean;
+  submission_count?: number;  // optional (list API doesn’t send this)
+  is_solved?: boolean; 
 }
 
 interface ProblemStats {
@@ -108,73 +119,136 @@ interface ProblemStats {
   solved_hard: number;
 }
 
+interface StreakStats {
+  current_streak: number;
+  max_streak: number;
+  today_solved: number;
+  week_solved: number;
+}
 
-// Streak Component
-const StreakSection: React.FC = () => {
-  const currentStreak = 12;
-  const longestStreak = 21;
-  const todaySolved = 3;
+// Streak Component – uses real data from /practice/streaks/
+const StreakSection: React.FC<{ stats: StreakStats }> = ({ stats }) => {
+  const currentStreak = stats.current_streak ?? 0;
+  const longestStreak = stats.max_streak ?? 0;
+  const todaySolved = stats.today_solved ?? 0;
+  const weekSolved = stats.week_solved ?? 0;
 
   return (
     <Grid container spacing={2} sx={{ mb: 3 }}>
       {/* Current Streak */}
-      <Grid item xs={12} md={3}>
+      <Grid item xs={12} sm={6} md={3}>
         <StreakCard>
-          <CardContent sx={{ textAlign: 'center', py: 3 }}>
-            <StreakIcon sx={{ fontSize: 40, mb: 1 }} />
-            <Typography variant="h3" sx={{ fontWeight: 800 }}>
-              {currentStreak}
-            </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              Day Streak 🔥
-            </Typography>
+          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 2 }}>
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: '999px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: 'rgba(248,113,113,0.14)',
+              }}
+            >
+              <StreakIcon sx={{ fontSize: 20, color: '#f97316' }} />
+            </Box>
+            <Box>
+              <Typography variant="overline" sx={{ letterSpacing: 0.6, opacity: 0.8 }}>
+                Day streak
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                {currentStreak} days
+              </Typography>
+            </Box>
           </CardContent>
         </StreakCard>
       </Grid>
 
       {/* Longest Streak */}
-      <Grid item xs={12} md={3}>
-        <Card sx={{ borderRadius: 4, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
-          <CardContent sx={{ textAlign: 'center', py: 3 }}>
-            <TrophyIcon sx={{ fontSize: 40, mb: 1 }} />
-            <Typography variant="h3" sx={{ fontWeight: 800 }}>
-              {longestStreak}
-            </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              Best Streak
-            </Typography>
+      <Grid item xs={12} sm={6} md={3}>
+        <StreakCard>
+          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 2 }}>
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: '999px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: 'rgba(96,165,250,0.16)',
+              }}
+            >
+              <TrophyIcon sx={{ fontSize: 20, color: '#6366f1' }} />
+            </Box>
+            <Box>
+              <Typography variant="overline" sx={{ letterSpacing: 0.6, opacity: 0.8 }}>
+                Best streak
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                {longestStreak} days
+              </Typography>
+            </Box>
           </CardContent>
-        </Card>
+        </StreakCard>
       </Grid>
 
       {/* Today's Progress */}
-      <Grid item xs={12} md={3}>
-        <Card sx={{ borderRadius: 4, background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', color: 'white' }}>
-          <CardContent sx={{ textAlign: 'center', py: 3 }}>
-            <BoltIcon sx={{ fontSize: 40, mb: 1 }} />
-            <Typography variant="h3" sx={{ fontWeight: 800 }}>
-              {todaySolved}
-            </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              Solved Today
-            </Typography>
+      <Grid item xs={12} sm={6} md={3}>
+        <StreakCard>
+          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 2 }}>
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: '999px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: 'rgba(52,211,153,0.12)',
+              }}
+            >
+              <BoltIcon sx={{ fontSize: 20, color: '#22c55e' }} />
+            </Box>
+            <Box>
+              <Typography variant="overline" sx={{ letterSpacing: 0.6, opacity: 0.8 }}>
+                Solved today
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                {todaySolved} problems
+              </Typography>
+            </Box>
           </CardContent>
-        </Card>
+        </StreakCard>
       </Grid>
 
       {/* Weekly Activity */}
-      <Grid item xs={12} md={3}>
-        <Card sx={{ borderRadius: 4, background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', color: 'white' }}>
-          <CardContent sx={{ textAlign: 'center', py: 3 }}>
-            <CalendarIcon sx={{ fontSize: 40, mb: 1 }} />
-            <Typography variant="h3" sx={{ fontWeight: 800 }}>
-              24
-            </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              This Week
-            </Typography>
+      <Grid item xs={12} sm={6} md={3}>
+        <StreakCard>
+          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 2 }}>
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: '999px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: 'rgba(56,189,248,0.12)',
+              }}
+            >
+              <CalendarIcon sx={{ fontSize: 20, color: '#0ea5e9' }} />
+            </Box>
+            <Box>
+              <Typography variant="overline" sx={{ letterSpacing: 0.6, opacity: 0.8 }}>
+                This week
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                {weekSolved} problems
+              </Typography>
+            </Box>
           </CardContent>
-        </Card>
+        </StreakCard>
       </Grid>
     </Grid>
   );
@@ -279,11 +353,12 @@ const IDELinkCard: React.FC = () => {
 const ProgressCard: React.FC<{ stats: ProblemStats }> = ({ stats }) => {
   const theme = useTheme();
   
+  const totalSolved = (stats.solved_easy || 0) + (stats.solved_medium || 0) + (stats.solved_hard || 0);
   const progressItems = [
-    { label: 'Easy', solved: stats.solved_easy || 15, total: stats.easy || 100, color: '#10b981' },
-    { label: 'Medium', solved: stats.solved_medium || 22, total: stats.medium || 200, color: '#f59e0b' },
-    { label: 'Hard', solved: stats.solved_hard || 8, total: stats.hard || 100, color: '#ef4444' },
-    { label: 'Total Solved', solved: (stats.solved_easy || 15) + (stats.solved_medium || 22) + (stats.solved_hard || 8), total: stats.total || 400, color: '#6366f1' },
+    { label: 'Easy', solved: stats.solved_easy || 0, total: Math.max(stats.easy || 1, stats.solved_easy || 0), color: '#10b981' },
+    { label: 'Medium', solved: stats.solved_medium || 0, total: Math.max(stats.medium || 1, stats.solved_medium || 0), color: '#f59e0b' },
+    { label: 'Hard', solved: stats.solved_hard || 0, total: Math.max(stats.hard || 1, stats.solved_hard || 0), color: '#ef4444' },
+    { label: 'Total Solved', solved: totalSolved, total: Math.max(stats.total || 1, totalSolved), color: '#6366f1' },
   ];
   
   return (
@@ -306,7 +381,7 @@ const ProgressCard: React.FC<{ stats: ProblemStats }> = ({ stats }) => {
               </Typography>
               <LinearProgress
                 variant="determinate"
-                value={(item.solved / item.total) * 100}
+                value={item.total > 0 ? (item.solved / item.total) * 100 : 0}
                 sx={{
                   mt: 1,
                   height: 6,
@@ -332,7 +407,51 @@ const ProblemsPage: React.FC = () => {
   const [problems, setProblems] = useState<Problem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<ProblemStats>({ total: 400, easy: 100, medium: 200, hard: 100, solved_easy: 15, solved_medium: 22, solved_hard: 8 });
+  const [stats, setStats] = useState<ProblemStats>({ total: 0, easy: 0, medium: 0, hard: 0, solved_easy: 0, solved_medium: 0, solved_hard: 0 });
+  const [streakStats, setStreakStats] = useState<StreakStats>({ current_streak: 0, max_streak: 0, today_solved: 0, week_solved: 0 });
+  
+  // Fetch progress (real solved counts) from /practice/progress
+  const fetchProgress = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) return;
+      const res = await fetch(getApiUrl('/practice/progress'), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setStats(prev => ({
+        ...prev,
+        solved_easy: data.easy_solved ?? 0,
+        solved_medium: data.medium_solved ?? 0,
+        solved_hard: data.hard_solved ?? 0,
+        total: Math.max(prev.total, (data.total_solved ?? 0)),
+      }));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Fetch streak stats from /practice/streaks/
+  const fetchStreaks = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) return;
+      const res = await fetch(getApiUrl('/practice/streaks/'), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setStreakStats({
+        current_streak: data.current_streak ?? 0,
+        max_streak: data.max_streak ?? 0,
+        today_solved: data.today_solved ?? 0,
+        week_solved: data.week_solved ?? 0,
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
   
   // Filters
   const [search, setSearch] = useState('');
@@ -353,21 +472,22 @@ const ProblemsPage: React.FC = () => {
     'SQL', 'Design',
   ];
   
-  // Fetch problems
+  // Fetch problems from FastAPI /practice/problems
   const fetchProblems = useCallback(async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('authToken');
       
-      // Build query params
+      // Build query params to match FastAPI signature (skip / limit)
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (difficulty !== 'all') params.append('difficulty', difficulty);
       if (category !== 'all') params.append('category', category);
-      params.append('page', String(page + 1));
-      params.append('page_size', String(rowsPerPage));
+      const skip = page * rowsPerPage;
+      params.append('skip', String(skip));
+      params.append('limit', String(rowsPerPage));
       
-      const response = await fetch(getApiUrl(`/practice/problems/?${params.toString()}`), {
+      const response = await fetch(getApiUrl(`/practice/problems?${params.toString()}`), {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -375,72 +495,36 @@ const ProblemsPage: React.FC = () => {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to fetch problems');
+        const msg = `Failed to fetch problems (${response.status})`;
+        setError(msg);
+        throw new Error(msg);
       }
       
-      const data = await response.json();
-      setProblems(data.results || data);
-      setTotalCount(data.count || data.length);
+      const data: Problem[] = await response.json();
+      setProblems(data);
+      setTotalCount(data.length);
+      setError(null);
+      fetchProgress();
+      fetchStreaks();
     } catch (err: any) {
       console.error('Error fetching problems:', err);
-      
-      // Generate mock problems for development
-      const mockProblems: Problem[] = [];
-      const titles = [
-        'Two Sum', 'Add Two Numbers', 'Longest Substring Without Repeating Characters',
-        'Median of Two Sorted Arrays', 'Longest Palindromic Substring', 'Zigzag Conversion',
-        'Reverse Integer', 'String to Integer (atoi)', 'Palindrome Number', 'Regular Expression Matching',
-        'Container With Most Water', '3Sum', '3Sum Closest', 'Letter Combinations of a Phone Number',
-        '4Sum', 'Remove Nth Node From End of List', 'Valid Parentheses', 'Merge Two Sorted Lists',
-        'Generate Parentheses', 'Merge k Sorted Lists', 'Swap Nodes in Pairs', 'Reverse Nodes in k-Group',
-        'Remove Duplicates from Sorted Array', 'Remove Element', 'Find the Index of the First Occurrence',
-        'Divide Two Integers', 'Substring with Concatenation of All Words', 'Next Permutation',
-        'Longest Valid Parentheses', 'Search in Rotated Sorted Array', 'Find First and Last Position',
-        'Search Insert Position', 'Valid Sudoku', 'Sudoku Solver', 'Count and Say', 'Combination Sum',
-        'Combination Sum II', 'First Missing Positive', 'Trapping Rain Water', 'Multiply Strings',
-        'Wildcard Matching', 'Jump Game II', 'Permutations', 'Permutations II', 'Rotate Image',
-        'Group Anagrams', "Pow(x, n)", 'N-Queens', 'N-Queens II', 'Maximum Subarray',
-      ];
-      
-      for (let i = 0; i < 50; i++) {
-        const diff = i < 20 ? 'easy' : i < 40 ? 'medium' : 'hard';
-        mockProblems.push({
-          id: String(i + 1),
-          problem_number: i + 1,
-          title: titles[i % titles.length],
-          slug: titles[i % titles.length].toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-          difficulty: diff,
-          categories: ['Array', 'Hash Table'].slice(0, Math.floor(Math.random() * 2) + 1),
-          acceptance_rate: 30 + Math.random() * 40,
-          submission_count: Math.floor(Math.random() * 1000000),
-          is_solved: Math.random() > 0.7,
-        });
+      // Keep any previous data on error and show a friendly message
+      if (!error) {
+        setError('Unable to load problems from server. Please try again.');
       }
-      
-      // Apply filters
-      let filtered = mockProblems;
-      if (search) {
-        filtered = filtered.filter(p => p.title.toLowerCase().includes(search.toLowerCase()));
-      }
-      if (difficulty !== 'all') {
-        filtered = filtered.filter(p => p.difficulty === difficulty);
-      }
-      if (statusFilter === 'solved') {
-        filtered = filtered.filter(p => p.is_solved);
-      } else if (statusFilter === 'unsolved') {
-        filtered = filtered.filter(p => !p.is_solved);
-      }
-      
-      setProblems(filtered.slice(page * rowsPerPage, (page + 1) * rowsPerPage));
-      setTotalCount(filtered.length);
     } finally {
       setLoading(false);
     }
-  }, [search, difficulty, category, statusFilter, page, rowsPerPage]);
+  }, [search, difficulty, category, page, rowsPerPage, error, fetchProgress, fetchStreaks]);
   
   useEffect(() => {
     fetchProblems();
   }, [fetchProblems]);
+  
+  useEffect(() => {
+    fetchProgress();
+    fetchStreaks();
+  }, [fetchProgress, fetchStreaks]);
   
   // Handle random problem
   const handleRandomProblem = async () => {
@@ -506,10 +590,7 @@ const ProblemsPage: React.FC = () => {
         </Box>
         
         {/* Streak & Daily Progress */}
-        <StreakSection />
-
-        {/* Contribution Heatmap */}
-        <ContributionHeatmap />
+        <StreakSection stats={streakStats} />
 
         {/* IDE Link Card */}
         <IDELinkCard />
@@ -627,7 +708,12 @@ const ProblemsPage: React.FC = () => {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {problems.map((problem) => (
+                    {(statusFilter === 'solved'
+                      ? problems.filter((p) => p.is_solved)
+                      : statusFilter === 'unsolved'
+                        ? problems.filter((p) => !p.is_solved)
+                        : problems
+                    ).map((problem) => (
                       <TableRow
                         key={problem.id}
                         hover
@@ -664,17 +750,17 @@ const ProblemsPage: React.FC = () => {
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                            {problem.categories.slice(0, 2).map((cat) => (
-                              <Chip
-                                key={cat}
-                                label={cat}
-                                size="small"
-                                variant="outlined"
-                                sx={{ fontSize: '0.7rem' }}
-                              />
-                            ))}
-                          </Box>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+  {(problem.categories ?? problem.tags ?? []).slice(0, 2).map((cat) => (
+    <Chip
+      key={cat}
+      label={cat}
+      size="small"
+      variant="outlined"
+      sx={{ fontSize: '0.7rem' }}
+    />
+  ))}
+</Box>
                         </TableCell>
                       </TableRow>
                     ))}

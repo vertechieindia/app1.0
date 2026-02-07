@@ -1,12 +1,12 @@
 /**
- * Problem Detail Page - Comprehensive Coding Problem Interface
- * Features:
- * - Full-featured Monaco Code Editor (VerTechieIDE)
- * - Multi-language support (Python, JavaScript, Java, C++, etc.)
- * - Run & Submit functionality with real execution
- * - Test case visualization
- * - Real-time execution results
- */
+* Problem Detail Page - Comprehensive Coding Problem Interface
+* Features:
+* - Full-featured Monaco Code Editor (VerTechieIDE)
+* - Multi-language support (Python, JavaScript, Java, C++, etc.)
+* - Run & Submit functionality with real execution
+* - Test case visualization
+* - Real-time execution results
+*/
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -49,6 +49,35 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../../config/api';
 import { VerTechieIDE, ExecutionResult, TestCase as IDETestCase } from '../../components/ide';
+import { getStatusLabel, getErrorMessage } from '../../services/CodeExecutionService';
+
+// Default starter code when API doesn't return any (e.g. Two Sum)
+const DEFAULT_STARTER_CODE: Record<string, Record<string, string>> = {
+  'two-sum': {
+    python: `# Two Sum - read input and print indices
+import re
+import ast
+
+def two_sum(nums, target):
+    seen = {}
+    for i, n in enumerate(nums):
+        comp = target - n
+        if comp in seen:
+            return [seen[comp], i]
+        seen[n] = i
+    return []
+
+# Parse input like "nums = [2,7,11,15], target = 9"
+s = input().strip()
+nums_match = re.search(r'\\[[^\\]]+\\]', s)
+target_match = re.search(r'target\\s*=\\s*(-?\\d+)', s, re.I)
+nums = ast.literal_eval(nums_match.group(0)) if nums_match else []
+target = int(target_match.group(1)) if target_match else 0
+
+result = two_sum(nums, target)
+print(result)`,
+  },
+};
 
 // Types
 interface TestCase {
@@ -110,7 +139,7 @@ const DifficultyBadge: React.FC<{ difficulty: string }> = ({ difficulty }) => {
     medium: '#f59e0b',
     hard: '#ef4444',
   };
-  
+
   return (
     <Chip
       label={difficulty}
@@ -130,22 +159,26 @@ const ProblemDetail: React.FC = () => {
   const theme = useTheme();
   const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
-  
+
   // State
   const [problem, setProblem] = useState<Problem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   const [leftTabValue, setLeftTabValue] = useState(0);
-  
+
   const [showHints, setShowHints] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
-  
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+  const [solutions, setSolutions] = useState<any[]>([]);
+  const [loadingSolutions, setLoadingSolutions] = useState(false);
+
   // Fetch problem
   const fetchProblem = useCallback(async () => {
     if (!slug) return;
-    
+
     setLoading(true);
     try {
       const token = localStorage.getItem('authToken');
@@ -155,17 +188,23 @@ const ProblemDetail: React.FC = () => {
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (!response.ok) {
         throw new Error('Problem not found');
       }
-      
+
       const data = await response.json();
+      // Ensure problem has required fields
+      if (!data.id) {
+        console.error('Problem data missing id field:', data);
+        setError('Invalid problem data received from server');
+        return;
+      }
       setProblem(data);
     } catch (err: any) {
       console.error('Error fetching problem:', err);
       setError(err.message || 'Failed to load problem');
-      
+
       // Mock data for development
       setProblem({
         id: '1',
@@ -293,77 +332,259 @@ public:
       setLoading(false);
     }
   }, [slug]);
-  
+
   useEffect(() => {
     fetchProblem();
   }, [fetchProblem]);
-  
-  // Convert test cases to IDE format
-  const ideTestCases: IDETestCase[] = problem?.sample_test_cases.map((tc, idx) => ({
-    id: tc.id,
-    name: `Case ${idx + 1}`,
-    input: tc.input_data,
-    expectedOutput: tc.expected_output,
-  })) || [];
-  
-  // Handle code execution (Run) - Uses Judge service for REAL EXECUTION
+
+  // Fetch submissions when submissions tab is selected
+  useEffect(() => {
+    const fetchSubmissions = async () => {
+      if (leftTabValue !== 2 || !problem?.id) return;
+
+      setLoadingSubmissions(true);
+      try {
+        const token = localStorage.getItem('authToken');
+        const response = await fetch(
+          getApiUrl(`/practice/submissions?problem_id=${problem.id}`),
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          setSubmissions(data);
+        }
+      } catch (err) {
+        console.error('Error fetching submissions:', err);
+      } finally {
+        setLoadingSubmissions(false);
+      }
+    };
+
+    fetchSubmissions();
+  }, [leftTabValue, problem?.id]);
+
+  // Fetch solutions when solutions tab is selected
+  useEffect(() => {
+    const fetchSolutions = async () => {
+      if (leftTabValue !== 1 || !problem?.id) return;
+
+      setLoadingSolutions(true);
+      try {
+        const token = localStorage.getItem('authToken');
+        const response = await fetch(
+          getApiUrl(`/practice/problems/${problem.id}/solutions`),
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          setSolutions(data);
+        }
+      } catch (err) {
+        console.error('Error fetching solutions:', err);
+      } finally {
+        setLoadingSolutions(false);
+      }
+    };
+
+    fetchSolutions();
+  }, [leftTabValue, problem?.id]);
+
+  // Convert test cases to IDE format (safe for real API data without sample_test_cases)
+  const ideTestCases: IDETestCase[] =
+    (problem?.sample_test_cases ?? []).map((tc, idx) => ({
+      id: tc.id,
+      name: `Case ${idx + 1}`,
+      input: tc.input_data,
+      expectedOutput: tc.expected_output,
+    }));
+
+  // Handle code execution (Run) - Uses backend API
   const handleRun = async (code: string, language: string, input: string): Promise<ExecutionResult> => {
-    if (!problem) {
+    if (!problem || !problem.id) {
       return { status: 'error', output: '', error: 'No problem loaded' };
     }
-    
+
     // Import the real execution service
     const { codeExecutionService } = await import('../../services/CodeExecutionService');
-    
-    // Use the Judge service for problem execution
+
+    // Use backend API for problem execution (pass problem.id as UUID, not slug)
     const result = await codeExecutionService.executeForProblem(
       code,
       language,
-      problem.slug,
+      problem.id,  // Use problem.id (UUID) instead of problem.slug
       'run'
     );
     return result as ExecutionResult;
   };
-  
-  // Handle code submission - Uses Judge service for REAL EXECUTION
+
+  // Handle code submission - Submit to backend API and poll for results
   const handleSubmit = async (code: string, language: string): Promise<ExecutionResult> => {
     if (!problem) {
       return { status: 'error', output: '', error: 'No problem loaded' };
     }
-    
-    // Import the real execution service
-    const { codeExecutionService } = await import('../../services/CodeExecutionService');
-    
-    // Use the Judge service for submission
-    const result = await codeExecutionService.executeForProblem(
-      code,
-      language,
-      problem.slug,
-      'submit'
-    );
-    
-    // Show result notification
-    if (result.status === 'success') {
-      setSnackbar({ open: true, message: '🎉 Accepted! Great job!', severity: 'success' });
-    } else if (result.status === 'compile_error') {
-      setSnackbar({ open: true, message: `Compile Error: ${result.error}`, severity: 'error' });
-    } else if (result.status === 'runtime_error') {
-      setSnackbar({ open: true, message: `Runtime Error`, severity: 'error' });
-    } else if (result.status === 'time_limit') {
-      setSnackbar({ open: true, message: 'Time Limit Exceeded', severity: 'error' });
-    } else if (result.testResults) {
-      setSnackbar({ 
-        open: true, 
-        message: `Wrong Answer: ${result.testResults.passed}/${result.testResults.total} test cases passed`, 
-        severity: 'error' 
-      });
-    } else {
-      setSnackbar({ open: true, message: result.error || 'Submission failed', severity: 'error' });
+
+    try {
+      const token = localStorage.getItem('authToken');
+
+      // Submit code to backend
+      const submitResponse = await fetch(
+        getApiUrl('/practice/submit'),
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            problem_id: problem.id,
+            language: language,
+            code: code,
+            is_submission: true,
+          }),
+        }
+      );
+
+      if (!submitResponse.ok) {
+        const errorData = await submitResponse.json().catch(() => ({}));
+        return {
+          status: 'error',
+          output: '',
+          error: errorData.detail || 'Submission failed',
+        };
+      }
+
+      const submission = await submitResponse.json();
+
+      // Poll for submission status updates
+      const pollSubmission = async (submissionId: string): Promise<ExecutionResult> => {
+        const maxAttempts = 60; // Poll for up to 60 seconds
+        const pollInterval = 1000; // Poll every 1 second
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+          try {
+            const statusResponse = await fetch(
+              getApiUrl(`/practice/submissions/${submissionId}`),
+              {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+
+            if (statusResponse.ok) {
+              const updatedSubmission = await statusResponse.json();
+
+              // Check if status is final (not pending or running)
+              if (
+                updatedSubmission.status !== 'pending' &&
+                updatedSubmission.status !== 'running'
+              ) {
+                // Refresh submissions list
+                if (leftTabValue === 2) {
+                  const submissionsResponse = await fetch(
+                    getApiUrl(`/practice/submissions?problem_id=${problem.id}`),
+                    {
+                      headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                      },
+                    }
+                  );
+                  if (submissionsResponse.ok) {
+                    const submissionsData = await submissionsResponse.json();
+                    setSubmissions(submissionsData);
+                  }
+                }
+
+                // Map submission status to execution result
+                const statusMap: Record<string, 'success' | 'error' | 'compile_error' | 'time_limit'> = {
+                  'accepted': 'success',
+                  'wrong_answer': 'error',
+                  'runtime_error': 'error',
+                  'time_limit': 'time_limit',
+                  'compile_error': 'compile_error',
+                  'internal_error': 'error',
+                };
+
+                const mappedStatus = statusMap[updatedSubmission.status] || 'error';
+                const result: ExecutionResult = {
+                  status: mappedStatus as ExecutionResult['status'],
+                  output: updatedSubmission.status === 'accepted'
+                    ? `All ${updatedSubmission.test_cases_passed}/${updatedSubmission.test_cases_total} test cases passed!`
+                    : '',
+                  error: updatedSubmission.status !== 'accepted'
+                    ? getErrorMessage(updatedSubmission)
+                    : undefined,
+                  statusLabel: getStatusLabel(
+                    updatedSubmission.status,
+                    updatedSubmission.test_cases_passed,
+                    updatedSubmission.test_cases_total
+                  ),
+                  executionTime: updatedSubmission.runtime_ms,
+                  memoryUsage: updatedSubmission.memory_kb,
+                };
+
+                // Show result notification and mark problem as solved in UI
+                if (result.status === 'success') {
+                  setSnackbar({ open: true, message: '🎉 Accepted! Great job!', severity: 'success' });
+                  setProblem((prev) => (prev ? { ...prev, is_solved: true } : prev));
+                } else if (updatedSubmission.status === 'compile_error') {
+                  setSnackbar({ open: true, message: `Compile Error: ${updatedSubmission.error_message}`, severity: 'error' });
+                } else if (updatedSubmission.status === 'runtime_error') {
+                  setSnackbar({ open: true, message: `Runtime Error`, severity: 'error' });
+                } else if (updatedSubmission.status === 'time_limit') {
+                  setSnackbar({ open: true, message: 'Time Limit Exceeded', severity: 'error' });
+                } else {
+                  setSnackbar({
+                    open: true,
+                    message: `Wrong Answer: ${updatedSubmission.test_cases_passed}/${updatedSubmission.test_cases_total} test cases passed`,
+                    severity: 'error'
+                  });
+                }
+
+                return result;
+              }
+            }
+          } catch (pollError) {
+            console.error('Error polling submission status:', pollError);
+          }
+        }
+
+        // Timeout - return pending status
+        return {
+          status: 'error',
+          output: '',
+          error: 'Submission is taking longer than expected. Please check the submissions tab for updates.',
+        };
+      };
+
+      // Start polling
+      return await pollSubmission(submission.id);
+
+    } catch (error: any) {
+      return {
+        status: 'error',
+        output: '',
+        error: error.message || 'Submission failed',
+      };
     }
-    
-    return result as ExecutionResult;
   };
-  
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '80vh' }}>
@@ -371,7 +592,7 @@ public:
       </Box>
     );
   }
-  
+
   if (!problem) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
@@ -382,7 +603,7 @@ public:
       </Container>
     );
   }
-  
+
   return (
     <Box sx={{ height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
@@ -390,13 +611,13 @@ public:
         <IconButton onClick={() => navigate('/techie/problems')} size="small">
           <BackIcon />
         </IconButton>
-        
+
         <Typography variant="h6" sx={{ fontWeight: 700, flexGrow: 0 }}>
           {problem.problem_number}. {problem.title}
         </Typography>
-        
+
         <DifficultyBadge difficulty={problem.difficulty} />
-        
+
         {problem.is_solved && (
           <Chip
             icon={<SuccessIcon />}
@@ -406,178 +627,361 @@ public:
             variant="outlined"
           />
         )}
-        
+
         <Box sx={{ flexGrow: 1 }} />
-        
+
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
           <Tooltip title={isBookmarked ? 'Remove Bookmark' : 'Bookmark'}>
             <IconButton onClick={() => setIsBookmarked(!isBookmarked)} size="small">
               {isBookmarked ? <BookmarkIcon color="primary" /> : <BookmarkOutlineIcon />}
             </IconButton>
           </Tooltip>
-          
+
           <Tooltip title="Share">
             <IconButton size="small">
               <ShareIcon />
             </IconButton>
           </Tooltip>
-          
+
           <Divider orientation="vertical" flexItem />
-          
+
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <IconButton size="small">
               <LikeIcon />
             </IconButton>
-            <Typography variant="body2">{problem.likes.toLocaleString()}</Typography>
+            <Typography variant="body2">{(problem.likes || 0).toLocaleString()}</Typography>
           </Box>
-          
+
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <IconButton size="small">
               <DislikeIcon />
             </IconButton>
-            <Typography variant="body2">{problem.dislikes.toLocaleString()}</Typography>
+            <Typography variant="body2">{(problem.dislikes || 0).toLocaleString()}</Typography>
           </Box>
-          
+
           <Divider orientation="vertical" flexItem />
-          
+
           <Typography variant="body2" color="text.secondary">
-            Acceptance: <strong>{problem.acceptance_rate.toFixed(1)}%</strong>
+            Acceptance: <strong>{(problem.acceptance_rate || 0).toFixed(1)}%</strong>
           </Typography>
         </Box>
       </Paper>
-      
+
       {/* Main Content */}
       <Grid container sx={{ flexGrow: 1, overflow: 'hidden' }}>
-        {/* Left Panel - Problem Description */}
-        <Grid item xs={12} md={5} sx={{ height: '100%', overflow: 'auto', borderRight: '1px solid', borderColor: 'divider' }}>
+        {/* Left Panel - Problem Description (dark panel: white text to match IDE) */}
+        <Grid
+          item
+          xs={12}
+          md={5}
+          sx={{
+            height: '100%',
+            overflow: 'auto',
+            borderRight: '1px solid',
+            borderColor: 'divider',
+            bgcolor: '#1e1e1e',
+            color: '#ffffff',
+          }}
+        >
           <Box sx={{ p: 0 }}>
-            <Tabs value={leftTabValue} onChange={(e, v) => setLeftTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <Tabs
+              value={leftTabValue}
+              onChange={(e, v) => setLeftTabValue(v)}
+              sx={{
+                borderBottom: 1,
+                borderColor: 'rgba(255,255,255,0.12)',
+                '& .MuiTab-root': { color: 'rgba(255,255,255,0.7)' },
+                '& .Mui-selected': { color: '#fff' },
+                '& .MuiTabs-indicator': { backgroundColor: '#5AC8FA' },
+              }}
+            >
               <Tab label="Description" />
               <Tab label="Solutions" />
               <Tab label="Submissions" />
             </Tabs>
-            
+
             <TabPanel value={leftTabValue} index={0}>
               {/* Description */}
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="body1" component="div" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: 1.7 }}>
+              <Box sx={{ mb: 3, color: '#ffffff' }}>
+                <Typography variant="body1" component="div" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: 1.7, color: '#ffffff' }}>
                   {problem.description}
                 </Typography>
               </Box>
-              
+
               {/* Examples */}
-              {problem.examples.map((example, idx) => (
-                <Paper key={idx} sx={{ p: 2, mb: 2, bgcolor: alpha(theme.palette.primary.main, 0.05), borderRadius: 2 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+              {(problem.examples || []).map((example, idx) => (
+                <Paper
+                  key={idx}
+                  sx={{
+                    p: 2,
+                    mb: 2,
+                    bgcolor: 'rgba(255,255,255,0.06)',
+                    borderRadius: 2,
+                    color: '#ffffff',
+                  }}
+                >
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: '#ffffff' }}>
                     Example {idx + 1}:
                   </Typography>
-                  <Box sx={{ fontFamily: '"Fira Code", monospace', fontSize: '0.875rem' }}>
-                    <Typography variant="body2" sx={{ mb: 0.5 }}><strong>Input:</strong> {example.input}</Typography>
-                    <Typography variant="body2" sx={{ mb: 0.5 }}><strong>Output:</strong> {example.output}</Typography>
+                  <Box sx={{ fontFamily: '"Fira Code", monospace', fontSize: '0.875rem', color: '#ffffff' }}>
+                    <Typography variant="body2" sx={{ mb: 0.5, color: '#ffffff' }}><strong>Input:</strong> {example.input}</Typography>
+                    <Typography variant="body2" sx={{ mb: 0.5, color: '#ffffff' }}><strong>Output:</strong> {example.output}</Typography>
                     {example.explanation && (
-                      <Typography variant="body2" color="text.secondary"><strong>Explanation:</strong> {example.explanation}</Typography>
+                      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.85)' }}><strong>Explanation:</strong> {example.explanation}</Typography>
                     )}
                   </Box>
                 </Paper>
               ))}
-              
+
               {/* Constraints */}
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+              <Box sx={{ mb: 3, color: '#ffffff' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: '#ffffff' }}>
                   Constraints:
                 </Typography>
-                <Typography variant="body2" component="div" sx={{ whiteSpace: 'pre-wrap', fontFamily: '"Fira Code", monospace', bgcolor: alpha(theme.palette.grey[500], 0.1), p: 1.5, borderRadius: 1 }}>
+                <Typography variant="body2" component="div" sx={{ whiteSpace: 'pre-wrap', fontFamily: '"Fira Code", monospace', bgcolor: 'rgba(255,255,255,0.08)', p: 1.5, borderRadius: 1, color: '#ffffff' }}>
                   {problem.constraints}
                 </Typography>
               </Box>
-              
+
               {/* Hints */}
-              {problem.hints.length > 0 && (
+              {(problem.hints || []).length > 0 && (
                 <Box sx={{ mb: 3 }}>
                   <Button
                     startIcon={<HintIcon />}
                     endIcon={showHints ? <CollapseIcon /> : <ExpandIcon />}
                     onClick={() => setShowHints(!showHints)}
-                    sx={{ textTransform: 'none', mb: 1 }}
+                    sx={{ textTransform: 'none', mb: 1, color: '#ffffff' }}
                   >
-                    Hints ({problem.hints.length})
+                    Hints ({(problem.hints || []).length})
                   </Button>
                   <Collapse in={showHints}>
                     <List dense>
-                      {problem.hints.map((hint, idx) => (
+                      {(problem.hints || []).map((hint, idx) => (
                         <ListItem key={idx}>
                           <ListItemIcon sx={{ minWidth: 32 }}>
-                            <HintIcon fontSize="small" color="warning" />
+                            <HintIcon fontSize="small" sx={{ color: '#FF9500' }} />
                           </ListItemIcon>
-                          <ListItemText primary={hint} />
+                          <ListItemText primary={hint} primaryTypographyProps={{ sx: { color: '#ffffff' } }} />
                         </ListItem>
                       ))}
                     </List>
                   </Collapse>
                 </Box>
               )}
-              
+
               {/* Tags & Companies */}
               <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: '#ffffff' }}>
                   Topics:
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                  {problem.categories.map((cat) => (
-                    <Chip key={cat.slug} label={cat.name} size="small" variant="outlined" />
+                  {(problem.categories || []).map((cat) => (
+                    <Chip key={cat.slug} label={cat.name} size="small" variant="outlined" sx={{ color: '#fff', borderColor: 'rgba(255,255,255,0.4)' }} />
                   ))}
                 </Box>
               </Box>
-              
-              {problem.companies.length > 0 && (
+
+              {(problem.companies || []).length > 0 && (
                 <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: '#ffffff' }}>
                     Companies:
                   </Typography>
                   <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                    {problem.companies.map((company) => (
-                      <Chip key={company} label={company} size="small" />
+                    {(problem.companies || []).map((company) => (
+                      <Chip key={company} label={company} size="small" sx={{ color: '#fff', borderColor: 'rgba(255,255,255,0.4)' }} />
                     ))}
                   </Box>
                 </Box>
               )}
-              
+
               {/* Stats */}
-              <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="caption" color="text.secondary">
-                  {problem.submission_count.toLocaleString()} submissions
+              <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid', borderColor: 'rgba(255,255,255,0.12)' }}>
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                  {(problem.submission_count || 0).toLocaleString()} submissions
                 </Typography>
               </Box>
             </TabPanel>
-            
+
             <TabPanel value={leftTabValue} index={1}>
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography color="text.secondary" gutterBottom>
-                  Solutions will be shown here after you solve the problem.
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Or you can view community solutions after 10 attempts.
-                </Typography>
-              </Box>
+              {loadingSolutions ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress sx={{ color: '#fff' }} />
+                </Box>
+              ) : solutions.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.8)' }} gutterBottom>
+                    No solutions available yet.
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                    Be the first to share your solution!
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ p: 2 }}>
+                  {solutions.map((solution) => (
+                    <Paper
+                      key={solution.id}
+                      sx={{
+                        p: 2,
+                        mb: 2,
+                        border: solution.is_official ? '2px solid' : '1px solid',
+                        borderColor: solution.is_official ? '#5AC8FA' : 'rgba(255,255,255,0.2)',
+                        bgcolor: 'rgba(255,255,255,0.06)',
+                        color: '#ffffff',
+                      }}
+                    >
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                        <Box>
+                          <Typography variant="h6" sx={{ fontWeight: 700, color: '#ffffff' }}>
+                            {solution.title}
+                            {solution.is_official && (
+                              <Chip
+                                label="Official"
+                                size="small"
+                                sx={{ ml: 1, bgcolor: '#5AC8FA', color: '#1e1e1e' }}
+                              />
+                            )}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                            by {solution.author_name || 'Unknown'}
+                            {solution.language && ` • ${solution.language}`}
+                            {' • '}
+                            {new Date(solution.created_at).toLocaleDateString()}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <LikeIcon fontSize="small" color="action" />
+                            <Typography variant="caption">{solution.upvotes || 0}</Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <DislikeIcon fontSize="small" color="action" />
+                            <Typography variant="caption">{solution.downvotes || 0}</Typography>
+                          </Box>
+                        </Box>
+                      </Box>
+                      <Divider sx={{ my: 1 }} />
+                      <Box
+                        sx={{
+                          '& pre': {
+                            bgcolor: alpha(theme.palette.primary.main, 0.05),
+                            p: 1,
+                            borderRadius: 1,
+                            overflow: 'auto',
+                            fontFamily: 'monospace',
+                            fontSize: '0.875rem',
+                          },
+                          '& code': {
+                            fontFamily: 'monospace',
+                            fontSize: '0.875rem',
+                          },
+                        }}
+                      >
+                        <Typography
+                          variant="body2"
+                          component="div"
+                          sx={{ color: '#ffffff' }}
+                          dangerouslySetInnerHTML={{
+                            __html: solution.content.replace(/\n/g, '<br />').replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code style="color:#fff">$2</code></pre>'),
+                          }}
+                        />
+                      </Box>
+                    </Paper>
+                  ))}
+                </Box>
+              )}
             </TabPanel>
-            
+
             <TabPanel value={leftTabValue} index={2}>
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography color="text.secondary">
-                  Your submissions history will appear here.
-                </Typography>
-              </Box>
+              {loadingSubmissions ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress sx={{ color: '#fff' }} />
+                </Box>
+              ) : submissions.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                    No submissions yet. Submit your solution to see it here.
+                  </Typography>
+                </Box>
+              ) : (
+                <List>
+                  {submissions.map((submission) => (
+                    <ListItem
+                      key={submission.id}
+                      sx={{
+                        border: '1px solid',
+                        borderColor: 'rgba(255,255,255,0.2)',
+                        borderRadius: 2,
+                        mb: 1,
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        bgcolor: 'rgba(255,255,255,0.06)',
+                        color: '#ffffff',
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                          <Chip
+                            label={submission.language}
+                            size="small"
+                            variant="outlined"
+                          />
+                          <Chip
+                            label={submission.status}
+                            size="small"
+                            color={
+                              submission.status === 'accepted' ? 'success' :
+                                submission.status === 'wrong_answer' ? 'error' :
+                                  submission.status === 'runtime_error' ? 'warning' :
+                                    'default'
+                            }
+                          />
+                          {submission.runtime_ms && (
+                            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                              {submission.runtime_ms}ms
+                            </Typography>
+                          )}
+                          {submission.memory_kb && (
+                            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                              {submission.memory_kb}KB
+                            </Typography>
+                          )}
+                        </Box>
+                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                          {new Date(submission.submitted_at).toLocaleString()}
+                        </Typography>
+                      </Box>
+                      {submission.test_cases_total > 0 && (
+                        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                          Test Cases: {submission.test_cases_passed}/{submission.test_cases_total} passed
+                        </Typography>
+                      )}
+                      {submission.error_message && (
+                        <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(255,59,48,0.2)', borderRadius: 1, width: '100%' }}>
+                          <Typography variant="caption" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', color: '#f87171' }}>
+                            {submission.error_message}
+                          </Typography>
+                        </Box>
+                      )}
+                    </ListItem>
+                  ))}
+                </List>
+              )}
             </TabPanel>
           </Box>
         </Grid>
-        
+
         {/* Right Panel - Code Editor */}
         <Grid item xs={12} md={7} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <VerTechieIDE
             problemId={problem.id}
             problemTitle={problem.title}
-            initialLanguage="python"
-            starterCode={problem.starter_code}
+            initialLanguage={problem.supported_languages?.[0] || 'python'}
+            starterCode={
+              problem.starter_code && Object.keys(problem.starter_code).length > 0
+                ? problem.starter_code
+                : DEFAULT_STARTER_CODE[problem.slug] || problem.starter_code
+            }
             testCases={ideTestCases}
             onRun={handleRun}
             onSubmit={handleSubmit}
@@ -587,7 +991,7 @@ public:
           />
         </Grid>
       </Grid>
-      
+
       {/* Snackbar */}
       <Snackbar
         open={snackbar.open}

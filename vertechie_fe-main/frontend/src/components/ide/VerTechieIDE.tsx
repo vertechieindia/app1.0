@@ -117,6 +117,8 @@ export interface ExecutionResult {
   status: 'success' | 'error' | 'timeout' | 'running' | 'pending';
   output: string;
   error?: string;
+  /** Human-readable status (e.g. "Wrong Answer", "Runtime Error") */
+  statusLabel?: string;
   executionTime?: number;
   memoryUsage?: number;
   testResults?: {
@@ -138,25 +140,25 @@ export interface IDEProps {
   initialLanguage?: string;
   initialCode?: string;
   initialTheme?: 'vs-dark' | 'light' | 'hc-black';
-  
+
   // Problem context (for coding problems)
   problemId?: string;
   problemTitle?: string;
   starterCode?: Record<string, string>;
   testCases?: TestCase[];
-  
+
   // Callbacks
   onRun?: (code: string, language: string, input: string) => Promise<ExecutionResult>;
   onSubmit?: (code: string, language: string) => Promise<ExecutionResult>;
   onSave?: (code: string, language: string) => void;
   onChange?: (code: string, language: string) => void;
-  
+
   // Feature flags
   showSubmitButton?: boolean;
   showTestCases?: boolean;
   showFileExplorer?: boolean;
   readOnly?: boolean;
-  
+
   // Layout
   height?: string | number;
   minHeight?: string | number;
@@ -346,6 +348,7 @@ interface TerminalProps {
   output: string;
   error?: string;
   status: ExecutionResult['status'];
+  statusLabel?: string;
   executionTime?: number;
   memoryUsage?: number;
   onClear: () => void;
@@ -355,19 +358,20 @@ const Terminal: React.FC<TerminalProps> = ({
   output,
   error,
   status,
+  statusLabel,
   executionTime,
   memoryUsage,
   onClear,
 }) => {
   const theme = useTheme();
   const terminalRef = useRef<HTMLDivElement>(null);
-  
+
   useEffect(() => {
     if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
   }, [output, error]);
-  
+
   const getStatusColor = () => {
     switch (status) {
       case 'success': return '#10b981';
@@ -377,7 +381,7 @@ const Terminal: React.FC<TerminalProps> = ({
       default: return '#6b7280';
     }
   };
-  
+
   return (
     <Box
       sx={{
@@ -405,11 +409,11 @@ const Terminal: React.FC<TerminalProps> = ({
         <Typography variant="caption" sx={{ color: '#ccc', fontWeight: 500 }}>
           Output
         </Typography>
-        
+
         {status !== 'pending' && (
           <Chip
             size="small"
-            label={status.toUpperCase()}
+            label={statusLabel || status.toUpperCase()}
             sx={{
               height: 18,
               fontSize: '0.65rem',
@@ -419,7 +423,7 @@ const Terminal: React.FC<TerminalProps> = ({
             }}
           />
         )}
-        
+
         {executionTime !== undefined && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
             <TimerIcon sx={{ fontSize: 14, color: '#888' }} />
@@ -428,7 +432,7 @@ const Terminal: React.FC<TerminalProps> = ({
             </Typography>
           </Box>
         )}
-        
+
         {memoryUsage !== undefined && memoryUsage > 0 && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <MemoryIcon sx={{ fontSize: 14, color: '#888' }} />
@@ -437,16 +441,16 @@ const Terminal: React.FC<TerminalProps> = ({
             </Typography>
           </Box>
         )}
-        
+
         <Box sx={{ flexGrow: 1 }} />
-        
+
         <Tooltip title="Clear">
           <IconButton size="small" onClick={onClear} sx={{ color: '#888' }}>
             <ClearIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Tooltip>
       </Box>
-      
+
       {/* Terminal Content */}
       <Box
         ref={terminalRef}
@@ -467,19 +471,19 @@ const Terminal: React.FC<TerminalProps> = ({
             <span>Running...</span>
           </Box>
         )}
-        
+
         {output && (
           <Box sx={{ color: '#d4d4d4' }}>
             {output}
           </Box>
         )}
-        
+
         {error && (
           <Box sx={{ color: '#f87171', mt: output ? 1 : 0 }}>
             {error}
           </Box>
         )}
-        
+
         {status === 'pending' && !output && !error && (
           <Box sx={{ color: '#6b7280', fontStyle: 'italic' }}>
             Run your code to see output here...
@@ -501,6 +505,7 @@ interface TestCasesPanelProps {
   onAddTestCase: () => void;
   onSelectTestCase: (testCase: TestCase) => void;
   selectedTestCaseId?: string;
+  isDarkTheme?: boolean;
 }
 
 const TestCasesPanel: React.FC<TestCasesPanelProps> = ({
@@ -510,12 +515,13 @@ const TestCasesPanel: React.FC<TestCasesPanelProps> = ({
   onAddTestCase,
   onSelectTestCase,
   selectedTestCaseId,
+  isDarkTheme = false,
 }) => {
   const theme = useTheme();
-  
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Test Cases Tabs */}
+      {/* Test Cases Tabs - white text in dark theme */}
       {testCases.length > 0 && (
         <Box sx={{ display: 'flex', gap: 0.5, p: 1, flexWrap: 'wrap' }}>
           {testCases.map((tc, index) => (
@@ -526,26 +532,35 @@ const TestCasesPanel: React.FC<TestCasesPanelProps> = ({
               onClick={() => onSelectTestCase(tc)}
               sx={{
                 cursor: 'pointer',
-                bgcolor: selectedTestCaseId === tc.id ? 'primary.main' : 'action.hover',
-                color: selectedTestCaseId === tc.id ? 'white' : 'text.primary',
+                bgcolor: selectedTestCaseId === tc.id
+                  ? (isDarkTheme ? 'rgba(255,255,255,0.2)' : 'primary.main')
+                  : (isDarkTheme ? 'rgba(255,255,255,0.08)' : 'action.hover'),
+                color: isDarkTheme ? '#ffffff' : (selectedTestCaseId === tc.id ? 'white' : 'text.primary'),
+                borderColor: isDarkTheme && selectedTestCaseId === tc.id ? 'rgba(255,255,255,0.4)' : undefined,
                 '&:hover': {
-                  bgcolor: selectedTestCaseId === tc.id ? 'primary.dark' : 'action.selected',
+                  bgcolor: selectedTestCaseId === tc.id
+                    ? (isDarkTheme ? 'rgba(255,255,255,0.25)' : 'primary.dark')
+                    : (isDarkTheme ? 'rgba(255,255,255,0.12)' : 'action.selected'),
                 },
               }}
             />
           ))}
           <Chip
-            icon={<AddIcon sx={{ fontSize: 16 }} />}
+            icon={<AddIcon sx={{ fontSize: 16, color: isDarkTheme ? '#ffffff' : undefined }} />}
             label="Custom"
             size="small"
             onClick={onAddTestCase}
             variant="outlined"
-            sx={{ cursor: 'pointer' }}
+            sx={{
+              cursor: 'pointer',
+              color: isDarkTheme ? '#ffffff' : undefined,
+              borderColor: isDarkTheme ? 'rgba(255,255,255,0.4)' : undefined,
+            }}
           />
         </Box>
       )}
-      
-      {/* Input Area */}
+
+      {/* Input Area - white text/placeholder in dark theme */}
       <Box sx={{ flexGrow: 1, p: 1 }}>
         <TextField
           multiline
@@ -560,10 +575,17 @@ const TestCasesPanel: React.FC<TestCasesPanelProps> = ({
               alignItems: 'flex-start',
               fontFamily: '"Fira Code", monospace',
               fontSize: '13px',
+              color: isDarkTheme ? '#ffffff' : undefined,
+              '& fieldset': { borderColor: isDarkTheme ? 'rgba(255,255,255,0.23)' : undefined },
+              '&:hover fieldset': { borderColor: isDarkTheme ? 'rgba(255,255,255,0.4)' : undefined },
             },
             '& .MuiInputBase-input': {
               height: '100% !important',
               overflow: 'auto !important',
+              color: isDarkTheme ? '#ffffff' : undefined,
+              ...(isDarkTheme && {
+                '&::placeholder': { color: 'rgba(255,255,255,0.5)', opacity: 1 },
+              }),
             },
           }}
         />
@@ -598,7 +620,7 @@ const VerTechieIDE: React.FC<IDEProps> = ({
   const theme = useTheme();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
-  
+
   // State
   const [language, setLanguage] = useState(initialLanguage);
   const [code, setCode] = useState('');
@@ -606,28 +628,28 @@ const VerTechieIDE: React.FC<IDEProps> = ({
   const [fontSize, setFontSize] = useState(14);
   const [minimap, setMinimap] = useState(true);
   const [wordWrap, setWordWrap] = useState(false);
-  
+
   const [input, setInput] = useState('');
   const [selectedTestCaseId, setSelectedTestCaseId] = useState<string | undefined>();
-  
+
   const [executionResult, setExecutionResult] = useState<ExecutionResult>({
     status: 'pending',
     output: '',
   });
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+
   const [bottomTab, setBottomTab] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
-  
+
   // Get current language config
   const currentLanguage = useMemo(
     () => LANGUAGES.find(l => l.id === language) || LANGUAGES[0],
     [language]
   );
-  
+
   // Initialize code
   useEffect(() => {
     if (initialCode) {
@@ -638,11 +660,11 @@ const VerTechieIDE: React.FC<IDEProps> = ({
       setCode(currentLanguage.defaultCode);
     }
   }, []);
-  
+
   // Handle language change
   const handleLanguageChange = useCallback((newLanguage: string) => {
     setLanguage(newLanguage);
-    
+
     // Update code to new language's starter code
     if (starterCode && starterCode[newLanguage]) {
       setCode(starterCode[newLanguage]);
@@ -653,50 +675,50 @@ const VerTechieIDE: React.FC<IDEProps> = ({
       }
     }
   }, [starterCode]);
-  
+
   // Handle editor mount
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
-    
+
     // Add keyboard shortcuts
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
       handleRun();
     });
-    
+
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
       handleSubmit();
     });
-    
+
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       handleSave();
     });
   };
-  
+
   // Handle code change
   const handleCodeChange = useCallback((value: string | undefined) => {
     const newCode = value || '';
     setCode(newCode);
     onChange?.(newCode, language);
   }, [language, onChange]);
-  
+
   // Run code
   const handleRun = useCallback(async () => {
     if (isRunning) return;
-    
+
     setIsRunning(true);
     setExecutionResult({ status: 'running', output: '' });
     setBottomTab(1); // Switch to output tab
-    
+
     try {
       let result: ExecutionResult;
-      
+
       if (onRun) {
         result = await onRun(code, language, input);
       } else {
         result = await codeExecutionService.execute(code, language, input);
       }
-      
+
       setExecutionResult(result);
     } catch (error: any) {
       setExecutionResult({
@@ -708,19 +730,19 @@ const VerTechieIDE: React.FC<IDEProps> = ({
       setIsRunning(false);
     }
   }, [code, language, input, isRunning, onRun]);
-  
+
   // Submit code
   const handleSubmit = useCallback(async () => {
     if (isSubmitting || !onSubmit) return;
-    
+
     setIsSubmitting(true);
     setExecutionResult({ status: 'running', output: '' });
     setBottomTab(1);
-    
+
     try {
       const result = await onSubmit(code, language);
       setExecutionResult(result);
-      
+
       if (result.status === 'success') {
         setSnackbar({ open: true, message: '🎉 All tests passed!', severity: 'success' });
       } else {
@@ -736,13 +758,13 @@ const VerTechieIDE: React.FC<IDEProps> = ({
       setIsSubmitting(false);
     }
   }, [code, language, isSubmitting, onSubmit]);
-  
+
   // Save code
   const handleSave = useCallback(() => {
     onSave?.(code, language);
     setSnackbar({ open: true, message: 'Code saved!', severity: 'success' });
   }, [code, language, onSave]);
-  
+
   // Reset code
   const handleReset = useCallback(() => {
     if (starterCode && starterCode[language]) {
@@ -751,31 +773,32 @@ const VerTechieIDE: React.FC<IDEProps> = ({
       setCode(currentLanguage.defaultCode);
     }
   }, [language, starterCode, currentLanguage]);
-  
+
   // Copy code
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(code);
     setSnackbar({ open: true, message: 'Code copied!', severity: 'success' });
   }, [code]);
-  
+
   // Format code
   const handleFormat = useCallback(() => {
     editorRef.current?.getAction('editor.action.formatDocument')?.run();
   }, []);
-  
+
   // Clear output
   const handleClearOutput = useCallback(() => {
     setExecutionResult({ status: 'pending', output: '' });
   }, []);
-  
+
   // Select test case
   const handleSelectTestCase = useCallback((testCase: TestCase) => {
     setSelectedTestCaseId(testCase.id);
     setInput(testCase.input);
   }, []);
-  
+
   return (
     <Box
+      data-allow-paste="true"
       sx={{
         height: isFullscreen ? '100vh' : height,
         minHeight,
@@ -807,15 +830,29 @@ const VerTechieIDE: React.FC<IDEProps> = ({
           borderColor: editorTheme === 'light' ? '#e0e0e0' : '#404040',
         }}
       >
-        {/* Language Selector */}
+        {/* Language Selector - white text in dark theme */}
         <FormControl size="small" sx={{ minWidth: 130 }}>
           <Select
             value={language}
             onChange={(e) => handleLanguageChange(e.target.value)}
+            MenuProps={
+              editorTheme === 'vs-dark'
+                ? {
+                    PaperProps: {
+                      sx: {
+                        bgcolor: '#2d2d2d',
+                        '& .MuiMenuItem-root': { color: '#ffffff' },
+                      },
+                    },
+                  }
+                : {}
+            }
             sx={{
               fontSize: '0.875rem',
               bgcolor: editorTheme === 'light' ? '#fff' : '#3d3d3d',
+              color: editorTheme === 'vs-dark' ? '#ffffff' : undefined,
               '& .MuiSelect-select': { py: 0.75 },
+              '& .MuiSvgIcon-root': { color: editorTheme === 'vs-dark' ? '#ffffff' : undefined },
             }}
           >
             {LANGUAGES.map((lang) => (
@@ -825,30 +862,30 @@ const VerTechieIDE: React.FC<IDEProps> = ({
             ))}
           </Select>
         </FormControl>
-        
+
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-        
+
         {/* Action Buttons */}
         <Tooltip title="Copy (Ctrl+C)">
           <IconButton size="small" onClick={handleCopy}>
             <CopyIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
-        
+
         <Tooltip title="Reset Code">
           <IconButton size="small" onClick={handleReset}>
             <ResetIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
-        
+
         <Tooltip title="Format Code">
           <IconButton size="small" onClick={handleFormat}>
             <FormatIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
-        
+
         <Box sx={{ flexGrow: 1 }} />
-        
+
         {/* Theme Toggle */}
         <Tooltip title={`Theme: ${THEMES.find(t => t.id === editorTheme)?.name}`}>
           <IconButton
@@ -858,20 +895,20 @@ const VerTechieIDE: React.FC<IDEProps> = ({
             {editorTheme === 'light' ? <DarkModeIcon sx={{ fontSize: 18 }} /> : <LightModeIcon sx={{ fontSize: 18 }} />}
           </IconButton>
         </Tooltip>
-        
+
         <Tooltip title="Settings">
           <IconButton size="small" onClick={() => setSettingsOpen(true)}>
             <SettingsIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
-        
+
         <Tooltip title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
           <IconButton size="small" onClick={() => setIsFullscreen(!isFullscreen)}>
             {isFullscreen ? <ExitFullscreenIcon sx={{ fontSize: 18 }} /> : <FullscreenIcon sx={{ fontSize: 18 }} />}
           </IconButton>
         </Tooltip>
       </Box>
-      
+
       {/* Editor Area */}
       <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {/* Code Editor */}
@@ -914,7 +951,7 @@ const VerTechieIDE: React.FC<IDEProps> = ({
             }
           />
         </Box>
-        
+
         {/* Bottom Panel */}
         <Box
           sx={{
@@ -931,30 +968,39 @@ const VerTechieIDE: React.FC<IDEProps> = ({
             sx={{
               minHeight: 36,
               bgcolor: editorTheme === 'light' ? '#f5f5f5' : '#2d2d2d',
-              '& .MuiTab-root': { minHeight: 36, py: 0.5, fontSize: '0.8rem' },
+              '& .MuiTab-root': {
+                minHeight: 36,
+                py: 0.5,
+                fontSize: '0.8rem',
+                color: editorTheme === 'vs-dark' ? 'rgba(255,255,255,0.7)' : undefined,
+              },
+              '& .Mui-selected': { color: editorTheme === 'vs-dark' ? '#ffffff' : undefined },
+              '& .MuiTabs-indicator': { backgroundColor: editorTheme === 'vs-dark' ? '#ffffff' : undefined },
             }}
           >
             <Tab icon={<CodeIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="Input" />
             <Tab icon={<TerminalIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="Output" />
           </Tabs>
-          
+
           <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
             {bottomTab === 0 && (
               <TestCasesPanel
                 testCases={testCases}
                 currentInput={input}
                 onInputChange={setInput}
-                onAddTestCase={() => {}}
+                onAddTestCase={() => { }}
                 onSelectTestCase={handleSelectTestCase}
                 selectedTestCaseId={selectedTestCaseId}
+                isDarkTheme={editorTheme === 'vs-dark'}
               />
             )}
-            
+
             {bottomTab === 1 && (
               <Terminal
                 output={executionResult.output}
                 error={executionResult.error}
                 status={executionResult.status}
+                statusLabel={(executionResult as { statusLabel?: string }).statusLabel}
                 executionTime={executionResult.executionTime}
                 memoryUsage={executionResult.memoryUsage}
                 onClear={handleClearOutput}
@@ -963,7 +1009,7 @@ const VerTechieIDE: React.FC<IDEProps> = ({
           </Box>
         </Box>
       </Box>
-      
+
       {/* Action Bar */}
       <Box
         sx={{
@@ -978,7 +1024,7 @@ const VerTechieIDE: React.FC<IDEProps> = ({
         }}
       >
         <Box sx={{ flexGrow: 1 }} />
-        
+
         <Button
           variant="outlined"
           startIcon={isRunning ? <CircularProgress size={16} /> : <RunIcon />}
@@ -988,7 +1034,7 @@ const VerTechieIDE: React.FC<IDEProps> = ({
         >
           Run
         </Button>
-        
+
         {showSubmitButton && onSubmit && (
           <Button
             variant="contained"
@@ -1006,7 +1052,7 @@ const VerTechieIDE: React.FC<IDEProps> = ({
           </Button>
         )}
       </Box>
-      
+
       {/* Settings Dialog */}
       <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Editor Settings</DialogTitle>
@@ -1022,19 +1068,19 @@ const VerTechieIDE: React.FC<IDEProps> = ({
               marks
               sx={{ mb: 3 }}
             />
-            
+
             <FormControlLabel
               control={<Switch checked={minimap} onChange={(e) => setMinimap(e.target.checked)} />}
               label="Show Minimap"
               sx={{ display: 'block', mb: 2 }}
             />
-            
+
             <FormControlLabel
               control={<Switch checked={wordWrap} onChange={(e) => setWordWrap(e.target.checked)} />}
               label="Word Wrap"
               sx={{ display: 'block', mb: 2 }}
             />
-            
+
             <Typography gutterBottom sx={{ mt: 2 }}>Theme</Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               {THEMES.map((t) => (
@@ -1055,7 +1101,7 @@ const VerTechieIDE: React.FC<IDEProps> = ({
           <Button onClick={() => setSettingsOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
-      
+
       {/* Snackbar */}
       <Snackbar
         open={snackbar.open}

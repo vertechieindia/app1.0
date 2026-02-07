@@ -23,7 +23,7 @@ from app.core.security import get_current_user, get_current_admin_user
 from pydantic import BaseModel
 from datetime import datetime
 
-router = APIRouter(prefix="/ide", tags=["IDE"])
+router = APIRouter(tags=["IDE"])
 
 
 # ============= Pydantic Schemas =============

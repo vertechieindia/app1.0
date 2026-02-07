@@ -105,9 +105,10 @@ import {
   HorizontalRule as DividerIcon,
 } from '@mui/icons-material';
 
-// API Base
-// Use standalone Learn Admin server on port 8001
-const API_BASE = 'http://localhost:8001/api/v1/admin/learn';
+import { getApiUrl } from '../../config/api';
+
+// API Base - same backend as rest of app
+const API_BASE = getApiUrl('/admin/learn');
 
 // Types
 interface Category {

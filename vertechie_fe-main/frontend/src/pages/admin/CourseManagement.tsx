@@ -65,6 +65,7 @@ import {
   Unpublished as UnpublishedIcon,
 } from '@mui/icons-material';
 import { useApi, useMutation } from '../../hooks/useApi';
+import { getApiUrl } from '../../config/api';
 
 // Types
 interface Course {
@@ -114,8 +115,8 @@ interface CourseDetails extends Course {
   tags?: string[];
 }
 
-// API calls
-const API_BASE = '/api/v1/courses';
+// API base - backend learn admin uses /admin/learn (tutorials = courses, sections = modules)
+const API_BASE = getApiUrl('/admin/learn');
 
 const CourseManagement: React.FC = () => {
   // State
@@ -168,20 +169,31 @@ const CourseManagement: React.FC = () => {
   
   // View mode
   const [viewMode, setViewMode] = useState<'list' | 'edit'>('list');
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
 
   // Fetch courses
   const fetchCourses = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE}/admin/courses`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      const response = await fetch(`${API_BASE}/tutorials`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (response.ok) {
         const data = await response.json();
-        setCourses(data);
+        setCourses((Array.isArray(data) ? data : []).map((t: any) => ({
+          id: t.id,
+          title: t.title,
+          slug: t.slug,
+          description: t.short_description || t.description || '',
+          difficulty: t.difficulty || 'beginner',
+          is_published: t.status === 'published',
+          is_featured: !!t.is_featured,
+          is_free: !!t.is_free,
+          total_lessons: t.total_lessons ?? 0,
+          enrollment_count: t.enrollment_count ?? 0,
+          created_at: t.created_at,
+        })));
       } else {
         setError('Failed to fetch courses');
       }
@@ -196,15 +208,16 @@ const CourseManagement: React.FC = () => {
   const fetchCourseDetails = async (courseId: string) => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE}/admin/courses/${courseId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      const response = await fetch(`${API_BASE}/tutorials/${courseId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (response.ok) {
         const data = await response.json();
-        setSelectedCourse(data);
+        setSelectedCourse({
+          ...data,
+          modules: (data.sections || []).map((s: any) => ({ ...s, lessons: s.lessons || [] })),
+        });
         setViewMode('edit');
       } else {
         setError('Failed to fetch course details');
@@ -216,13 +229,25 @@ const CourseManagement: React.FC = () => {
     }
   };
 
+  const fetchCategories = async () => {
+    try {
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/categories`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(Array.isArray(data) ? data : []);
+      }
+    } catch { /* ignore */ }
+  };
+
   useEffect(() => {
     fetchCourses();
+    fetchCategories();
   }, []);
 
   // API helper
   const apiCall = async (url: string, method: string, body?: object) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('authToken') || localStorage.getItem('token');
     const response = await fetch(url, {
       method,
       headers: {
@@ -242,10 +267,21 @@ const CourseManagement: React.FC = () => {
 
   // Course CRUD
   const handleCreateCourse = async () => {
+    const categoryId = categories[0]?.id;
+    if (!categoryId) {
+      setError('No category found. Create a category in Learn Admin first.');
+      return;
+    }
     try {
-      const result = await apiCall(`${API_BASE}/admin/courses`, 'POST', {
-        ...courseForm,
-        tags: courseForm.tags.split(',').map(t => t.trim()).filter(Boolean),
+      const result = await apiCall(`${API_BASE}/tutorials`, 'POST', {
+        title: courseForm.title,
+        description: courseForm.description,
+        short_description: courseForm.short_description,
+        difficulty: courseForm.difficulty,
+        is_free: courseForm.is_free,
+        estimated_hours: courseForm.estimated_hours || 0,
+        category_id: categoryId,
+        tags: courseForm.tags.split(',').map((t: string) => t.trim()).filter(Boolean),
       });
       setSuccess('Course created successfully!');
       setCourseDialog(false);
@@ -270,7 +306,7 @@ const CourseManagement: React.FC = () => {
   const handleUpdateCourse = async () => {
     if (!selectedCourse) return;
     try {
-      await apiCall(`${API_BASE}/admin/courses/${selectedCourse.id}`, 'PUT', courseForm);
+      await apiCall(`${API_BASE}/tutorials/${selectedCourse.id}`, 'PUT', courseForm);
       setSuccess('Course updated successfully!');
       fetchCourseDetails(selectedCourse.id);
     } catch (err: any) {
@@ -280,7 +316,7 @@ const CourseManagement: React.FC = () => {
 
   const handleDeleteCourse = async (courseId: string) => {
     try {
-      await apiCall(`${API_BASE}/admin/courses/${courseId}`, 'DELETE');
+      await apiCall(`${API_BASE}/tutorials/${courseId}`, 'DELETE');
       setSuccess('Course deleted successfully!');
       setDeleteDialog(null);
       setViewMode('list');
@@ -293,7 +329,7 @@ const CourseManagement: React.FC = () => {
 
   const handlePublishCourse = async (courseId: string, publish: boolean) => {
     try {
-      await apiCall(`${API_BASE}/admin/courses/${courseId}`, 'PUT', {
+      await apiCall(`${API_BASE}/tutorials/${courseId}`, 'PUT', {
         is_published: publish,
       });
       setSuccess(publish ? 'Course published!' : 'Course unpublished');
@@ -310,7 +346,7 @@ const CourseManagement: React.FC = () => {
   const handleCreateModule = async () => {
     if (!selectedCourse) return;
     try {
-      await apiCall(`${API_BASE}/admin/courses/${selectedCourse.id}/modules`, 'POST', moduleForm);
+      await apiCall(`${API_BASE}/tutorials/${selectedCourse.id}/sections`, 'POST', moduleForm);
       setSuccess('Module created successfully!');
       setModuleDialog(false);
       setModuleForm({ title: '', description: '', order: 0, is_free_preview: false });
@@ -323,7 +359,7 @@ const CourseManagement: React.FC = () => {
   const handleUpdateModule = async () => {
     if (!selectedModule) return;
     try {
-      await apiCall(`${API_BASE}/admin/modules/${selectedModule.id}`, 'PUT', moduleForm);
+      await apiCall(`${API_BASE}/sections/${selectedModule.id}`, 'PUT', moduleForm);
       setSuccess('Module updated successfully!');
       setModuleDialog(false);
       if (selectedCourse) {
@@ -336,7 +372,7 @@ const CourseManagement: React.FC = () => {
 
   const handleDeleteModule = async (moduleId: string) => {
     try {
-      await apiCall(`${API_BASE}/admin/modules/${moduleId}`, 'DELETE');
+      await apiCall(`${API_BASE}/sections/${moduleId}`, 'DELETE');
       setSuccess('Module deleted successfully!');
       setDeleteDialog(null);
       if (selectedCourse) {
@@ -351,7 +387,7 @@ const CourseManagement: React.FC = () => {
   const handleCreateLesson = async () => {
     if (!selectedModule) return;
     try {
-      await apiCall(`${API_BASE}/admin/modules/${selectedModule.id}/lessons`, 'POST', lessonForm);
+      await apiCall(`${API_BASE}/sections/${selectedModule.id}/lessons`, 'POST', lessonForm);
       setSuccess('Lesson created successfully!');
       setLessonDialog(false);
       setLessonForm({
@@ -376,7 +412,7 @@ const CourseManagement: React.FC = () => {
   const handleUpdateLesson = async () => {
     if (!selectedLesson) return;
     try {
-      await apiCall(`${API_BASE}/admin/lessons/${selectedLesson.id}`, 'PUT', lessonForm);
+      await apiCall(`${API_BASE}/lessons/${selectedLesson.id}`, 'PUT', lessonForm);
       setSuccess('Lesson updated successfully!');
       setLessonDialog(false);
       if (selectedCourse) {
@@ -389,7 +425,7 @@ const CourseManagement: React.FC = () => {
 
   const handleDeleteLesson = async (lessonId: string) => {
     try {
-      await apiCall(`${API_BASE}/admin/lessons/${lessonId}`, 'DELETE');
+      await apiCall(`${API_BASE}/lessons/${lessonId}`, 'DELETE');
       setSuccess('Lesson deleted successfully!');
       setDeleteDialog(null);
       if (selectedCourse) {

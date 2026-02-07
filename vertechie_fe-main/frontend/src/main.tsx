@@ -86,8 +86,13 @@ const showPasteBlockedNotification = () => {
   }, 3000);
 };
 
-// Prevent paste on all input elements
+// Allow paste in IDE and code editors (data-allow-paste)
+const isPasteAllowed = (el: HTMLElement | null): boolean =>
+  Boolean(el?.closest?.('[data-allow-paste="true"]'));
+
+// Prevent paste on all input elements (except IDE/code editors)
 document.addEventListener('paste', (e: ClipboardEvent) => {
+  if (isPasteAllowed(e.target as HTMLElement)) return;
   const target = e.target as HTMLElement;
   const tagName = target.tagName.toLowerCase();
   
@@ -106,8 +111,9 @@ document.addEventListener('paste', (e: ClipboardEvent) => {
   }
 }, true);
 
-// Prevent drop (drag and drop text)
+// Prevent drop (drag and drop text), except in IDE/code editors
 document.addEventListener('drop', (e: DragEvent) => {
+  if (isPasteAllowed(e.target as HTMLElement)) return;
   const target = e.target as HTMLElement;
   const tagName = target.tagName.toLowerCase();
   
@@ -124,8 +130,9 @@ document.addEventListener('drop', (e: DragEvent) => {
   }
 }, true);
 
-// Prevent dragover to allow drop prevention
+// Prevent dragover to allow drop prevention, except in IDE/code editors
 document.addEventListener('dragover', (e: DragEvent) => {
+  if (isPasteAllowed(e.target as HTMLElement)) return;
   const target = e.target as HTMLElement;
   const tagName = target.tagName.toLowerCase();
   
@@ -138,8 +145,9 @@ document.addEventListener('dragover', (e: DragEvent) => {
   }
 }, true);
 
-// Block keyboard shortcuts for paste (Ctrl+V, Cmd+V, Ctrl+Shift+V, Cmd+Shift+V)
+// Block keyboard shortcuts for paste (Ctrl+V, Cmd+V), except in IDE/code editors
 document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (isPasteAllowed(e.target as HTMLElement)) return;
   const target = e.target as HTMLElement;
   const tagName = target.tagName.toLowerCase();
   
@@ -169,8 +177,9 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
   }
 }, true);
 
-// Disable context menu paste option by blocking right-click on input fields
+// Disable context menu on input fields (except IDE/code editors - allow right-click for paste etc.)
 document.addEventListener('contextmenu', (e: MouseEvent) => {
+  if (isPasteAllowed(e.target as HTMLElement)) return;
   const target = e.target as HTMLElement;
   const tagName = target.tagName.toLowerCase();
   
