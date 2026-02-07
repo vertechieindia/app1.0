@@ -3,8 +3,10 @@
  * Provides consistent header, navigation, and stats for school pages
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { api } from '../../../services/apiClient';
+import { API_ENDPOINTS } from '../../../config/api';
 import {
   Box,
   Container,
@@ -109,6 +111,7 @@ const StatCard = styled(Card)(() => ({
 const ProfileCard = styled(Paper)(() => ({
   padding: 24,
   borderRadius: 16,
+  // Background will be overridden with current banner via sx
   background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
   color: 'white',
   marginBottom: 24,
@@ -123,6 +126,7 @@ const SMSLayout: React.FC<SMSLayoutProps> = ({ children }) => {
   const location = useLocation();
   
   // Edit dialog state
+  const [schoolId, setSchoolId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editTab, setEditTab] = useState(0);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
@@ -139,26 +143,77 @@ const SMSLayout: React.FC<SMSLayoutProps> = ({ children }) => {
   const [customBanner, setCustomBanner] = useState<string | null>(null);
   const [useCustomBanner, setUseCustomBanner] = useState(false);
 
-  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Fetch school details from API (so entered school name displays)
+  useEffect(() => {
+    const fetchSchool = async () => {
+      try {
+        const data = await api.get<any>(API_ENDPOINTS.SMS.MY_SCHOOL);
+        if (data?.id) {
+          setSchoolId(data.id);
+          setSchoolInfo((prev) => ({
+            ...prev,
+            name: data.name || prev.name,
+            tagline: data.tagline || prev.tagline,
+            type: data.short_name || prev.type,
+            location: [data.city, data.state, data.country].filter(Boolean).join(', ') || prev.location,
+            website: data.website || prev.website,
+            description: data.description || prev.description,
+          }));
+          if (data.logo_url) setLogo(data.logo_url);
+
+          // Restore banner selection from backend cover_image_url if present
+          if (data.cover_image_url) {
+            const cover: string = data.cover_image_url;
+            if (cover.startsWith('gradient:')) {
+              const id = parseInt(cover.split(':')[1], 10);
+              if (!Number.isNaN(id)) {
+                setSelectedBanner(id);
+                setUseCustomBanner(false);
+                setCustomBanner(null);
+              }
+            } else {
+              setCustomBanner(cover);
+              setUseCustomBanner(true);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('SMS layout: could not load school', e);
+      }
+    };
+    fetchSchool();
+  }, []);
+
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogo(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    try {
+      const uploadRes = await api.upload<{ url: string }>(API_ENDPOINTS.CMS.UPLOAD, file);
+      if (!uploadRes?.url) {
+        throw new Error('Upload response missing URL');
+      }
+      setLogo(uploadRes.url);
+    } catch (e) {
+      console.error('SMS layout: failed to upload logo', e);
+      setSnackbar({ open: true, message: 'Failed to upload logo', severity: 'error' });
     }
   };
 
-  const handleBannerUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBannerUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setCustomBanner(reader.result as string);
-        setUseCustomBanner(true);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    try {
+      const uploadRes = await api.upload<{ url: string }>(API_ENDPOINTS.CMS.UPLOAD, file);
+      if (!uploadRes?.url) {
+        throw new Error('Upload response missing URL');
+      }
+      setCustomBanner(uploadRes.url);
+      setUseCustomBanner(true);
+    } catch (e) {
+      console.error('SMS layout: failed to upload banner', e);
+      setSnackbar({ open: true, message: 'Failed to upload banner image', severity: 'error' });
     }
   };
 
@@ -193,9 +248,84 @@ const SMSLayout: React.FC<SMSLayoutProps> = ({ children }) => {
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
   
-  const handleSaveEdit = () => {
-    setEditOpen(false);
-    setSnackbar({ open: true, message: 'School page updated successfully!', severity: 'success' });
+  const handleSaveEdit = async () => {
+    if (!schoolId) {
+      setSnackbar({ open: true, message: 'School not found', severity: 'error' });
+      return;
+    }
+
+    try {
+      const payload: any = {
+        name: schoolInfo.name,
+        tagline: schoolInfo.tagline,
+        website: schoolInfo.website,
+        description: schoolInfo.description,
+      };
+
+      // Best-effort parse of location into city/state/country
+      if (schoolInfo.location) {
+        const parts = schoolInfo.location.split(',').map((p) => p.trim()).filter(Boolean);
+        if (parts.length === 1) {
+          payload.city = parts[0];
+        } else if (parts.length === 2) {
+          payload.city = parts[0];
+          payload.country = parts[1];
+        } else if (parts.length >= 3) {
+          payload.city = parts[0];
+          payload.state = parts[1];
+          payload.country = parts[parts.length - 1];
+        }
+      }
+
+      // Persist logo URL if any
+      if (logo) {
+        payload.logo_url = logo;
+      }
+
+      // Persist banner selection
+      if (useCustomBanner && customBanner) {
+        payload.cover_image_url = customBanner;
+      } else if (selectedBanner) {
+        payload.cover_image_url = `gradient:${selectedBanner}`;
+      }
+
+      await api.put(API_ENDPOINTS.SMS.UPDATE_SCHOOL(schoolId), payload);
+
+      // Refresh from backend so header matches saved data
+      const refreshed = await api.get<any>(API_ENDPOINTS.SMS.MY_SCHOOL);
+      if (refreshed?.id) {
+        setSchoolInfo((prev) => ({
+          ...prev,
+          name: refreshed.name || prev.name,
+          tagline: refreshed.tagline || prev.tagline,
+          type: refreshed.short_name || prev.type,
+          location: [refreshed.city, refreshed.state, refreshed.country].filter(Boolean).join(', ') || prev.location,
+          website: refreshed.website || prev.website,
+          description: refreshed.description || prev.description,
+        }));
+        setLogo(refreshed.logo_url || null);
+        if (refreshed.cover_image_url) {
+          const cover: string = refreshed.cover_image_url;
+          if (cover.startsWith('gradient:')) {
+            const id = parseInt(cover.split(':')[1], 10);
+            if (!Number.isNaN(id)) {
+              setSelectedBanner(id);
+              setUseCustomBanner(false);
+              setCustomBanner(null);
+            }
+          } else {
+            setCustomBanner(cover);
+            setUseCustomBanner(true);
+          }
+        }
+      }
+
+      setEditOpen(false);
+      setSnackbar({ open: true, message: 'School page updated successfully!', severity: 'success' });
+    } catch (e) {
+      console.error('SMS layout: failed to save school page', e);
+      setSnackbar({ open: true, message: 'Failed to update school page', severity: 'error' });
+    }
   };
 
   return (
@@ -205,10 +335,18 @@ const SMSLayout: React.FC<SMSLayoutProps> = ({ children }) => {
     }}>
       <Container maxWidth="xl">
         {/* Profile Header */}
-        <ProfileCard elevation={0}>
+        <ProfileCard
+          elevation={0}
+          sx={{
+            background: getCurrentBanner(),
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', gap: 3 }}>
               <Avatar
+                src={logo || undefined}
                 sx={{
                   width: 100,
                   height: 100,
@@ -216,28 +354,30 @@ const SMSLayout: React.FC<SMSLayoutProps> = ({ children }) => {
                   border: '4px solid rgba(255,255,255,0.3)',
                 }}
               >
-                <SchoolIcon sx={{ fontSize: 50, color: colors.primary }} />
+                {!logo && <SchoolIcon sx={{ fontSize: 50, color: colors.primary }} />}
               </Avatar>
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                  <Typography variant="h4" fontWeight={700}>Tech University</Typography>
+                  <Typography variant="h4" fontWeight={700}>{schoolInfo.name}</Typography>
                   <VerifiedIcon sx={{ color: colors.primaryLight }} />
                 </Box>
                 <Typography variant="body1" sx={{ opacity: 0.9, mb: 1.5 }}>
-                  Excellence in Technology Education
+                  {schoolInfo.tagline}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <Chip 
-                    label="University" 
+                    label={schoolInfo.type} 
                     size="small" 
                     sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }} 
                   />
-                  <Chip 
-                    icon={<LocationOnIcon sx={{ color: 'white !important' }} />}
-                    label="Boston, MA" 
-                    size="small" 
-                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }} 
-                  />
+                  {schoolInfo.location && (
+                    <Chip 
+                      icon={<LocationOnIcon sx={{ color: 'white !important' }} />}
+                      label={schoolInfo.location} 
+                      size="small" 
+                      sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }} 
+                    />
+                  )}
                 </Box>
               </Box>
             </Box>

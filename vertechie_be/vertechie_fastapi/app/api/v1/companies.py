@@ -72,8 +72,12 @@ class CompanyUpdate(BaseModel):
     website: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    headquarters: Optional[str] = None
     industry: Optional[str] = None
     employees_count: Optional[int] = None
+    # Branding fields so logo and banner can be updated from CMS
+    logo_url: Optional[str] = None
+    cover_image_url: Optional[str] = None
 
 class CompanyResponse(CompanyBase):
     id: UUID
@@ -803,6 +807,13 @@ class CompanyTeamMemberCreate(BaseModel):
     is_leadership: bool = False
     order: int = 0
 
+
+class CompanyTeamMemberInvite(BaseModel):
+    """Invite a team member by email to join a specific company."""
+    email: EmailStr
+    role: str = "member"
+
+
 class CompanyTeamMemberResponse(CompanyTeamMemberCreate):
     id: UUID
     company_id: UUID
@@ -811,7 +822,8 @@ class CompanyTeamMemberResponse(CompanyTeamMemberCreate):
         from_attributes = True
 
 class CompanyAdminCreate(BaseModel):
-    user_id: UUID
+    user_id: Optional[UUID] = None
+    email: Optional[EmailStr] = None  # Accept email for convenience
     role: str = "admin"  # owner, admin, hr, recruiter
     can_manage_jobs: bool = True
     can_manage_candidates: bool = True
@@ -883,6 +895,81 @@ async def add_company_team_member(
     db.add(db_member)
     await db.commit()
     await db.refresh(db_member)
+    return db_member
+
+
+@router.post("/{company_id}/team-members/invite", response_model=CompanyTeamMemberResponse)
+async def invite_company_team_member(
+    company_id: UUID,
+    invite: CompanyTeamMemberInvite,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Invite a team member to join the company's CMS (admin only).
+    
+    Creates a team member record immediately so they appear in the team members list.
+    If a user with this email exists, uses their name; otherwise extracts name from email.
+    """
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    admin = admin_check.scalar_one_or_none()
+    if not admin or not admin.can_manage_team:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Check if user with this email exists
+    user_result = await db.execute(
+        select(User).where(User.email == invite.email)
+    )
+    existing_user = user_result.scalar_one_or_none()
+    
+    # Extract name: use user's name if exists, otherwise extract from email
+    if existing_user:
+        member_name = f"{existing_user.first_name} {existing_user.last_name}".strip()
+        if not member_name:
+            member_name = existing_user.email.split('@')[0].replace('.', ' ').title()
+        member_title = None  # Could be set from user profile if available
+    else:
+        # Extract name from email: "john.doe@company.com" -> "John Doe"
+        email_prefix = invite.email.split('@')[0]
+        member_name = email_prefix.replace('.', ' ').replace('_', ' ').title()
+        member_title = None
+    
+    # Check if team member already exists (by name + company)
+    existing_member = await db.execute(
+        select(CompanyTeamMember).where(
+            CompanyTeamMember.company_id == company_id,
+            CompanyTeamMember.name == member_name
+        )
+    )
+    if existing_member.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Team member '{member_name}' already exists"
+        )
+    
+    # Create team member record
+    db_member = CompanyTeamMember(
+        company_id=company_id,
+        name=member_name,
+        title=member_title,
+        bio=None,
+        photo_url=None,
+        linkedin_url=None,
+        twitter_url=None,
+        is_leadership=False,
+        order=0
+    )
+    db.add(db_member)
+    await db.commit()
+    await db.refresh(db_member)
+    
+    # TODO: Send actual email invite to invite.email
+    # For now, the team member is created and will appear in the list
+    
     return db_member
 
 
@@ -970,7 +1057,7 @@ async def add_company_admin(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Add a company admin (admin only)."""
+    """Add a company admin (admin only). Accepts either user_id or email."""
     admin_check = await db.execute(
         select(CompanyAdmin).where(
             CompanyAdmin.company_id == company_id,
@@ -981,24 +1068,80 @@ async def add_company_admin(
     if not admin or not admin.can_manage_admins:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Check if user exists
-    user_result = await db.execute(
-        select(User).where(User.id == admin_data.user_id)
-    )
-    if not user_result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="User not found")
+    # Resolve user_id from email if provided
+    target_user_id = admin_data.user_id
+    if not target_user_id and admin_data.email:
+        user_result = await db.execute(
+            select(User).where(User.email == admin_data.email)
+        )
+        target_user = user_result.scalar_one_or_none()
+        if not target_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with email '{admin_data.email}' not found. They must have a VerTechie account."
+            )
+        target_user_id = target_user.id
+    elif not target_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either 'user_id' or 'email' is required"
+        )
     
     # Check if already an admin
     existing = await db.execute(
         select(CompanyAdmin).where(
             CompanyAdmin.company_id == company_id,
-            CompanyAdmin.user_id == admin_data.user_id
+            CompanyAdmin.user_id == target_user_id
         )
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="User is already an admin")
     
-    db_admin = CompanyAdmin(company_id=company_id, **admin_data.model_dump())
+    # Set permissions based on role
+    role_permissions = {
+        "owner": {
+            "can_manage_jobs": True,
+            "can_manage_candidates": True,
+            "can_manage_team": True,
+            "can_manage_billing": True,
+            "can_manage_admins": True,
+        },
+        "admin": {
+            "can_manage_jobs": True,
+            "can_manage_candidates": True,
+            "can_manage_team": True,
+            "can_manage_billing": False,
+            "can_manage_admins": False,
+        },
+        "hr": {
+            "can_manage_jobs": False,
+            "can_manage_candidates": True,
+            "can_manage_team": True,
+            "can_manage_billing": False,
+            "can_manage_admins": False,
+        },
+        "recruiter": {
+            "can_manage_jobs": True,
+            "can_manage_candidates": True,
+            "can_manage_team": False,
+            "can_manage_billing": False,
+            "can_manage_admins": False,
+        },
+    }
+    
+    permissions = role_permissions.get(admin_data.role, role_permissions["admin"])
+    
+    # Use provided permissions or defaults from role
+    db_admin = CompanyAdmin(
+        company_id=company_id,
+        user_id=target_user_id,
+        role=admin_data.role,
+        can_manage_jobs=admin_data.can_manage_jobs if admin_data.can_manage_jobs is not None else permissions["can_manage_jobs"],
+        can_manage_candidates=admin_data.can_manage_candidates if admin_data.can_manage_candidates is not None else permissions["can_manage_candidates"],
+        can_manage_team=admin_data.can_manage_team if admin_data.can_manage_team is not None else permissions["can_manage_team"],
+        can_manage_billing=admin_data.can_manage_billing if admin_data.can_manage_billing is not None else permissions["can_manage_billing"],
+        can_manage_admins=admin_data.can_manage_admins if admin_data.can_manage_admins is not None else permissions["can_manage_admins"],
+    )
     db.add(db_admin)
     await db.commit()
     await db.refresh(db_admin)
@@ -1124,7 +1267,21 @@ async def get_company_stats(
     }
 
 
-@router.get("/{company_id}/posts")
+@router.get("/{company_id}/jobs")
+async def list_company_jobs(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """List jobs for a specific company."""
+    from app.models.job import Job
+    result = await db.execute(
+        select(Job).where(Job.company_id == company_id).order_by(Job.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.get("/{company_id}/posts", include_in_schema=True)
+@router.get("/{company_id}/posts/", include_in_schema=False)
 async def get_company_posts(
     company_id: UUID,
     skip: int = Query(0, ge=0),
@@ -1179,10 +1336,11 @@ async def get_company_posts(
 
 
 class CompanyPostCreate(BaseModel):
-    content: str
+    content: Optional[str] = ""
     media: Optional[List[str]] = None
 
-@router.post("/{company_id}/posts")
+@router.post("/{company_id}/posts", include_in_schema=True)
+@router.post("/{company_id}/posts/", include_in_schema=False)
 async def create_company_post(
     company_id: UUID,
     post_data: CompanyPostCreate,
@@ -1199,11 +1357,20 @@ async def create_company_post(
     if not admin_check.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Not authorized")
     
+    # Validate: must have content or media
+    has_content = bool(post_data.content and post_data.content.strip())
+    has_media = bool(post_data.media and len(post_data.media) > 0)
+    if not has_content and not has_media:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Post content or at least one image is required"
+        )
+    
     from app.models.community import Post, PostType
     
     post = Post(
         author_id=current_user.id,
-        content=post_data.content,
+        content=post_data.content or "",
         media=[{"url": url, "type": "image"} for url in (post_data.media or [])],
         post_type=PostType.TEXT,
         visibility="public",
@@ -1222,4 +1389,87 @@ async def create_company_post(
         "comments_count": 0,
         "shares_count": 0,
     }
+
+
+# ============= Employee Verification =============
+
+@router.get("/{company_id}/unverified-employees")
+async def get_unverified_employees(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get techies who have added this company to their experience but are not verified."""
+    # Check if admin
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    if not admin_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    from app.models.user import Experience, User
+    result = await db.execute(
+        select(Experience, User)
+        .join(User, Experience.user_id == User.id)
+        .where(
+            Experience.company_id == company_id,
+            Experience.is_verified == False
+        )
+    )
+    rows = result.all()
+    
+    return [
+        {
+            "experience_id": str(exp.id),
+            "user_id": str(user.id),
+            "full_name": f"{user.first_name} {user.last_name}",
+            "email": user.email,
+            "title": exp.title,
+            "employment_type": exp.employment_type.value if hasattr(exp.employment_type, 'value') else str(exp.employment_type),
+            "start_date": exp.start_date.isoformat() if exp.start_date else None,
+            "end_date": exp.end_date.isoformat() if exp.end_date else None,
+            "is_current": exp.is_current,
+        }
+        for exp, user in rows
+    ]
+
+
+@router.post("/{company_id}/verify-experience/{experience_id}")
+async def verify_experience(
+    company_id: UUID,
+    experience_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Verify a techie's work experience at this company."""
+    # Check if admin
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id
+        )
+    )
+    if not admin_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    from app.models.user import Experience
+    result = await db.execute(
+        select(Experience).where(
+            Experience.id == experience_id,
+            Experience.company_id == company_id
+        )
+    )
+    exp = result.scalar_one_or_none()
+    if not exp:
+        raise HTTPException(status_code=404, detail="Experience record not found")
+    
+    exp.is_verified = True
+    exp.verified_by_id = current_user.id
+    exp.verified_at = datetime.utcnow()
+    
+    await db.commit()
+    return {"message": "Success", "experience_id": str(exp.id)}
 

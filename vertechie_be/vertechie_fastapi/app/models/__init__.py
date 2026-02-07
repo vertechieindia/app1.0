@@ -21,7 +21,7 @@ from app.models.company import (
 # School Models
 from app.models.school import (
     School, Department, Program, StudentBatch,
-    SchoolMember, SchoolAdmin, Placement,
+    SchoolMember, SchoolAdmin, Placement, SchoolInvite,
     SchoolType, SchoolStatus, ProgramType, MemberType, AdminRole as SchoolAdminRole
 )
 
@@ -110,7 +110,7 @@ __all__ = [
     
     # School
     "School", "Department", "Program", "StudentBatch",
-    "SchoolMember", "SchoolAdmin", "Placement",
+    "SchoolMember", "SchoolAdmin", "Placement", "SchoolInvite",
     "SchoolType", "SchoolStatus", "ProgramType", "MemberType", "SchoolAdminRole",
     
     # Jobs

@@ -83,7 +83,9 @@ const colors = {
   background: '#f5f7fa',
 };
 
-const NavItem = styled(Box)<{ active?: boolean }>(({ active }) => ({
+const NavItem = styled(Box, {
+  shouldForwardProp: (prop) => prop !== 'active',
+})<{ active?: boolean }>(({ active }) => ({
   display: 'flex',
   alignItems: 'center',
   gap: 8,
@@ -113,6 +115,7 @@ const StatCard = styled(Card)(() => ({
 const ProfileCard = styled(Paper)(() => ({
   padding: 24,
   borderRadius: 16,
+  // Background will be overridden with current banner via sx
   background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
   color: 'white',
   marginBottom: 24,
@@ -194,7 +197,24 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
             website: myCompany.website || '',
             description: myCompany.description || '',
           });
-          setLogo(myCompany.logo_url);
+          setLogo(myCompany.logo_url || null);
+
+          // Restore banner selection from backend cover_image_url if present
+          if (myCompany.cover_image_url) {
+            const cover: string = myCompany.cover_image_url;
+            if (cover.startsWith('gradient:')) {
+              const id = parseInt(cover.split(':')[1], 10);
+              if (!Number.isNaN(id)) {
+                setSelectedBanner(id);
+                setUseCustomBanner(false);
+                setCustomBanner(null);
+              }
+            } else {
+              // Treat as image URL
+              setCustomBanner(cover);
+              setUseCustomBanner(true);
+            }
+          }
 
           // Fetch stats
           try {
@@ -241,26 +261,38 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
     fetchCompany();
   }, []);
 
-  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogo(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    try {
+      // Upload logo to backend and store returned URL
+      const uploadRes = await api.upload<{ url: string }>(API_ENDPOINTS.CMS.UPLOAD, file);
+      if (!uploadRes?.url) {
+        throw new Error('Upload response missing URL');
+      }
+      setLogo(uploadRes.url);
+    } catch (e) {
+      console.error('Failed to upload logo', e);
+      setSnackbar({ open: true, message: 'Failed to upload logo', severity: 'error' });
     }
   };
 
-  const handleBannerUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBannerUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setCustomBanner(reader.result as string);
-        setUseCustomBanner(true);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    try {
+      // Upload banner image and use it as custom banner
+      const uploadRes = await api.upload<{ url: string }>(API_ENDPOINTS.CMS.UPLOAD, file);
+      if (!uploadRes?.url) {
+        throw new Error('Upload response missing URL');
+      }
+      setCustomBanner(uploadRes.url);
+      setUseCustomBanner(true);
+    } catch (e) {
+      console.error('Failed to upload banner', e);
+      setSnackbar({ open: true, message: 'Failed to upload banner image', severity: 'error' });
     }
   };
 
@@ -302,13 +334,28 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
   const handleSaveEdit = async () => {
     if (!company) return;
     try {
-      await api.put(API_ENDPOINTS.CMS.UPDATE_COMPANY(company.id), {
+      const updatePayload: any = {
         name: companyInfo.name,
         tagline: companyInfo.tagline,
         industry: companyInfo.industry,
         description: companyInfo.description,
         website: companyInfo.website,
-      });
+        headquarters: companyInfo.location || undefined,
+      };
+
+      // Persist logo URL if we have one
+      if (logo) {
+        updatePayload.logo_url = logo;
+      }
+
+      // Persist banner selection as either gradient id or custom image URL
+      if (useCustomBanner && customBanner) {
+        updatePayload.cover_image_url = customBanner;
+      } else if (selectedBanner) {
+        updatePayload.cover_image_url = `gradient:${selectedBanner}`;
+      }
+
+      await api.put(API_ENDPOINTS.CMS.UPDATE_COMPANY(company.id), updatePayload);
       setEditOpen(false);
       setSnackbar({ open: true, message: 'Company page updated successfully!', severity: 'success' });
       // Refresh company data
@@ -324,6 +371,21 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
           website: updated.website || '',
           description: updated.description || '',
         });
+        setLogo(updated.logo_url || null);
+        if (updated.cover_image_url) {
+          const cover: string = updated.cover_image_url;
+          if (cover.startsWith('gradient:')) {
+            const id = parseInt(cover.split(':')[1], 10);
+            if (!Number.isNaN(id)) {
+              setSelectedBanner(id);
+              setUseCustomBanner(false);
+              setCustomBanner(null);
+            }
+          } else {
+            setCustomBanner(cover);
+            setUseCustomBanner(true);
+          }
+        }
       }
     } catch (err) {
       setSnackbar({ open: true, message: 'Failed to update company page', severity: 'error' });
@@ -355,7 +417,14 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
     }}>
       <Container maxWidth="xl">
         {/* Profile Header */}
-        <ProfileCard elevation={0}>
+        <ProfileCard
+          elevation={0}
+          sx={{
+            background: getCurrentBanner(),
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', gap: 3 }}>
               <Avatar

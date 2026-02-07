@@ -285,3 +285,37 @@ class Placement(Base):
     school = relationship("School", back_populates="placements")
     student = relationship("User")
 
+
+class InviteStatus(str, enum.Enum):
+    PENDING = "pending"
+    SENT = "sent"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
+class SchoolInvite(Base):
+    """School invites for non-registered users."""
+    __tablename__ = "school_invites"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"))
+    
+    email = Column(String(255), nullable=False)
+    name = Column(String(200))
+    
+    member_type = Column(SQLEnum(MemberType), default=MemberType.ALUMNI)
+    graduation_year = Column(Integer)
+    student_id = Column(String(50))
+    
+    status = Column(SQLEnum(InviteStatus, name="school_invitestatus"), default=InviteStatus.PENDING)
+    
+    invited_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    sent_at = Column(DateTime)
+    
+    # Relationships
+    school = relationship("School")
+    invited_by = relationship("User")
+
+

@@ -202,10 +202,10 @@ const DotGrid = styled(Box)({
   animation: `${pulse} 4s ease-in-out infinite`,
 });
 
-const AnimatedDot = styled(Box)<{ 
-  top: string; 
-  left: string; 
-  delay: number; 
+const AnimatedDot = styled(Box)<{
+  top: string;
+  left: string;
+  delay: number;
   size: number;
   animationType: 'pulse' | 'wave' | 'float';
 }>(({ top, left, delay, size, animationType }) => ({
@@ -217,10 +217,9 @@ const AnimatedDot = styled(Box)<{
   borderRadius: '50%',
   background: 'rgba(0, 0, 0, 0.5)',
   boxShadow: '0 0 8px rgba(0, 0, 0, 0.2)',
-  animation: `${
-    animationType === 'pulse' ? dotPulse : 
-    animationType === 'wave' ? dotWave : dotFloat
-  } ${3 + delay}s ease-in-out infinite`,
+  animation: `${animationType === 'pulse' ? dotPulse :
+      animationType === 'wave' ? dotWave : dotFloat
+    } ${3 + delay}s ease-in-out infinite`,
   animationDelay: `${delay * 0.5}s`,
 }));
 
@@ -598,14 +597,14 @@ const SuperAdmin: React.FC = () => {
   const [deleteAdminDialog, setDeleteAdminDialog] = useState(false);
   const [adminToDelete, setAdminToDelete] = useState<Admin | null>(null);
   const [deletingAdmin, setDeletingAdmin] = useState(false);
-  
+
   // Blocked Profiles States
   const [blockedProfiles, setBlockedProfiles] = useState<any[]>([]);
   const [loadingBlocked, setLoadingBlocked] = useState(false);
   const [selectedBlockedUser, setSelectedBlockedUser] = useState<any>(null);
   const [unblockDialogOpen, setUnblockDialogOpen] = useState(false);
   const [unblockReason, setUnblockReason] = useState('');
-  
+
   // Pending Approvals States
   const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
   const [loadingApprovals, setLoadingApprovals] = useState(false);
@@ -614,21 +613,21 @@ const SuperAdmin: React.FC = () => {
   const [selectedApproval, setSelectedApproval] = useState<any>(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  
+
   // Review Profile Dialog States
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewingProfile, setReviewingProfile] = useState<any>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
-  
+
   // Edit Admin Roles States
   const [editRolesDialogOpen, setEditRolesDialogOpen] = useState(false);
   const [editingAdmin, setEditingAdmin] = useState<Admin | null>(null);
   const [editingAdminRoles, setEditingAdminRoles] = useState<string[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
-  
+
   // Create User Dialog State
   const [createUserDialog, setCreateUserDialog] = useState(false);
-  
+
   // User Type Specific Details States
   const [userTypeDetails, setUserTypeDetails] = useState<UserTypeDetails>({
     education: [],
@@ -723,9 +722,9 @@ const SuperAdmin: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         const usersArray = Array.isArray(data) ? data : data.results || [];
-        
+
         const applicants = usersArray
-          .filter((user: any) => !user.is_staff && !user.is_superuser)
+          .filter((user: any) => !user.is_superuser)
           .map((user: any) => ({
             id: String(user.id),
             name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || user.email,
@@ -749,7 +748,7 @@ const SuperAdmin: React.FC = () => {
             is_superuser: user.is_superuser ?? false,
             user_type: user.groups?.[0]?.name || 'Techie',
           }));
-        
+
         setUsers(applicants);
       }
     } catch (error) {
@@ -791,7 +790,7 @@ const SuperAdmin: React.FC = () => {
       const token = localStorage.getItem('authToken');
       if (!token) return;
 
-      const url = approvalTypeFilter 
+      const url = approvalTypeFilter
         ? `${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}?status=pending&user_type=${approvalTypeFilter}`
         : `${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}?status=pending`;
 
@@ -1077,7 +1076,7 @@ const SuperAdmin: React.FC = () => {
 
   // Fetch Permissions - Handle Pagination to get ALL permissions
   const fetchPermissions = useCallback(async () => {
-    setLoadingPermissions(true);  
+    setLoadingPermissions(true);
     try {
       const token = localStorage.getItem('authToken');
       if (!token) return;
@@ -1097,7 +1096,7 @@ const SuperAdmin: React.FC = () => {
 
         if (res.ok) {
           const data: any = await res.json();
-          
+
           if (Array.isArray(data)) {
             // Non-paginated response
             allPermissions = data as Permission[];
@@ -1183,7 +1182,7 @@ const SuperAdmin: React.FC = () => {
   // Update Admin Roles
   const handleUpdateAdminRoles = async () => {
     if (!editingAdmin) return;
-    
+
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${editingAdmin.id}/update-admin-roles/`), {
@@ -1244,10 +1243,10 @@ const SuperAdmin: React.FC = () => {
   // Delete User completely
   const handleDeleteUser = async () => {
     if (!userToDelete) return;
-    
+
     const userName = userToDelete.name;
     setDeletingUser(true);
-    
+
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${userToDelete.id}/`), {
@@ -1262,17 +1261,17 @@ const SuperAdmin: React.FC = () => {
         setDeleteUserDialog(false);
         setUserToDelete(null);
         setDeletingUser(false);
-        
+
         // Show success message
         setSnackbar({
           open: true,
           message: `User "${userName}" has been permanently deleted`,
           severity: 'success',
         });
-        
+
         // Remove user from local state immediately to prevent blank screen
         setUsers(prevUsers => prevUsers.filter(u => u.id !== userToDelete.id));
-        
+
         // Then refresh from server
         setTimeout(() => {
           fetchUsers();
@@ -1283,10 +1282,10 @@ const SuperAdmin: React.FC = () => {
       }
     } catch (error: any) {
       setDeletingUser(false);
-      setSnackbar({ 
-        open: true, 
-        message: error.message || 'Error deleting user', 
-        severity: 'error' 
+      setSnackbar({
+        open: true,
+        message: error.message || 'Error deleting user',
+        severity: 'error'
       });
     }
   };
@@ -1294,11 +1293,11 @@ const SuperAdmin: React.FC = () => {
   // Delete Admin completely
   const handleDeleteAdmin = async () => {
     if (!adminToDelete) return;
-    
+
     const adminName = `${adminToDelete.first_name} ${adminToDelete.last_name}`;
     const adminId = adminToDelete.id;
     setDeletingAdmin(true);
-    
+
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${adminId}/`), {
@@ -1313,17 +1312,17 @@ const SuperAdmin: React.FC = () => {
         setDeleteAdminDialog(false);
         setAdminToDelete(null);
         setDeletingAdmin(false);
-        
+
         // Show success message
         setSnackbar({
           open: true,
           message: `Admin "${adminName}" has been permanently deleted`,
           severity: 'success',
         });
-        
+
         // Remove admin from local state immediately to prevent blank screen
         setAdmins(prevAdmins => prevAdmins.filter(a => a.id !== adminId));
-        
+
         // Then refresh from server
         setTimeout(() => {
           fetchAdmins();
@@ -1334,10 +1333,10 @@ const SuperAdmin: React.FC = () => {
       }
     } catch (error: any) {
       setDeletingAdmin(false);
-      setSnackbar({ 
-        open: true, 
-        message: error.message || 'Error deleting admin', 
-        severity: 'error' 
+      setSnackbar({
+        open: true,
+        message: error.message || 'Error deleting admin',
+        severity: 'error'
       });
     }
   };
@@ -1463,7 +1462,7 @@ const SuperAdmin: React.FC = () => {
     const parts = perm.codename.split('_');
     const model = parts.length > 1 ? parts.slice(1).join('_') : 'other';
     const modelName = model.charAt(0).toUpperCase() + model.slice(1).replace(/_/g, ' ');
-    
+
     if (!acc[modelName]) acc[modelName] = [];
     acc[modelName].push(perm);
     return acc;
@@ -1472,7 +1471,7 @@ const SuperAdmin: React.FC = () => {
   // Filter permissions based on search
   const filteredGroupedPermissions = Object.entries(groupedPermissions)
     .reduce((acc, [group, perms]) => {
-      const filtered = perms.filter(p => 
+      const filtered = perms.filter(p =>
         p.name.toLowerCase().includes(permissionSearchQuery.toLowerCase()) ||
         p.codename.toLowerCase().includes(permissionSearchQuery.toLowerCase()) ||
         group.toLowerCase().includes(permissionSearchQuery.toLowerCase())
@@ -1525,7 +1524,7 @@ const SuperAdmin: React.FC = () => {
   };
 
   // Filter admins
-  const filteredAdmins = admins.filter(admin => 
+  const filteredAdmins = admins.filter(admin =>
     admin.email.toLowerCase().includes(adminSearchQuery.toLowerCase()) ||
     admin.first_name.toLowerCase().includes(adminSearchQuery.toLowerCase()) ||
     admin.last_name.toLowerCase().includes(adminSearchQuery.toLowerCase())
@@ -1533,17 +1532,17 @@ const SuperAdmin: React.FC = () => {
 
   // Filter users
   const filteredUsers = users.filter(user => {
-    const matchesSearch = 
+    const matchesSearch =
       user.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
       user.email.toLowerCase().includes(userSearchQuery.toLowerCase());
-    
+
     const matchesType = !userTypeFilter || user.user_type?.toLowerCase() === userTypeFilter.toLowerCase();
-    
-    const matchesStatus = !userStatusFilter || 
+
+    const matchesStatus = !userStatusFilter ||
       (userStatusFilter === 'verified' && user.is_verified) ||
       (userStatusFilter === 'pending' && user.is_active && !user.is_verified) ||
       (userStatusFilter === 'rejected' && !user.is_active && !user.is_verified);
-    
+
     return matchesSearch && matchesType && matchesStatus;
   });
 
@@ -1595,10 +1594,10 @@ const SuperAdmin: React.FC = () => {
       <AnimatedDotsContainer>
         {/* Base dot grid pattern */}
         <DotGrid />
-        
+
         {/* Moving dots layer with rotation */}
         <MovingDotsLayer />
-        
+
         {/* Individual animated dots scattered across the screen */}
         <AnimatedDot top="10%" left="15%" delay={0} size={4} animationType="pulse" />
         <AnimatedDot top="20%" left="45%" delay={1} size={3} animationType="wave" />
@@ -1615,7 +1614,7 @@ const SuperAdmin: React.FC = () => {
         <AnimatedDot top="90%" left="30%" delay={0.6} size={4} animationType="pulse" />
         <AnimatedDot top="80%" left="65%" delay={1.6} size={3} animationType="wave" />
         <AnimatedDot top="95%" left="90%" delay={2.6} size={5} animationType="float" />
-        
+
         {/* Glowing colored dots for accent - darker shades for white bg */}
         <GlowingDot top="8%" left="20%" color="rgba(79, 70, 229, 0.7)" delay={0} />
         <GlowingDot top="25%" left="80%" color="rgba(219, 39, 119, 0.7)" delay={1} />
@@ -1631,16 +1630,16 @@ const SuperAdmin: React.FC = () => {
 
       <ContentWrapper>
         <Container maxWidth="xl">
-          
+
           {/* Stats Cards */}
           <Grid container spacing={{ xs: 1.5, md: 2 }} sx={{ mb: { xs: 2, md: 3 }, mt: { xs: 1, md: 2 } }}>
             <Grid item xs={6} sm={6} md={2.4}>
               <StatCard delay={0}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, md: 1.5 } }}>
-                  <AnimatedAvatar 
-                    sx={{ 
-                      background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)', 
-                      width: { xs: 40, md: 50 }, 
+                  <AnimatedAvatar
+                    sx={{
+                      background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
+                      width: { xs: 40, md: 50 },
                       height: { xs: 40, md: 50 },
                       boxShadow: '0 4px 12px rgba(59, 130, 246, 0.2)'
                     }}
@@ -1648,10 +1647,10 @@ const SuperAdmin: React.FC = () => {
                     <SupervisorAccount sx={{ color: '#3b82f6', fontSize: { xs: 20, md: 24 } }} />
                   </AnimatedAvatar>
                   <Box>
-                    <Typography 
-                      variant="h5" 
-                      sx={{ 
-                        fontWeight: 800, 
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 800,
                         background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
                         WebkitBackgroundClip: 'text',
                         WebkitTextFillColor: 'transparent',
@@ -1660,9 +1659,11 @@ const SuperAdmin: React.FC = () => {
                     >
                       {totalAdmins}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', md: '0.875rem' },
-  color: 'grey.700',      // normal grey
-  fontWeight: 600   }}>
+                    <Typography variant="body2" color="text.secondary" sx={{
+                      fontSize: { xs: '0.65rem', md: '0.875rem' },
+                      color: 'grey.700',      // normal grey
+                      fontWeight: 600
+                    }}>
                       Total Admins
                     </Typography>
                   </Box>
@@ -1673,10 +1674,10 @@ const SuperAdmin: React.FC = () => {
             <Grid item xs={6} sm={6} md={2.4}>
               <StatCard delay={100}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, md: 1.5 } }}>
-                  <AnimatedAvatar 
-                    sx={{ 
-                      background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', 
-                      width: { xs: 40, md: 50 }, 
+                  <AnimatedAvatar
+                    sx={{
+                      background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
+                      width: { xs: 40, md: 50 },
                       height: { xs: 40, md: 50 },
                       boxShadow: '0 4px 12px rgba(22, 163, 74, 0.2)'
                     }}
@@ -1684,10 +1685,10 @@ const SuperAdmin: React.FC = () => {
                     <CheckCircle sx={{ color: '#16a34a', fontSize: { xs: 20, md: 24 } }} />
                   </AnimatedAvatar>
                   <Box>
-                    <Typography 
-                      variant="h5" 
-                      sx={{ 
-                        fontWeight: 800, 
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 800,
                         background: 'linear-gradient(135deg, #16a34a, #10b981)',
                         WebkitBackgroundClip: 'text',
                         WebkitTextFillColor: 'transparent',
@@ -1696,9 +1697,11 @@ const SuperAdmin: React.FC = () => {
                     >
                       {activeAdmins}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', md: '0.875rem' },
-  color: 'grey.700',      // normal grey
-  fontWeight: 600   }}>
+                    <Typography variant="body2" color="text.secondary" sx={{
+                      fontSize: { xs: '0.65rem', md: '0.875rem' },
+                      color: 'grey.700',      // normal grey
+                      fontWeight: 600
+                    }}>
                       Active Admins
                     </Typography>
                   </Box>
@@ -1709,10 +1712,10 @@ const SuperAdmin: React.FC = () => {
             <Grid item xs={6} sm={6} md={2.4}>
               <StatCard delay={200}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, md: 1.5 } }}>
-                  <AnimatedAvatar 
-                    sx={{ 
-                      background: 'linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%)', 
-                      width: { xs: 40, md: 50 }, 
+                  <AnimatedAvatar
+                    sx={{
+                      background: 'linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%)',
+                      width: { xs: 40, md: 50 },
                       height: { xs: 40, md: 50 },
                       boxShadow: '0 4px 12px rgba(139, 92, 246, 0.2)'
                     }}
@@ -1720,10 +1723,10 @@ const SuperAdmin: React.FC = () => {
                     <Groups sx={{ color: '#8b5cf6', fontSize: { xs: 20, md: 24 } }} />
                   </AnimatedAvatar>
                   <Box>
-                    <Typography 
-                      variant="h5" 
-                      sx={{ 
-                        fontWeight: 800, 
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 800,
                         background: 'linear-gradient(135deg, #8b5cf6, #a855f7)',
                         WebkitBackgroundClip: 'text',
                         WebkitTextFillColor: 'transparent',
@@ -1732,9 +1735,11 @@ const SuperAdmin: React.FC = () => {
                     >
                       {totalUsers}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', md: '0.875rem' },
-  color: 'grey.700',      // normal grey
-  fontWeight: 600   }}>
+                    <Typography variant="body2" color="text.secondary" sx={{
+                      fontSize: { xs: '0.65rem', md: '0.875rem' },
+                      color: 'grey.700',      // normal grey
+                      fontWeight: 600
+                    }}>
                       Total Users
                     </Typography>
                   </Box>
@@ -1745,10 +1750,10 @@ const SuperAdmin: React.FC = () => {
             <Grid item xs={6} sm={6} md={2.4}>
               <StatCard delay={300}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, md: 1.5 } }}>
-                  <AnimatedAvatar 
-                    sx={{ 
-                      background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', 
-                      width: { xs: 40, md: 50 }, 
+                  <AnimatedAvatar
+                    sx={{
+                      background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+                      width: { xs: 40, md: 50 },
                       height: { xs: 40, md: 50 },
                       boxShadow: '0 4px 12px rgba(245, 158, 11, 0.2)'
                     }}
@@ -1756,10 +1761,10 @@ const SuperAdmin: React.FC = () => {
                     <People sx={{ color: '#d97706', fontSize: { xs: 20, md: 24 } }} />
                   </AnimatedAvatar>
                   <Box>
-                    <Typography 
-                      variant="h5" 
-                      sx={{ 
-                        fontWeight: 800, 
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 800,
                         background: 'linear-gradient(135deg, #d97706, #f59e0b)',
                         WebkitBackgroundClip: 'text',
                         WebkitTextFillColor: 'transparent',
@@ -1768,9 +1773,11 @@ const SuperAdmin: React.FC = () => {
                     >
                       {pendingUsers}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', md: '0.875rem' },
-  color: 'grey.700',      // normal grey
-  fontWeight: 600   }}>
+                    <Typography variant="body2" color="text.secondary" sx={{
+                      fontSize: { xs: '0.65rem', md: '0.875rem' },
+                      color: 'grey.700',      // normal grey
+                      fontWeight: 600
+                    }}>
                       Pending
                     </Typography>
                   </Box>
@@ -1781,10 +1788,10 @@ const SuperAdmin: React.FC = () => {
             <Grid item xs={12} sm={12} md={2.4}>
               <StatCard delay={400}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, md: 1.5 }, justifyContent: { xs: 'center', md: 'flex-start' } }}>
-                  <AnimatedAvatar 
-                    sx={{ 
-                      background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)', 
-                      width: { xs: 40, md: 50 }, 
+                  <AnimatedAvatar
+                    sx={{
+                      background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+                      width: { xs: 40, md: 50 },
                       height: { xs: 40, md: 50 },
                       boxShadow: '0 4px 12px rgba(220, 38, 38, 0.2)'
                     }}
@@ -1792,10 +1799,10 @@ const SuperAdmin: React.FC = () => {
                     <Security sx={{ color: '#dc2626', fontSize: { xs: 20, md: 24 } }} />
                   </AnimatedAvatar>
                   <Box>
-                    <Typography 
-                      variant="h5" 
-                      sx={{ 
-                        fontWeight: 800, 
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 800,
                         background: 'linear-gradient(135deg, #dc2626, #ef4444)',
                         WebkitBackgroundClip: 'text',
                         WebkitTextFillColor: 'transparent',
@@ -1804,9 +1811,11 @@ const SuperAdmin: React.FC = () => {
                     >
                       {totalRoles}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', md: '0.875rem' },
-  color: 'grey.700',      // normal grey
-  fontWeight: 600   }}>
+                    <Typography variant="body2" color="text.secondary" sx={{
+                      fontSize: { xs: '0.65rem', md: '0.875rem' },
+                      color: 'grey.700',      // normal grey
+                      fontWeight: 600
+                    }}>
                       Roles
                     </Typography>
                   </Box>
@@ -1817,9 +1826,9 @@ const SuperAdmin: React.FC = () => {
 
           {/* Tabs */}
           <GlassCard>
-            <Box sx={{ 
-              borderBottom: 1, 
-              borderColor: 'rgba(226, 232, 240, 0.5)', 
+            <Box sx={{
+              borderBottom: 1,
+              borderColor: 'rgba(226, 232, 240, 0.5)',
               background: 'linear-gradient(180deg, rgba(248, 250, 252, 0.9) 0%, rgba(241, 245, 249, 0.9) 100%)'
             }}>
               <Tabs
@@ -1852,702 +1861,270 @@ const SuperAdmin: React.FC = () => {
                   },
                 }}
               >
-                <Tab 
-                  icon={<SupervisorAccount sx={{ fontSize: { xs: 18, md: 22 } }} />} 
-                  iconPosition="start" 
-                  label={isMobile ? "Admins" : "Admin Workspace"} 
+                <Tab
+                  icon={<SupervisorAccount sx={{ fontSize: { xs: 18, md: 22 } }} />}
+                  iconPosition="start"
+                  label={isMobile ? "Admins" : "Admin Workspace"}
                 />
-                <Tab 
-                  icon={<Security sx={{ fontSize: { xs: 18, md: 22 } }} />} 
-                  iconPosition="start" 
-                  label={isMobile ? "Roles" : "Access Roles"} 
+                <Tab
+                  icon={<Security sx={{ fontSize: { xs: 18, md: 22 } }} />}
+                  iconPosition="start"
+                  label={isMobile ? "Roles" : "Access Roles"}
                 />
-                <Tab 
-                  icon={<Groups sx={{ fontSize: { xs: 18, md: 22 } }} />} 
-                  iconPosition="start" 
-                  label={isMobile ? "Users" : "User Directory"} 
+                <Tab
+                  icon={<Groups sx={{ fontSize: { xs: 18, md: 22 } }} />}
+                  iconPosition="start"
+                  label={isMobile ? "Users" : "User Directory"}
                 />
-                <Tab 
-                  icon={<Block sx={{ fontSize: { xs: 18, md: 22 }, color: '#dc2626' }} />} 
-                  iconPosition="start" 
-                  label={isMobile ? "Blocked" : "Blocked Profiles"} 
+                <Tab
+                  icon={<Block sx={{ fontSize: { xs: 18, md: 22 }, color: '#dc2626' }} />}
+                  iconPosition="start"
+                  label={isMobile ? "Blocked" : "Blocked Profiles"}
                 />
-                <Tab 
-                  icon={<CheckCircle sx={{ fontSize: { xs: 18, md: 22 }, color: '#059669' }} />} 
-                  iconPosition="start" 
-                  label={isMobile ? "Approvals" : "Pending Approvals"} 
+                <Tab
+                  icon={<CheckCircle sx={{ fontSize: { xs: 18, md: 22 }, color: '#059669' }} />}
+                  iconPosition="start"
+                  label={isMobile ? "Approvals" : "Pending Approvals"}
                 />
               </Tabs>
             </Box>
 
-          {/* Admin Management Tab */}
-          {activeTab === 0 && (
-            <Box sx={{ p: { xs: 2, md: 3 }, animation: `${fadeIn} 0.5s ease-out` }}>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: { xs: 'column', sm: 'row' },
-                gap: 2, 
-                mb: 3,
-                alignItems: { xs: 'stretch', sm: 'center' },
-                justifyContent: 'space-between',
-              }}>
-                <SearchField
-                  placeholder="Search admins..."
-                  size="small"
-                  value={adminSearchQuery}
-                  onChange={(e) => setAdminSearchQuery(e.target.value)}
-                  sx={{ 
-                    width: { xs: '100%', sm: 300 },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Search sx={{ color: '#94a3b8' }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                 
-                  <AnimatedButton
-                    startIcon={<PersonAdd />}
-                    onClick={() => setCreateAdminDialog(true)}
-                    variant="contained"
-                  >
-                    {isMobile ? 'Add' : 'Create Admin'}
-                  </AnimatedButton>
-                </Box>
-              </Box>
-
-              {loadingAdmins ? (
-                <Box sx={{ 
-                  py: 6, 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  alignItems: 'center',
-                  animation: `${fadeIn} 0.5s ease-out`,
+            {/* Admin Management Tab */}
+            {activeTab === 0 && (
+              <Box sx={{ p: { xs: 2, md: 3 }, animation: `${fadeIn} 0.5s ease-out` }}>
+                <Box sx={{
+                  display: 'flex',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  gap: 2,
+                  mb: 3,
+                  alignItems: { xs: 'stretch', sm: 'center' },
+                  justifyContent: 'space-between',
                 }}>
-                  <Box sx={{ width: '60%', maxWidth: 300 }}>
-                    <LinearProgress 
-                      sx={{ 
-                        height: 6, 
-                        borderRadius: 3,
-                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                        '& .MuiLinearProgress-bar': {
-                          background: 'linear-gradient(90deg, #6366f1, #ec4899)',
-                          borderRadius: 3,
-                        }
-                      }} 
-                    />
+                  <SearchField
+                    placeholder="Search admins..."
+                    size="small"
+                    value={adminSearchQuery}
+                    onChange={(e) => setAdminSearchQuery(e.target.value)}
+                    sx={{
+                      width: { xs: '100%', sm: 300 },
+                    }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Search sx={{ color: '#94a3b8' }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+
+                    <AnimatedButton
+                      startIcon={<PersonAdd />}
+                      onClick={() => setCreateAdminDialog(true)}
+                      variant="contained"
+                    >
+                      {isMobile ? 'Add' : 'Create Admin'}
+                    </AnimatedButton>
                   </Box>
-                  <Typography align="center" sx={{ mt: 2, fontWeight: 500 }} color="text.secondary">
-                    Loading admins...
-                  </Typography>
                 </Box>
-              ) : (
-                <Paper elevation={0} sx={{ borderRadius: '12px', overflow: 'hidden' }}>
-                  <StyledTableContainer>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Admin</TableCell>
-                          {!isMobile && <TableCell>Email</TableCell>}
-                          {!isMobile && <TableCell>Roles</TableCell>}
-                          <TableCell>Status</TableCell>
-                          {!isMobile && <TableCell>Joined</TableCell>}
-                          <TableCell align="center">Actions</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {filteredAdmins.length === 0 ? (
+
+                {loadingAdmins ? (
+                  <Box sx={{
+                    py: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    animation: `${fadeIn} 0.5s ease-out`,
+                  }}>
+                    <Box sx={{ width: '60%', maxWidth: 300 }}>
+                      <LinearProgress
+                        sx={{
+                          height: 6,
+                          borderRadius: 3,
+                          backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                          '& .MuiLinearProgress-bar': {
+                            background: 'linear-gradient(90deg, #6366f1, #ec4899)',
+                            borderRadius: 3,
+                          }
+                        }}
+                      />
+                    </Box>
+                    <Typography align="center" sx={{ mt: 2, fontWeight: 500 }} color="text.secondary">
+                      Loading admins...
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Paper elevation={0} sx={{ borderRadius: '12px', overflow: 'hidden' }}>
+                    <StyledTableContainer>
+                      <Table>
+                        <TableHead>
                           <TableRow>
-                            <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
-                              <Box sx={{ animation: `${fadeIn} 0.5s ease-out` }}>
-                                <AnimatedAvatar sx={{ 
-                                  width: 80, 
-                                  height: 80, 
-                                  mx: 'auto', 
-                                  mb: 2,
-                                  background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1))'
-                                }}>
-                                  <SupervisorAccount sx={{ fontSize: 40, color: '#94a3b8' }} />
-                                </AnimatedAvatar>
-                                <Typography color="text.secondary" sx={{ fontWeight: 500 }}>No admins found</Typography>
-                                <Typography variant="caption" color="text.secondary">Try adjusting your search</Typography>
-                              </Box>
-                            </TableCell>
+                            <TableCell>Admin</TableCell>
+                            {!isMobile && <TableCell>Email</TableCell>}
+                            {!isMobile && <TableCell>Roles</TableCell>}
+                            <TableCell>Status</TableCell>
+                            {!isMobile && <TableCell>Joined</TableCell>}
+                            <TableCell align="center">Actions</TableCell>
                           </TableRow>
-                        ) : (
-                          filteredAdmins.map((admin, index) => (
-                            <TableRow 
-                              key={admin.id}
-                              sx={{ 
-                                animation: `${slideInUp} 0.4s ease-out forwards`,
-                                animationDelay: `${index * 50}ms`,
-                                opacity: 0,
-                              }}
-                            >
-                              <TableCell>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                  <Avatar sx={{ bgcolor: '#3b82f6', width: 36, height: 36 }}>
-                                    {admin.first_name?.[0] || admin.email[0].toUpperCase()}
-                                  </Avatar>
-                                  <Box>
-                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                      {admin.first_name} {admin.last_name}
-                                    </Typography>
-                                    {isMobile && (
-                                      <Typography variant="caption" color="text.secondary">
-                                        {admin.email}
-                                      </Typography>
-                                    )}
-                                  </Box>
-                                </Box>
-                              </TableCell>
-                              {!isMobile && <TableCell>{admin.email}</TableCell>}
-                              {!isMobile && (
-                                <TableCell>
-                                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                    {admin.admin_roles && admin.admin_roles.length > 0 ? (
-                                      admin.admin_roles.map((role) => (
-                                        <Chip
-                                          key={role}
-                                          label={role.replace('_admin', '').replace('_', ' ')}
-                                          size="small"
-                                          sx={{ 
-                                            fontSize: '0.7rem',
-                                            textTransform: 'capitalize',
-                                            bgcolor: role === 'superadmin' ? '#ede9fe' : 
-                                                     role === 'bdm_admin' ? '#fae8ff' :
-                                                     role === 'company_admin' ? '#d1fae5' :
-                                                     role === 'hm_admin' ? '#e0f2fe' :
-                                                     role === 'techie_admin' ? '#fef3c7' : '#fee2e2',
-                                            color: role === 'superadmin' ? '#7c3aed' : 
-                                                   role === 'bdm_admin' ? '#c026d3' :
-                                                   role === 'company_admin' ? '#059669' :
-                                                   role === 'hm_admin' ? '#0284c7' :
-                                                   role === 'techie_admin' ? '#d97706' : '#dc2626',
-                                          }}
-                                        />
-                                      ))
-                                    ) : (
-                                      <Typography variant="caption" color="text.secondary">No roles</Typography>
-                                    )}
-                                  </Box>
-                                </TableCell>
-                              )}
-                              <TableCell>
-                                <AnimatedChip
-                                  label={admin.is_active ? 'Active' : 'Blocked'}
-                                  size="small"
-                                  sx={{
-                                    bgcolor: admin.is_active ? '#dcfce7' : '#fee2e2',
-                                    color: admin.is_active ? '#16a34a' : '#dc2626',
-                                  }}
-                                />
-                              </TableCell>
-                              {!isMobile && (
-                                <TableCell>{new Date(admin.date_joined).toLocaleDateString()}</TableCell>
-                              )}
-                              <TableCell>
-                                <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
-                                  <Tooltip title={admin.is_active ? 'Click to Block' : 'Click to Activate'}>
-                                    <IconButton
-                                      size="small"
-                                      onClick={() => handleToggleAdminStatus(admin)}
-                                      sx={{
-                                        color: admin.is_active ? '#16a34a' : '#dc2626',
-                                        transition: 'all 0.3s ease',
-                                        '&:hover': { 
-                                          bgcolor: admin.is_active ? '#dcfce7' : '#fee2e2',
-                                          transform: 'scale(1.15)',
-                                        },
-                                      }}
-                                    >
-                                      {admin.is_active ? <CheckCircle fontSize="small" /> : <Block fontSize="small" />}
-                                    </IconButton>
-                                  </Tooltip>
-                                  <Tooltip title="Manage Roles">
-                                    <IconButton 
-                                      size="small" 
-                                      onClick={() => {
-                                        setEditingAdmin(admin);
-                                        setEditingAdminRoles((admin as any).admin_roles || []);
-                                        setEditRolesDialogOpen(true);
-                                      }}
-                                      sx={{ 
-                                        color: '#7c3aed',
-                                        transition: 'all 0.3s ease',
-                                        '&:hover': { 
-                                          bgcolor: 'rgba(124, 58, 237, 0.1)',
-                                          transform: 'scale(1.15)',
-                                        },
-                                      }}
-                                    >
-                                      <Settings fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                  <Tooltip title="Reset Password">
-                                    <IconButton 
-                                      size="small" 
-                                      sx={{ 
-                                        color: '#6b7280',
-                                        transition: 'all 0.3s ease',
-                                        '&:hover': { 
-                                          bgcolor: 'rgba(99, 102, 241, 0.1)',
-                                          color: '#6366f1',
-                                          transform: 'scale(1.15)',
-                                        },
-                                      }}
-                                    >
-                                      <LockReset fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                  <Tooltip title="Delete Admin Permanently">
-                                    <IconButton 
-                                      size="small" 
-                                      onClick={() => {
-                                        setAdminToDelete(admin);
-                                        setDeleteAdminDialog(true);
-                                      }}
-                                      sx={{ 
-                                        color: '#dc2626',
-                                        transition: 'all 0.3s ease',
-                                        '&:hover': { 
-                                          bgcolor: 'rgba(220, 38, 38, 0.1)',
-                                          transform: 'scale(1.15)',
-                                        },
-                                      }}
-                                    >
-                                      <Delete fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
+                        </TableHead>
+                        <TableBody>
+                          {filteredAdmins.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
+                                <Box sx={{ animation: `${fadeIn} 0.5s ease-out` }}>
+                                  <AnimatedAvatar sx={{
+                                    width: 80,
+                                    height: 80,
+                                    mx: 'auto',
+                                    mb: 2,
+                                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1))'
+                                  }}>
+                                    <SupervisorAccount sx={{ fontSize: 40, color: '#94a3b8' }} />
+                                  </AnimatedAvatar>
+                                  <Typography color="text.secondary" sx={{ fontWeight: 500 }}>No admins found</Typography>
+                                  <Typography variant="caption" color="text.secondary">Try adjusting your search</Typography>
                                 </Box>
                               </TableCell>
                             </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </StyledTableContainer>
-                </Paper>
-              )}
-            </Box>
-          )}
-
-          {/* Role Management Tab */}
-          {activeTab === 1 && (
-            <Box sx={{ p: { xs: 2, md: 3 }, animation: `${fadeIn} 0.5s ease-out` }}>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: { xs: 'column', sm: 'row' },
-                gap: 2, 
-                mb: 3,
-                alignItems: { xs: 'stretch', sm: 'center' },
-                justifyContent: 'space-between',
-              }}>
-                <SearchField
-                  placeholder="Search roles..."
-                  size="small"
-                  value={roleSearchQuery}
-                  onChange={(e) => setRoleSearchQuery(e.target.value)}
-                  sx={{ 
-                    width: { xs: '100%', sm: 300 },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Search sx={{ color: '#94a3b8' }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                 
-                  <AnimatedButton
-                    startIcon={<Add />}
-                    onClick={() => {
-                      setRoleForm({ name: '', selectedPermissions: [] });
-                      setCreateRoleDialog(true);
-                    }}
-                    variant="contained"
-                    sx={{ color: '#ffffff' }}
-                  >
-                    {isMobile ? 'Add' : 'Create Role'}
-                  </AnimatedButton>
-                </Box>
-              </Box>
-
-              {loadingRoles ? (
-                <Box sx={{ 
-                  py: 6, 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  alignItems: 'center',
-                  animation: `${fadeIn} 0.5s ease-out`,
-                }}>
-                  <Box sx={{ width: '60%', maxWidth: 300 }}>
-                    <LinearProgress 
-                      sx={{ 
-                        height: 6, 
-                        borderRadius: 3,
-                        backgroundColor: 'rgba(139, 92, 246, 0.1)',
-                        '& .MuiLinearProgress-bar': {
-                          background: 'linear-gradient(90deg, #8b5cf6, #ec4899)',
-                          borderRadius: 3,
-                        }
-                      }} 
-                    />
-                  </Box>
-                  <Typography align="center" sx={{ mt: 2, fontWeight: 500 }} color="text.secondary">
-                    Loading roles...
-                  </Typography>
-                </Box>
-              ) : (
-                <Grid container spacing={2}>
-                  {filteredRoles.length === 0 ? (
-                    <Grid item xs={12}>
-                      <Box sx={{ textAlign: 'center', py: 8, animation: `${fadeIn} 0.5s ease-out` }}>
-                        <AnimatedAvatar sx={{ 
-                          width: 80, 
-                          height: 80, 
-                          mx: 'auto', 
-                          mb: 2,
-                          background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(236, 72, 153, 0.1))'
-                        }}>
-                          <Security sx={{ fontSize: 40, color: '#94a3b8' }} />
-                        </AnimatedAvatar>
-                        <Typography color="text.secondary" sx={{ fontWeight: 500 }}>No roles found</Typography>
-                        <Typography variant="caption" color="text.secondary">Create a new role to get started</Typography>
-                      </Box>
-                    </Grid>
-                  ) : (
-                    filteredRoles.map((role, index) => {
-                      const roleStyle = getRoleColor(role.name);
-                      return (
-                        <Grid item xs={12} sm={6} lg={4} key={role.id}>
-                          <RoleCard sx={{ animationDelay: `${index * 100}ms`, opacity: 0 }}>
-                            <CardContent>
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                  <Avatar sx={{ bgcolor: roleStyle.bg, color: roleStyle.color }}>
-                                    {roleStyle.icon}
-                                  </Avatar>
-                                  <Box>
-                                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                                      {role.name}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      {role.permissions.length} permissions
-                                    </Typography>
-                                  </Box>
-                                </Box>
-                                <Box sx={{ display: 'flex', gap: 0.5 }}>
-                                  <Tooltip title="Edit Role">
-                                    <IconButton 
-                                      size="small" 
-                                      onClick={() => handleEditRole(role)}
-                                      sx={{ 
-                                        color: '#6366f1',
-                                        transition: 'all 0.3s ease',
-                                        '&:hover': { 
-                                          bgcolor: 'rgba(99, 102, 241, 0.1)',
-                                          transform: 'scale(1.15) rotate(15deg)',
-                                        },
-                                      }}
-                                    >
-                                      <Edit fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                  <Tooltip title="Delete Role">
-                                    <IconButton 
-                                      size="small" 
-                                      onClick={() => handleDeleteRole(role.id)}
-                                      sx={{ 
-                                        color: '#dc2626',
-                                        transition: 'all 0.3s ease',
-                                        '&:hover': { 
-                                          bgcolor: '#fee2e2',
-                                          transform: 'scale(1.15)',
-                                        },
-                                      }}
-                                    >
-                                      <Delete fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                </Box>
-                              </Box>
-
-                              <Divider sx={{ my: 1.5 }} />
-
-                              <Box 
-                                sx={{ 
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                }}
-                                onClick={() => setExpandedRoleId(expandedRoleId === role.id ? null : role.id)}
-                              >
-                                <Typography variant="body2" sx={{ fontWeight: 600, color: '#475569' }}>
-                                  View Permissions
-                                </Typography>
-                                {expandedRoleId === role.id ? <ExpandLess /> : <ExpandMore />}
-                              </Box>
-
-                              <Collapse in={expandedRoleId === role.id}>
-                                <Box sx={{ mt: 1.5, maxHeight: 200, overflow: 'auto' }}>
-                                  {role.permissions.length === 0 ? (
-                                    <Typography variant="caption" color="text.secondary">
-                                      No permissions assigned
-                                    </Typography>
-                                  ) : (
-                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                      {role.permissions.map((perm) => (
-                                        <Chip
-                                          key={perm.id}
-                                          label={perm.name}
-                                          size="small"
-                                          variant="outlined"
-                                          sx={{ 
-                                            fontSize: '0.7rem',
-                                            height: 24,
-                                            borderColor: '#e2e8f0',
-                                          }}
-                                        />
-                                      ))}
-                                    </Box>
-                                  )}
-                                </Box>
-                              </Collapse>
-                            </CardContent>
-                          </RoleCard>
-                        </Grid>
-                      );
-                    })
-                  )}
-                </Grid>
-              )}
-            </Box>
-          )}
-
-          {/* User Management Tab */}
-          {activeTab === 2 && (
-            <Box sx={{ p: { xs: 2, md: 3 }, animation: `${fadeIn} 0.5s ease-out` }}>
-              <Box sx={{
-                display: 'flex',
-                flexDirection: { xs: 'column', md: 'row' },
-                gap: 2,
-                mb: 3,
-                alignItems: { xs: 'stretch', md: 'center' },
-              }}>
-                <SearchField
-                  placeholder="Search users..."
-                  size="small"
-                  value={userSearchQuery}
-                  onChange={(e) => setUserSearchQuery(e.target.value)}
-                  sx={{
-                    flex: 1,
-                    maxWidth: { md: 300 },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Search sx={{ color: '#94a3b8' }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-                
-                <Box sx={{ display: 'flex', gap: { xs: 1, md: 2 }, flexWrap: 'wrap' }}>
-                  <FormControl size="small" sx={{ minWidth: { xs: 120, md: 140 } }}>
-                    <InputLabel>User Type</InputLabel>
-                    <Select
-                      value={userTypeFilter}
-                      label="User Type"
-                      onChange={(e) => setUserTypeFilter(e.target.value)}
-                      sx={{ 
-                        borderRadius: '12px',
-                        background: 'rgba(255, 255, 255, 0.9)',
-                        backdropFilter: 'blur(10px)',
-                      }}
-                    >
-                      <MenuItem value="">All Types</MenuItem>
-                      <MenuItem value="techie">Techie</MenuItem>
-                      <MenuItem value="hr">HR</MenuItem>
-                      <MenuItem value="company">Company</MenuItem>
-                      <MenuItem value="school">School</MenuItem>
-                    </Select>
-                  </FormControl>
-
-                  <FormControl size="small" sx={{ minWidth: { xs: 120, md: 140 } }}>
-                    <InputLabel>Status</InputLabel>
-                    <Select
-                      value={userStatusFilter}
-                      label="Status"
-                      onChange={(e) => setUserStatusFilter(e.target.value)}
-                      sx={{ 
-                        borderRadius: '12px',
-                        background: 'rgba(255, 255, 255, 0.9)',
-                        backdropFilter: 'blur(10px)',
-                      }}
-                    >
-                      <MenuItem value="">All Status</MenuItem>
-                      <MenuItem value="verified">Verified</MenuItem>
-                      <MenuItem value="pending">Pending</MenuItem>
-                      <MenuItem value="rejected">Rejected</MenuItem>
-                    </Select>
-                  </FormControl>
-
-                  <AnimatedButton
-                    onClick={() => setCreateUserDialog(true)}
-                    sx={{ 
-                      color: '#ffffff',
-                      minWidth: { xs: 'auto', md: 160 },
-                      px: { xs: 2, md: 3 },
-                    }}
-                  >
-                    <PersonAdd sx={{ mr: { xs: 0, md: 1 } }} />
-                    {!isMobile && 'Create User'}
-                  </AnimatedButton>
-
-                </Box>
-              </Box>
-
-              {loadingUsers ? (
-                <Box sx={{ 
-                  py: 6, 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  alignItems: 'center',
-                  animation: `${fadeIn} 0.5s ease-out`,
-                }}>
-                  <Box sx={{ width: '60%', maxWidth: 300 }}>
-                    <LinearProgress 
-                      sx={{ 
-                        height: 6, 
-                        borderRadius: 3,
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                        '& .MuiLinearProgress-bar': {
-                          background: 'linear-gradient(90deg, #10b981, #3b82f6)',
-                          borderRadius: 3,
-                        }
-                      }} 
-                    />
-                  </Box>
-                  <Typography align="center" sx={{ mt: 2, fontWeight: 500 }} color="text.secondary">
-                    Loading users...
-                  </Typography>
-                </Box>
-              ) : (
-                <Paper elevation={0} sx={{ borderRadius: '12px', overflow: 'hidden' }}>
-                  <StyledTableContainer>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>User</TableCell>
-                          {!isMobile && <TableCell>Type</TableCell>}
-                          <TableCell>Status</TableCell>
-                          {!isTablet && <TableCell>Country</TableCell>}
-                          {!isTablet && <TableCell>Joined</TableCell>}
-                          <TableCell align="center">Actions</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {filteredUsers.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
-                              <Box sx={{ animation: `${fadeIn} 0.5s ease-out` }}>
-                                <AnimatedAvatar sx={{ 
-                                  width: 80, 
-                                  height: 80, 
-                                  mx: 'auto', 
-                                  mb: 2,
-                                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1))'
-                                }}>
-                                  <Groups sx={{ fontSize: 40, color: '#94a3b8' }} />
-                                </AnimatedAvatar>
-                                <Typography color="text.secondary" sx={{ fontWeight: 500 }}>No users found</Typography>
-                                <Typography variant="caption" color="text.secondary">Try adjusting your filters</Typography>
-                              </Box>
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          filteredUsers.map((user, index) => (
-                            <React.Fragment key={user.id}>
+                          ) : (
+                            filteredAdmins.map((admin, index) => (
                               <TableRow
-                                sx={{ 
-                                  cursor: 'pointer',
+                                key={admin.id}
+                                sx={{
                                   animation: `${slideInUp} 0.4s ease-out forwards`,
                                   animationDelay: `${index * 50}ms`,
                                   opacity: 0,
                                 }}
-                                onClick={() => {
-                                  if (isMobile) {
-                                    setExpandedUserId(expandedUserId === user.id ? null : user.id);
-                                  }
-                                }}
                               >
                                 <TableCell>
                                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                    <Avatar sx={{ bgcolor: '#e0e7ff', width: 36, height: 36 }}>
-                                      {getUserTypeIcon(user.user_type || 'techie')}
+                                    <Avatar sx={{ bgcolor: '#3b82f6', width: 36, height: 36 }}>
+                                      {admin.first_name?.[0] || admin.email[0].toUpperCase()}
                                     </Avatar>
                                     <Box>
                                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                        {user.name}
+                                        {admin.first_name} {admin.last_name}
                                       </Typography>
-                                      <Typography variant="caption" color="text.secondary">
-                                        {user.email}
-                                      </Typography>
+                                      {isMobile && (
+                                        <Typography variant="caption" color="text.secondary">
+                                          {admin.email}
+                                        </Typography>
+                                      )}
                                     </Box>
                                   </Box>
                                 </TableCell>
+                                {!isMobile && <TableCell>{admin.email}</TableCell>}
                                 {!isMobile && (
                                   <TableCell>
-                                    <Chip label={user.user_type || 'Techie'} size="small" sx={{ textTransform: 'capitalize' }} />
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                      {admin.admin_roles && admin.admin_roles.length > 0 ? (
+                                        admin.admin_roles.map((role) => (
+                                          <Chip
+                                            key={role}
+                                            label={role.replace('_admin', '').replace('_', ' ')}
+                                            size="small"
+                                            sx={{
+                                              fontSize: '0.7rem',
+                                              textTransform: 'capitalize',
+                                              bgcolor: role === 'superadmin' ? '#ede9fe' :
+                                                role === 'bdm_admin' ? '#fae8ff' :
+                                                  role === 'company_admin' ? '#d1fae5' :
+                                                    role === 'hm_admin' ? '#e0f2fe' :
+                                                      role === 'techie_admin' ? '#fef3c7' : '#fee2e2',
+                                              color: role === 'superadmin' ? '#7c3aed' :
+                                                role === 'bdm_admin' ? '#c026d3' :
+                                                  role === 'company_admin' ? '#059669' :
+                                                    role === 'hm_admin' ? '#0284c7' :
+                                                      role === 'techie_admin' ? '#d97706' : '#dc2626',
+                                            }}
+                                          />
+                                        ))
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">No roles</Typography>
+                                      )}
+                                    </Box>
                                   </TableCell>
                                 )}
-                                <TableCell>{getStatusChip(user)}</TableCell>
-                                {!isTablet && <TableCell>{user.country || 'N/A'}</TableCell>}
-                                {!isTablet && <TableCell>{new Date(user.date_joined).toLocaleDateString()}</TableCell>}
-                                <TableCell align="center">
+                                <TableCell>
+                                  <AnimatedChip
+                                    label={admin.is_active ? 'Active' : 'Blocked'}
+                                    size="small"
+                                    sx={{
+                                      bgcolor: admin.is_active ? '#dcfce7' : '#fee2e2',
+                                      color: admin.is_active ? '#16a34a' : '#dc2626',
+                                    }}
+                                  />
+                                </TableCell>
+                                {!isMobile && (
+                                  <TableCell>{new Date(admin.date_joined).toLocaleDateString()}</TableCell>
+                                )}
+                                <TableCell>
                                   <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
-                                    <Tooltip title="View Details">
+                                    <Tooltip title={admin.is_active ? 'Click to Block' : 'Click to Activate'}>
                                       <IconButton
                                         size="small"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSelectedUser(user);
-                                          setViewUserDialog(true);
-                                          fetchUserTypeDetails(user.id, user.user_type || 'techie');
-                                        }}
-                                        sx={{ 
-                                          color: '#6366f1',
+                                        onClick={() => handleToggleAdminStatus(admin)}
+                                        sx={{
+                                          color: admin.is_active ? '#16a34a' : '#dc2626',
                                           transition: 'all 0.3s ease',
-                                          '&:hover': { 
-                                            bgcolor: 'rgba(99, 102, 241, 0.1)',
-                                            transform: 'scale(1.2)',
+                                          '&:hover': {
+                                            bgcolor: admin.is_active ? '#dcfce7' : '#fee2e2',
+                                            transform: 'scale(1.15)',
                                           },
                                         }}
                                       >
-                                        <Visibility fontSize="small" />
+                                        {admin.is_active ? <CheckCircle fontSize="small" /> : <Block fontSize="small" />}
                                       </IconButton>
                                     </Tooltip>
-                                    <Tooltip title="Delete User Permanently">
+                                    <Tooltip title="Manage Roles">
                                       <IconButton
                                         size="small"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setUserToDelete(user);
-                                          setDeleteUserDialog(true);
+                                        onClick={() => {
+                                          setEditingAdmin(admin);
+                                          setEditingAdminRoles((admin as any).admin_roles || []);
+                                          setEditRolesDialogOpen(true);
                                         }}
-                                        sx={{ 
+                                        sx={{
+                                          color: '#7c3aed',
+                                          transition: 'all 0.3s ease',
+                                          '&:hover': {
+                                            bgcolor: 'rgba(124, 58, 237, 0.1)',
+                                            transform: 'scale(1.15)',
+                                          },
+                                        }}
+                                      >
+                                        <Settings fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="Reset Password">
+                                      <IconButton
+                                        size="small"
+                                        sx={{
+                                          color: '#6b7280',
+                                          transition: 'all 0.3s ease',
+                                          '&:hover': {
+                                            bgcolor: 'rgba(99, 102, 241, 0.1)',
+                                            color: '#6366f1',
+                                            transform: 'scale(1.15)',
+                                          },
+                                        }}
+                                      >
+                                        <LockReset fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="Delete Admin Permanently">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => {
+                                          setAdminToDelete(admin);
+                                          setDeleteAdminDialog(true);
+                                        }}
+                                        sx={{
                                           color: '#dc2626',
                                           transition: 'all 0.3s ease',
-                                          '&:hover': { 
+                                          '&:hover': {
                                             bgcolor: 'rgba(220, 38, 38, 0.1)',
-                                            transform: 'scale(1.2)',
+                                            transform: 'scale(1.15)',
                                           },
                                         }}
                                       >
@@ -2557,342 +2134,774 @@ const SuperAdmin: React.FC = () => {
                                   </Box>
                                 </TableCell>
                               </TableRow>
-                              {isMobile && (
-                                <TableRow>
-                                  <TableCell colSpan={6} sx={{ py: 0, border: 0 }}>
-                                    <Collapse in={expandedUserId === user.id}>
-                                      <Box sx={{ py: 2, pl: 6 }}>
-                                        <Grid container spacing={1}>
-                                          <Grid item xs={6}>
-                                            <Typography variant="caption" color="text.secondary">Type</Typography>
-                                            <Typography variant="body2">{user.user_type || 'Techie'}</Typography>
-                                          </Grid>
-                                          <Grid item xs={6}>
-                                            <Typography variant="caption" color="text.secondary">Country</Typography>
-                                            <Typography variant="body2">{user.country || 'N/A'}</Typography>
-                                          </Grid>
-                                        </Grid>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </StyledTableContainer>
+                  </Paper>
+                )}
+              </Box>
+            )}
+
+            {/* Role Management Tab */}
+            {activeTab === 1 && (
+              <Box sx={{ p: { xs: 2, md: 3 }, animation: `${fadeIn} 0.5s ease-out` }}>
+                <Box sx={{
+                  display: 'flex',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  gap: 2,
+                  mb: 3,
+                  alignItems: { xs: 'stretch', sm: 'center' },
+                  justifyContent: 'space-between',
+                }}>
+                  <SearchField
+                    placeholder="Search roles..."
+                    size="small"
+                    value={roleSearchQuery}
+                    onChange={(e) => setRoleSearchQuery(e.target.value)}
+                    sx={{
+                      width: { xs: '100%', sm: 300 },
+                    }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Search sx={{ color: '#94a3b8' }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+
+                    <AnimatedButton
+                      startIcon={<Add />}
+                      onClick={() => {
+                        setRoleForm({ name: '', selectedPermissions: [] });
+                        setCreateRoleDialog(true);
+                      }}
+                      variant="contained"
+                      sx={{ color: '#ffffff' }}
+                    >
+                      {isMobile ? 'Add' : 'Create Role'}
+                    </AnimatedButton>
+                  </Box>
+                </Box>
+
+                {loadingRoles ? (
+                  <Box sx={{
+                    py: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    animation: `${fadeIn} 0.5s ease-out`,
+                  }}>
+                    <Box sx={{ width: '60%', maxWidth: 300 }}>
+                      <LinearProgress
+                        sx={{
+                          height: 6,
+                          borderRadius: 3,
+                          backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                          '& .MuiLinearProgress-bar': {
+                            background: 'linear-gradient(90deg, #8b5cf6, #ec4899)',
+                            borderRadius: 3,
+                          }
+                        }}
+                      />
+                    </Box>
+                    <Typography align="center" sx={{ mt: 2, fontWeight: 500 }} color="text.secondary">
+                      Loading roles...
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Grid container spacing={2}>
+                    {filteredRoles.length === 0 ? (
+                      <Grid item xs={12}>
+                        <Box sx={{ textAlign: 'center', py: 8, animation: `${fadeIn} 0.5s ease-out` }}>
+                          <AnimatedAvatar sx={{
+                            width: 80,
+                            height: 80,
+                            mx: 'auto',
+                            mb: 2,
+                            background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(236, 72, 153, 0.1))'
+                          }}>
+                            <Security sx={{ fontSize: 40, color: '#94a3b8' }} />
+                          </AnimatedAvatar>
+                          <Typography color="text.secondary" sx={{ fontWeight: 500 }}>No roles found</Typography>
+                          <Typography variant="caption" color="text.secondary">Create a new role to get started</Typography>
+                        </Box>
+                      </Grid>
+                    ) : (
+                      filteredRoles.map((role, index) => {
+                        const roleStyle = getRoleColor(role.name);
+                        return (
+                          <Grid item xs={12} sm={6} lg={4} key={role.id}>
+                            <RoleCard sx={{ animationDelay: `${index * 100}ms`, opacity: 0 }}>
+                              <CardContent>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                    <Avatar sx={{ bgcolor: roleStyle.bg, color: roleStyle.color }}>
+                                      {roleStyle.icon}
+                                    </Avatar>
+                                    <Box>
+                                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                                        {role.name}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        {role.permissions.length} permissions
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+                                  <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                    <Tooltip title="Edit Role">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleEditRole(role)}
+                                        sx={{
+                                          color: '#6366f1',
+                                          transition: 'all 0.3s ease',
+                                          '&:hover': {
+                                            bgcolor: 'rgba(99, 102, 241, 0.1)',
+                                            transform: 'scale(1.15) rotate(15deg)',
+                                          },
+                                        }}
+                                      >
+                                        <Edit fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="Delete Role">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleDeleteRole(role.id)}
+                                        sx={{
+                                          color: '#dc2626',
+                                          transition: 'all 0.3s ease',
+                                          '&:hover': {
+                                            bgcolor: '#fee2e2',
+                                            transform: 'scale(1.15)',
+                                          },
+                                        }}
+                                      >
+                                        <Delete fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </Box>
+                                </Box>
+
+                                <Divider sx={{ my: 1.5 }} />
+
+                                <Box
+                                  sx={{
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                  }}
+                                  onClick={() => setExpandedRoleId(expandedRoleId === role.id ? null : role.id)}
+                                >
+                                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#475569' }}>
+                                    View Permissions
+                                  </Typography>
+                                  {expandedRoleId === role.id ? <ExpandLess /> : <ExpandMore />}
+                                </Box>
+
+                                <Collapse in={expandedRoleId === role.id}>
+                                  <Box sx={{ mt: 1.5, maxHeight: 200, overflow: 'auto' }}>
+                                    {role.permissions.length === 0 ? (
+                                      <Typography variant="caption" color="text.secondary">
+                                        No permissions assigned
+                                      </Typography>
+                                    ) : (
+                                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                        {role.permissions.map((perm) => (
+                                          <Chip
+                                            key={perm.id}
+                                            label={perm.name}
+                                            size="small"
+                                            variant="outlined"
+                                            sx={{
+                                              fontSize: '0.7rem',
+                                              height: 24,
+                                              borderColor: '#e2e8f0',
+                                            }}
+                                          />
+                                        ))}
                                       </Box>
-                                    </Collapse>
+                                    )}
+                                  </Box>
+                                </Collapse>
+                              </CardContent>
+                            </RoleCard>
+                          </Grid>
+                        );
+                      })
+                    )}
+                  </Grid>
+                )}
+              </Box>
+            )}
+
+            {/* User Management Tab */}
+            {activeTab === 2 && (
+              <Box sx={{ p: { xs: 2, md: 3 }, animation: `${fadeIn} 0.5s ease-out` }}>
+                <Box sx={{
+                  display: 'flex',
+                  flexDirection: { xs: 'column', md: 'row' },
+                  gap: 2,
+                  mb: 3,
+                  alignItems: { xs: 'stretch', md: 'center' },
+                }}>
+                  <SearchField
+                    placeholder="Search users..."
+                    size="small"
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    sx={{
+                      flex: 1,
+                      maxWidth: { md: 300 },
+                    }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Search sx={{ color: '#94a3b8' }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+
+                  <Box sx={{ display: 'flex', gap: { xs: 1, md: 2 }, flexWrap: 'wrap' }}>
+                    <FormControl size="small" sx={{ minWidth: { xs: 120, md: 140 } }}>
+                      <InputLabel>User Type</InputLabel>
+                      <Select
+                        value={userTypeFilter}
+                        label="User Type"
+                        onChange={(e) => setUserTypeFilter(e.target.value)}
+                        sx={{
+                          borderRadius: '12px',
+                          background: 'rgba(255, 255, 255, 0.9)',
+                          backdropFilter: 'blur(10px)',
+                        }}
+                      >
+                        <MenuItem value="">All Types</MenuItem>
+                        <MenuItem value="techie">Techie</MenuItem>
+                        <MenuItem value="hr">HR</MenuItem>
+                        <MenuItem value="company">Company</MenuItem>
+                        <MenuItem value="school">School</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    <FormControl size="small" sx={{ minWidth: { xs: 120, md: 140 } }}>
+                      <InputLabel>Status</InputLabel>
+                      <Select
+                        value={userStatusFilter}
+                        label="Status"
+                        onChange={(e) => setUserStatusFilter(e.target.value)}
+                        sx={{
+                          borderRadius: '12px',
+                          background: 'rgba(255, 255, 255, 0.9)',
+                          backdropFilter: 'blur(10px)',
+                        }}
+                      >
+                        <MenuItem value="">All Status</MenuItem>
+                        <MenuItem value="verified">Verified</MenuItem>
+                        <MenuItem value="pending">Pending</MenuItem>
+                        <MenuItem value="rejected">Rejected</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    <AnimatedButton
+                      onClick={() => setCreateUserDialog(true)}
+                      sx={{
+                        color: '#ffffff',
+                        minWidth: { xs: 'auto', md: 160 },
+                        px: { xs: 2, md: 3 },
+                      }}
+                    >
+                      <PersonAdd sx={{ mr: { xs: 0, md: 1 } }} />
+                      {!isMobile && 'Create User'}
+                    </AnimatedButton>
+
+                  </Box>
+                </Box>
+
+                {loadingUsers ? (
+                  <Box sx={{
+                    py: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    animation: `${fadeIn} 0.5s ease-out`,
+                  }}>
+                    <Box sx={{ width: '60%', maxWidth: 300 }}>
+                      <LinearProgress
+                        sx={{
+                          height: 6,
+                          borderRadius: 3,
+                          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                          '& .MuiLinearProgress-bar': {
+                            background: 'linear-gradient(90deg, #10b981, #3b82f6)',
+                            borderRadius: 3,
+                          }
+                        }}
+                      />
+                    </Box>
+                    <Typography align="center" sx={{ mt: 2, fontWeight: 500 }} color="text.secondary">
+                      Loading users...
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Paper elevation={0} sx={{ borderRadius: '12px', overflow: 'hidden' }}>
+                    <StyledTableContainer>
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>User</TableCell>
+                            {!isMobile && <TableCell>Type</TableCell>}
+                            <TableCell>Status</TableCell>
+                            {!isTablet && <TableCell>Country</TableCell>}
+                            {!isTablet && <TableCell>Joined</TableCell>}
+                            <TableCell align="center">Actions</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {filteredUsers.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
+                                <Box sx={{ animation: `${fadeIn} 0.5s ease-out` }}>
+                                  <AnimatedAvatar sx={{
+                                    width: 80,
+                                    height: 80,
+                                    mx: 'auto',
+                                    mb: 2,
+                                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1))'
+                                  }}>
+                                    <Groups sx={{ fontSize: 40, color: '#94a3b8' }} />
+                                  </AnimatedAvatar>
+                                  <Typography color="text.secondary" sx={{ fontWeight: 500 }}>No users found</Typography>
+                                  <Typography variant="caption" color="text.secondary">Try adjusting your filters</Typography>
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            filteredUsers.map((user, index) => (
+                              <React.Fragment key={user.id}>
+                                <TableRow
+                                  sx={{
+                                    cursor: 'pointer',
+                                    animation: `${slideInUp} 0.4s ease-out forwards`,
+                                    animationDelay: `${index * 50}ms`,
+                                    opacity: 0,
+                                  }}
+                                  onClick={() => {
+                                    if (isMobile) {
+                                      setExpandedUserId(expandedUserId === user.id ? null : user.id);
+                                    }
+                                  }}
+                                >
+                                  <TableCell>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                      <Avatar sx={{ bgcolor: '#e0e7ff', width: 36, height: 36 }}>
+                                        {getUserTypeIcon(user.user_type || 'techie')}
+                                      </Avatar>
+                                      <Box>
+                                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                          {user.name}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                          {user.email}
+                                        </Typography>
+                                      </Box>
+                                    </Box>
+                                  </TableCell>
+                                  {!isMobile && (
+                                    <TableCell>
+                                      <Chip label={user.user_type || 'Techie'} size="small" sx={{ textTransform: 'capitalize' }} />
+                                    </TableCell>
+                                  )}
+                                  <TableCell>{getStatusChip(user)}</TableCell>
+                                  {!isTablet && <TableCell>{user.country || 'N/A'}</TableCell>}
+                                  {!isTablet && <TableCell>{new Date(user.date_joined).toLocaleDateString()}</TableCell>}
+                                  <TableCell align="center">
+                                    <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+                                      <Tooltip title="View Details">
+                                        <IconButton
+                                          size="small"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedUser(user);
+                                            setViewUserDialog(true);
+                                            fetchUserTypeDetails(user.id, user.user_type || 'techie');
+                                          }}
+                                          sx={{
+                                            color: '#6366f1',
+                                            transition: 'all 0.3s ease',
+                                            '&:hover': {
+                                              bgcolor: 'rgba(99, 102, 241, 0.1)',
+                                              transform: 'scale(1.2)',
+                                            },
+                                          }}
+                                        >
+                                          <Visibility fontSize="small" />
+                                        </IconButton>
+                                      </Tooltip>
+                                      <Tooltip title="Delete User Permanently">
+                                        <IconButton
+                                          size="small"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setUserToDelete(user);
+                                            setDeleteUserDialog(true);
+                                          }}
+                                          sx={{
+                                            color: '#dc2626',
+                                            transition: 'all 0.3s ease',
+                                            '&:hover': {
+                                              bgcolor: 'rgba(220, 38, 38, 0.1)',
+                                              transform: 'scale(1.2)',
+                                            },
+                                          }}
+                                        >
+                                          <Delete fontSize="small" />
+                                        </IconButton>
+                                      </Tooltip>
+                                    </Box>
                                   </TableCell>
                                 </TableRow>
-                              )}
-                            </React.Fragment>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </StyledTableContainer>
-                </Paper>
-              )}
-            </Box>
-          )}
-
-          {/* Blocked Profiles Tab */}
-          {activeTab === 3 && (
-            <Box sx={{ p: { xs: 2, md: 3 }, animation: `${fadeIn} 0.5s ease-out` }}>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: { xs: 'column', sm: 'row' },
-                justifyContent: 'space-between', 
-                alignItems: { xs: 'stretch', sm: 'center' }, 
-                gap: 2, 
-                mb: 3 
-              }}>
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Block sx={{ color: '#dc2626' }} />
-                    Blocked Profiles
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Manage blocked users and view blocking history
-                  </Typography>
-                </Box>
-                <Button
-                  variant="outlined"
-                  startIcon={<Refresh />}
-                  onClick={fetchBlockedProfiles}
-                  sx={{ borderRadius: '12px' }}
-                >
-                  Refresh
-                </Button>
+                                {isMobile && (
+                                  <TableRow>
+                                    <TableCell colSpan={6} sx={{ py: 0, border: 0 }}>
+                                      <Collapse in={expandedUserId === user.id}>
+                                        <Box sx={{ py: 2, pl: 6 }}>
+                                          <Grid container spacing={1}>
+                                            <Grid item xs={6}>
+                                              <Typography variant="caption" color="text.secondary">Type</Typography>
+                                              <Typography variant="body2">{user.user_type || 'Techie'}</Typography>
+                                            </Grid>
+                                            <Grid item xs={6}>
+                                              <Typography variant="caption" color="text.secondary">Country</Typography>
+                                              <Typography variant="body2">{user.country || 'N/A'}</Typography>
+                                            </Grid>
+                                          </Grid>
+                                        </Box>
+                                      </Collapse>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </React.Fragment>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </StyledTableContainer>
+                  </Paper>
+                )}
               </Box>
+            )}
 
-              {loadingBlocked ? (
-                <Box sx={{ py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <LinearProgress sx={{ width: '60%', maxWidth: 300, height: 6, borderRadius: 3 }} />
-                  <Typography align="center" sx={{ mt: 2 }} color="text.secondary">
-                    Loading blocked profiles...
-                  </Typography>
-                </Box>
-              ) : blockedProfiles.length === 0 ? (
-                <Paper elevation={0} sx={{ p: 6, textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                  <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2, bgcolor: '#f0fdf4' }}>
-                    <CheckCircle sx={{ fontSize: 40, color: '#22c55e' }} />
-                  </Avatar>
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>No Blocked Profiles</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    There are currently no blocked users in the system.
-                  </Typography>
-                </Paper>
-              ) : (
-                <Paper elevation={0} sx={{ borderRadius: '12px', overflow: 'hidden' }}>
-                  <StyledTableContainer>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>User</TableCell>
-                          <TableCell>Type</TableCell>
-                          <TableCell>Blocked Date</TableCell>
-                          <TableCell>Reason</TableCell>
-                          <TableCell align="center">Actions</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {blockedProfiles.map((profile: any) => (
-                          <TableRow key={profile.id}>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                <Avatar sx={{ bgcolor: '#fee2e2', width: 40, height: 40 }}>
-                                  <Block sx={{ color: '#dc2626' }} />
-                                </Avatar>
-                                <Box>
-                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                    {profile.full_name}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    {profile.email}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                            </TableCell>
-                            <TableCell>
-                              <Chip label={profile.user_type} size="small" />
-                            </TableCell>
-                            <TableCell>
-                              {profile.blocked_at ? new Date(profile.blocked_at).toLocaleDateString() : 'N/A'}
-                            </TableCell>
-                            <TableCell>
-                              <Tooltip title={profile.blocked_reason || 'No reason provided'}>
-                                <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {profile.blocked_reason || 'No reason provided'}
-                                </Typography>
-                              </Tooltip>
-                            </TableCell>
-                            <TableCell align="center">
-                              <Button
-                                size="small"
-                                variant="contained"
-                                color="success"
-                                startIcon={<CheckCircle />}
-                                onClick={() => {
-                                  setSelectedBlockedUser(profile);
-                                  setUnblockDialogOpen(true);
-                                }}
-                                sx={{ borderRadius: '8px', textTransform: 'none' }}
-                              >
-                                Unblock
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </StyledTableContainer>
-                </Paper>
-              )}
-            </Box>
-          )}
-
-          {/* Pending Approvals Tab */}
-          {activeTab === 4 && (
-            <Box sx={{ p: { xs: 2, md: 3 }, animation: `${fadeIn} 0.5s ease-out` }}>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: { xs: 'column', sm: 'row' },
-                justifyContent: 'space-between', 
-                alignItems: { xs: 'stretch', sm: 'center' }, 
-                gap: 2, 
-                mb: 3 
-              }}>
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <CheckCircle sx={{ color: '#059669' }} />
-                    Pending Approvals
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Review and approve pending user registrations
-                  </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                  <FormControl size="small" sx={{ minWidth: 140 }}>
-                    <InputLabel>User Type</InputLabel>
-                    <Select
-                      value={approvalTypeFilter}
-                      label="User Type"
-                      onChange={(e) => setApprovalTypeFilter(e.target.value)}
-                      sx={{ borderRadius: '12px' }}
-                    >
-                      <MenuItem value="">All Types</MenuItem>
-                      <MenuItem value="techie">Techie</MenuItem>
-                      <MenuItem value="hr">Hiring Manager</MenuItem>
-                      <MenuItem value="company">Company</MenuItem>
-                      <MenuItem value="school">School</MenuItem>
-                    </Select>
-                  </FormControl>
+            {/* Blocked Profiles Tab */}
+            {activeTab === 3 && (
+              <Box sx={{ p: { xs: 2, md: 3 }, animation: `${fadeIn} 0.5s ease-out` }}>
+                <Box sx={{
+                  display: 'flex',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  justifyContent: 'space-between',
+                  alignItems: { xs: 'stretch', sm: 'center' },
+                  gap: 2,
+                  mb: 3
+                }}>
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Block sx={{ color: '#dc2626' }} />
+                      Blocked Profiles
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Manage blocked users and view blocking history
+                    </Typography>
+                  </Box>
                   <Button
                     variant="outlined"
                     startIcon={<Refresh />}
-                    onClick={fetchPendingApprovals}
+                    onClick={fetchBlockedProfiles}
                     sx={{ borderRadius: '12px' }}
                   >
                     Refresh
                   </Button>
                 </Box>
-              </Box>
 
-              {/* Approval Stats */}
-              <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid item xs={6} md={3}>
-                  <Card sx={{ p: 2, borderRadius: '12px', textAlign: 'center' }}>
-                    <Typography variant="h4" sx={{ fontWeight: 700, color: '#f59e0b' }}>{approvalStats.pending}</Typography>
-                    <Typography variant="body2" color="text.secondary">Pending</Typography>
-                  </Card>
-                </Grid>
-                <Grid item xs={6} md={3}>
-                  <Card sx={{ p: 2, borderRadius: '12px', textAlign: 'center' }}>
-                    <Typography variant="h4" sx={{ fontWeight: 700, color: '#22c55e' }}>{approvalStats.approved}</Typography>
-                    <Typography variant="body2" color="text.secondary">Approved</Typography>
-                  </Card>
-                </Grid>
-                <Grid item xs={6} md={3}>
-                  <Card sx={{ p: 2, borderRadius: '12px', textAlign: 'center' }}>
-                    <Typography variant="h4" sx={{ fontWeight: 700, color: '#dc2626' }}>{approvalStats.rejected}</Typography>
-                    <Typography variant="body2" color="text.secondary">Rejected</Typography>
-                  </Card>
-                </Grid>
-                <Grid item xs={6} md={3}>
-                  <Card sx={{ p: 2, borderRadius: '12px', textAlign: 'center' }}>
-                    <Typography variant="h4" sx={{ fontWeight: 700, color: '#6366f1' }}>{approvalStats.total}</Typography>
-                    <Typography variant="body2" color="text.secondary">Total</Typography>
-                  </Card>
-                </Grid>
-              </Grid>
-
-              {loadingApprovals ? (
-                <Box sx={{ py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <LinearProgress sx={{ width: '60%', maxWidth: 300, height: 6, borderRadius: 3 }} />
-                  <Typography align="center" sx={{ mt: 2 }} color="text.secondary">
-                    Loading pending approvals...
-                  </Typography>
-                </Box>
-              ) : pendingApprovals.length === 0 ? (
-                <Paper elevation={0} sx={{ p: 6, textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                  <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2, bgcolor: '#f0fdf4' }}>
-                    <CheckCircle sx={{ fontSize: 40, color: '#22c55e' }} />
-                  </Avatar>
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>No Pending Approvals</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    All user registrations have been reviewed.
-                  </Typography>
-                </Paper>
-              ) : (
-                <Paper elevation={0} sx={{ borderRadius: '12px', overflow: 'hidden' }}>
-                  <StyledTableContainer>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>User</TableCell>
-                          <TableCell>Type</TableCell>
-                          <TableCell>Submitted</TableCell>
-                          <TableCell>Status</TableCell>
-                          <TableCell align="center">Actions</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {pendingApprovals.map((approval: any) => (
-                          <TableRow key={approval.id}>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                <Avatar sx={{ bgcolor: '#e0e7ff', width: 40, height: 40 }}>
-                                  {approval.user_type === 'techie' && <Engineering sx={{ color: '#6366f1' }} />}
-                                  {approval.user_type === 'hr' && <SupervisorAccount sx={{ color: '#6366f1' }} />}
-                                  {approval.user_type === 'company' && <Business sx={{ color: '#6366f1' }} />}
-                                  {approval.user_type === 'school' && <School sx={{ color: '#6366f1' }} />}
-                                </Avatar>
-                                <Box>
-                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                    {approval.user_full_name}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    {approval.user_email}
-                                  </Typography>
+                {loadingBlocked ? (
+                  <Box sx={{ py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <LinearProgress sx={{ width: '60%', maxWidth: 300, height: 6, borderRadius: 3 }} />
+                    <Typography align="center" sx={{ mt: 2 }} color="text.secondary">
+                      Loading blocked profiles...
+                    </Typography>
+                  </Box>
+                ) : blockedProfiles.length === 0 ? (
+                  <Paper elevation={0} sx={{ p: 6, textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2, bgcolor: '#f0fdf4' }}>
+                      <CheckCircle sx={{ fontSize: 40, color: '#22c55e' }} />
+                    </Avatar>
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>No Blocked Profiles</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      There are currently no blocked users in the system.
+                    </Typography>
+                  </Paper>
+                ) : (
+                  <Paper elevation={0} sx={{ borderRadius: '12px', overflow: 'hidden' }}>
+                    <StyledTableContainer>
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>User</TableCell>
+                            <TableCell>Type</TableCell>
+                            <TableCell>Blocked Date</TableCell>
+                            <TableCell>Reason</TableCell>
+                            <TableCell align="center">Actions</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {blockedProfiles.map((profile: any) => (
+                            <TableRow key={profile.id}>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                  <Avatar sx={{ bgcolor: '#fee2e2', width: 40, height: 40 }}>
+                                    <Block sx={{ color: '#dc2626' }} />
+                                  </Avatar>
+                                  <Box>
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                      {profile.full_name}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {profile.email}
+                                    </Typography>
+                                  </Box>
                                 </Box>
-                              </Box>
-                            </TableCell>
-                            <TableCell>
-                              <Chip label={approval.user_type} size="small" sx={{ textTransform: 'capitalize' }} />
-                            </TableCell>
-                            <TableCell>
-                              {new Date(approval.created_at).toLocaleDateString()}
-                            </TableCell>
-                            <TableCell>
-                              <Chip 
-                                label={approval.status} 
-                                size="small"
-                                color={approval.status === 'pending' ? 'warning' : approval.status === 'approved' ? 'success' : 'error'}
-                              />
-                            </TableCell>
-                            <TableCell align="center">
-                              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+                              </TableCell>
+                              <TableCell>
+                                <Chip label={profile.user_type} size="small" />
+                              </TableCell>
+                              <TableCell>
+                                {profile.blocked_at ? new Date(profile.blocked_at).toLocaleDateString() : 'N/A'}
+                              </TableCell>
+                              <TableCell>
+                                <Tooltip title={profile.blocked_reason || 'No reason provided'}>
+                                  <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {profile.blocked_reason || 'No reason provided'}
+                                  </Typography>
+                                </Tooltip>
+                              </TableCell>
+                              <TableCell align="center">
                                 <Button
                                   size="small"
-                                  variant="outlined"
-                                  color="primary"
-                                  onClick={() => fetchFullProfile(approval.id)}
-                                  disabled={loadingProfile}
+                                  variant="contained"
+                                  color="success"
+                                  startIcon={<CheckCircle />}
+                                  onClick={() => {
+                                    setSelectedBlockedUser(profile);
+                                    setUnblockDialogOpen(true);
+                                  }}
                                   sx={{ borderRadius: '8px', textTransform: 'none' }}
-                                  startIcon={<Visibility />}
                                 >
-                                  Review
+                                  Unblock
                                 </Button>
-                                {approval.status === 'pending' && (
-                                  <>
-                                    <Button
-                                      size="small"
-                                      variant="contained"
-                                      color="success"
-                                      onClick={() => handleApproveUser(approval.id)}
-                                      sx={{ borderRadius: '8px', textTransform: 'none' }}
-                                    >
-                                      Approve
-                                    </Button>
-                                    <Button
-                                      size="small"
-                                      variant="outlined"
-                                      color="error"
-                                      onClick={() => {
-                                        setSelectedApproval(approval);
-                                        setRejectDialogOpen(true);
-                                      }}
-                                      sx={{ borderRadius: '8px', textTransform: 'none' }}
-                                    >
-                                      Reject
-                                    </Button>
-                                  </>
-                                )}
-                              </Box>
-                            </TableCell>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </StyledTableContainer>
+                  </Paper>
+                )}
+              </Box>
+            )}
+
+            {/* Pending Approvals Tab */}
+            {activeTab === 4 && (
+              <Box sx={{ p: { xs: 2, md: 3 }, animation: `${fadeIn} 0.5s ease-out` }}>
+                <Box sx={{
+                  display: 'flex',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  justifyContent: 'space-between',
+                  alignItems: { xs: 'stretch', sm: 'center' },
+                  gap: 2,
+                  mb: 3
+                }}>
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CheckCircle sx={{ color: '#059669' }} />
+                      Pending Approvals
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Review and approve pending user registrations
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 2 }}>
+                    <FormControl size="small" sx={{ minWidth: 140 }}>
+                      <InputLabel>User Type</InputLabel>
+                      <Select
+                        value={approvalTypeFilter}
+                        label="User Type"
+                        onChange={(e) => setApprovalTypeFilter(e.target.value)}
+                        sx={{ borderRadius: '12px' }}
+                      >
+                        <MenuItem value="">All Types</MenuItem>
+                        <MenuItem value="techie">Techie</MenuItem>
+                        <MenuItem value="hr">Hiring Manager</MenuItem>
+                        <MenuItem value="company">Company</MenuItem>
+                        <MenuItem value="school">School</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Button
+                      variant="outlined"
+                      startIcon={<Refresh />}
+                      onClick={fetchPendingApprovals}
+                      sx={{ borderRadius: '12px' }}
+                    >
+                      Refresh
+                    </Button>
+                  </Box>
+                </Box>
+
+                {/* Approval Stats */}
+                <Grid container spacing={2} sx={{ mb: 3 }}>
+                  <Grid item xs={6} md={3}>
+                    <Card sx={{ p: 2, borderRadius: '12px', textAlign: 'center' }}>
+                      <Typography variant="h4" sx={{ fontWeight: 700, color: '#f59e0b' }}>{approvalStats.pending}</Typography>
+                      <Typography variant="body2" color="text.secondary">Pending</Typography>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Card sx={{ p: 2, borderRadius: '12px', textAlign: 'center' }}>
+                      <Typography variant="h4" sx={{ fontWeight: 700, color: '#22c55e' }}>{approvalStats.approved}</Typography>
+                      <Typography variant="body2" color="text.secondary">Approved</Typography>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Card sx={{ p: 2, borderRadius: '12px', textAlign: 'center' }}>
+                      <Typography variant="h4" sx={{ fontWeight: 700, color: '#dc2626' }}>{approvalStats.rejected}</Typography>
+                      <Typography variant="body2" color="text.secondary">Rejected</Typography>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Card sx={{ p: 2, borderRadius: '12px', textAlign: 'center' }}>
+                      <Typography variant="h4" sx={{ fontWeight: 700, color: '#6366f1' }}>{approvalStats.total}</Typography>
+                      <Typography variant="body2" color="text.secondary">Total</Typography>
+                    </Card>
+                  </Grid>
+                </Grid>
+
+                {loadingApprovals ? (
+                  <Box sx={{ py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <LinearProgress sx={{ width: '60%', maxWidth: 300, height: 6, borderRadius: 3 }} />
+                    <Typography align="center" sx={{ mt: 2 }} color="text.secondary">
+                      Loading pending approvals...
+                    </Typography>
+                  </Box>
+                ) : pendingApprovals.length === 0 ? (
+                  <Paper elevation={0} sx={{ p: 6, textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2, bgcolor: '#f0fdf4' }}>
+                      <CheckCircle sx={{ fontSize: 40, color: '#22c55e' }} />
+                    </Avatar>
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>No Pending Approvals</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      All user registrations have been reviewed.
+                    </Typography>
+                  </Paper>
+                ) : (
+                  <Paper elevation={0} sx={{ borderRadius: '12px', overflow: 'hidden' }}>
+                    <StyledTableContainer>
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>User</TableCell>
+                            <TableCell>Type</TableCell>
+                            <TableCell>Submitted</TableCell>
+                            <TableCell>Status</TableCell>
+                            <TableCell align="center">Actions</TableCell>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </StyledTableContainer>
-                </Paper>
-              )}
-            </Box>
-          )}
-        </GlassCard>
+                        </TableHead>
+                        <TableBody>
+                          {pendingApprovals.map((approval: any) => (
+                            <TableRow key={approval.id}>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                  <Avatar sx={{ bgcolor: '#e0e7ff', width: 40, height: 40 }}>
+                                    {approval.user_type === 'techie' && <Engineering sx={{ color: '#6366f1' }} />}
+                                    {approval.user_type === 'hr' && <SupervisorAccount sx={{ color: '#6366f1' }} />}
+                                    {approval.user_type === 'company' && <Business sx={{ color: '#6366f1' }} />}
+                                    {approval.user_type === 'school' && <School sx={{ color: '#6366f1' }} />}
+                                  </Avatar>
+                                  <Box>
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                      {approval.user_full_name}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {approval.user_email}
+                                    </Typography>
+                                  </Box>
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Chip label={approval.user_type} size="small" sx={{ textTransform: 'capitalize' }} />
+                              </TableCell>
+                              <TableCell>
+                                {new Date(approval.created_at).toLocaleDateString()}
+                              </TableCell>
+                              <TableCell>
+                                <Chip
+                                  label={approval.status}
+                                  size="small"
+                                  color={approval.status === 'pending' ? 'warning' : approval.status === 'approved' ? 'success' : 'error'}
+                                />
+                              </TableCell>
+                              <TableCell align="center">
+                                <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="primary"
+                                    onClick={() => fetchFullProfile(approval.id)}
+                                    disabled={loadingProfile}
+                                    sx={{ borderRadius: '8px', textTransform: 'none' }}
+                                    startIcon={<Visibility />}
+                                  >
+                                    Review
+                                  </Button>
+                                  {approval.status === 'pending' && (
+                                    <>
+                                      <Button
+                                        size="small"
+                                        variant="contained"
+                                        color="success"
+                                        onClick={() => handleApproveUser(approval.id)}
+                                        sx={{ borderRadius: '8px', textTransform: 'none' }}
+                                      >
+                                        Approve
+                                      </Button>
+                                      <Button
+                                        size="small"
+                                        variant="outlined"
+                                        color="error"
+                                        onClick={() => {
+                                          setSelectedApproval(approval);
+                                          setRejectDialogOpen(true);
+                                        }}
+                                        sx={{ borderRadius: '8px', textTransform: 'none' }}
+                                      >
+                                        Reject
+                                      </Button>
+                                    </>
+                                  )}
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </StyledTableContainer>
+                  </Paper>
+                )}
+              </Box>
+            )}
+          </GlassCard>
         </Container>
       </ContentWrapper>
 
@@ -2918,8 +2927,8 @@ const SuperAdmin: React.FC = () => {
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setUnblockDialogOpen(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             color="success"
             onClick={handleUnblockUser}
             disabled={unblockReason.length < 10}
@@ -2951,8 +2960,8 @@ const SuperAdmin: React.FC = () => {
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             color="error"
             onClick={handleRejectUser}
             disabled={rejectReason.length < 10}
@@ -2963,15 +2972,15 @@ const SuperAdmin: React.FC = () => {
       </Dialog>
 
       {/* Review Profile Dialog */}
-      <Dialog 
-        open={reviewDialogOpen} 
-        onClose={() => setReviewDialogOpen(false)} 
-        maxWidth="md" 
+      <Dialog
+        open={reviewDialogOpen}
+        onClose={() => setReviewDialogOpen(false)}
+        maxWidth="md"
         fullWidth
         PaperProps={{ sx: { borderRadius: '16px', maxHeight: '90vh' } }}
       >
-        <DialogTitle sx={{ 
-          fontWeight: 700, 
+        <DialogTitle sx={{
+          fontWeight: 700,
           background: 'linear-gradient(135deg, #004d40 0%, #00796b 100%)',
           color: 'white',
           display: 'flex',
@@ -3058,25 +3067,25 @@ const SuperAdmin: React.FC = () => {
                   <Security fontSize="small" /> Verification Status
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                  <Chip 
+                  <Chip
                     label={reviewingProfile.email_verified ? 'Email Verified' : 'Email Not Verified'}
                     color={reviewingProfile.email_verified ? 'success' : 'default'}
                     size="small"
                     icon={reviewingProfile.email_verified ? <CheckCircle /> : <Cancel />}
                   />
-                  <Chip 
+                  <Chip
                     label={reviewingProfile.mobile_verified ? 'Mobile Verified' : 'Mobile Not Verified'}
                     color={reviewingProfile.mobile_verified ? 'success' : 'default'}
                     size="small"
                     icon={reviewingProfile.mobile_verified ? <CheckCircle /> : <Cancel />}
                   />
-                  <Chip 
+                  <Chip
                     label={reviewingProfile.face_verification ? 'Face Verified' : 'Face Not Verified'}
                     color={reviewingProfile.face_verification ? 'success' : 'default'}
                     size="small"
                     icon={reviewingProfile.face_verification ? <CheckCircle /> : <Cancel />}
                   />
-                  <Chip 
+                  <Chip
                     label={`Status: ${reviewingProfile.verification_status || 'pending'}`}
                     color={reviewingProfile.verification_status === 'approved' ? 'success' : reviewingProfile.verification_status === 'rejected' ? 'error' : 'warning'}
                     size="small"
@@ -3192,8 +3201,8 @@ const SuperAdmin: React.FC = () => {
           </Button>
           {reviewingProfile?.verification_status === 'pending' && (
             <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button 
-                variant="outlined" 
+              <Button
+                variant="outlined"
                 color="error"
                 onClick={() => {
                   setSelectedApproval(reviewingProfile);
@@ -3203,8 +3212,8 @@ const SuperAdmin: React.FC = () => {
               >
                 Reject
               </Button>
-              <Button 
-                variant="contained" 
+              <Button
+                variant="contained"
                 color="success"
                 onClick={() => {
                   handleApproveUser(reviewingProfile.id);
@@ -3224,18 +3233,18 @@ const SuperAdmin: React.FC = () => {
         onClose={() => setCreateAdminDialog(false)}
         maxWidth="sm"
         fullWidth
-        PaperProps={{ 
-          sx: { 
+        PaperProps={{
+          sx: {
             borderRadius: '24px',
             background: 'rgba(255, 255, 255, 0.98)',
             backdropFilter: 'blur(20px)',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-          } 
+          }
         }}
       >
         <DialogTitle sx={{ pb: 1, pt: 3 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <AnimatedAvatar sx={{ 
+            <AnimatedAvatar sx={{
               background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
               width: 44,
               height: 44,
@@ -3377,9 +3386,9 @@ const SuperAdmin: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 1, gap: 1 }}>
-          <Button 
-            onClick={() => setCreateAdminDialog(false)} 
-            sx={{ 
+          <Button
+            onClick={() => setCreateAdminDialog(false)}
+            sx={{
               borderRadius: '12px',
               px: 3,
               color: '#64748b',
@@ -3400,17 +3409,17 @@ const SuperAdmin: React.FC = () => {
         onClose={() => setEditRolesDialogOpen(false)}
         maxWidth="sm"
         fullWidth
-        PaperProps={{ 
-          sx: { 
+        PaperProps={{
+          sx: {
             borderRadius: '24px',
             background: 'rgba(255, 255, 255, 0.98)',
             backdropFilter: 'blur(20px)',
-          } 
+          }
         }}
       >
         <DialogTitle sx={{ pb: 1, pt: 3 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <AnimatedAvatar sx={{ 
+            <AnimatedAvatar sx={{
               background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
               width: 44,
               height: 44,
@@ -3496,7 +3505,7 @@ const SuperAdmin: React.FC = () => {
               </MenuItem>
             </Select>
           </FormControl>
-          
+
           {editingAdminRoles.length > 0 && (
             <Alert severity="info" sx={{ mt: 2, borderRadius: '12px' }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Selected Permissions:</Typography>
@@ -3511,7 +3520,7 @@ const SuperAdmin: React.FC = () => {
               </Box>
             </Alert>
           )}
-          
+
           {editingAdminRoles.length === 0 && (
             <Alert severity="warning" sx={{ mt: 2, borderRadius: '12px' }}>
               Removing all roles will revoke admin access for this user.
@@ -3519,17 +3528,17 @@ const SuperAdmin: React.FC = () => {
           )}
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 1, gap: 1 }}>
-          <Button 
-            onClick={() => setEditRolesDialogOpen(false)} 
+          <Button
+            onClick={() => setEditRolesDialogOpen(false)}
             sx={{ borderRadius: '12px', px: 3 }}
           >
             Cancel
           </Button>
-          <Button 
+          <Button
             variant="contained"
             onClick={handleUpdateAdminRoles}
-            sx={{ 
-              borderRadius: '12px', 
+            sx={{
+              borderRadius: '12px',
               px: 3,
               background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
             }}
@@ -3562,19 +3571,19 @@ const SuperAdmin: React.FC = () => {
         }}
         maxWidth="md"
         fullWidth
-        PaperProps={{ 
-          sx: { 
-            borderRadius: '24px', 
+        PaperProps={{
+          sx: {
+            borderRadius: '24px',
             maxHeight: '90vh',
             background: 'rgba(255, 255, 255, 0.98)',
             backdropFilter: 'blur(20px)',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-          } 
+          }
         }}
       >
         <DialogTitle sx={{ pb: 1, pt: 3 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <AnimatedAvatar sx={{ 
+            <AnimatedAvatar sx={{
               background: 'linear-gradient(135deg, #8b5cf6, #ec4899)',
               width: 44,
               height: 44,
@@ -3611,7 +3620,7 @@ const SuperAdmin: React.FC = () => {
                   label="View Only"
                   size="small"
                   onClick={() => applyPermissionTemplate('viewOnly')}
-                  sx={{ 
+                  sx={{
                     cursor: 'pointer',
                     bgcolor: '#dbeafe',
                     color: '#2563eb',
@@ -3622,7 +3631,7 @@ const SuperAdmin: React.FC = () => {
                   label="Full Access"
                   size="small"
                   onClick={() => applyPermissionTemplate('fullAccess')}
-                  sx={{ 
+                  sx={{
                     cursor: 'pointer',
                     bgcolor: '#dcfce7',
                     color: '#16a34a',
@@ -3633,7 +3642,7 @@ const SuperAdmin: React.FC = () => {
                   label="Clear All"
                   size="small"
                   onClick={() => applyPermissionTemplate('clear')}
-                  sx={{ 
+                  sx={{
                     cursor: 'pointer',
                     bgcolor: '#fee2e2',
                     color: '#dc2626',
@@ -3650,7 +3659,7 @@ const SuperAdmin: React.FC = () => {
               fullWidth
               value={permissionSearchQuery}
               onChange={(e) => setPermissionSearchQuery(e.target.value)}
-              sx={{ 
+              sx={{
                 mb: 2,
                 '& .MuiOutlinedInput-root': { borderRadius: '10px' },
               }}
@@ -3664,23 +3673,23 @@ const SuperAdmin: React.FC = () => {
             />
 
             {loadingPermissions ? (
-              <Box sx={{ 
-                py: 6, 
-                display: 'flex', 
-                flexDirection: 'column', 
+              <Box sx={{
+                py: 6,
+                display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
               }}>
                 <Box sx={{ width: '60%', maxWidth: 300 }}>
-                  <LinearProgress 
-                    sx={{ 
-                      height: 6, 
+                  <LinearProgress
+                    sx={{
+                      height: 6,
                       borderRadius: 3,
                       backgroundColor: 'rgba(139, 92, 246, 0.1)',
                       '& .MuiLinearProgress-bar': {
                         background: 'linear-gradient(90deg, #8b5cf6, #ec4899)',
                         borderRadius: 3,
                       }
-                    }} 
+                    }}
                   />
                 </Box>
                 <Typography align="center" sx={{ mt: 2, fontWeight: 500 }} color="text.secondary">
@@ -3700,9 +3709,9 @@ const SuperAdmin: React.FC = () => {
                       const selectedInGroup = perms.filter(p => roleForm.selectedPermissions.includes(p.id)).length;
                       return (
                         <Accordion key={group} elevation={0} sx={{ '&:before': { display: 'none' } }}>
-                          <AccordionSummary 
+                          <AccordionSummary
                             expandIcon={<ExpandMore />}
-                            sx={{ 
+                            sx={{
                               bgcolor: '#f8fafc',
                               '&:hover': { bgcolor: '#f1f5f9' },
                             }}
@@ -3724,14 +3733,14 @@ const SuperAdmin: React.FC = () => {
                               />
                               <VpnKey sx={{ color: '#8b5cf6', fontSize: 18 }} />
                               <Typography sx={{ fontWeight: 600, flex: 1 }}>{group}</Typography>
-                              <Chip 
+                              <Chip
                                 label={`${selectedInGroup}/${perms.length}`}
-                                size="small" 
-                                sx={{ 
+                                size="small"
+                                sx={{
                                   bgcolor: selectedInGroup > 0 ? '#f3e8ff' : '#f1f5f9',
                                   color: selectedInGroup > 0 ? '#8b5cf6' : '#64748b',
                                   fontWeight: 600,
-                                }} 
+                                }}
                               />
                             </Box>
                           </AccordionSummary>
@@ -3758,8 +3767,8 @@ const SuperAdmin: React.FC = () => {
                                         </Typography> */}
                                       </Box>
                                     }
-                                    sx={{ 
-                                      m: 0, 
+                                    sx={{
+                                      m: 0,
                                       py: 0.5,
                                       width: '100%',
                                       '&:hover': { bgcolor: '#f8fafc' },
@@ -3782,9 +3791,9 @@ const SuperAdmin: React.FC = () => {
                 <strong>Selected:</strong> {roleForm.selectedPermissions.length} of {permissions.length} permissions
               </Typography>
               {roleForm.selectedPermissions.length > 0 && (
-                <Button 
-                  size="small" 
-                  color="error" 
+                <Button
+                  size="small"
+                  color="error"
                   onClick={() => setRoleForm(prev => ({ ...prev, selectedPermissions: [] }))}
                 >
                   Clear Selection
@@ -3794,15 +3803,15 @@ const SuperAdmin: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 1, gap: 1 }}>
-          <Button 
+          <Button
             onClick={() => {
               setCreateRoleDialog(false);
               setEditRoleDialog(false);
               setSelectedRole(null);
               setRoleForm({ name: '', selectedPermissions: [] });
               setPermissionSearchQuery('');
-            }} 
-            sx={{ 
+            }}
+            sx={{
               borderRadius: '12px',
               px: 3,
               color: '#64748b',
@@ -3834,19 +3843,19 @@ const SuperAdmin: React.FC = () => {
         onClose={() => setViewUserDialog(false)}
         maxWidth="md"
         fullWidth
-        PaperProps={{ 
-          sx: { 
+        PaperProps={{
+          sx: {
             borderRadius: '24px',
             background: 'rgba(255, 255, 255, 0.98)',
             backdropFilter: 'blur(20px)',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-          } 
+          }
         }}
       >
         <DialogTitle sx={{ pb: 1, pt: 3 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <AnimatedAvatar sx={{ 
+              <AnimatedAvatar sx={{
                 background: 'linear-gradient(135deg, #10b981, #3b82f6)',
                 width: 44,
                 height: 44,
@@ -3859,11 +3868,11 @@ const SuperAdmin: React.FC = () => {
                 <Typography variant="caption" color="text.secondary">Complete user information</Typography>
               </Box>
             </Box>
-            <IconButton 
+            <IconButton
               onClick={() => setViewUserDialog(false)}
-              sx={{ 
+              sx={{
                 color: '#64748b',
-                '&:hover': { 
+                '&:hover': {
                   backgroundColor: 'rgba(100, 116, 139, 0.08)',
                   transform: 'rotate(90deg)',
                   transition: 'transform 0.3s ease',
@@ -4208,7 +4217,7 @@ const SuperAdmin: React.FC = () => {
             </Box>
           )}
         </DialogContent>
-       
+
       </Dialog>
 
       {/* Snackbar */}
@@ -4261,14 +4270,14 @@ const SuperAdmin: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2, pt: 0 }}>
-          <Button 
+          <Button
             onClick={() => setDeleteUserDialog(false)}
             disabled={deletingUser}
           >
             Cancel
           </Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             color="error"
             onClick={handleDeleteUser}
             disabled={deletingUser}
@@ -4326,14 +4335,14 @@ const SuperAdmin: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2, pt: 0 }}>
-          <Button 
+          <Button
             onClick={() => setDeleteAdminDialog(false)}
             disabled={deletingAdmin}
           >
             Cancel
           </Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             color="error"
             onClick={handleDeleteAdmin}
             disabled={deletingAdmin}
@@ -4353,7 +4362,7 @@ const SuperAdmin: React.FC = () => {
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}
           severity={snackbar.severity}
-          sx={{ 
+          sx={{
             borderRadius: '14px',
             boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
             backdropFilter: 'blur(10px)',

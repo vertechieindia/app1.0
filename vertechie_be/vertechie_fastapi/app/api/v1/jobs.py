@@ -137,7 +137,7 @@ async def update_job(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
-    """Update job posting."""
+    """Update job posting. Allows if user posted it OR is company admin with can_manage_jobs."""
     
     result = await db.execute(
         select(Job).where(Job.id == job_id)
@@ -150,16 +150,45 @@ async def update_job(
             detail="Job not found"
         )
     
-    # Check ownership
-    if job.posted_by_id != current_user.id and not current_user.is_superuser:
+    # Check ownership OR company admin permission
+    is_owner = job.posted_by_id == current_user.id
+    is_company_admin = False
+    
+    if job.company_id and not is_owner:
+        from app.models.company import CompanyAdmin
+        admin_check = await db.execute(
+            select(CompanyAdmin).where(
+                CompanyAdmin.company_id == job.company_id,
+                CompanyAdmin.user_id == current_user.id,
+                CompanyAdmin.can_manage_jobs == True
+            )
+        )
+        is_company_admin = admin_check.scalar_one_or_none() is not None
+    
+    if not (is_owner or is_company_admin or current_user.is_superuser):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this job"
         )
     
     update_data = job_in.model_dump(exclude_unset=True)
+    
+    # Convert status string to enum if provided
+    if 'status' in update_data:
+        status_str = update_data.pop('status')
+        if status_str:
+            try:
+                job.status = JobStatus(status_str)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid status: {status_str}. Must be one of: draft, published, paused, closed, archived"
+                )
+    
+    # Update other fields
     for field, value in update_data.items():
-        setattr(job, field, value)
+        if value is not None:  # Only update non-None values
+            setattr(job, field, value)
     
     await db.commit()
     await db.refresh(job)
@@ -173,7 +202,7 @@ async def delete_job(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> None:
-    """Delete job posting."""
+    """Delete job posting. Allows if user posted it OR is company admin with can_manage_jobs."""
     
     result = await db.execute(
         select(Job).where(Job.id == job_id)
@@ -186,7 +215,22 @@ async def delete_job(
             detail="Job not found"
         )
     
-    if job.posted_by_id != current_user.id and not current_user.is_superuser:
+    # Check ownership OR company admin permission
+    is_owner = job.posted_by_id == current_user.id
+    is_company_admin = False
+    
+    if job.company_id and not is_owner:
+        from app.models.company import CompanyAdmin
+        admin_check = await db.execute(
+            select(CompanyAdmin).where(
+                CompanyAdmin.company_id == job.company_id,
+                CompanyAdmin.user_id == current_user.id,
+                CompanyAdmin.can_manage_jobs == True
+            )
+        )
+        is_company_admin = admin_check.scalar_one_or_none() is not None
+    
+    if not (is_owner or is_company_admin or current_user.is_superuser):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this job"

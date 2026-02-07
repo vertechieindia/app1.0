@@ -12,6 +12,7 @@ from sqlalchemy import select, or_, func
 from app.db.session import get_db
 from app.models.user import User, UserProfile, Experience, Education, RoleType, VerificationStatus
 from app.models.company import Company, CompanyAdmin
+from app.models.school import School, SchoolAdmin
 from app.schemas.user import (
     UserResponse, UserUpdate, UserProfileUpdate, UserProfileResponse,
     ExperienceCreate, ExperienceResponse,
@@ -97,8 +98,9 @@ async def list_users(
         filtered_users = []
         for user in all_users:
             try:
-                # Skip admin users (users with admin_roles) - they shouldn't appear in regular user list
-                if user.admin_roles and len(user.admin_roles) > 0:
+                # Skip super admins - they shouldn't appear in regular user list
+                is_user_superadmin = user.is_superuser or (user.admin_roles and any(r.lower() == 'superadmin' for r in user.admin_roles))
+                if is_user_superadmin:
                     continue
                 
                 # Determine user's role type
@@ -141,8 +143,22 @@ async def list_users(
         logger.info(f"[LIST_USERS] After pagination: {len(paginated_users)} users")
         
         # Transform to include all necessary fields for frontend
-        return [
-            {
+        user_list = []
+        for user in paginated_users:
+            # Determine user_type string for frontend compatibility
+            u_type = "techie"
+            if hasattr(user, 'roles') and user.roles:
+                rt = user.roles[0].role_type
+                if rt == RoleType.HIRING_MANAGER:
+                    u_type = "hr"
+                elif rt == RoleType.COMPANY_ADMIN:
+                    u_type = "company"
+                elif rt == RoleType.SCHOOL_ADMIN:
+                    u_type = "school"
+                else:
+                    u_type = rt.value
+
+            user_list.append({
                 "id": user.id,
                 "email": user.email,
                 "first_name": user.first_name,
@@ -166,9 +182,10 @@ async def list_users(
                 "date_joined": user.created_at,  # Alias for frontend compatibility
                 "last_login": user.last_login,
                 "verification_status": user.verification_status or "PENDING",
-            }
-            for user in paginated_users
-        ]
+                "groups": [{"name": r.role_type.value} for r in user.roles] if hasattr(user, 'roles') and user.roles else [],
+                "user_type": u_type,
+            })
+        return user_list
     except Exception as e:
         logger.error(f"[LIST_USERS] ERROR: {str(e)}")
         import traceback
@@ -784,7 +801,91 @@ async def get_my_company(
         "industry": company.industry,
         "headquarters": company.headquarters,
         "logo_url": company.logo_url,
+        "cover_image_url": company.cover_image_url,
         "company_size": company.company_size,
         "founded_year": company.founded_year,
     }
+
+
+def _school_to_response(school) -> dict:
+    """Build school response dict."""
+    return {
+        "id": str(school.id),
+        "name": school.name,
+        "slug": school.slug,
+        "short_name": school.short_name,
+        "description": school.description,
+        "tagline": school.tagline,
+        "website": school.website,
+        "email": school.email,
+        "phone": school.phone,
+        "city": school.city,
+        "state": school.state,
+        "country": school.country,
+        "logo_url": getattr(school, "logo_url", None),
+        "cover_image_url": getattr(school, "cover_image_url", None),
+    }
+
+
+@router.get("/me/school")
+async def get_my_school(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Get current user's school details (for school admins).
+    First tries SchoolAdmin link; if user has school_admin role but no school, creates a default school and links them.
+    """
+    # 1) School from SchoolAdmin (user is admin of a school)
+    result = await db.execute(
+        select(School)
+        .join(SchoolAdmin, School.id == SchoolAdmin.school_id)
+        .where(SchoolAdmin.user_id == current_user.id)
+    )
+    school = result.scalar_one_or_none()
+    if school:
+        return _school_to_response(school)
+
+    # 2) User has school_admin role but no SchoolAdmin row (e.g. created without school_name) -> create default school and link
+    from app.models.school import SchoolStatus, SchoolType
+    from slugify import slugify
+    admin_roles = current_user.admin_roles or []
+    has_school_role = "school_admin" in (admin_roles if isinstance(admin_roles, list) else [])
+    if has_school_role:
+        name = f"School of {current_user.first_name or ''} {current_user.last_name or ''}".strip() or f"School ({current_user.email})"
+        slug_base = slugify(name)
+        slug = slug_base
+        n = 0
+        while True:
+            existing = await db.execute(select(School).where(School.slug == slug))
+            if existing.scalar_one_or_none() is None:
+                break
+            n += 1
+            slug = f"{slug_base}-{n}"
+        school = School(
+            name=name,
+            slug=slug,
+            email=current_user.email,
+            school_type=SchoolType.UNIVERSITY,
+            status=SchoolStatus.ACTIVE,
+            is_verified=False,
+            city="",
+            country="",
+        )
+        db.add(school)
+        await db.flush()
+        school_admin = SchoolAdmin(
+            school_id=school.id,
+            user_id=current_user.id,
+            role="owner",
+            can_manage_students=True,
+            can_manage_programs=True,
+            can_manage_placements=True,
+            can_manage_admins=True,
+        )
+        db.add(school_admin)
+        await db.commit()
+        await db.refresh(school)
+        return _school_to_response(school)
+
+    return None
 
