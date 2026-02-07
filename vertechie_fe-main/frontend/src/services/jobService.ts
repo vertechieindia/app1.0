@@ -171,17 +171,24 @@ export const jobService = {
   },
 
   /**
-   * Save/bookmark a job
+   * Get list of saved (bookmarked) jobs
    */
-  saveJob: async (jobId: string): Promise<{ message: string }> => {
-    return api.post(API_ENDPOINTS.JOBS.SAVE(jobId));
+  getSavedJobs: async (): Promise<JobListItem[]> => {
+    return api.get<JobListItem[]>(API_ENDPOINTS.JOBS.SAVED_LIST);
   },
 
   /**
-   * Unsave/remove bookmark from a job
+   * Save/bookmark a job - backend expects POST /jobs/saved with body { job_id }
+   */
+  saveJob: async (jobId: string): Promise<{ message: string }> => {
+    return api.post(API_ENDPOINTS.JOBS.SAVED_LIST, { job_id: jobId });
+  },
+
+  /**
+   * Unsave/remove bookmark - backend expects DELETE /jobs/saved/{job_id}
    */
   unsaveJob: async (jobId: string): Promise<void> => {
-    return api.delete(API_ENDPOINTS.JOBS.UNSAVE(jobId));
+    return api.delete(API_ENDPOINTS.JOBS.SAVED_DELETE(jobId));
   },
 };
 

@@ -11,10 +11,24 @@
 
 import { getApiUrl } from '../config/api';
 
+/** Human-readable label for the status (e.g. "Wrong Answer", "Runtime Error") */
+export const STATUS_LABELS: Record<string, string> = {
+  success: 'Accepted',
+  error: 'Error',
+  compile_error: 'Compile Error',
+  runtime_error: 'Runtime Error',
+  time_limit: 'Time Limit Exceeded',
+  memory_limit: 'Memory Limit Exceeded',
+  pending: 'Pending',
+  running: 'Running',
+};
+
 export interface ExecutionResult {
   status: 'success' | 'error' | 'compile_error' | 'runtime_error' | 'time_limit' | 'memory_limit' | 'pending';
   output: string;
   error?: string;
+  /** Optional display label for status (e.g. "Wrong Answer", "Runtime Error") */
+  statusLabel?: string;
   executionTime?: number;
   memoryUsage?: number;
   testResults?: {
@@ -36,6 +50,39 @@ interface TestCase {
   expectedOutput: string;
 }
 
+export function getStatusLabel(apiStatus: string, passed?: number, total?: number): string {
+  const t = total ?? 0;
+  const p = passed ?? 0;
+  switch (apiStatus) {
+    case 'accepted': return 'Accepted';
+    case 'wrong_answer': return `Wrong Answer (${p}/${t} test cases passed)`;
+    case 'runtime_error': return 'Runtime Error';
+    case 'time_limit': return 'Time Limit Exceeded';
+    case 'compile_error': return 'Compile Error';
+    case 'internal_error': return 'Internal Error';
+    default: return 'Error';
+  }
+}
+
+export function getErrorMessage(sub: { status: string; error_message?: string | null; test_cases_passed?: number; test_cases_total?: number }): string {
+  const t = sub.test_cases_total ?? 0;
+  const p = sub.test_cases_passed ?? 0;
+  switch (sub.status) {
+    case 'wrong_answer':
+      return `Wrong Answer: ${p}/${t} test cases passed.`;
+    case 'runtime_error':
+      return sub.error_message ? `Runtime Error: ${sub.error_message}` : 'Runtime Error.';
+    case 'time_limit':
+      return sub.error_message || 'Time Limit Exceeded.';
+    case 'compile_error':
+      return sub.error_message ? `Compile Error: ${sub.error_message}` : 'Compile Error.';
+    case 'internal_error':
+      return sub.error_message || 'Internal Error.';
+    default:
+      return sub.error_message || 'Execution failed.';
+  }
+}
+
 /**
  * Syntax validators for different languages
  * These catch obvious errors BEFORE sending to the backend
@@ -43,14 +90,14 @@ interface TestCase {
 const syntaxValidators: Record<string, (code: string) => { valid: boolean; error?: string; line?: number }> = {
   python: (code: string) => {
     const lines = code.split('\n');
-    
+
     // Check for unbalanced parentheses/brackets
     let parens = 0, brackets = 0, braces = 0;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       // Skip comments
       if (line.trim().startsWith('#')) continue;
-      
+
       for (const char of line) {
         if (char === '(') parens++;
         if (char === ')') parens--;
@@ -58,22 +105,22 @@ const syntaxValidators: Record<string, (code: string) => { valid: boolean; error
         if (char === ']') brackets--;
         if (char === '{') braces++;
         if (char === '}') braces--;
-        
+
         if (parens < 0) return { valid: false, error: `SyntaxError: unmatched ')' on line ${i + 1}`, line: i + 1 };
         if (brackets < 0) return { valid: false, error: `SyntaxError: unmatched ']' on line ${i + 1}`, line: i + 1 };
         if (braces < 0) return { valid: false, error: `SyntaxError: unmatched '}' on line ${i + 1}`, line: i + 1 };
       }
     }
-    
+
     if (parens !== 0) return { valid: false, error: 'SyntaxError: unexpected EOF while parsing (unclosed parenthesis)' };
     if (brackets !== 0) return { valid: false, error: 'SyntaxError: unexpected EOF while parsing (unclosed bracket)' };
     if (braces !== 0) return { valid: false, error: 'SyntaxError: unexpected EOF while parsing (unclosed brace)' };
-    
+
     // Check for invalid syntax patterns
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line.startsWith('#') || line === '') continue;
-      
+
       // Check for undefined variables in simple cases
       if (/^[A-Z][A-Z0-9_]*[a-z]/.test(line) && !line.includes('=') && !line.includes('(') && !line.includes(':')) {
         // Looks like random text, not valid Python
@@ -82,10 +129,10 @@ const syntaxValidators: Record<string, (code: string) => { valid: boolean; error
         }
       }
     }
-    
+
     return { valid: true };
   },
-  
+
   javascript: (code: string) => {
     try {
       // Use Function constructor to check syntax (doesn't execute)
@@ -100,7 +147,7 @@ const syntaxValidators: Record<string, (code: string) => { valid: boolean; error
       };
     }
   },
-  
+
   typescript: (code: string) => {
     // TypeScript validation - basic syntax check
     try {
@@ -110,7 +157,7 @@ const syntaxValidators: Record<string, (code: string) => { valid: boolean; error
         .replace(/<[^>]+>/g, '')
         .replace(/\binterface\s+\w+\s*\{[^}]*\}/g, '')
         .replace(/\btype\s+\w+\s*=\s*[^;]+;/g, '');
-      
+
       new Function(jsCode);
       return { valid: true };
     } catch (e: any) {
@@ -120,13 +167,13 @@ const syntaxValidators: Record<string, (code: string) => { valid: boolean; error
       };
     }
   },
-  
+
   java: (code: string) => {
     // Check for basic Java syntax
     if (!code.includes('class ')) {
       return { valid: false, error: 'Error: No class definition found' };
     }
-    
+
     // Check brace balance
     let braces = 0;
     for (let i = 0; i < code.length; i++) {
@@ -135,10 +182,10 @@ const syntaxValidators: Record<string, (code: string) => { valid: boolean; error
       if (braces < 0) return { valid: false, error: 'SyntaxError: unexpected }' };
     }
     if (braces !== 0) return { valid: false, error: 'SyntaxError: missing }' };
-    
+
     return { valid: true };
   },
-  
+
   cpp: (code: string) => {
     // Check brace balance
     let braces = 0;
@@ -148,7 +195,7 @@ const syntaxValidators: Record<string, (code: string) => { valid: boolean; error
       if (braces < 0) return { valid: false, error: 'error: expected \'{\' before \'}\'' };
     }
     if (braces !== 0) return { valid: false, error: 'error: expected \'}\' at end of input' };
-    
+
     // Check for semicolons after statements (basic check)
     const lines = code.split('\n');
     for (let i = 0; i < lines.length; i++) {
@@ -157,7 +204,7 @@ const syntaxValidators: Record<string, (code: string) => { valid: boolean; error
       if (line.endsWith('{') || line.endsWith('}') || line.endsWith(':')) continue;
       if (line.startsWith('if') || line.startsWith('else') || line.startsWith('for') || line.startsWith('while')) continue;
       if (line.startsWith('class') || line.startsWith('struct') || line.startsWith('public') || line.startsWith('private')) continue;
-      
+
       // Check for missing semicolon
       if (!line.endsWith(';') && !line.endsWith(',') && !line.endsWith('(') && !line.endsWith(')')) {
         // This might be a multi-line statement, only flag obvious cases
@@ -166,7 +213,7 @@ const syntaxValidators: Record<string, (code: string) => { valid: boolean; error
         }
       }
     }
-    
+
     return { valid: true };
   },
 };
@@ -178,60 +225,60 @@ function executeJavaScriptInBrowser(code: string, input: string): ExecutionResul
   const startTime = performance.now();
   const logs: string[] = [];
   let error = '';
-  
+
   // Create safe execution context
   const originalLog = console.log;
   const originalError = console.error;
   const originalWarn = console.warn;
-  
+
   try {
     // Override console methods to capture output
     console.log = (...args) => {
-      logs.push(args.map(arg => 
+      logs.push(args.map(arg =>
         typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
       ).join(' '));
     };
     console.error = console.log;
     console.warn = console.log;
-    
+
     // Create input handling
     const inputLines = input.split('\n');
     let inputIndex = 0;
     const readline = () => inputLines[inputIndex++] || '';
-    
+
     // Parse JSON input if it looks like JSON
     let parsedInput: any = input;
     try {
       if (input.trim().startsWith('[') || input.trim().startsWith('{')) {
         parsedInput = JSON.parse(input);
       }
-    } catch {}
-    
+    } catch { }
+
     // Execute the code with timeout simulation
     const timeoutMs = 5000;
     const startExec = Date.now();
-    
+
     const wrappedCode = `
       const readline = ${readline.toString()};
       const input = ${JSON.stringify(parsedInput)};
       ${code}
     `;
-    
+
     const result = eval(wrappedCode);
-    
+
     // Check timeout
     if (Date.now() - startExec > timeoutMs) {
       throw new Error('Time Limit Exceeded');
     }
-    
+
     // Add return value to output if not undefined
     if (result !== undefined && !logs.length) {
       logs.push(typeof result === 'object' ? JSON.stringify(result) : String(result));
     }
-    
+
   } catch (e: any) {
     error = `${e.name || 'Error'}: ${e.message}`;
-    
+
     // Try to get line number
     const stack = e.stack || '';
     const lineMatch = stack.match(/<anonymous>:(\d+):/);
@@ -247,9 +294,9 @@ function executeJavaScriptInBrowser(code: string, input: string): ExecutionResul
     console.error = originalError;
     console.warn = originalWarn;
   }
-  
+
   const executionTime = Math.round(performance.now() - startTime);
-  
+
   if (error) {
     return {
       status: 'runtime_error',
@@ -258,7 +305,7 @@ function executeJavaScriptInBrowser(code: string, input: string): ExecutionResul
       executionTime,
     };
   }
-  
+
   return {
     status: 'success',
     output: logs.join('\n'),
@@ -275,33 +322,33 @@ function simulatePythonExecution(code: string, input: string): ExecutionResult {
   const startTime = performance.now();
   const outputs: string[] = [];
   let error = '';
-  
+
   try {
     const lines = code.split('\n');
     const variables: Record<string, any> = {};
-    
+
     // Parse input
     const inputLines = input.split('\n');
     let inputIndex = 0;
-    
+
     // Very basic Python interpreter simulation
     for (let i = 0; i < lines.length; i++) {
       let line = lines[i].trim();
       if (line === '' || line.startsWith('#')) continue;
-      
+
       // Check for random garbage
       if (/^[A-Z]{3,}/.test(line) && !/^(TRUE|FALSE|NONE|AND|OR|NOT|IF|ELSE|ELIF|FOR|WHILE|DEF|CLASS|RETURN|IMPORT|FROM|TRY|EXCEPT)/.test(line.toUpperCase())) {
         throw new Error(`NameError: name '${line.split(/\s/)[0]}' is not defined`);
       }
-      
+
       // Handle print statements
       const printMatch = line.match(/^print\s*\(\s*(.+)\s*\)$/);
       if (printMatch) {
         let content = printMatch[1];
-        
+
         // Handle string literals
-        if ((content.startsWith('"') && content.endsWith('"')) || 
-            (content.startsWith("'") && content.endsWith("'"))) {
+        if ((content.startsWith('"') && content.endsWith('"')) ||
+          (content.startsWith("'") && content.endsWith("'"))) {
           outputs.push(content.slice(1, -1));
         } else if (content.startsWith('f"') || content.startsWith("f'")) {
           // f-string - just output with placeholders
@@ -319,7 +366,7 @@ function simulatePythonExecution(code: string, input: string): ExecutionResult {
         }
         continue;
       }
-      
+
       // Handle variable assignment
       const assignMatch = line.match(/^(\w+)\s*=\s*(.+)$/);
       if (assignMatch) {
@@ -331,7 +378,7 @@ function simulatePythonExecution(code: string, input: string): ExecutionResult {
         }
         continue;
       }
-      
+
       // Handle return in main function context
       if (line.startsWith('return ')) {
         const returnValue = line.slice(7).trim();
@@ -343,13 +390,13 @@ function simulatePythonExecution(code: string, input: string): ExecutionResult {
         break;
       }
     }
-    
+
   } catch (e: any) {
     error = e.message || 'Unknown error';
   }
-  
+
   const executionTime = Math.round(performance.now() - startTime);
-  
+
   if (error) {
     return {
       status: 'runtime_error',
@@ -358,7 +405,7 @@ function simulatePythonExecution(code: string, input: string): ExecutionResult {
       executionTime,
     };
   }
-  
+
   return {
     status: 'success',
     output: outputs.join('\n') || 'Program executed with no output',
@@ -373,21 +420,21 @@ export class CodeExecutionService {
   private backendUrl: string;
   private judgeUrl: string;
   private localJudgeUrl: string;
-  
+
   constructor() {
     this.backendUrl = getApiUrl('v_techie/execute/');
     this.judgeUrl = getApiUrl('execute/');  // Top-level judge endpoint via backend proxy
     // For local development, connect directly to the judge service
     this.localJudgeUrl = 'http://localhost:8001';
   }
-  
+
   /**
    * Check if running in local development mode
    */
   private isLocalDev(): boolean {
     return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   }
-  
+
   /**
    * Validate code syntax before execution
    */
@@ -398,7 +445,7 @@ export class CodeExecutionService {
     }
     return { valid: true }; // No validator available, assume valid
   }
-  
+
   /**
    * Execute code and return results
    * NEVER returns fake results - always real execution or clear error
@@ -418,7 +465,7 @@ export class CodeExecutionService {
         error: syntaxResult.error || 'Syntax error in code',
       };
     }
-    
+
     // Step 2: Try backend execution first
     try {
       const token = localStorage.getItem('authToken');
@@ -435,7 +482,7 @@ export class CodeExecutionService {
           test_cases: testCases,
         }),
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         return {
@@ -447,7 +494,7 @@ export class CodeExecutionService {
           testResults: data.test_results,
         };
       }
-      
+
       // Backend returned error
       if (response.status === 400 || response.status === 422) {
         const errorData = await response.json().catch(() => ({}));
@@ -457,21 +504,21 @@ export class CodeExecutionService {
           error: errorData.error || errorData.detail || 'Invalid request',
         };
       }
-      
+
       throw new Error(`Backend error: ${response.status}`);
-      
+
     } catch (backendError: any) {
       console.warn('Backend execution failed, using client-side execution:', backendError.message);
-      
+
       // Step 3: Fallback to client-side execution for supported languages
       if (language === 'javascript' || language === 'typescript') {
         return executeJavaScriptInBrowser(code, input);
       }
-      
+
       if (language === 'python' || language === 'python3') {
         return simulatePythonExecution(code, input);
       }
-      
+
       // For other languages, return clear error that backend is needed
       return {
         status: 'error',
@@ -480,7 +527,7 @@ export class CodeExecutionService {
       };
     }
   }
-  
+
   /**
    * Run code against test cases
    */
@@ -498,7 +545,7 @@ export class CodeExecutionService {
         error: syntaxResult.error || 'Syntax error in code',
       };
     }
-    
+
     // Try backend
     try {
       const token = localStorage.getItem('authToken');
@@ -517,13 +564,13 @@ export class CodeExecutionService {
           })),
         }),
       });
-      
+
       if (response.ok) {
         return await response.json();
       }
-      
+
       throw new Error('Backend unavailable');
-      
+
     } catch (e) {
       // Client-side test case execution for JS
       if (language === 'javascript' || language === 'typescript') {
@@ -532,14 +579,14 @@ export class CodeExecutionService {
           total: testCases.length,
           details: [],
         };
-        
+
         for (let i = 0; i < testCases.length; i++) {
           const tc = testCases[i];
           const result = executeJavaScriptInBrowser(code, tc.input);
-          
+
           const passed = result.output.trim() === tc.expectedOutput.trim();
           if (passed) results.passed++;
-          
+
           results.details.push({
             testCase: i + 1,
             status: result.status === 'success' ? (passed ? 'passed' : 'failed') : 'error',
@@ -549,7 +596,7 @@ export class CodeExecutionService {
             time: result.executionTime || 0,
           });
         }
-        
+
         return {
           status: results.passed === results.total ? 'success' : 'error',
           output: results.details.map(d => d.actual).join('\n'),
@@ -557,7 +604,7 @@ export class CodeExecutionService {
           testResults: results,
         };
       }
-      
+
       return {
         status: 'error',
         output: '',
@@ -565,7 +612,7 @@ export class CodeExecutionService {
       };
     }
   }
-  
+
   /**
    * Execute code against a specific problem (LeetCode-style)
    */
@@ -584,77 +631,191 @@ export class CodeExecutionService {
         error: syntaxResult.error || 'Syntax error in code',
       };
     }
-    
-    // Determine which URL to use
-    const url = this.isLocalDev() 
-      ? `${this.localJudgeUrl}/${mode}`  // Direct to judge: /run or /submit
-      : this.judgeUrl;  // Via backend proxy
-    
+
+    // For "run" mode, use backend API with is_submission=false
+    // For "submit" mode, use backend API with is_submission=true
+    // This ensures we always use the backend which handles judge service fallback
+    const token = localStorage.getItem('authToken');
+
+    // Validate problemId is a valid UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(problemId)) {
+      return {
+        status: 'error',
+        output: '',
+        error: `Invalid problem ID format: ${problemId}. Expected UUID format.`,
+      };
+    }
+
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(url, {
+      // Use backend API instead of direct judge connection
+      const response = await fetch(getApiUrl('/practice/submit'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': token ? `Bearer ${token}` : '',
         },
         body: JSON.stringify({
-          language: this.mapLanguage(language),
           problem_id: problemId,
-          code,
-          mode,
+          language: language,
+          code: code,
+          is_submission: mode === 'submit',  // false for "run", true for "submit"
         }),
       });
-      
+
       if (response.ok) {
-        const data = await response.json();
-        
-        // Handle direct judge response format (different from proxy)
-        if (this.isLocalDev() && data.summary) {
-          // Direct judge response
+        const submission = await response.json();
+
+        // For "run" mode, poll for results immediately (quick execution)
+        // For "submit" mode, the ProblemDetail component handles polling
+        if (mode === 'run') {
+          // Poll for results (max 30 seconds for run, longer for judge service)
+          const maxAttempts = 60; // 60 attempts
+          const pollInterval = 500; // Poll every 500ms = 30 seconds total
+
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+            try {
+              const statusResponse = await fetch(
+                getApiUrl(`/practice/submissions/${submission.id}`),
+                {
+                  headers: {
+                    'Authorization': token ? `Bearer ${token}` : '',
+                    'Content-Type': 'application/json',
+                  },
+                }
+              );
+
+              if (statusResponse.ok) {
+                const updatedSubmission = await statusResponse.json();
+
+                // Check if status is final (including error states)
+                if (
+                  updatedSubmission.status !== 'pending' &&
+                  updatedSubmission.status !== 'running'
+                ) {
+                  // Map submission status to execution result
+                  const statusMap: Record<string, 'success' | 'error' | 'compile_error' | 'time_limit'> = {
+                    'accepted': 'success',
+                    'wrong_answer': 'error',
+                    'runtime_error': 'error',
+                    'time_limit': 'time_limit',
+                    'compile_error': 'compile_error',
+                    'internal_error': 'error',
+                  };
+
+                  const mappedStatus = statusMap[updatedSubmission.status] || 'error';
+                  const statusLabel = getStatusLabel(updatedSubmission.status, updatedSubmission.test_cases_passed, updatedSubmission.test_cases_total);
+                  const errorMessage = getErrorMessage(updatedSubmission);
+
+                  return {
+                    status: mappedStatus,
+                    output: updatedSubmission.status === 'accepted'
+                      ? `All ${updatedSubmission.test_cases_passed}/${updatedSubmission.test_cases_total} test cases passed!`
+                      : '',
+                    error: updatedSubmission.status !== 'accepted' ? errorMessage : undefined,
+                    statusLabel,
+                    executionTime: updatedSubmission.runtime_ms,
+                    memoryUsage: updatedSubmission.memory_kb,
+                    testResults: {
+                      passed: updatedSubmission.test_cases_passed || 0,
+                      total: updatedSubmission.test_cases_total || 0,
+                      details: [],
+                    },
+                  };
+                }
+
+                // If still pending but has an error message (judge service unavailable)
+                if (
+                  updatedSubmission.status === 'pending' &&
+                  updatedSubmission.error_message &&
+                  updatedSubmission.error_message.includes('unavailable')
+                ) {
+                  return {
+                    status: 'error',
+                    output: '',
+                    error: updatedSubmission.error_message || 'Code execution service is not available. Please check if the judge service is running.',
+                  };
+                }
+              }
+            } catch (pollError) {
+              // Continue polling unless it's the last attempt
+              if (attempt === maxAttempts - 1) {
+                return {
+                  status: 'error',
+                  output: '',
+                  error: 'Failed to check submission status. Please check the submissions tab.',
+                };
+              }
+            }
+          }
+
+          // Timeout - check one more time for final status
+          try {
+            const finalStatusResponse = await fetch(
+              getApiUrl(`/practice/submissions/${submission.id}`),
+              {
+                headers: {
+                  'Authorization': token ? `Bearer ${token}` : '',
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+
+            if (finalStatusResponse.ok) {
+              const finalSubmission = await finalStatusResponse.json();
+              if (finalSubmission.status !== 'pending' && finalSubmission.status !== 'running') {
+                const statusMap: Record<string, 'success' | 'error' | 'compile_error' | 'time_limit'> = {
+                  'accepted': 'success',
+                  'wrong_answer': 'error',
+                  'runtime_error': 'error',
+                  'time_limit': 'time_limit',
+                  'compile_error': 'compile_error',
+                  'internal_error': 'error',
+                };
+
+                const mapped = statusMap[finalSubmission.status] || 'error';
+                const label = getStatusLabel(finalSubmission.status, finalSubmission.test_cases_passed, finalSubmission.test_cases_total);
+                const errMsg = getErrorMessage(finalSubmission);
+
+                return {
+                  status: mapped,
+                  output: finalSubmission.status === 'accepted'
+                    ? `All ${finalSubmission.test_cases_passed}/${finalSubmission.test_cases_total} test cases passed!`
+                    : '',
+                  error: finalSubmission.status !== 'accepted' ? errMsg : undefined,
+                  statusLabel: label,
+                  executionTime: finalSubmission.runtime_ms,
+                  memoryUsage: finalSubmission.memory_kb,
+                  testResults: {
+                    passed: finalSubmission.test_cases_passed || 0,
+                    total: finalSubmission.test_cases_total || 0,
+                    details: [],
+                  },
+                };
+              }
+            }
+          } catch (e) {
+            // Ignore final check error
+          }
+
+          // Final timeout - return pending status with helpful message
           return {
-            status: this.mapJudgeStatus(data.status),
-            output: data.stdout || '',
-            error: data.stderr || '',
-            executionTime: data.summary.runtime_ms,
-            memoryUsage: data.summary.memory_kb,
-            testResults: data.tests ? {
-              passed: data.summary.passed || 0,
-              total: data.summary.total || 0,
-              details: data.tests.map((t: any) => ({
-                testCase: t.id,
-                status: t.passed ? 'passed' : 'failed',
-                input: t.input,
-                expected: t.expected,
-                actual: t.actual,
-                time: t.runtime_ms || 0,
-              })),
-            } : undefined,
+            status: 'pending',
+            output: '',
+            error: 'Execution is taking longer than expected. The code has been submitted - please check the submissions tab for results.',
           };
         }
-        
-        // Proxy response format
+
+        // For submit mode, return immediately (ProblemDetail handles polling)
         return {
-          status: data.status,
-          output: data.output || '',
-          error: data.error,
-          executionTime: data.runtime_ms,
-          memoryUsage: data.memory_kb,
-          testResults: data.test_results ? {
-            passed: data.test_cases_passed || 0,
-            total: data.test_cases_total || 0,
-            details: data.test_results.map((t: any) => ({
-              testCase: t.testCase,
-              status: t.status,
-              input: t.input,
-              expected: t.expected,
-              actual: t.actual,
-              time: t.time || 0,
-            })),
-          } : undefined,
+          status: 'pending',
+          output: '',
+          error: undefined,
         };
       }
-      
+
       if (response.status === 429) {
         return {
           status: 'error',
@@ -662,7 +823,7 @@ export class CodeExecutionService {
           error: 'Too many concurrent executions. Please try again.',
         };
       }
-      
+
       if (response.status === 503) {
         return {
           status: 'error',
@@ -670,24 +831,60 @@ export class CodeExecutionService {
           error: 'Code execution service is not available. Please try again later.',
         };
       }
-      
+
+      // Handle validation errors (422)
+      if (response.status === 422) {
+        const errorData = await response.json().catch(() => ({}));
+        const validationErrors = errorData.detail || errorData.errors || [];
+        let errorMsg = 'Validation error: ';
+
+        if (Array.isArray(validationErrors)) {
+          errorMsg += validationErrors.map((e: any) => {
+            if (typeof e === 'string') return e;
+            return `${e.loc?.join('.') || 'field'}: ${e.msg || e.message || 'Invalid value'}`;
+          }).join(', ');
+        } else if (typeof validationErrors === 'string') {
+          errorMsg += validationErrors;
+        } else {
+          errorMsg += JSON.stringify(validationErrors);
+        }
+
+        console.error('Validation error details:', errorData);
+        return {
+          status: 'error',
+          output: '',
+          error: errorMsg,
+        };
+      }
+
       const errorData = await response.json().catch(() => ({}));
       return {
         status: 'error',
         output: '',
-        error: errorData.error || `Server error: ${response.status}`,
+        error: errorData.detail || errorData.error || `Server error: ${response.status}`,
       };
-      
+
     } catch (e: any) {
-      console.error('Judge execution error:', e);
+      console.error('Execution error:', e);
+
+      // If it's a connection error and we're trying to run code,
+      // provide a helpful fallback message
+      if (e.message?.includes('Failed to fetch') || e.message?.includes('ERR_CONNECTION_REFUSED')) {
+        return {
+          status: 'error',
+          output: '',
+          error: 'Code execution service is not available. Please ensure the backend server is running and try again.',
+        };
+      }
+
       return {
         status: 'error',
         output: '',
-        error: `Failed to connect to execution service: ${e.message}`,
+        error: `Execution failed: ${e.message || 'Unknown error'}`,
       };
     }
   }
-  
+
   /**
    * Map frontend language names to judge language names
    */
@@ -702,7 +899,7 @@ export class CodeExecutionService {
     };
     return mapping[language.toLowerCase()] || language;
   }
-  
+
   /**
    * Map judge status to frontend status
    */
@@ -717,7 +914,7 @@ export class CodeExecutionService {
     };
     return mapping[status] || 'error';
   }
-  
+
   /**
    * Simple code execution (no problem context)
    */
@@ -735,12 +932,12 @@ export class CodeExecutionService {
         error: syntaxResult.error || 'Syntax error in code',
       };
     }
-    
+
     // Determine which URL to use
-    const url = this.isLocalDev() 
+    const url = this.isLocalDev()
       ? `${this.localJudgeUrl}/execute`  // Direct to judge
       : this.judgeUrl;  // Via backend proxy
-    
+
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch(url, {
@@ -755,10 +952,10 @@ export class CodeExecutionService {
           input,
         }),
       });
-      
+
       if (response.ok) {
         const data = await response.json();
-        
+
         // Handle direct judge response
         if (this.isLocalDev()) {
           return {
@@ -769,7 +966,7 @@ export class CodeExecutionService {
             memoryUsage: 0,
           };
         }
-        
+
         return {
           status: data.status,
           output: data.output || '',
@@ -778,24 +975,24 @@ export class CodeExecutionService {
           memoryUsage: data.memory_kb,
         };
       }
-      
+
       // Try fallback for supported languages
       if (language === 'javascript' || language === 'typescript') {
         return executeJavaScriptInBrowser(code, input);
       }
-      
+
       return {
         status: 'error',
         output: '',
         error: 'Code execution service is not available.',
       };
-      
+
     } catch (e: any) {
       // Fallback to client-side for JS
       if (language === 'javascript' || language === 'typescript') {
         return executeJavaScriptInBrowser(code, input);
       }
-      
+
       return {
         status: 'error',
         output: '',

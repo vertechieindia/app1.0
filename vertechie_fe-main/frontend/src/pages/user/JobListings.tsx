@@ -382,23 +382,39 @@ const JobListings: React.FC = () => {
     return daysDiff <= 3;
   };
 
-  // Toggle save job
-  const toggleSaveJob = (e: React.MouseEvent, jobId: string) => {
+  // Load saved job IDs from backend
+  const loadSavedJobs = async () => {
+    try {
+      const saved = await jobService.getSavedJobs();
+      setSavedJobs(new Set(saved.map((j: Job) => j.id)));
+    } catch (err) {
+      console.error('Failed to load saved jobs:', err);
+    }
+  };
+
+  // Toggle save job (persisted to backend)
+  const toggleSaveJob = async (e: React.MouseEvent, jobId: string) => {
     e.stopPropagation();
-    setSavedJobs(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(jobId)) {
-        newSet.delete(jobId);
+    const isCurrentlySaved = savedJobs.has(jobId);
+    try {
+      if (isCurrentlySaved) {
+        await jobService.unsaveJob(jobId);
+        setSavedJobs(prev => { const n = new Set(prev); n.delete(jobId); return n; });
+        setSnackbar({ open: true, message: 'Removed from saved jobs', severity: 'info' });
       } else {
-        newSet.add(jobId);
+        await jobService.saveJob(jobId);
+        setSavedJobs(prev => new Set(prev).add(jobId));
+        setSnackbar({ open: true, message: 'Job saved', severity: 'success' });
       }
-      return newSet;
-    });
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err.message || 'Failed to update saved job', severity: 'error' });
+    }
   };
 
   useEffect(() => {
     loadJobs();
     loadUserInterests();
+    loadSavedJobs();
   }, []);
 
   useEffect(() => {

@@ -350,6 +350,18 @@ class ContestRegistration(Base):
     contest = relationship("Contest", back_populates="registrations")
 
 
+class ProblemBookmark(Base):
+    """Bookmarked problems."""
+    __tablename__ = "problem_bookmarks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    problem_id = Column(UUID(as_uuid=True), ForeignKey("problems.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class UserProgress(Base):
     """User's overall coding progress."""
     __tablename__ = "user_progress"

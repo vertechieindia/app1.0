@@ -173,6 +173,41 @@ export const jobService = {
     return jobs.find((job) => job.id === jobId) || null;
   },
 
+   // Get saved (bookmarked) job IDs from backend - GET /jobs/saved
+  getSavedJobs: async (): Promise<Job[]> => {
+    try {
+      const response = await apiRequest(API_ENDPOINTS.JOBS.SAVED_LIST);
+      if (response.ok) {
+        const data = await response.json();
+        return Array.isArray(data) ? data.map(mapBackendJobToFrontend) : [];
+      }
+    } catch (e) {
+      console.warn('Failed to load saved jobs:', e);
+    }
+    return [];
+  },
+
+  // Save (bookmark) a job - POST /jobs/saved with body { job_id }
+  saveJob: async (jobId: string): Promise<void> => {
+    const response = await apiRequest(API_ENDPOINTS.JOBS.SAVED_LIST, {
+      method: 'POST',
+      body: JSON.stringify({ job_id: jobId }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to save job');
+    }
+  },
+
+  // Unsave (remove bookmark) - DELETE /jobs/saved/{job_id}
+  unsaveJob: async (jobId: string): Promise<void> => {
+    const response = await apiRequest(API_ENDPOINTS.JOBS.SAVED_DELETE(jobId), { method: 'DELETE' });
+    if (!response.ok && response.status !== 204) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to unsave job');
+    }
+  },
+
   // Create a new job - Uses Backend API
   createJob: async (jobData: JobFormData, hrUserId: string): Promise<Job> => {
     try {
