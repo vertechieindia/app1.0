@@ -731,6 +731,8 @@ const CMSJobs: React.FC = () => {
               salary_max: '',
               experience_level: 'mid',
               skills_required: [],
+              coding_questions: [],
+              screening_questions: [],
               status: 'published'
             });
           }}

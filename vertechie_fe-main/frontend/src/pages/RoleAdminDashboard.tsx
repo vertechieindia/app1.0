@@ -93,7 +93,7 @@ const SummaryCard = styled(Card)(({ theme }) => ({
 
 const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title, icon, embedded }) => {
   const navigate = useNavigate();
-  
+
   // State
   const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -101,7 +101,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // '' = All (show all statuses by default)
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
-  
+
   // Reject dialog
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedApproval, setSelectedApproval] = useState<any>(null);
@@ -155,13 +155,13 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
       if (response.ok) {
         const data = await response.json();
         const approvals = Array.isArray(data) ? data : (data.results ?? []);
-        
+
         // Additional client-side filtering for techie_admin to ensure only techies are shown
         if (userType === 'techie') {
           const filtered = (approvals as any[]).filter((approval: any) => {
-            const isTechie = !approval.user_type || 
-                           String(approval.user_type).toLowerCase() === 'techie' ||
-                           String(approval.user_type).toLowerCase() === 'tech professional';
+            const isTechie = !approval.user_type ||
+              String(approval.user_type).toLowerCase() === 'techie' ||
+              String(approval.user_type).toLowerCase() === 'tech professional';
             const hasAdminRoles = approval.admin_roles && approval.admin_roles.length > 0;
             return isTechie && !hasAdminRoles;
           });
@@ -195,10 +195,16 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
 
       let statsData: { pending?: number; approved?: number; rejected?: number } | null = null;
       if (statsResponse.ok) {
-        statsData = await statsResponse.json();
-        setStats(statsData);
-        const total = (statsData.pending ?? 0) + (statsData.approved ?? 0) + (statsData.rejected ?? 0);
-        setTopStats((prev) => ({ ...prev, totalUsers: total, pendingUsers: statsData!.pending ?? 0 }));
+        const rawStats = await statsResponse.json();
+        const safeStats = {
+          pending: rawStats.pending ?? 0,
+          approved: rawStats.approved ?? 0,
+          rejected: rawStats.rejected ?? 0,
+          total: (rawStats.pending ?? 0) + (rawStats.approved ?? 0) + (rawStats.rejected ?? 0)
+        };
+        statsData = safeStats;
+        setStats(safeStats);
+        setTopStats((prev) => ({ ...prev, totalUsers: safeStats.total, pendingUsers: safeStats.pending }));
       } else if (statsResponse.status !== 401) {
         const errBody = await statsResponse.json().catch(() => ({}));
         const msg = Array.isArray(errBody.detail) ? errBody.detail.map((e: any) => e.msg || e).join(', ') : (errBody.detail || 'Failed to load stats');
@@ -386,16 +392,16 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   const filteredApprovals = pendingApprovals.filter((approval) => {
     // For techie admin, ensure we only show techies
     if (userType === 'techie') {
-      const isTechie = !approval.user_type || 
-                      approval.user_type.toLowerCase() === 'techie' ||
-                      approval.user_type.toLowerCase() === 'tech professional';
+      const isTechie = !approval.user_type ||
+        approval.user_type.toLowerCase() === 'techie' ||
+        approval.user_type.toLowerCase() === 'tech professional';
       const hasAdminRoles = approval.admin_roles && approval.admin_roles.length > 0;
-      
+
       if (!isTechie || hasAdminRoles) {
         return false;
       }
     }
-    
+
     // Apply search filter
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
@@ -419,273 +425,273 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
     <>
       {/* Top summary cards (reference UI) */}
       <Grid container spacing={2} sx={{ p: 2.5, pb: 0 }}>
-            <Grid item xs={6} sm={4} md={2.4}>
-              <SummaryCard sx={{ bgcolor: '#eff6ff' }}>
-                <People sx={{ fontSize: 28, color: '#3b82f6', mx: 'auto', mb: 0.5 }} />
-                <Typography variant="h5" sx={{ fontWeight: 700, color: '#1d4ed8' }}>{topStats.totalAdmins}</Typography>
-                <Typography variant="caption" color="text.secondary">Total Admins</Typography>
-              </SummaryCard>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2.4}>
-              <SummaryCard sx={{ bgcolor: '#f0fdf4' }}>
-                <CheckCircle sx={{ fontSize: 28, color: '#22c55e', mx: 'auto', mb: 0.5 }} />
-                <Typography variant="h5" sx={{ fontWeight: 700, color: '#16a34a' }}>{topStats.activeAdmins}</Typography>
-                <Typography variant="caption" color="text.secondary">Active Admins</Typography>
-              </SummaryCard>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2.4}>
-              <SummaryCard sx={{ bgcolor: '#faf5ff' }}>
-                <People sx={{ fontSize: 28, color: '#9333ea', mx: 'auto', mb: 0.5 }} />
-                <Typography variant="h5" sx={{ fontWeight: 700, color: '#7c3aed' }}>{topStats.totalUsers}</Typography>
-                <Typography variant="caption" color="text.secondary">Total Users</Typography>
-              </SummaryCard>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2.4}>
-              <SummaryCard sx={{ bgcolor: '#fffbeb' }}>
-                <People sx={{ fontSize: 28, color: '#f59e0b', mx: 'auto', mb: 0.5 }} />
-                <Typography variant="h5" sx={{ fontWeight: 700, color: '#d97706' }}>{topStats.pendingUsers}</Typography>
-                <Typography variant="caption" color="text.secondary">Pending (Users)</Typography>
-              </SummaryCard>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2.4}>
-              <SummaryCard sx={{ bgcolor: '#fef2f2' }}>
-                <Security sx={{ fontSize: 28, color: '#dc2626', mx: 'auto', mb: 0.5 }} />
-                <Typography variant="h5" sx={{ fontWeight: 700, color: '#b91c1c' }}>{topStats.roles}</Typography>
-                <Typography variant="caption" color="text.secondary">Roles</Typography>
-              </SummaryCard>
-            </Grid>
-          </Grid>
+        <Grid item xs={6} sm={4} md={2.4}>
+          <SummaryCard sx={{ bgcolor: '#eff6ff' }}>
+            <People sx={{ fontSize: 28, color: '#3b82f6', mx: 'auto', mb: 0.5 }} />
+            <Typography variant="h5" sx={{ fontWeight: 700, color: '#1d4ed8' }}>{topStats.totalAdmins}</Typography>
+            <Typography variant="caption" color="text.secondary">Total Admins</Typography>
+          </SummaryCard>
+        </Grid>
+        <Grid item xs={6} sm={4} md={2.4}>
+          <SummaryCard sx={{ bgcolor: '#f0fdf4' }}>
+            <CheckCircle sx={{ fontSize: 28, color: '#22c55e', mx: 'auto', mb: 0.5 }} />
+            <Typography variant="h5" sx={{ fontWeight: 700, color: '#16a34a' }}>{topStats.activeAdmins}</Typography>
+            <Typography variant="caption" color="text.secondary">Active Admins</Typography>
+          </SummaryCard>
+        </Grid>
+        <Grid item xs={6} sm={4} md={2.4}>
+          <SummaryCard sx={{ bgcolor: '#faf5ff' }}>
+            <People sx={{ fontSize: 28, color: '#9333ea', mx: 'auto', mb: 0.5 }} />
+            <Typography variant="h5" sx={{ fontWeight: 700, color: '#7c3aed' }}>{topStats.totalUsers}</Typography>
+            <Typography variant="caption" color="text.secondary">Total Users</Typography>
+          </SummaryCard>
+        </Grid>
+        <Grid item xs={6} sm={4} md={2.4}>
+          <SummaryCard sx={{ bgcolor: '#fffbeb' }}>
+            <People sx={{ fontSize: 28, color: '#f59e0b', mx: 'auto', mb: 0.5 }} />
+            <Typography variant="h5" sx={{ fontWeight: 700, color: '#d97706' }}>{topStats.pendingUsers}</Typography>
+            <Typography variant="caption" color="text.secondary">Pending (Users)</Typography>
+          </SummaryCard>
+        </Grid>
+        <Grid item xs={6} sm={4} md={2.4}>
+          <SummaryCard sx={{ bgcolor: '#fef2f2' }}>
+            <Security sx={{ fontSize: 28, color: '#dc2626', mx: 'auto', mb: 0.5 }} />
+            <Typography variant="h5" sx={{ fontWeight: 700, color: '#b91c1c' }}>{topStats.roles}</Typography>
+            <Typography variant="caption" color="text.secondary">Roles</Typography>
+          </SummaryCard>
+        </Grid>
+      </Grid>
 
-          {/* Pending Approvals content */}
-          <Box sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <CheckCircle sx={{ color: '#22c55e', fontSize: 28 }} />
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 700 }}>Pending Approvals</Typography>
-                  <Typography variant="body2" color="text.secondary">Review and approve pending user registrations</Typography>
-                </Box>
-              </Box>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                <FormControl size="small" sx={{ minWidth: 140 }}>
-                  <InputLabel>User Type</InputLabel>
-                  <Select value={userType} label="User Type" disabled>
-                    <MenuItem value="techie">Tech Professional</MenuItem>
-                    <MenuItem value="hr">Hiring Manager</MenuItem>
-                    <MenuItem value="company">Company</MenuItem>
-                    <MenuItem value="school">Educational Institution</MenuItem>
-                  </Select>
-                </FormControl>
-                <Button variant="outlined" startIcon={<Refresh />} onClick={fetchApprovals} size="medium">
-                  Refresh
-                </Button>
-                <Button variant="contained" startIcon={<PersonAdd />} onClick={() => setCreateWizardOpen(true)} size="medium">
-                  Create {getUserTypeLabel()}
-                </Button>
-              </Box>
+      {/* Pending Approvals content */}
+      <Box sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <CheckCircle sx={{ color: '#22c55e', fontSize: 28 }} />
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>Pending Approvals</Typography>
+              <Typography variant="body2" color="text.secondary">Review and approve pending user registrations</Typography>
             </Box>
-
-            {/* Approval stats row */}
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid item xs={6} md={3}>
-                <SummaryCard sx={{ bgcolor: '#fffbeb' }}>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#f59e0b' }}>{stats.pending}</Typography>
-                  <Typography variant="body2" color="text.secondary">Pending</Typography>
-                </SummaryCard>
-              </Grid>
-              <Grid item xs={6} md={3}>
-                <SummaryCard sx={{ bgcolor: '#f0fdf4' }}>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#22c55e' }}>{stats.approved}</Typography>
-                  <Typography variant="body2" color="text.secondary">Approved</Typography>
-                </SummaryCard>
-              </Grid>
-              <Grid item xs={6} md={3}>
-                <SummaryCard sx={{ bgcolor: '#fef2f2' }}>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#dc2626' }}>{stats.rejected}</Typography>
-                  <Typography variant="body2" color="text.secondary">Rejected</Typography>
-                </SummaryCard>
-              </Grid>
-              <Grid item xs={6} md={3}>
-                <SummaryCard sx={{ bgcolor: '#f0f9ff' }}>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#0ea5e9' }}>{stats.total}</Typography>
-                  <Typography variant="body2" color="text.secondary">Total</Typography>
-                </SummaryCard>
-              </Grid>
-            </Grid>
-
-            {/* Search + Status filter */}
-            <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-              <TextField
-                placeholder="Search by name or email..."
-                size="small"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                sx={{ flex: 1, minWidth: 200 }}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Search />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-              <FormControl size="small" sx={{ minWidth: 120 }}>
-                <InputLabel>Status</InputLabel>
-                <Select value={statusFilter} label="Status" onChange={(e) => setStatusFilter(e.target.value)}>
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="pending">Pending</MenuItem>
-                  <MenuItem value="approved">Approved</MenuItem>
-                  <MenuItem value="rejected">Rejected</MenuItem>
-                </Select>
-              </FormControl>
-            </Box>
-
-            {/* Table */}
-            {loading ? (
-              <Box sx={{ py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <LinearProgress sx={{ width: '60%', maxWidth: 300, height: 6, borderRadius: 3 }} />
-                <Typography align="center" sx={{ mt: 2 }} color="text.secondary">Loading...</Typography>
-              </Box>
-            ) : filteredApprovals.length === 0 ? (
-              <Paper elevation={0} sx={{ p: 6, textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2, bgcolor: '#f0fdf4' }}>
-                  <CheckCircle sx={{ fontSize: 40, color: '#22c55e' }} />
-                </Avatar>
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {userType === 'techie' ? 'No Tech Professional Requests' : userType === 'hr' ? 'No Hiring Managers Yet' : userType === 'company' ? 'No Company Accounts Yet' : userType === 'school' ? 'No School Accounts Yet' : 'No Requests Found'}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 360, mx: 'auto' }}>
-                  {userType === 'techie'
-                    ? (!statusFilter ? 'No Tech Professional requests found.' : statusFilter === 'pending' ? 'No pending Tech Professional approvals at this time.' : `No ${statusFilter} Tech Professional requests found.`)
-                    : userType === 'hr'
-                    ? (!statusFilter ? "No hiring managers in the list yet. Click \"Create Hiring Manager\" above to add one." : statusFilter === 'pending' ? 'No pending Hiring Manager approvals.' : `No ${statusFilter} Hiring Manager requests found.`)
-                    : (!statusFilter ? `No ${getUserTypeLabel().toLowerCase()}s yet. Use "Create ${getUserTypeLabel()}" above to add one.` : statusFilter === 'pending' ? `No pending ${getUserTypeLabel()} approvals.` : `No ${statusFilter} requests found.`)}
-                </Typography>
-              </Paper>
-            ) : (
-              <TableContainer component={Paper} elevation={0} sx={{ borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <Table>
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: '#f8fafc' }}>
-                      <TableCell sx={{ fontWeight: 600 }}>User</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }} align="center">Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredApprovals.map((approval) => (
-                      <TableRow key={approval.id} hover>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                            <Avatar sx={{ bgcolor: '#e0e7ff' }}>
-                              {userType === 'techie' && <Engineering sx={{ color: '#6366f1' }} />}
-                              {userType === 'hr' && <People sx={{ color: '#6366f1' }} />}
-                              {userType === 'company' && <Business sx={{ color: '#6366f1' }} />}
-                              {userType === 'school' && <School sx={{ color: '#6366f1' }} />}
-                            </Avatar>
-                            <Box>
-                              <Typography variant="body2" sx={{ fontWeight: 600 }}>{approval.user_full_name}</Typography>
-                              <Typography variant="caption" color="text.secondary">{approval.user_email}</Typography>
-                            </Box>
-                          </Box>
-                        </TableCell>
-                        <TableCell>
-                          <Chip label={getUserTypeLabel()} size="small" sx={{ bgcolor: '#f3e8ff', color: '#7c3aed', fontWeight: 600 }} />
-                        </TableCell>
-                        <TableCell>{new Date(approval.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</TableCell>
-                        <TableCell>
-                          <Chip
-                            label={String(approval.status).toLowerCase()}
-                            size="small"
-                            sx={{
-                              bgcolor: approval.status === 'pending' ? '#fffbeb' : approval.status === 'approved' ? '#f0fdf4' : '#fef2f2',
-                              color: approval.status === 'pending' ? '#d97706' : approval.status === 'approved' ? '#16a34a' : '#dc2626',
-                              fontWeight: 600,
-                            }}
-                          />
-                        </TableCell>
-                        <TableCell align="center">
-                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
-                            {approval.status === 'pending' && (
-                              <Tooltip title="Approve">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => handleApprove(approval.id)}
-                                  sx={{
-                                    color: '#16a34a',
-                                    transition: 'all 0.3s ease',
-                                    '&:hover': { bgcolor: 'rgba(22, 163, 74, 0.1)', transform: 'scale(1.15)' },
-                                  }}
-                                >
-                                  <CheckCircle fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                            <Tooltip title="Review profile">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleOpenReview(approval.id)}
-                                sx={{
-                                  color: '#7c3aed',
-                                  transition: 'all 0.3s ease',
-                                  '&:hover': { bgcolor: 'rgba(124, 58, 237, 0.1)', transform: 'scale(1.15)' },
-                                }}
-                              >
-                                <Settings fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Reset password">
-                              <IconButton
-                                size="small"
-                                onClick={() => { setUserToResetPassword(approval); setResetPasswordDialogOpen(true); }}
-                                sx={{
-                                  color: '#6b7280',
-                                  transition: 'all 0.3s ease',
-                                  '&:hover': { bgcolor: 'rgba(107, 114, 128, 0.1)', color: '#4b5563', transform: 'scale(1.15)' },
-                                }}
-                              >
-                                <LockReset fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Remove user">
-                              <IconButton
-                                size="small"
-                                onClick={() => { setUserToRemove(approval); setRemoveDialogOpen(true); }}
-                                sx={{
-                                  color: '#dc2626',
-                                  transition: 'all 0.3s ease',
-                                  '&:hover': { bgcolor: 'rgba(220, 38, 38, 0.1)', transform: 'scale(1.15)' },
-                                }}
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            {approval.status === 'pending' && (
-                              <Tooltip title="Reject">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => { setSelectedApproval(approval); setRejectDialogOpen(true); }}
-                                  sx={{
-                                    color: '#b91c1c',
-                                    transition: 'all 0.3s ease',
-                                    '&:hover': { bgcolor: 'rgba(185, 28, 28, 0.1)', transform: 'scale(1.15)' },
-                                  }}
-                                >
-                                  <Cancel fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
           </Box>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>User Type</InputLabel>
+              <Select value={userType} label="User Type" disabled>
+                <MenuItem value="techie">Tech Professional</MenuItem>
+                <MenuItem value="hr">Hiring Manager</MenuItem>
+                <MenuItem value="company">Company</MenuItem>
+                <MenuItem value="school">Educational Institution</MenuItem>
+              </Select>
+            </FormControl>
+            <Button variant="outlined" startIcon={<Refresh />} onClick={fetchApprovals} size="medium">
+              Refresh
+            </Button>
+            <Button variant="contained" startIcon={<PersonAdd />} onClick={() => setCreateWizardOpen(true)} size="medium">
+              Create {getUserTypeLabel()}
+            </Button>
+          </Box>
+        </Box>
+
+        {/* Approval stats row */}
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={6} md={3}>
+            <SummaryCard sx={{ bgcolor: '#fffbeb' }}>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: '#f59e0b' }}>{stats.pending}</Typography>
+              <Typography variant="body2" color="text.secondary">Pending</Typography>
+            </SummaryCard>
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <SummaryCard sx={{ bgcolor: '#f0fdf4' }}>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: '#22c55e' }}>{stats.approved}</Typography>
+              <Typography variant="body2" color="text.secondary">Approved</Typography>
+            </SummaryCard>
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <SummaryCard sx={{ bgcolor: '#fef2f2' }}>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: '#dc2626' }}>{stats.rejected}</Typography>
+              <Typography variant="body2" color="text.secondary">Rejected</Typography>
+            </SummaryCard>
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <SummaryCard sx={{ bgcolor: '#f0f9ff' }}>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: '#0ea5e9' }}>{stats.total}</Typography>
+              <Typography variant="body2" color="text.secondary">Total</Typography>
+            </SummaryCard>
+          </Grid>
+        </Grid>
+
+        {/* Search + Status filter */}
+        <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+          <TextField
+            placeholder="Search by name or email..."
+            size="small"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            sx={{ flex: 1, minWidth: 200 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>Status</InputLabel>
+            <Select value={statusFilter} label="Status" onChange={(e) => setStatusFilter(e.target.value)}>
+              <MenuItem value="">All</MenuItem>
+              <MenuItem value="pending">Pending</MenuItem>
+              <MenuItem value="approved">Approved</MenuItem>
+              <MenuItem value="rejected">Rejected</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+
+        {/* Table */}
+        {loading ? (
+          <Box sx={{ py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <LinearProgress sx={{ width: '60%', maxWidth: 300, height: 6, borderRadius: 3 }} />
+            <Typography align="center" sx={{ mt: 2 }} color="text.secondary">Loading...</Typography>
+          </Box>
+        ) : filteredApprovals.length === 0 ? (
+          <Paper elevation={0} sx={{ p: 6, textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2, bgcolor: '#f0fdf4' }}>
+              <CheckCircle sx={{ fontSize: 40, color: '#22c55e' }} />
+            </Avatar>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              {userType === 'techie' ? 'No Tech Professional Requests' : userType === 'hr' ? 'No Hiring Managers Yet' : userType === 'company' ? 'No Company Accounts Yet' : userType === 'school' ? 'No School Accounts Yet' : 'No Requests Found'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 360, mx: 'auto' }}>
+              {userType === 'techie'
+                ? (!statusFilter ? 'No Tech Professional requests found.' : statusFilter === 'pending' ? 'No pending Tech Professional approvals at this time.' : `No ${statusFilter} Tech Professional requests found.`)
+                : userType === 'hr'
+                  ? (!statusFilter ? "No hiring managers in the list yet. Click \"Create Hiring Manager\" above to add one." : statusFilter === 'pending' ? 'No pending Hiring Manager approvals.' : `No ${statusFilter} Hiring Manager requests found.`)
+                  : (!statusFilter ? `No ${getUserTypeLabel().toLowerCase()}s yet. Use "Create ${getUserTypeLabel()}" above to add one.` : statusFilter === 'pending' ? `No pending ${getUserTypeLabel()} approvals.` : `No ${statusFilter} requests found.`)}
+            </Typography>
+          </Paper>
+        ) : (
+          <TableContainer component={Paper} elevation={0} sx={{ borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                  <TableCell sx={{ fontWeight: 600 }}>User</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }} align="center">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredApprovals.map((approval) => (
+                  <TableRow key={approval.id} hover>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Avatar sx={{ bgcolor: '#e0e7ff' }}>
+                          {userType === 'techie' && <Engineering sx={{ color: '#6366f1' }} />}
+                          {userType === 'hr' && <People sx={{ color: '#6366f1' }} />}
+                          {userType === 'company' && <Business sx={{ color: '#6366f1' }} />}
+                          {userType === 'school' && <School sx={{ color: '#6366f1' }} />}
+                        </Avatar>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>{approval.user_full_name}</Typography>
+                          <Typography variant="caption" color="text.secondary">{approval.user_email}</Typography>
+                        </Box>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={getUserTypeLabel()} size="small" sx={{ bgcolor: '#f3e8ff', color: '#7c3aed', fontWeight: 600 }} />
+                    </TableCell>
+                    <TableCell>{new Date(approval.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={String(approval.status).toLowerCase()}
+                        size="small"
+                        sx={{
+                          bgcolor: approval.status === 'pending' ? '#fffbeb' : approval.status === 'approved' ? '#f0fdf4' : '#fef2f2',
+                          color: approval.status === 'pending' ? '#d97706' : approval.status === 'approved' ? '#16a34a' : '#dc2626',
+                          fontWeight: 600,
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                        {approval.status === 'pending' && (
+                          <Tooltip title="Approve">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleApprove(approval.id)}
+                              sx={{
+                                color: '#16a34a',
+                                transition: 'all 0.3s ease',
+                                '&:hover': { bgcolor: 'rgba(22, 163, 74, 0.1)', transform: 'scale(1.15)' },
+                              }}
+                            >
+                              <CheckCircle fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        <Tooltip title="Review profile">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleOpenReview(approval.id)}
+                            sx={{
+                              color: '#7c3aed',
+                              transition: 'all 0.3s ease',
+                              '&:hover': { bgcolor: 'rgba(124, 58, 237, 0.1)', transform: 'scale(1.15)' },
+                            }}
+                          >
+                            <Settings fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Reset password">
+                          <IconButton
+                            size="small"
+                            onClick={() => { setUserToResetPassword(approval); setResetPasswordDialogOpen(true); }}
+                            sx={{
+                              color: '#6b7280',
+                              transition: 'all 0.3s ease',
+                              '&:hover': { bgcolor: 'rgba(107, 114, 128, 0.1)', color: '#4b5563', transform: 'scale(1.15)' },
+                            }}
+                          >
+                            <LockReset fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Remove user">
+                          <IconButton
+                            size="small"
+                            onClick={() => { setUserToRemove(approval); setRemoveDialogOpen(true); }}
+                            sx={{
+                              color: '#dc2626',
+                              transition: 'all 0.3s ease',
+                              '&:hover': { bgcolor: 'rgba(220, 38, 38, 0.1)', transform: 'scale(1.15)' },
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        {approval.status === 'pending' && (
+                          <Tooltip title="Reject">
+                            <IconButton
+                              size="small"
+                              onClick={() => { setSelectedApproval(approval); setRejectDialogOpen(true); }}
+                              sx={{
+                                color: '#b91c1c',
+                                transition: 'all 0.3s ease',
+                                '&:hover': { bgcolor: 'rgba(185, 28, 28, 0.1)', transform: 'scale(1.15)' },
+                              }}
+                            >
+                              <Cancel fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </Box>
     </>
   );
   const rest = (
@@ -711,8 +717,8 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             color="error"
             onClick={handleReject}
             disabled={rejectReason.length < 10}
@@ -925,33 +931,33 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
 
 // Export specific dashboard components
 export const TechieAdminDashboard: React.FC = () => (
-  <RoleAdminDashboard 
-    userType="techie" 
-    title="Techie Admin Dashboard" 
+  <RoleAdminDashboard
+    userType="techie"
+    title="Techie Admin Dashboard"
     icon={<Engineering sx={{ color: '#f59e0b', fontSize: 32 }} />}
   />
 );
 
 export const HMAdminDashboard: React.FC = () => (
-  <RoleAdminDashboard 
-    userType="hr" 
-    title="Hiring Manager Admin Dashboard" 
+  <RoleAdminDashboard
+    userType="hr"
+    title="Hiring Manager Admin Dashboard"
     icon={<People sx={{ color: '#0ea5e9', fontSize: 32 }} />}
   />
 );
 
 export const CompanyAdminDashboard: React.FC = () => (
-  <RoleAdminDashboard 
-    userType="company" 
-    title="Company Admin Dashboard" 
+  <RoleAdminDashboard
+    userType="company"
+    title="Company Admin Dashboard"
     icon={<Business sx={{ color: '#059669', fontSize: 32 }} />}
   />
 );
 
 export const SchoolAdminDashboard: React.FC = () => (
-  <RoleAdminDashboard 
-    userType="school" 
-    title="School Admin Dashboard" 
+  <RoleAdminDashboard
+    userType="school"
+    title="School Admin Dashboard"
     icon={<School sx={{ color: '#dc2626', fontSize: 32 }} />}
   />
 );
@@ -1033,7 +1039,7 @@ export const MultiRoleAdminDashboard: React.FC = () => {
             sx={{ borderBottom: 1, borderColor: 'divider', px: 2, pt: 1 }}
           >
             {tabs.map((t, i) => (
-              <Tab key={t.userType} label={t.label} icon={t.icon} iconPosition="start" />
+              <Tab key={t.userType} label={t.label} icon={t.icon as any} iconPosition="start" />
             ))}
           </Tabs>
           <Box sx={{ pt: 0 }}>

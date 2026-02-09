@@ -42,7 +42,7 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
-         "https://vertechie.com",
+        "https://vertechie.com",
     ]
     
     # Email - Gmail SMTP settings
@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     EMAILS_FROM_EMAIL: str = "tminnovations.manager@gmail.com"
     EMAILS_FROM_NAME: str = "VerTechie"
+    FROM_EMAIL: str = "noreply@vertechie.com"  # Alias for compatibility with some modules
     
     # AWS S3
     AWS_ACCESS_KEY_ID: Optional[str] = None
@@ -95,13 +96,6 @@ class Settings(BaseSettings):
     # Azure Face API (Liveness) - Set in .env file
     AZURE_FACE_ENDPOINT: str = ""
     AZURE_FACE_KEY: str = ""
-    
-    # SMTP Email Settings - Set in .env file
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USER: str = ""
-    SMTP_PASSWORD: str = ""
-    FROM_EMAIL: str = "noreply@vertechie.com"
     
     model_config = {
         "env_file": ".env",
