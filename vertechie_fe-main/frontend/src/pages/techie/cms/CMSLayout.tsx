@@ -239,7 +239,7 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
         });
         setCompanyStats(DUMMY_STATS);
       } finally {
-        setCompany(prev => {
+        setCompany((prev: any) => {
           if (!prev) {
             setCompanyInfo({
               name: DUMMY_COMPANY.name,
@@ -359,7 +359,7 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
       setEditOpen(false);
       setSnackbar({ open: true, message: 'Company page updated successfully!', severity: 'success' });
       // Refresh company data
-      const updated = await api.get(API_ENDPOINTS.CMS.MY_COMPANY);
+      const updated = await api.get<any>(API_ENDPOINTS.CMS.MY_COMPANY);
       if (updated) {
         setCompany(updated);
         setCompanyInfo({

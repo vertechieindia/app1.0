@@ -134,7 +134,7 @@ const SMSPrograms: React.FC = () => {
         }
       }
 
-      let saved;
+      let saved: any;
       if (editingProgram?.id) {
         saved = await api.put<any>(
           API_ENDPOINTS.SMS.UPDATE_PROGRAM(schoolId, editingProgram.id),
@@ -184,9 +184,9 @@ const SMSPrograms: React.FC = () => {
       <Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
           <Typography variant="h6" fontWeight={600}>Programs</Typography>
-          <Button 
-            variant="contained" 
-            startIcon={<AddIcon />} 
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
             sx={{ bgcolor: colors.primary }}
             onClick={() => setOpenDialog(true)}
           >
@@ -229,8 +229,8 @@ const SMSPrograms: React.FC = () => {
           <Grid container spacing={3}>
             {filteredPrograms.map((program) => (
               <Grid item xs={12} md={6} lg={4} key={program.id}>
-                <Card sx={{ 
-                  height: '100%', 
+                <Card sx={{
+                  height: '100%',
                   border: `1px solid ${alpha(colors.primary, 0.1)}`,
                   '&:hover': {
                     boxShadow: `0 8px 24px ${alpha(colors.primary, 0.15)}`,
@@ -254,26 +254,26 @@ const SMSPrograms: React.FC = () => {
                         </IconButton>
                       </Box>
                     </Box>
-                    
+
                     <Typography variant="h6" fontWeight={600} gutterBottom>
                       {program.name}
                     </Typography>
-                    
+
                     <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
                       {program.program_type && (
-                        <Chip 
-                          label={String(program.program_type).charAt(0).toUpperCase() + String(program.program_type).slice(1)} 
-                          size="small" 
-                          sx={{ bgcolor: alpha(colors.primary, 0.1), color: colors.primary }} 
+                        <Chip
+                          label={String(program.program_type).charAt(0).toUpperCase() + String(program.program_type).slice(1)}
+                          size="small"
+                          sx={{ bgcolor: alpha(colors.primary, 0.1), color: colors.primary }}
                         />
                       )}
-                      <Chip 
-                        label={program.is_active === false ? 'Inactive' : 'Active'} 
-                        size="small" 
-                        sx={{ bgcolor: alpha(colors.success, 0.1), color: colors.success }} 
+                      <Chip
+                        label={program.is_active === false ? 'Inactive' : 'Active'}
+                        size="small"
+                        sx={{ bgcolor: alpha(colors.success, 0.1), color: colors.success }}
                       />
                     </Box>
-                    
+
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <AccessTimeIcon fontSize="small" color="action" />
