@@ -9,6 +9,7 @@ import base64
 import re
 import httpx
 import smtplib
+import os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
@@ -147,9 +148,31 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
         return False
 
 
+def get_logo_data_uri() -> str:
+    """
+    Return the VerTechie logo as a data URI (base64 PNG) for embedding in emails.
+    Falls back to empty string if the logo file is not found.
+    """
+    try:
+        # __file__ = .../vertechie_fastapi/app/api/v_auth/auth.py
+        # static logo lives in .../vertechie_fastapi/static/vertechie-logo.svg
+        app_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # .../vertechie_fastapi/app
+        project_root = os.path.dirname(app_dir)  # .../vertechie_fastapi
+        logo_path = os.path.join(project_root, "static", "vertechie-logo.svg")
+        with open(logo_path, "rb") as f:
+            logo_bytes = f.read()
+        encoded = base64.b64encode(logo_bytes).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+    except Exception as e:
+        print(f"[EMAIL] Could not load logo image: {e}")
+        return ""
+
+
 def send_otp_email(to_email: str, otp: str) -> bool:
     """Send OTP verification email."""
     subject = "Your VerTechie Verification Code"
+    # Use a public HTTPS URL so the logo renders correctly in email clients (Gmail, etc.)
+    logo_src = "https://api.vertechie.com/static/vertechie-logo.png"
     body = f"""
     <!DOCTYPE html>
     <html>
@@ -158,7 +181,9 @@ def send_otp_email(to_email: str, otp: str) -> bool:
             body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
             .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
             .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-            .header h1 {{ color: white; margin: 0; }}
+            .header-content {{ display: flex; align-items: center; justify-content: center; gap: 10px; }}
+            .header-logo {{ height: 40px; width: 40px; object-fit: contain; }}
+            .header-title {{ color: white; margin: 0; font-size: 28px; font-weight: bold; }}
             .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
             .otp-box {{ background: white; border: 2px dashed #667eea; padding: 20px; text-align: center; margin: 20px 0; border-radius: 8px; }}
             .otp-code {{ font-size: 32px; font-weight: bold; color: #667eea; letter-spacing: 8px; }}
@@ -168,7 +193,10 @@ def send_otp_email(to_email: str, otp: str) -> bool:
     <body>
         <div class="container">
             <div class="header">
-                <h1>VerTechie</h1>
+                <div class="header-content">
+                    {"<img class='header-logo' src='" + logo_src + "' alt='VerTechie logo' />" if logo_src else ""}
+                    <span class="header-title">VerTechie</span>
+                </div>
             </div>
             <div class="content">
                 <h2>Email Verification</h2>

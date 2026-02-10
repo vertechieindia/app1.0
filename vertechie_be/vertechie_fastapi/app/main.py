@@ -199,6 +199,9 @@ _uploads_chat = _uploads / "chat"
 _uploads_chat.mkdir(exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(_uploads)), name="uploads")
 
+_static = Path(__file__).resolve().parent.parent / "static"
+_static.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_static)), name="static")
 # Include legacy v_auth router for backwards compatibility
 app.include_router(v_auth_router, prefix="/api/v_auth")
 
