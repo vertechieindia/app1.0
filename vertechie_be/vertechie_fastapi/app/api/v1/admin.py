@@ -523,6 +523,48 @@ async def list_blocked_profiles(
     return response
 
 
+@router.post("/blocked-profiles/{user_id}/unblock/")
+async def unblock_blocked_profile(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user)
+) -> Any:
+    """
+    Unblock a user from the blocked profiles list.
+    
+    This matches the Super Admin panel call to:
+    POST /blocked-profiles/{id}/unblock/
+    """
+    # Find the user
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # If user is already unblocked, just return success
+    if not user.is_blocked:
+        return {
+            "success": True,
+            "message": "User is already unblocked",
+            "user_id": str(user.id),
+        }
+    
+    # Unblock user (mirror logic from users.unblock_user)
+    user.is_blocked = False
+    user.blocked_at = None
+    user.blocked_reason = None
+    user.blocked_by_id = None
+    
+    await db.commit()
+    
+    return {
+        "success": True,
+        "message": f"User {user.email} has been unblocked",
+        "user_id": str(user.id),
+    }
+
+
 @router.get("/pending-approvals/", response_model=List[PendingApprovalResponse])
 async def list_pending_approvals(
     skip: int = Query(0, ge=0),
@@ -868,7 +910,11 @@ async def get_pending_approvals_stats(
 
 class RejectRequest(BaseModel):
     """Request body for rejection."""
+    # Backend originally expected `reason`.
+    # SuperAdmin frontend currently sends `rejection_reason`.
+    # Support both for backwards compatibility.
     reason: str = ""
+    rejection_reason: Optional[str] = None
 
 
 @router.post("/pending-approvals/{user_id}/approve/")
@@ -922,24 +968,27 @@ async def reject_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Determine final rejection reason (support both `reason` and `rejection_reason`)
+    final_reason = reject_data.reason or (reject_data.rejection_reason or "")
+    
     # Update verification status
     user.verification_status = VerificationStatus.REJECTED
     user.is_verified = False
     user.reviewed_by_id = current_admin.id
     user.reviewed_at = datetime.utcnow()
-    user.rejection_reason = reject_data.reason
+    user.rejection_reason = final_reason
     
     await db.commit()
     
     # Send rejection email notification
     user_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
-    email_sent = await send_profile_status_email(user.email, user_name, "rejected", reject_data.reason)
+    email_sent = await send_profile_status_email(user.email, user_name, "rejected", final_reason)
     
     return {
         "success": True,
         "message": f"User {user.email} has been rejected",
         "user_id": str(user.id),
-        "reason": reject_data.reason,
+        "reason": final_reason,
         "email_sent": email_sent
     }
 

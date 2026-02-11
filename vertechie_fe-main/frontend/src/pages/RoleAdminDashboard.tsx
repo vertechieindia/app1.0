@@ -340,7 +340,8 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
     setResettingPassword(true);
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(getApiUrl('/auth/password/reset'), {
+      // Use the same forgot-password flow as the login screen
+      const response = await fetch(getApiUrl(API_ENDPOINTS.FORGOT_PASSWORD), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ email: userToResetPassword.user_email }),
