@@ -304,7 +304,8 @@ const mockNotifications: Notification[] = [
 const Notifications: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
+  // Start with empty list; fill from backend so everything is real data
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
@@ -326,7 +327,7 @@ const Notifications: React.FC = () => {
       try {
         setLoading(true);
         const apiNotifications = await notificationService.getNotifications(false, 50);
-        
+
         if (apiNotifications && apiNotifications.length > 0) {
           // Map backend notifications to frontend format
           const mappedNotifications: Notification[] = apiNotifications.map((n: any) => {
@@ -375,13 +376,16 @@ const Notifications: React.FC = () => {
               actionLabel: n.link ? 'View Details' : undefined,
             };
           });
-          
-          // Merge with mock notifications (real ones first)
-          setNotifications([...mappedNotifications, ...mockNotifications.slice(0, 3)]);
+
+          // Use only real notifications from backend
+          setNotifications(mappedNotifications);
+        } else {
+          // No notifications yet
+          setNotifications([]);
         }
       } catch (error) {
         console.error('Error fetching notifications:', error);
-        // Keep mock notifications as fallback
+        // Keep existing state (may be empty) on error
       } finally {
         setLoading(false);
       }

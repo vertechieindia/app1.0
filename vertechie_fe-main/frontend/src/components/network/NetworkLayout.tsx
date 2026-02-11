@@ -138,6 +138,8 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
   const location = useLocation();
 
   const [stats, setStats] = useState<NetworkStatsState>(mockStats);
+  const [userName, setUserName] = useState<string>('User');
+  const [userRole, setUserRole] = useState<string>('');
   const suggestions = mockSuggestions;
   const events = mockEvents;
 
@@ -162,6 +164,41 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
     } catch (err) {
       console.error('NetworkLayout: error fetching stats', err);
       // keep mockStats as fallback (already in state)
+    }
+  }, []);
+
+  // Load current user's display name and a simple role label
+  useEffect(() => {
+    const raw = localStorage.getItem('userData');
+    if (!raw) return;
+
+    try {
+      const user = JSON.parse(raw);
+
+      const first = user.first_name || '';
+      const last = user.last_name || '';
+      const displayName =
+        `${first} ${last}`.trim() || user.username || user.email || 'User';
+      setUserName(displayName);
+
+      const adminRoles: string[] = user.admin_roles || [];
+      let roleLabel = '';
+      if (user.is_superuser || adminRoles.includes('superadmin')) {
+        roleLabel = 'Super Admin at VerTechie';
+      } else if (adminRoles.includes('school_admin')) {
+        roleLabel = 'School Admin at VerTechie';
+      } else if (adminRoles.includes('company_admin')) {
+        roleLabel = 'Company Admin at VerTechie';
+      } else if (adminRoles.includes('techie_admin')) {
+        roleLabel = 'Techie Admin at VerTechie';
+      } else if (adminRoles.includes('hm_admin')) {
+        roleLabel = 'HM Admin at VerTechie';
+      } else {
+        roleLabel = 'Member at VerTechie';
+      }
+      setUserRole(roleLabel);
+    } catch (e) {
+      console.error('NetworkLayout: failed to parse userData', e);
     }
   }, []);
 
@@ -205,10 +242,10 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                     fontWeight: 700,
                   }}
                 >
-                  A
+                   {userName.charAt(0).toUpperCase()}
                 </Avatar>
-                <Typography variant="h6" sx={{ mt: 1, fontWeight: 600 }}>Admin A</Typography>
-                <Typography variant="body2" color="text.secondary">Super Admin at VerTechie</Typography>
+                <Typography variant="h6" sx={{ mt: 1, fontWeight: 600 }}> {userName}</Typography>
+                <Typography variant="body2" color="text.secondary">{userRole}</Typography>
                 
                 <Divider sx={{ my: 2 }} />
                 

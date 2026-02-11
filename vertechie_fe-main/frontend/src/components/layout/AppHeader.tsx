@@ -325,8 +325,6 @@ const AppHeader = () => {
           setUserRole('techie');
         }
 
-        // Mock notifications count
-        setNotifications(3);
       } catch (e) {
         console.error('Error parsing user data:', e);
       }
@@ -674,7 +672,11 @@ const AppHeader = () => {
 
           {/* Notifications */}
           <Tooltip title="Notifications">
-            <IconButton sx={{ color: 'rgba(255,255,255,0.8)' }}>
+            <IconButton
+              component={RouterLink}
+              to={userRole === 'hiring_manager' ? '/hr/alerts' : '/techie/alerts'}
+              sx={{ color: 'rgba(255,255,255,0.8)' }}
+            >
               <Badge badgeContent={notifications} color="error">
                 <NotificationsIcon />
               </Badge>

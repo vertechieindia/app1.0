@@ -971,10 +971,13 @@ const SuperAdmin: React.FC = () => {
       const type = userType?.toLowerCase() || 'techie';
 
       if (type === 'techie') {
-        // Fetch education and experience for techies
+        // Fetch education and experience for techies (admin view other user)
+        // Backend endpoints:
+        //   GET /users/{user_id}/educations
+        //   GET /users/{user_id}/experiences
         const [educationRes, experienceRes] = await Promise.all([
-          fetch(getApiUrl(`${API_ENDPOINTS.EDUCATION}?user=${userId}`), { headers }),
-          fetch(getApiUrl(`${API_ENDPOINTS.EXPERIENCES}?user=${userId}`), { headers }),
+          fetch(getApiUrl(`/users/${userId}/educations`), { headers }),
+          fetch(getApiUrl(`/users/${userId}/experiences`), { headers }),
         ]);
 
         if (educationRes.ok) {
