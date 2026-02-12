@@ -1,6 +1,6 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Outlet, Navigate } from 'react-router-dom';
-import { ThemeProvider, CssBaseline, Box } from '@mui/material';
+import React, { useEffect, useState, useRef } from 'react';
+import { BrowserRouter as Router, Routes, Route, Outlet, Navigate, useNavigate } from 'react-router-dom';
+import { ThemeProvider, CssBaseline, Box, Snackbar, Alert } from '@mui/material';
 import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/Footer';
 import AppHeader from './components/layout/AppHeader';
@@ -189,12 +189,126 @@ const AuthenticatedLayout: React.FC = () => (
   </Box>
 );
 
-const App: React.FC = () => {
+// Cross-tab password reset listener component
+const PasswordResetListener: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const navigate = useNavigate();
+  const [showResetMessage, setShowResetMessage] = useState(false);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const lastResetTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    // Initialize BroadcastChannel listener
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      broadcastChannelRef.current = new BroadcastChannel('password-reset-channel');
+      
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'PASSWORD_RESET_COMPLETED') {
+          const resetTime = event.data.timestamp || Date.now();
+          // Avoid duplicate messages within 1 second
+          if (resetTime - lastResetTimeRef.current > 1000) {
+            lastResetTimeRef.current = resetTime;
+            handlePasswordResetCompleted();
+          }
+        }
+      };
+      
+      broadcastChannelRef.current.addEventListener('message', handleMessage);
+      
+      return () => {
+        if (broadcastChannelRef.current) {
+          broadcastChannelRef.current.removeEventListener('message', handleMessage);
+          broadcastChannelRef.current.close();
+        }
+      };
+    }
+  }, []);
+
+  // Also listen to localStorage changes (fallback for older browsers)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'passwordResetCompleted' && e.newValue) {
+        const resetTime = parseInt(e.newValue, 10);
+        if (resetTime - lastResetTimeRef.current > 1000) {
+          lastResetTimeRef.current = resetTime;
+          handlePasswordResetCompleted();
+        }
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Check if reset was completed while this tab was inactive
+    const checkResetStatus = () => {
+      const resetTimeStr = localStorage.getItem('passwordResetCompleted');
+      if (resetTimeStr) {
+        const resetTime = parseInt(resetTimeStr, 10);
+        const now = Date.now();
+        // If reset happened in last 5 seconds, show message
+        if (resetTime && now - resetTime < 5000 && resetTime - lastResetTimeRef.current > 1000) {
+          lastResetTimeRef.current = resetTime;
+          handlePasswordResetCompleted();
+        }
+      }
+    };
+    
+    // Check on focus
+    window.addEventListener('focus', checkResetStatus);
+    checkResetStatus(); // Initial check
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', checkResetStatus);
+    };
+  }, []);
+
+  const handlePasswordResetCompleted = () => {
+    // Clear auth tokens since password was reset
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('userData');
+    localStorage.removeItem('accessToken');
+    // Clean up the reset completion flag after a delay
+    setTimeout(() => {
+      localStorage.removeItem('passwordResetCompleted');
+    }, 10000);
+    
+    // Show message
+    setShowResetMessage(true);
+    
+    // Redirect to login after showing message (unless already on login/reset-password page)
+    const currentPath = window.location.pathname;
+    if (currentPath !== '/login' && currentPath !== '/reset-password') {
+      setTimeout(() => {
+        navigate('/login');
+      }, 3000);
+    }
+  };
+
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <IdleTimeoutProvider>
+    <>
+      {children}
+      <Snackbar
+        open={showResetMessage}
+        autoHideDuration={5000}
+        onClose={() => setShowResetMessage(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setShowResetMessage(false)} 
+          severity="info" 
+          sx={{ width: '100%' }}
+        >
+          Password reset completed. Please login again.
+        </Alert>
+      </Snackbar>
+    </>
+  );
+};
+
+const AppRoutes: React.FC = () => {
+  return (
+    <PasswordResetListener>
+      <IdleTimeoutProvider>
         <ScrollToTop />
         <Routes>
           {/* ========== PUBLIC ROUTES ========== */}
@@ -900,7 +1014,17 @@ const App: React.FC = () => {
           <Route path="/schedule/:username" element={<PublicSchedulingPage />} />
           <Route path="/book/:linkId" element={<PublicSchedulingPage />} />
         </Routes>
-        </IdleTimeoutProvider>
+      </IdleTimeoutProvider>
+    </PasswordResetListener>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <AppRoutes />
       </Router>
     </ThemeProvider>
   );

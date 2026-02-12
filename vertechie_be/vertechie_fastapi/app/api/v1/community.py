@@ -6,7 +6,7 @@ import logging
 import traceback
 from typing import Any, List, Optional
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, Request, status, UploadFile, Query
@@ -806,13 +806,13 @@ async def list_events(
         ).where(
             Event.is_active == True,
             Event.is_cancelled == False,
-            Event.start_date >= datetime.utcnow()
+            Event.start_date >= datetime.utcnow() - timedelta(days=365)  # Show events from last year
         )
         
         if event_type:
             query = query.where(Event.event_type == event_type)
         
-        query = query.order_by(Event.start_date.asc())
+        query = query.order_by(Event.start_date.asc(), Event.created_at.desc())
         query = query.offset(skip).limit(limit)
         
         result = await db.execute(query)
@@ -853,10 +853,14 @@ async def list_events(
                 "meeting_link": event.meeting_link,
                 "cover_image": event.cover_image,
                 "is_public": event.is_public,
+                "requires_approval": event.requires_approval,
                 "max_attendees": event.max_attendees,
                 "attendees_count": event.attendees_count or 0,
                 "views_count": event.views_count or 0,
+                "is_active": event.is_active,
+                "is_cancelled": event.is_cancelled,
                 "is_registered": is_registered,
+                "host_avatar": getattr(host, "avatar", None),
                 "created_at": event.created_at.isoformat() if event.created_at else None,
             }
             events_with_host.append(event_dict)
@@ -902,9 +906,12 @@ async def create_event(
         try:
             if 'T' in event_in.start_date:
                 start_date = datetime.fromisoformat(event_in.start_date.replace('Z', '+00:00'))
+                # Convert to naive UTC if it's aware, as the DB column is TIMESTAMP WITHOUT TIME ZONE
+                if start_date.tzinfo:
+                    start_date = start_date.astimezone(timezone.utc).replace(tzinfo=None)
             else:
                 # If only date provided, assume midnight UTC
-                start_date = datetime.fromisoformat(f"{event_in.start_date}T00:00:00+00:00")
+                start_date = datetime.fromisoformat(f"{event_in.start_date}T00:00:00")
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -916,8 +923,10 @@ async def create_event(
             try:
                 if 'T' in event_in.end_date:
                     end_date = datetime.fromisoformat(event_in.end_date.replace('Z', '+00:00'))
+                    if end_date.tzinfo:
+                        end_date = end_date.astimezone(timezone.utc).replace(tzinfo=None)
                 else:
-                    end_date = datetime.fromisoformat(f"{event_in.end_date}T23:59:59+00:00")
+                    end_date = datetime.fromisoformat(f"{event_in.end_date}T23:59:59")
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

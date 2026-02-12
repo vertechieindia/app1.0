@@ -5,6 +5,24 @@
  */
 
 import React, { useState, useEffect } from 'react';
+
+/**
+ * Convert local date and time strings to UTC ISO string
+ * Handles timezone conversion properly to avoid timezone mismatch
+ */
+const convertLocalDateTimeToUTC = (dateStr: string, timeStr: string): string => {
+  // Parse date components (YYYY-MM-DD)
+  const [year, month, day] = dateStr.split('-').map(Number);
+  
+  // Parse time components (HH:MM)
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  
+  // Create date in user's local timezone
+  const localDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
+  
+  // Convert to UTC ISO string
+  return localDate.toISOString();
+};
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Card, Avatar, Chip, IconButton, TextField, FormControl,
@@ -251,27 +269,32 @@ const PipelinePage: React.FC = () => {
           'Good team player',
         ];
         
-        const mappedCandidates: Candidate[] = data.map((candidate: any, index: number) => ({
-          id: candidate.id || candidate.application_id,
-          name: candidate.name || 'Unknown',
-          email: candidate.email || '',
-          role: candidate.role || candidate.job_title || 'Applicant',
-          stage: candidate.stage || 'new',
-          skills: candidate.skills || [],
-          rating: candidate.rating || 4,
-          time: candidate.time || 'Recently',
-          score: candidate.score || candidate.matchScore || candidate.match_score || 0,
-          matchScore: candidate.matchScore || candidate.match_score || candidate.score || 0,
-          aiInsight: candidate.aiInsight || aiInsights[index % aiInsights.length],
-          experience: candidate.experience || 0,
-          education: candidate.education || 'Not specified',
-          source: candidate.source || 'VerTechie',
-          avatar: candidate.avatar,
-          applicationId: candidate.application_id,
-          userId: candidate.user_id,  // Store the actual user ID
-          jobId: candidate.job_id,
-          jobTitle: candidate.job_title,
-        }));
+        const mappedCandidates: Candidate[] = data.map((candidate: any, index: number) => {
+          // Ensure application_id is always set (use id as fallback since id is the application_id)
+          const applicationId = candidate.application_id || candidate.id;
+          
+          return {
+            id: candidate.id || candidate.application_id,
+            name: candidate.name || 'Unknown',
+            email: candidate.email || '',
+            role: candidate.role || candidate.job_title || 'Applicant',
+            stage: candidate.stage || 'new',
+            skills: candidate.skills || [],
+            rating: candidate.rating || 4,
+            time: candidate.time || 'Recently',
+            score: candidate.score || candidate.matchScore || candidate.match_score || 0,
+            matchScore: candidate.matchScore || candidate.match_score || candidate.score || 0,
+            aiInsight: candidate.aiInsight || aiInsights[index % aiInsights.length],
+            experience: candidate.experience || 0,
+            education: candidate.education || 'Not specified',
+            source: candidate.source || 'VerTechie',
+            avatar: candidate.avatar,
+            applicationId: applicationId, // Always set with fallback
+            userId: candidate.user_id,  // Store the actual user ID
+            jobId: candidate.job_id,
+            jobTitle: candidate.job_title,
+          };
+        });
         
         setCandidates(mappedCandidates);
       } catch (error) {
@@ -469,15 +492,49 @@ const PipelinePage: React.FC = () => {
       return;
     }
     
+    // Get application_id with fallback and validation
+    const applicationId = selectedCandidate.applicationId || selectedCandidate.id;
+    
+    if (!applicationId) {
+      console.error('Missing application_id:', selectedCandidate);
+      setSnackbar({ 
+        open: true, 
+        message: 'Application ID missing. Cannot schedule interview. Please refresh the page.', 
+        severity: 'error' 
+      });
+      return;
+    }
+    
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(applicationId)) {
+      console.error('Invalid application_id format:', applicationId, 'Candidate:', selectedCandidate);
+      setSnackbar({ 
+        open: true, 
+        message: 'Invalid application ID format. Please refresh the page and try again.', 
+        severity: 'error' 
+      });
+      return;
+    }
+    
     try {
       setScheduling(true);
       const token = localStorage.getItem('authToken');
-      const scheduledAt = new Date(`${scheduleForm.date}T${scheduleForm.time}`).toISOString();
+      // Convert local date/time to UTC properly to avoid timezone mismatch
+      const scheduledAt = convertLocalDateTimeToUTC(scheduleForm.date, scheduleForm.time);
       const meetingId = `interview-${Date.now()}`;
       const meetingLink = `${window.location.origin}/techie/lobby/${meetingId}?type=interview`;
       
-      // Use the application_id from the candidate
-      const applicationId = selectedCandidate.applicationId || selectedCandidate.id;
+      const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      
+      console.log('Scheduling interview:', {
+        application_id: applicationId,
+        candidate: selectedCandidate.name,
+        local_date: scheduleForm.date,
+        local_time: scheduleForm.time,
+        utc_datetime: scheduledAt,
+        user_timezone: userTimezone
+      });
       
       const response = await fetch(getApiUrl('/hiring/interviews'), {
         method: 'POST',
@@ -488,7 +545,7 @@ const PipelinePage: React.FC = () => {
         body: JSON.stringify({
           application_id: applicationId,
           interview_type: scheduleForm.type,
-          scheduled_at: scheduledAt,
+          scheduled_at: scheduledAt, // UTC datetime
           duration_minutes: scheduleForm.duration,
           meeting_link: meetingLink,
           notes: scheduleForm.notes,
@@ -502,12 +559,17 @@ const PipelinePage: React.FC = () => {
         // Refresh candidates to reflect the stage change
         window.location.reload();
       } else {
-        const error = await response.json();
-        setSnackbar({ open: true, message: error.detail || 'Failed to schedule interview', severity: 'error' });
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error occurred' }));
+        console.error('Failed to schedule interview:', response.status, errorData);
+        setSnackbar({ 
+          open: true, 
+          message: errorData.detail || `Failed to schedule interview (${response.status})`, 
+          severity: 'error' 
+        });
       }
     } catch (error) {
       console.error('Error scheduling interview:', error);
-      setSnackbar({ open: true, message: 'Failed to schedule interview', severity: 'error' });
+      setSnackbar({ open: true, message: 'Network error. Please check your connection and try again.', severity: 'error' });
     } finally {
       setScheduling(false);
     }

@@ -126,11 +126,11 @@ const VideoGrid = styled(Box)<{ participants: number }>(({ participants }) => ({
   padding: 16,
   gridTemplateColumns: participants <= 1 ? '1fr' :
     participants <= 2 ? 'repeat(2, 1fr)' :
-    participants <= 4 ? 'repeat(2, 1fr)' :
-    participants <= 9 ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)',
+      participants <= 4 ? 'repeat(2, 1fr)' :
+        participants <= 9 ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)',
   gridTemplateRows: participants <= 2 ? '1fr' :
     participants <= 4 ? 'repeat(2, 1fr)' :
-    participants <= 9 ? 'repeat(3, 1fr)' : 'auto',
+      participants <= 9 ? 'repeat(3, 1fr)' : 'auto',
 }));
 
 const VideoTile = styled(Paper)<{ isActive?: boolean; isPinned?: boolean }>(({ isActive, isPinned }) => ({
@@ -267,7 +267,7 @@ const VideoRoom: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  
+
   // State
   const [participants, setParticipants] = useState<Participant[]>(mockParticipants);
   const [isMuted, setIsMuted] = useState(false);
@@ -318,15 +318,44 @@ const VideoRoom: React.FC = () => {
   useEffect(() => {
     const initMedia = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
-        if (localVideoRef.current) {
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
+        } catch (initialErr: any) {
+          console.warn('Initial media access failed, trying partial:', initialErr);
+
+          if (initialErr.name === 'NotAllowedError' || initialErr.name === 'PermissionDeniedError') {
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              setIsVideoOff(true);
+              setSnackbar({ open: true, message: 'Camera permission denied. Joining with audio only.' });
+            } catch (audioErr) {
+              try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                setIsMuted(true);
+                setSnackbar({ open: true, message: 'Microphone permission denied. Joining with video only.' });
+              } catch (videoErr) {
+                // Return an empty stream or handle no media case
+                console.error('All media access denied');
+                setSnackbar({ open: true, message: 'Camera and microphone access denied.' });
+                return;
+              }
+            }
+          } else {
+            setSnackbar({ open: true, message: 'Could not access camera/microphone.' });
+            return;
+          }
+        }
+
+        if (localVideoRef.current && stream) {
           localVideoRef.current.srcObject = stream;
         }
       } catch (err) {
         console.error('Error accessing media devices:', err);
+        setSnackbar({ open: true, message: 'Error accessing media devices.' });
       }
     };
     initMedia();
@@ -334,7 +363,7 @@ const VideoRoom: React.FC = () => {
 
   const toggleMute = () => setIsMuted(!isMuted);
   const toggleVideo = () => setIsVideoOff(!isVideoOff);
-  
+
   const toggleScreenShare = async () => {
     if (!isScreenSharing) {
       try {
@@ -586,8 +615,8 @@ const VideoRoom: React.FC = () => {
                 <IconButton
                   size="small"
                   onClick={() => setPinnedParticipant(pinnedParticipant === participant.id ? null : participant.id)}
-                  sx={{ 
-                    bgcolor: 'rgba(0,0,0,0.5)', 
+                  sx={{
+                    bgcolor: 'rgba(0,0,0,0.5)',
                     color: pinnedParticipant === participant.id ? '#ffd700' : 'white',
                     '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' },
                   }}

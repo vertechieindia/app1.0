@@ -86,7 +86,10 @@ const TutorialPage: React.FC = () => {
     }
   }, [completedLessons, tutorialSlug]);
 
-  // Quiz questions bank for each tutorial
+  // Tutorials that run in browser (iframe); others show code + "run in your environment"
+  const isBrowserRunnableTutorial = ['html', 'css', 'javascript', 'react', 'angular', 'typescript'].includes(tutorialSlug || '');
+
+  // Quiz questions bank for each tutorial (topic-related)
   const quizQuestionsBank: Record<string, any[]> = {
     html: [
       { q: 'What does HTML stand for?', options: ['Hyper Text Markup Language', 'High Tech Modern Language', 'Hyper Transfer Markup Language', 'Home Tool Markup Language'], answer: 'Hyper Text Markup Language' },
@@ -125,6 +128,46 @@ const TutorialPage: React.FC = () => {
       { q: 'Which hook is used for state management?', options: ['useEffect', 'useState', 'useContext', 'useReducer'], answer: 'useState' },
       { q: 'What is JSX?', options: ['JavaScript XML', 'Java Syntax Extension', 'JSON XML', 'JavaScript Extension'], answer: 'JavaScript XML' },
       { q: 'Which method renders a React component?', options: ['ReactDOM.render()', 'React.render()', 'render()', 'component.render()'], answer: 'ReactDOM.render()' },
+    ],
+    sql: [
+      { q: 'What does SQL stand for?', options: ['Structured Query Language', 'Simple Query Language', 'Standard Query Logic', 'Stored Query List'], answer: 'Structured Query Language' },
+      { q: 'Which clause is used to filter rows?', options: ['SELECT', 'FROM', 'WHERE', 'ORDER BY'], answer: 'WHERE' },
+      { q: 'Which statement is used to add new rows?', options: ['ADD', 'INSERT INTO', 'CREATE', 'UPDATE'], answer: 'INSERT INTO' },
+      { q: 'Which JOIN returns only matching rows from both tables?', options: ['LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN'], answer: 'INNER JOIN' },
+      { q: 'Which keyword selects all columns?', options: ['*', 'ALL', 'EVERY', '#'], answer: '*' },
+      { q: 'Which statement removes rows from a table?', options: ['REMOVE', 'DROP', 'DELETE FROM', 'CLEAR'], answer: 'DELETE FROM' },
+      { q: 'What is used to update existing rows?', options: ['UPDATE...SET', 'MODIFY', 'CHANGE', 'ALTER'], answer: 'UPDATE...SET' },
+      { q: 'Which JOIN returns all rows from the left table?', options: ['INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN'], answer: 'LEFT JOIN' },
+    ],
+    nodejs: [
+      { q: 'What is Node.js?', options: ['A JavaScript runtime', 'A programming language', 'A database', 'A browser'], answer: 'A JavaScript runtime' },
+      { q: 'Which command installs a package locally?', options: ['npm add', 'npm install', 'node install', 'npm get'], answer: 'npm install' },
+      { q: 'Which built-in module is used for file system operations?', options: ['file', 'fs', 'path', 'io'], answer: 'fs' },
+      { q: 'Which method creates an HTTP server in Node?', options: ['http.server()', 'http.createServer()', 'createServer()', 'new Server()'], answer: 'http.createServer()' },
+      { q: 'What is Express?', options: ['A database', 'A web framework for Node', 'A browser', 'A language'], answer: 'A web framework for Node' },
+      { q: 'Which function loads a module in Node (CommonJS)?', options: ['import', 'load', 'require()', 'include'], answer: 'require()' },
+      { q: 'What does NPM stand for?', options: ['Node Package Manager', 'New Project Manager', 'Node Program Module', 'Network Package Manager'], answer: 'Node Package Manager' },
+      { q: 'Which Express method handles GET requests?', options: ['app.get()', 'app.getRequest()', 'app.fetch()', 'app.read()'], answer: 'app.get()' },
+    ],
+    git: [
+      { q: 'What is Git?', options: ['A programming language', 'A version control system', 'An editor', 'A browser'], answer: 'A version control system' },
+      { q: 'Which command stages files for commit?', options: ['git stage', 'git add', 'git commit', 'git save'], answer: 'git add' },
+      { q: 'Which command saves a snapshot with a message?', options: ['git save', 'git add', 'git commit', 'git snapshot'], answer: 'git commit' },
+      { q: 'Which command sends commits to a remote?', options: ['git send', 'git upload', 'git push', 'git deploy'], answer: 'git push' },
+      { q: 'Which command gets latest changes from remote?', options: ['git fetch', 'git get', 'git pull', 'git sync'], answer: 'git pull' },
+      { q: 'Which command creates a new branch?', options: ['git new branch', 'git branch', 'git checkout -b', 'git create branch'], answer: 'git checkout -b' },
+      { q: 'Which command merges a branch into current branch?', options: ['git merge', 'git combine', 'git join', 'git integrate'], answer: 'git merge' },
+      { q: 'What does git clone do?', options: ['Deletes a repo', 'Copies a repo from remote', 'Creates a new branch', 'Merges two repos'], answer: 'Copies a repo from remote' },
+    ],
+    'machine-learning': [
+      { q: 'What is Machine Learning?', options: ['Programming with rules only', 'Systems that learn from data', 'A type of database', 'A programming language'], answer: 'Systems that learn from data' },
+      { q: 'Which type of ML uses labeled data?', options: ['Unsupervised', 'Supervised', 'Reinforcement', 'Semi-supervised'], answer: 'Supervised' },
+      { q: 'What does regression predict?', options: ['Categories', 'Continuous values', 'Labels', 'Clusters'], answer: 'Continuous values' },
+      { q: 'What does classification predict?', options: ['Numbers', 'Categories/classes', 'Probabilities only', 'Clusters'], answer: 'Categories/classes' },
+      { q: 'Which algorithm groups similar data without labels?', options: ['Regression', 'Classification', 'Clustering', 'Decision tree'], answer: 'Clustering' },
+      { q: 'What is K-Means?', options: ['A classification algorithm', 'A clustering algorithm', 'A regression model', 'A neural network'], answer: 'A clustering algorithm' },
+      { q: 'Which library is commonly used for ML in Python?', options: ['React', 'jQuery', 'scikit-learn', 'Express'], answer: 'scikit-learn' },
+      { q: 'What is a decision tree?', options: ['A database', 'A model that splits data by feature conditions', 'A type of neural network', 'A clustering method'], answer: 'A model that splits data by feature conditions' },
     ],
   };
 
@@ -621,18 +664,47 @@ const TutorialPage: React.FC = () => {
                       }}
                     >
                       {showResult ? (
-                        <iframe
-                          srcDoc={editorCode}
-                          title="Result Preview"
-                          sandbox="allow-scripts allow-same-origin"
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            minHeight: 350,
-                            border: 'none',
-                            backgroundColor: '#fff',
-                          }}
-                        />
+                        isBrowserRunnableTutorial ? (
+                          <iframe
+                            srcDoc={editorCode}
+                            title="Result Preview"
+                            sandbox="allow-scripts allow-same-origin"
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              minHeight: 350,
+                              border: 'none',
+                              backgroundColor: '#fff',
+                            }}
+                          />
+                        ) : (
+                          <Box sx={{ height: '100%' }}>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                              {tutorialSlug === 'sql' && 'Run this SQL in your database client (MySQL, PostgreSQL, etc.).'}
+                              {tutorialSlug === 'nodejs' && 'Run in terminal: node script.js (save code to a .js file first).'}
+                              {tutorialSlug === 'git' && 'Run these commands in your terminal (Git Bash, PowerShell, or OS terminal).'}
+                              {tutorialSlug === 'python' && 'Run in Python (terminal or Jupyter): save as .py file and run python script.py.'}
+                              {tutorialSlug === 'machine-learning' && 'Run in Python (e.g. Jupyter or terminal): pip install scikit-learn, then run the code.'}
+                            </Typography>
+                            <Box
+                              component="pre"
+                              sx={{
+                                fontFamily: '"Fira Code", monospace',
+                                fontSize: 13,
+                                p: 2,
+                                bgcolor: '#1e1e1e',
+                                color: '#d4d4d4',
+                                borderRadius: 1,
+                                overflow: 'auto',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-all',
+                                m: 0,
+                              }}
+                            >
+                              {editorCode}
+                            </Box>
+                          </Box>
+                        )
                       ) : (
                         <Box
                           sx={{
@@ -644,7 +716,9 @@ const TutorialPage: React.FC = () => {
                           }}
                         >
                           <Typography variant="body2">
-                            Click "Run Code" to see the result
+                            {isBrowserRunnableTutorial
+                              ? 'Click "Run Code" to see the result'
+                              : 'Click "Run Code" to see your code and run instructions'}
                           </Typography>
                         </Box>
                       )}

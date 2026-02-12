@@ -474,7 +474,11 @@ const InterviewsPage: React.FC = () => {
     
     try {
       const token = localStorage.getItem('authToken');
-      const scheduledAt = new Date(`${rescheduleForm.date}T${rescheduleForm.time}`).toISOString();
+      // Convert local date/time to UTC properly to avoid timezone mismatch
+      const [year, month, day] = rescheduleForm.date.split('-').map(Number);
+      const [hours, minutes] = rescheduleForm.time.split(':').map(Number);
+      const localDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
+      const scheduledAt = localDate.toISOString();
       
       const response = await fetch(getApiUrl(`/hiring/interviews/${selectedInterviewDetail.id}/reschedule`), {
         method: 'PUT',
@@ -1224,11 +1228,20 @@ const InterviewsPage: React.FC = () => {
               <Button
                 variant="outlined"
                 onClick={() => {
+                  // Parse UTC datetime from backend and convert to local for display
+                  const utcDate = new Date(selectedInterviewDetail.scheduled_at);
+                  // Get local date components
+                  const localYear = utcDate.getFullYear();
+                  const localMonth = String(utcDate.getMonth() + 1).padStart(2, '0');
+                  const localDay = String(utcDate.getDate()).padStart(2, '0');
+                  const localHours = String(utcDate.getHours()).padStart(2, '0');
+                  const localMinutes = String(utcDate.getMinutes()).padStart(2, '0');
+                  
                   setRescheduleForm({
-                    date: new Date(selectedInterviewDetail.scheduled_at).toISOString().split('T')[0],
-                    time: new Date(selectedInterviewDetail.scheduled_at).toTimeString().slice(0, 5),
+                    date: `${localYear}-${localMonth}-${localDay}`,
+                    time: `${localHours}:${localMinutes}`,
                     duration: selectedInterviewDetail.duration_minutes,
-                    notes: '',
+                    notes: selectedInterviewDetail.notes || '',
                   });
                   setRescheduleDialogOpen(true);
                 }}

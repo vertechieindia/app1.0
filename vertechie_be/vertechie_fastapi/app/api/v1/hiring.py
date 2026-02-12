@@ -8,8 +8,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, cast
 from sqlalchemy.orm import selectinload
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.db.session import get_db
 from app.models.hiring import (
@@ -26,7 +27,7 @@ from app.models.notification import Notification, NotificationType
 from app.core.security import get_current_user, get_current_admin_user
 from app.core.config import settings
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -362,8 +363,14 @@ async def get_pipeline_candidates(
         name = f"{first_name} {last_name}".strip() or applicant.email.split('@')[0]
         
         # Get relative time
-        submitted_time = app.submitted_at or app.created_at if hasattr(app, 'created_at') else datetime.utcnow()
-        time_diff = datetime.utcnow() - submitted_time
+        now = datetime.utcnow()
+        submitted_time = app.submitted_at or app.created_at if hasattr(app, 'created_at') else now
+        
+        # Ensure both are naive for subtraction
+        if submitted_time.tzinfo:
+            submitted_time = submitted_time.astimezone(timezone.utc).replace(tzinfo=None)
+            
+        time_diff = now - submitted_time
         if time_diff.days == 0:
             hours = time_diff.seconds // 3600
             if hours < 1:
@@ -529,7 +536,6 @@ async def send_assessment(
     current_user: User = Depends(get_current_user)
 ):
     """Send assessment to a candidate."""
-    from datetime import timedelta
     
     assessment_result = await db.execute(
         select(Assessment).where(Assessment.id == assessment_id)
@@ -567,7 +573,7 @@ async def list_my_interviews(
     current_user: User = Depends(get_current_user)
 ):
     """List interviews for HM - includes interviews for their jobs or where they are interviewer."""
-    from sqlalchemy import cast, String, or_
+    from sqlalchemy import String
     
     # Get all job IDs posted by this HM
     jobs_result = await db.execute(
@@ -589,17 +595,18 @@ async def list_my_interviews(
     if hm_application_ids:
         query = select(Interview).where(
             or_(
-                Interview.interviewers.contains([str(current_user.id)]),
+                cast(Interview.interviewers, JSONB).contains([str(current_user.id)]),
                 Interview.application_id.in_(hm_application_ids)
             )
         )
     else:
         query = select(Interview).where(
-            Interview.interviewers.contains([str(current_user.id)])
+            cast(Interview.interviewers, JSONB).contains([str(current_user.id)])
         )
     
     if upcoming:
-        query = query.where(Interview.scheduled_at >= datetime.utcnow())
+        now = datetime.utcnow()
+        query = query.where(Interview.scheduled_at >= now)
         query = query.order_by(Interview.scheduled_at.asc())  # Upcoming: earliest first
     else:
         query = query.order_by(Interview.scheduled_at.desc())  # All: most recent first
@@ -666,7 +673,11 @@ async def schedule_interview(
     """Schedule an interview with notifications to candidate."""
     
     # Create interview record
-    db_interview = Interview(**interview.model_dump())
+    interview_data = interview.model_dump()
+    if interview_data.get('scheduled_at') and interview_data['scheduled_at'].tzinfo:
+        interview_data['scheduled_at'] = interview_data['scheduled_at'].astimezone(timezone.utc).replace(tzinfo=None)
+    
+    db_interview = Interview(**interview_data)
     db_interview.status = InterviewStatus.SCHEDULED
     db.add(db_interview)
     await db.flush()  # Get the ID
@@ -1034,7 +1045,11 @@ async def reschedule_interview(
     old_date = interview.scheduled_at
     
     # Update interview
-    interview.scheduled_at = reschedule.scheduled_at
+    if reschedule.scheduled_at and reschedule.scheduled_at.tzinfo:
+        interview.scheduled_at = reschedule.scheduled_at.astimezone(timezone.utc).replace(tzinfo=None)
+    else:
+        interview.scheduled_at = reschedule.scheduled_at
+        
     if reschedule.duration_minutes:
         interview.duration_minutes = reschedule.duration_minutes
     if reschedule.location:
@@ -1261,7 +1276,12 @@ async def create_offer(
     current_user: User = Depends(get_current_user)
 ):
     """Create a job offer."""
-    db_offer = JobOffer(**offer.model_dump())
+    offer_data = offer.model_dump()
+    for field in ['start_date', 'expires_at']:
+        if offer_data.get(field) and offer_data[field].tzinfo:
+            offer_data[field] = offer_data[field].astimezone(timezone.utc).replace(tzinfo=None)
+            
+    db_offer = JobOffer(**offer_data)
     db.add(db_offer)
     await db.commit()
     await db.refresh(db_offer)
@@ -1401,7 +1421,8 @@ async def get_my_interviews(
     query = select(Interview).where(Interview.application_id.in_(application_ids))
     
     if upcoming:
-        query = query.where(Interview.scheduled_at >= datetime.utcnow())
+        now = datetime.utcnow()
+        query = query.where(Interview.scheduled_at >= now)
     
     query = query.order_by(Interview.scheduled_at.asc())
     query = query.offset(skip).limit(limit)
@@ -1460,10 +1481,11 @@ async def get_my_interviews_count(
         return {"upcoming": 0, "total": 0}
     
     # Count upcoming interviews
+    now = datetime.utcnow()
     upcoming_result = await db.execute(
         select(func.count(Interview.id))
         .where(Interview.application_id.in_(application_ids))
-        .where(Interview.scheduled_at >= datetime.utcnow())
+        .where(Interview.scheduled_at >= now)
     )
     upcoming_count = upcoming_result.scalar() or 0
     
@@ -1609,9 +1631,6 @@ async def get_hiring_analytics(
     current_user: User = Depends(get_current_user)
 ):
     """Get hiring analytics for the current HM's jobs."""
-    from sqlalchemy import func
-    
-    # Get all jobs created by this HM
     jobs_result = await db.execute(
         select(Job).where(Job.posted_by_id == current_user.id)
     )
@@ -1669,7 +1688,7 @@ async def get_hiring_analytics(
     # Count interviews
     interviews_result = await db.execute(
         select(func.count(Interview.id)).where(
-            Interview.interviewers.contains([str(current_user.id)])
+            cast(Interview.interviewers, JSONB).contains([str(current_user.id)])
         )
     )
     interviews_count = interviews_result.scalar() or 0

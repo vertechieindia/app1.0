@@ -33,6 +33,10 @@ import {
   CircularProgress,
   Chip,
   Slider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 
@@ -165,6 +169,8 @@ const MeetingLobby: React.FC = () => {
   const [isTestingAudio, setIsTestingAudio] = useState(false);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permissionError, setPermissionError] = useState<'system' | 'user' | 'unknown' | null>(null);
+  const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const [userName, setUserName] = useState('John Doe');
 
   // Meeting info from URL params
@@ -177,10 +183,45 @@ const MeetingLobby: React.FC = () => {
   useEffect(() => {
     const initDevices = async () => {
       try {
-        // Request permissions first
-        const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        // Try to get both video and audio first
+        let mediaStream: MediaStream;
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        } catch (initialErr: any) {
+          console.warn('Full media access failed, trying partial or handling error:', initialErr);
+
+          if (initialErr.name === 'NotAllowedError' || initialErr.name === 'PermissionDeniedError') {
+            // Check if it's a system-level block (common on modern OS/browsers)
+            if (initialErr.message?.includes('system') || initialErr.message?.includes('OS')) {
+              setPermissionError('system');
+            } else {
+              setPermissionError('user');
+            }
+
+            // Try to get at least one if possible (sometimes one is blocked and the other isn't)
+            try {
+              mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              setIsVideoOff(true);
+              setError('Camera access denied. Joining with audio only.');
+            } catch (audioErr) {
+              try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                setIsMuted(true);
+                setError('Microphone access denied. Joining with video only.');
+              } catch (videoErr) {
+                throw initialErr; // Both failed, throw the original error
+              }
+            }
+          } else if (initialErr.name === 'NotFoundError' || initialErr.name === 'DevicesNotFoundError') {
+            setError('No camera or microphone found on this device.');
+            throw initialErr;
+          } else {
+            throw initialErr;
+          }
+        }
+
         setStream(mediaStream);
-        
+
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
         }
@@ -192,30 +233,37 @@ const MeetingLobby: React.FC = () => {
         setSpeakerDevices(devices.filter(d => d.kind === 'audiooutput'));
 
         // Set defaults
-        const defaultAudio = devices.find(d => d.kind === 'audioinput' && d.deviceId === 'default');
+        const defaultAudio = devices.find(d => d.kind === 'audioinput' && d.deviceId === 'default') || devices.find(d => d.kind === 'audioinput');
         const defaultVideo = devices.find(d => d.kind === 'videoinput');
         if (defaultAudio) setSelectedAudioDevice(defaultAudio.deviceId);
         if (defaultVideo) setSelectedVideoDevice(defaultVideo.deviceId);
 
-        // Start audio level monitoring
-        const audioContext = new AudioContext();
-        const analyser = audioContext.createAnalyser();
-        const source = audioContext.createMediaStreamSource(mediaStream);
-        source.connect(analyser);
-        analyser.fftSize = 256;
-        
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        const checkLevel = () => {
-          analyser.getByteFrequencyData(dataArray);
-          const avg = dataArray.reduce((a, b) => a + b) / dataArray.length;
-          setAudioLevel(avg);
-          requestAnimationFrame(checkLevel);
-        };
-        checkLevel();
+        // Start audio level monitoring if we have audio
+        if (mediaStream.getAudioTracks().length > 0) {
+          const audioContext = new AudioContext();
+          const analyser = audioContext.createAnalyser();
+          const source = audioContext.createMediaStreamSource(mediaStream);
+          source.connect(analyser);
+          analyser.fftSize = 256;
 
-      } catch (err) {
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const checkLevel = () => {
+            if (audioContext.state === 'closed') return;
+            analyser.getByteFrequencyData(dataArray);
+            const avg = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            setAudioLevel(avg);
+            requestAnimationFrame(checkLevel);
+          };
+          checkLevel();
+        }
+
+      } catch (err: any) {
         console.error('Error accessing media devices:', err);
-        setError('Could not access camera or microphone. Please check your permissions.');
+        if (err.name === 'NotAllowedError') {
+          setError('Camera/Microphone permission denied. You can still join the meeting but others won\'t see or hear you.');
+        } else {
+          setError('Could not access camera or microphone. Please check your connection.');
+        }
       }
     };
 
@@ -311,8 +359,49 @@ const MeetingLobby: React.FC = () => {
                     height: '100%',
                     objectFit: 'cover',
                     transform: 'scaleX(-1)',
+                    display: isVideoOff ? 'none' : 'block'
                   }}
                 />
+              )}
+
+              {/* Error overlay if permissions failed */}
+              {permissionError && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    bgcolor: 'rgba(0,0,0,0.7)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    p: 3,
+                    textAlign: 'center',
+                    zIndex: 2
+                  }}
+                >
+                  <ErrorIcon sx={{ color: '#ff4444', fontSize: 48, mb: 1 }} />
+                  <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
+                    {permissionError === 'system' ? 'System Permission Denied' : 'Permission Denied'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mb: 2 }}>
+                    {permissionError === 'system'
+                      ? 'Your operating system or browser is blocking access to the camera/microphone.'
+                      : 'You have blocked access to the camera or microphone in your browser.'}
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    size="small"
+                    onClick={() => setShowPermissionDialog(true)}
+                    sx={{ borderRadius: 2 }}
+                  >
+                    How to fix this?
+                  </Button>
+                </Box>
               )}
 
               {/* Audio Level Indicator */}
@@ -443,7 +532,7 @@ const MeetingLobby: React.FC = () => {
                       sx={{
                         background: bg.type === 'none' ? 'transparent' :
                           bg.type === 'blur' ? 'linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.1))' :
-                          `url(${bg.url}) center/cover`,
+                            `url(${bg.url}) center/cover`,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -469,7 +558,7 @@ const MeetingLobby: React.FC = () => {
                 <Typography variant="h5" sx={{ color: 'white', fontWeight: 700, mb: 2 }}>
                   {meetingTitle}
                 </Typography>
-                
+
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <EventIcon sx={{ color: 'rgba(255,255,255,0.5)' }} />
@@ -519,16 +608,24 @@ const MeetingLobby: React.FC = () => {
                 </Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <CheckCircleIcon sx={{ color: '#00ff88' }} />
-                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>Camera working</Typography>
+                    {stream?.getVideoTracks().some(t => t.readyState === 'live') ? (
+                      <CheckCircleIcon sx={{ color: '#00ff88' }} />
+                    ) : (
+                      <ErrorIcon sx={{ color: '#ff4444' }} />
+                    )}
+                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>Camera ready</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {stream?.getAudioTracks().some(t => t.readyState === 'live') ? (
+                      <CheckCircleIcon sx={{ color: '#00ff88' }} />
+                    ) : (
+                      <ErrorIcon sx={{ color: '#ff4444' }} />
+                    )}
+                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>Microphone ready</Typography>
                   </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <CheckCircleIcon sx={{ color: '#00ff88' }} />
-                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>Microphone working</Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <CheckCircleIcon sx={{ color: '#00ff88' }} />
-                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>Network connection stable</Typography>
+                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>Network stable</Typography>
                   </Box>
                 </Box>
               </CardContent>
@@ -558,6 +655,64 @@ const MeetingLobby: React.FC = () => {
           </Box>
         </Grid>
       </Grid>
+
+      {/* Permission Help Dialog */}
+      <Dialog
+        open={showPermissionDialog}
+        onClose={() => setShowPermissionDialog(false)}
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            background: '#1a1a2e',
+            color: 'white',
+            border: '1px solid rgba(255,255,255,0.1)',
+            maxWidth: 500
+          }
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SecurityIcon color="primary" />
+          Fixing Device Permissions
+        </DialogTitle>
+        <DialogContent dividers sx={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
+            {permissionError === 'system' ? 'Step 1: System Settings' : 'Step 1: Browser Settings'}
+          </Typography>
+          <Typography variant="body2" paragraph sx={{ color: 'rgba(255,255,255,0.7)' }}>
+            {permissionError === 'system'
+              ? (window.navigator.userAgent.includes('Windows')
+                ? 'Go to Windows Settings > Privacy > Camera/Microphone and ensure "Allow apps to access your camera/microphone" is ON.'
+                : 'Go to System Settings > Privacy & Security > Camera/Microphone and ensure your browser is allowed.')
+              : 'Click the camera/lock icon in your browser address bar and select "Allow" for Camera and Microphone.'}
+          </Typography>
+
+          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
+            Step 2: Refresh Page
+          </Typography>
+          <Typography variant="body2" paragraph sx={{ color: 'rgba(255,255,255,0.7)' }}>
+            After changing the settings, refresh this page to try again.
+          </Typography>
+
+          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
+            Can\'t fix it now?
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+            You can still join the meeting. You will be able to see and hear others, but they won\'t see or hear you until permissions are granted.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShowPermissionDialog(false)} sx={{ color: 'white' }}>
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => window.location.reload()}
+            sx={{ borderRadius: 2 }}
+          >
+            Refresh Page
+          </Button>
+        </DialogActions>
+      </Dialog>
     </LobbyContainer>
   );
 };
