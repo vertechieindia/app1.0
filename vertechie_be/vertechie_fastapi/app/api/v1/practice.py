@@ -8,8 +8,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast, or_
 from sqlalchemy.orm import selectinload
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.db.session import get_db
 from app.models.practice import (
@@ -220,7 +221,7 @@ async def list_problems(
     if search:
         query = query.where(Problem.title.ilike(f"%{search}%"))
     if tag:
-        query = query.where(Problem.tags.contains([tag]))
+        query = query.where(cast(Problem.tags, JSONB).contains([tag]))
     if category:
         # Filter by category slug or name
         category_query = select(ProblemCategory).where(

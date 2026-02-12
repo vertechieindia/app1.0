@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
@@ -11,6 +11,7 @@ import {
   CircularProgress,
   InputAdornment,
   IconButton,
+  Snackbar,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import LockResetIcon from '@mui/icons-material/LockReset';
@@ -37,10 +38,15 @@ const ResetCard = styled(Paper)(({ theme }) => ({
   boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
 }));
 
+// BroadcastChannel for cross-tab communication
+const PASSWORD_RESET_CHANNEL = 'password-reset-channel';
+
 const ResetPassword: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const hasShownLinkSuccessRef = useRef(false);
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -49,10 +55,27 @@ const ResetPassword: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [linkSuccessSnackbar, setLinkSuccessSnackbar] = useState(false);
+
+  // Initialize BroadcastChannel
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      broadcastChannelRef.current = new BroadcastChannel(PASSWORD_RESET_CHANNEL);
+    }
+    return () => {
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.close();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!token) {
       setError('Invalid or missing reset token. Please request a new password reset link.');
+    } else if (token && !hasShownLinkSuccessRef.current) {
+      // Show success popup when reset link is clicked (token detected)
+      hasShownLinkSuccessRef.current = true;
+      setLinkSuccessSnackbar(true);
     }
   }, [token]);
 
@@ -105,6 +128,18 @@ const ResetPassword: React.FC = () => {
 
       if (response.ok) {
         setSuccess(true);
+        
+        // Broadcast password reset completion to other tabs
+        if (broadcastChannelRef.current) {
+          broadcastChannelRef.current.postMessage({
+            type: 'PASSWORD_RESET_COMPLETED',
+            timestamp: Date.now(),
+          });
+        }
+        
+        // Also store in localStorage as fallback for older browsers
+        localStorage.setItem('passwordResetCompleted', Date.now().toString());
+        
         // Redirect to login after 3 seconds
         setTimeout(() => {
           navigate('/login');
@@ -282,6 +317,22 @@ const ResetPassword: React.FC = () => {
           </Box>
         </form>
       </ResetCard>
+      
+      {/* Success popup when reset link is clicked */}
+      <Snackbar
+        open={linkSuccessSnackbar}
+        autoHideDuration={4000}
+        onClose={() => setLinkSuccessSnackbar(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setLinkSuccessSnackbar(false)} 
+          severity="success" 
+          sx={{ width: '100%' }}
+        >
+          Password reset link opened successfully! Please enter your new password below.
+        </Alert>
+      </Snackbar>
     </PageContainer>
   );
 };

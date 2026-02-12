@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, String, Text, Boolean, Integer, Float, DateTime, 
     ForeignKey, JSON, Enum as SQLEnum, Table
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -297,7 +297,7 @@ class Interview(Base):
     meeting_link = Column(String(500))
     
     # Interviewers
-    interviewers = Column(JSON, default=list)  # List of user IDs
+    interviewers = Column(JSONB, default=list)  # List of user IDs
     
     status = Column(SQLEnum(InterviewStatus), default=InterviewStatus.SCHEDULED)
     

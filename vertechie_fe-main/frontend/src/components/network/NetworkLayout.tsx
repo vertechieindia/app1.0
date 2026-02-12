@@ -17,7 +17,7 @@ import { API_ENDPOINTS } from '../../config/api';
 import {
   Box, Container, Grid, Typography, Card, CardContent, Avatar, Button, IconButton,
   Tabs, Tab, Paper, List, ListItem, ListItemText, Badge, Divider, Chip,
-  useTheme, alpha,
+  useTheme, alpha, CircularProgress,
 } from '@mui/material';
 import { styled, keyframes } from '@mui/material/styles';
 import {
@@ -145,14 +145,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
 
   const fetchStats = useCallback(async () => {
     try {
-      const data = await api.get(API_ENDPOINTS.UNIFIED_NETWORK.STATS) as {
-        connections_count?: number;
-        followers_count?: number;
-        following_count?: number;
-        pending_requests_count?: number;
-        group_memberships?: number;
-        profile_views?: number;
-      };
+      const data = await api.get(API_ENDPOINTS.UNIFIED_NETWORK.STATS) as any;
       setStats({
         connections: data.connections_count ?? 0,
         followers: data.followers_count ?? 0,
@@ -163,7 +156,34 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
       });
     } catch (err) {
       console.error('NetworkLayout: error fetching stats', err);
-      // keep mockStats as fallback (already in state)
+    }
+  }, []);
+
+  const [sidebarEvents, setSidebarEvents] = useState<NetworkEvent[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+
+  const fetchSidebarEvents = useCallback(async () => {
+    try {
+      setLoadingEvents(true);
+      const data = await api.get(`${API_ENDPOINTS.COMMUNITY.EVENTS}?limit=3`) as any[];
+
+      const mapped = data.map(event => ({
+        id: event.id,
+        title: event.title,
+        description: event.description,
+        date: event.start_date ? new Date(event.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'TBD',
+        time: event.start_date ? new Date(event.start_date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : 'TBD',
+        attendees_count: event.attendees_count || 0,
+        host: { id: event.host_id, name: event.host_name || 'Host' },
+        type: event.event_type as any,
+        is_registered: event.is_registered || false
+      }));
+
+      setSidebarEvents(mapped);
+    } catch (err) {
+      console.error('NetworkLayout: error fetching events', err);
+    } finally {
+      setLoadingEvents(false);
     }
   }, []);
 
@@ -204,7 +224,8 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
 
   useEffect(() => {
     fetchStats();
-  }, [fetchStats]);
+    fetchSidebarEvents();
+  }, [fetchStats, fetchSidebarEvents]);
 
   // Determine active tab based on current route
   const activeTab = tabRoutes.findIndex(route => location.pathname.startsWith(route.path));
@@ -226,29 +247,29 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
           <Grid item xs={12} md={3}>
             {/* Profile Card */}
             <StyledCard sx={{ mb: 3, overflow: 'hidden' }}>
-              <Box sx={{ 
-                height: 80, 
+              <Box sx={{
+                height: 80,
                 background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
               }} />
               <CardContent sx={{ textAlign: 'center', mt: -5 }}>
-                <Avatar 
-                  sx={{ 
-                    width: 80, 
-                    height: 80, 
-                    border: '4px solid white', 
+                <Avatar
+                  sx={{
+                    width: 80,
+                    height: 80,
+                    border: '4px solid white',
                     mx: 'auto',
                     bgcolor: '#1976d2',
                     fontSize: 32,
                     fontWeight: 700,
                   }}
                 >
-                   {userName.charAt(0).toUpperCase()}
+                  {userName.charAt(0).toUpperCase()}
                 </Avatar>
                 <Typography variant="h6" sx={{ mt: 1, fontWeight: 600 }}> {userName}</Typography>
                 <Typography variant="body2" color="text.secondary">{userRole}</Typography>
-                
+
                 <Divider sx={{ my: 2 }} />
-                
+
                 <Grid container spacing={2}>
                   <Grid item xs={4}>
                     <Typography variant="h6" sx={{ fontWeight: 700, color: 'primary.main' }}>{stats.connections}</Typography>
@@ -263,10 +284,10 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                     <Typography variant="caption" color="text.secondary">Following</Typography>
                   </Grid>
                 </Grid>
-                
-                <Button 
-                  variant="outlined" 
-                  fullWidth 
+
+                <Button
+                  variant="outlined"
+                  fullWidth
                   sx={{ mt: 2, borderRadius: 2 }}
                   startIcon={<People />}
                   onClick={() => navigate('/techie/profile')}
@@ -310,7 +331,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                   </Typography>
                   <Button size="small">See All</Button>
                 </Box>
-                
+
                 {suggestions.slice(0, 3).map(user => (
                   <Box key={user.id} sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <Avatar sx={{ bgcolor: 'primary.main', mr: 1.5 }}>
@@ -341,9 +362,9 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Invite colleagues & friends to join VerTechie
                   </Typography>
-                  <Button 
-                    variant="outlined" 
-                    fullWidth 
+                  <Button
+                    variant="outlined"
+                    fullWidth
                     startIcon={<Send />}
                     sx={{ borderRadius: 2, mb: 1 }}
                   >
@@ -362,27 +383,27 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                 <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary', mb: 2 }}>
                   ⚡ QUICK ACTIONS
                 </Typography>
-                <Button 
-                  variant="text" 
-                  fullWidth 
+                <Button
+                  variant="text"
+                  fullWidth
                   startIcon={<GroupAdd />}
                   sx={{ justifyContent: 'flex-start', mb: 1, borderRadius: 2 }}
                   onClick={() => navigate('/techie/home/groups')}
                 >
                   Create a New Group
                 </Button>
-                <Button 
-                  variant="text" 
-                  fullWidth 
+                <Button
+                  variant="text"
+                  fullWidth
                   startIcon={<Event />}
                   sx={{ justifyContent: 'flex-start', mb: 1, borderRadius: 2 }}
                   onClick={() => navigate('/techie/home/events')}
                 >
                   Host a Networking Event
                 </Button>
-                <Button 
-                  variant="text" 
-                  fullWidth 
+                <Button
+                  variant="text"
+                  fullWidth
                   startIcon={<TrendingUp />}
                   sx={{ justifyContent: 'flex-start', borderRadius: 2 }}
                   onClick={() => navigate('/techie/home/combinator')}
@@ -397,8 +418,8 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
           <Grid item xs={12} md={6}>
             {/* Tabs */}
             <Paper sx={{ borderRadius: 3, mb: 3, overflow: 'hidden' }}>
-              <Tabs 
-                value={currentTab} 
+              <Tabs
+                value={currentTab}
                 onChange={handleTabChange}
                 variant="fullWidth"
                 sx={{
@@ -425,7 +446,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                   <TrendingUp fontSize="small" />
                   TRENDING IN YOUR NETWORK
                 </Typography>
-                
+
                 {['#TechCareers', '#ReactJS', '#AITools', '#RemoteWork', '#StartupLife'].map((tag, i) => (
                   <Box key={tag} sx={{ py: 1.5, borderBottom: i < 4 ? '1px solid' : 'none', borderColor: 'divider' }}>
                     <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.main' }}>{tag}</Typography>
@@ -442,14 +463,24 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                   <Event fontSize="small" />
                   UPCOMING EVENTS
                 </Typography>
-                
-                {events.slice(0, 2).map(event => (
-                  <Box key={event.id} sx={{ mb: 2 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{event.title}</Typography>
-                    <Typography variant="caption" color="text.secondary">{event.date} • {event.time}</Typography>
+
+                {loadingEvents ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                    <CircularProgress size={24} />
                   </Box>
-                ))}
-                
+                ) : sidebarEvents.length > 0 ? (
+                  sidebarEvents.map(event => (
+                    <Box key={event.id} sx={{ mb: 2 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{event.title}</Typography>
+                      <Typography variant="caption" color="text.secondary">{event.date} • {event.time}</Typography>
+                    </Box>
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mb: 2 }}>
+                    No upcoming events
+                  </Typography>
+                )}
+
                 <Button size="small" fullWidth sx={{ mt: 1 }} onClick={() => navigate('/techie/home/events')}>
                   View All Events
                 </Button>
@@ -462,7 +493,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                 About • Help • Privacy • Terms • Advertising • Jobs • Cookie Policy
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                VerTechie © 2024
+                VerTechie © 2026
               </Typography>
             </Box>
           </Grid>

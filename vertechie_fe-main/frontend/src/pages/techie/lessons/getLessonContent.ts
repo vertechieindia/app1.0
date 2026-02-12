@@ -5,6 +5,10 @@ import { generateTSLessonContent } from "./typescript";
 import { generateReactLessonContent } from "./react";
 import { generateAngularLessonContent } from "./angular";
 import { generatePythonLessonContent } from "./python";
+import { generateSQLLessonContent } from "./sql";
+import { generateNodeLessonContent } from "./node";
+import { generateGitLessonContent } from "./git";
+import { generateMLLessonContent } from "./ml";
 
 export const getLessonContent = (tutorialSlug: string, lessonSlug: string) => {
   const contents: Record<string, Record<string, any>> = {
@@ -325,6 +329,26 @@ print(f"Sum: {x + y}")
   // Generate dynamic content for Python lessons
   if (tutorialSlug === 'python') {
     return generatePythonLessonContent(lessonSlug);
+  }
+
+  // Generate dynamic content for SQL lessons
+  if (tutorialSlug === 'sql') {
+    return generateSQLLessonContent(lessonSlug);
+  }
+
+  // Generate dynamic content for Node.js lessons
+  if (tutorialSlug === 'nodejs') {
+    return generateNodeLessonContent(lessonSlug);
+  }
+
+  // Generate dynamic content for Git lessons
+  if (tutorialSlug === 'git') {
+    return generateGitLessonContent(lessonSlug);
+  }
+
+  // Generate dynamic content for Machine Learning lessons
+  if (tutorialSlug === 'machine-learning') {
+    return generateMLLessonContent(lessonSlug);
   }
 
   // Default fallback

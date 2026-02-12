@@ -4,7 +4,7 @@ Calendar and Scheduling API endpoints.
 
 from typing import Any, List, Optional
 from uuid import UUID, uuid4
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, date, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -132,7 +132,8 @@ async def list_bookings(
         query = query.where(Booking.status == status_filter)
     
     if upcoming_only:
-        query = query.where(Booking.start_time >= datetime.utcnow())
+        now = datetime.utcnow()
+        query = query.where(Booking.start_time >= now)
     
     query = query.order_by(Booking.start_time.desc())
     
@@ -159,8 +160,13 @@ async def create_booking(
             detail="Meeting type not found or inactive"
         )
     
+    # Convert to naive UTC if aware
+    start_time = booking_in.start_time
+    if start_time.tzinfo:
+        start_time = start_time.astimezone(timezone.utc).replace(tzinfo=None)
+    
     # Calculate end time
-    end_time = booking_in.start_time + timedelta(minutes=meeting_type.duration_minutes)
+    end_time = start_time + timedelta(minutes=meeting_type.duration_minutes)
     
     # Check for conflicts
     result = await db.execute(
@@ -184,7 +190,7 @@ async def create_booking(
         invitee_email=booking_in.invitee_email,
         invitee_phone=booking_in.invitee_phone,
         invitee_timezone=booking_in.invitee_timezone,
-        start_time=booking_in.start_time,
+        start_time=start_time,
         end_time=end_time,
         answers=booking_in.answers,
         invitee_notes=booking_in.invitee_notes,

@@ -1506,7 +1506,7 @@ const Network: React.FC = () => {
                 About • Help • Privacy • Terms • Advertising • Jobs • Cookie Policy
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                VerTechie © 2024
+                VerTechie © 2026
               </Typography>
             </Box>
           </Grid>

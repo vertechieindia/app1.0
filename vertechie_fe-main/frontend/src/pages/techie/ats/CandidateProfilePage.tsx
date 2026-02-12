@@ -225,12 +225,38 @@ const CandidateProfilePage: React.FC = () => {
       return;
     }
     
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(applicationId)) {
+      console.error('Invalid application_id format:', applicationId);
+      setSnackbar({ 
+        open: true, 
+        message: 'Invalid application ID format. Please refresh the page and try again.', 
+        severity: 'error' 
+      });
+      return;
+    }
+    
     try {
       setScheduling(true);
       const token = localStorage.getItem('authToken');
-      const scheduledAt = new Date(`${scheduleForm.date}T${scheduleForm.time}`).toISOString();
+      // Convert local date/time to UTC properly to avoid timezone mismatch
+      const [year, month, day] = scheduleForm.date.split('-').map(Number);
+      const [hours, minutes] = scheduleForm.time.split(':').map(Number);
+      const localDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
+      const scheduledAt = localDate.toISOString();
       const meetingId = `interview-${Date.now()}`;
       const meetingLink = `${window.location.origin}/techie/lobby/${meetingId}?type=interview`;
+      
+      const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      
+      console.log('Scheduling interview:', {
+        application_id: applicationId,
+        local_date: scheduleForm.date,
+        local_time: scheduleForm.time,
+        utc_datetime: scheduledAt,
+        user_timezone: userTimezone
+      });
       
       const response = await fetch(getApiUrl('/hiring/interviews'), {
         method: 'POST',
@@ -241,7 +267,7 @@ const CandidateProfilePage: React.FC = () => {
         body: JSON.stringify({
           application_id: applicationId,
           interview_type: scheduleForm.type,
-          scheduled_at: scheduledAt,
+          scheduled_at: scheduledAt, // UTC datetime
           duration_minutes: scheduleForm.duration,
           meeting_link: meetingLink,
           notes: scheduleForm.notes,
@@ -253,12 +279,17 @@ const CandidateProfilePage: React.FC = () => {
         setScheduleDialogOpen(false);
         setScheduleForm({ date: '', time: '', duration: 60, type: 'technical', notes: '' });
       } else {
-        const error = await response.json();
-        setSnackbar({ open: true, message: error.detail || 'Failed to schedule interview', severity: 'error' });
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error occurred' }));
+        console.error('Failed to schedule interview:', response.status, errorData);
+        setSnackbar({ 
+          open: true, 
+          message: errorData.detail || `Failed to schedule interview (${response.status})`, 
+          severity: 'error' 
+        });
       }
     } catch (error) {
       console.error('Error scheduling interview:', error);
-      setSnackbar({ open: true, message: 'Failed to schedule interview', severity: 'error' });
+      setSnackbar({ open: true, message: 'Network error. Please check your connection and try again.', severity: 'error' });
     } finally {
       setScheduling(false);
     }
