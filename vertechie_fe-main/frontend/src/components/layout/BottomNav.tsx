@@ -143,7 +143,7 @@ const BottomNav: React.FC = () => {
   const [notifications, setNotifications] = useState(0);
   const [messages, setMessages] = useState(0);
 
-  
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const isTablet = useMediaQuery(theme.breakpoints.down('md'));
@@ -237,7 +237,7 @@ const BottomNav: React.FC = () => {
         const hasAdminRole = (adminRole: string) =>
           adminRoles.includes(adminRole);
 
-        
+
         const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
         const countRoleAdmins = roleAdminTypes.filter((r) => hasAdminRole(r)).length;
         // Check for admin roles first (HM Admin, Techie Admin, etc.)
@@ -286,7 +286,7 @@ const BottomNav: React.FC = () => {
 
   // Check if user is any type of admin
   const isAnyAdmin = ['super_admin', 'multi_admin', 'hm_admin', 'techie_admin', 'company_admin', 'school_admin', 'admin'].includes(userRole);
-  
+
   // Core navigation items - same for all users (admins and non-admins)
   const coreNavItems: NavItemConfig[] = [
     { key: 'home', label: 'Home', icon: <HomeIcon />, path: '/techie/home/feed' },
@@ -345,11 +345,11 @@ const BottomNav: React.FC = () => {
         path: '/super-admin'
       });
     } else if (userRole === 'multi_admin') {
-      items.push({ 
-        key: 'admin', 
-        label: 'Admin', 
-        icon: <AdminPanelSettingsIcon />, 
-        path: '/vertechie/role-admin' 
+      items.push({
+        key: 'admin',
+        label: 'Admin',
+        icon: <AdminPanelSettingsIcon />,
+        path: '/vertechie/role-admin'
       });
     } else if (userRole === 'hm_admin') {
       items.push({
@@ -395,7 +395,7 @@ const BottomNav: React.FC = () => {
   const getVisibleItems = () => {
     const roleItems = getRoleSpecificItems();
 
-    
+
     // Special handling for techie_admin - only show specified items
     if (userRole === 'techie_admin') {
       const techieAdminItems: NavItemConfig[] = [
@@ -405,10 +405,9 @@ const BottomNav: React.FC = () => {
         { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat' },
         { key: 'blogs', label: 'Blog', icon: <ArticleIcon />, path: '/techie/blogs' },
         { key: 'admin', label: 'Admin', icon: <AdminPanelSettingsIcon />, path: '/vertechie/techieadmin' },
-        { key: 'alerts', label: 'Alerts', icon: <NotificationsIcon />, path: '/techie/alerts' },
         // Profile is always shown separately at the end, so not included here
       ];
-      
+
       if (isMobile) return techieAdminItems.slice(0, 4);
       if (isTablet) return techieAdminItems.slice(0, 6);
       return techieAdminItems;
@@ -421,13 +420,12 @@ const BottomNav: React.FC = () => {
         { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat' },
         { key: 'blogs', label: 'Blog', icon: <ArticleIcon />, path: '/techie/blogs' },
         { key: 'admin', label: 'Admin', icon: <AdminPanelSettingsIcon />, path: '/vertechie/role-admin' },
-        { key: 'alerts', label: 'Alerts', icon: <NotificationsIcon />, path: '/techie/alerts' },
       ];
       if (isMobile) return multiAdminItems.slice(0, 4);
       if (isTablet) return multiAdminItems.slice(0, 6);
       return multiAdminItems;
     }
-    
+
     if (isMobile) {
       // On mobile, show: Home, Jobs, Practice, Chat, Profile + More
       return coreNavItems.slice(0, 3);
@@ -445,7 +443,7 @@ const BottomNav: React.FC = () => {
     if (userRole === 'techie_admin' || userRole === 'multi_admin') {
       return [];
     }
-    
+
     const roleItems = getRoleSpecificItems();
     const allItems = [...coreNavItems, ...secondaryNavItems, ...roleItems];
     const visibleItems = getVisibleItems();
@@ -478,7 +476,7 @@ const BottomNav: React.FC = () => {
             <NavLabel>{item.label}</NavLabel>
           </NavItem>
         ))}
-        
+
         {/* Chat (always visible, except for techie_admin who has it in main menu) */}
         {isMobile && userRole !== 'techie_admin' && userRole !== 'multi_admin' && (
           <NavItem

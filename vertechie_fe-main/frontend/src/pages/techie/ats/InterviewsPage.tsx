@@ -334,6 +334,11 @@ const InterviewsPage: React.FC = () => {
             dateStr = dateStr.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
           }
           const interviewDate = new Date(dateStr);
+          if (Number.isNaN(interviewDate.getTime())) {
+            return;
+          }
+          const status = String(interview.status || '').toLowerCase();
+
           const formattedInterview = {
             id: interview.id,
             candidate: interview.candidate_name || 'Candidate',
@@ -342,15 +347,15 @@ const InterviewsPage: React.FC = () => {
             date: interviewDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
             type: interview.interview_type || 'Technical',
             interviewers: interview.interviewers || [],
-            status: interview.status,
+            status,
             platform: 'VerTechie Meet',
-            meetingLink: interview.meeting_link || `/techie/lobby/interview-${interview.id}?type=interview`,
+            meetingLink: interview.meeting_link || `/techie/lobby/${interview.id}?type=interview`,
             duration: interview.duration_minutes || 60,
             location: interview.location,
             notes: interview.notes,
           };
           
-          if (interview.status === 'completed') {
+          if (status === 'completed' || status === 'cancelled' || status === 'no_show') {
             completed.push(formattedInterview);
           } else if (interviewDate.toDateString() === todayStr) {
             today.push(formattedInterview);
@@ -362,9 +367,21 @@ const InterviewsPage: React.FC = () => {
         });
         
         setRealInterviews({ today, upcoming, completed });
+      } else {
+        const errText = await response.text().catch(() => '');
+        setSnackbar({
+          open: true,
+          message: `Failed to load interviews (${response.status})${errText ? ': server error' : ''}`,
+          severity: 'error',
+        });
       }
     } catch (error) {
       console.error('Error fetching interviews:', error);
+      setSnackbar({
+        open: true,
+        message: 'Error loading interviews. Please try again.',
+        severity: 'error',
+      });
     } finally {
       setLoading(false);
     }
@@ -376,7 +393,7 @@ const InterviewsPage: React.FC = () => {
     if (scheduleForm.platform === 'VerTechie Meet' && !meetingLink) {
       const meetingId = Date.now();
       const title = encodeURIComponent(`${scheduleForm.type} - ${scheduleForm.candidate}`);
-      meetingLink = `/techie/lobby/interview-${meetingId}?type=interview&title=${title}`;
+      meetingLink = `/techie/lobby/${meetingId}?type=interview&title=${title}`;
     }
     
     setSnackbar({ open: true, message: 'Interview scheduled successfully!', severity: 'success' });

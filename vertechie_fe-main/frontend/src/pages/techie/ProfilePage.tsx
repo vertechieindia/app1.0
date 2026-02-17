@@ -448,20 +448,20 @@ const ProfilePage: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [loading, setLoading] = useState(true);
-  
+
   // Experience Warning and Form Dialogs
   const [showExperienceWarning, setShowExperienceWarning] = useState(false);
   const [isSavingExperience, setIsSavingExperience] = useState(false);
   const [experienceErrors, setExperienceErrors] = useState<Record<string, string>>({});
-  
+
   // Skills dialog state
   const [showSkillDialog, setShowSkillDialog] = useState(false);
   const [currentSkill, setCurrentSkill] = useState<SkillWithRating>({ name: '', experience: '', rating: 5 });
-  
+
   // Job description warning state
   const [showJobDescWarning, setShowJobDescWarning] = useState(false);
   const [jobDescAcknowledged, setJobDescAcknowledged] = useState(false);
-  
+
   // Company invite state
   const [showCompanyInvite, setShowCompanyInvite] = useState(false);
   const [companyInvite, setCompanyInvite] = useState<CompanyInviteData>({
@@ -473,8 +473,8 @@ const ProfilePage: React.FC = () => {
     contactPersonName: '',
     contactPersonRole: '',
   });
-  const [companySearchResults] = useState<Array<{id: string, name: string}>>([]);
-  
+  const [companySearchResults] = useState<Array<{ id: string, name: string }>>([]);
+
   // New Experience Form State (Extended)
   const [newExperience, setNewExperience] = useState<ExperienceFormData>({
     company: '',
@@ -493,11 +493,11 @@ const ProfilePage: React.FC = () => {
     managerPhone: '',
     managerLinkedIn: '',
   });
-  
+
   // Education form states
   const [isSavingEducation, setIsSavingEducation] = useState(false);
   const [educationErrors, setEducationErrors] = useState<Record<string, string>>({});
-  
+
   // New Education Form State (matching signup flow)
   const [newEducation, setNewEducation] = useState({
     institution: '',
@@ -507,7 +507,7 @@ const ProfilePage: React.FC = () => {
     endDate: '',
     gpa: '',
   });
-  
+
   // Real user data from API
   const [user, setUser] = useState<UserData | null>(null);
   const [profile, setProfile] = useState<UserProfileData | null>(null);
@@ -696,15 +696,15 @@ const ProfilePage: React.FC = () => {
   const parsedStored = storedData ? JSON.parse(storedData) : {};
   const userRoles = parsedStored.roles || parsedStored.groups || [];
   const adminRoles = parsedStored.admin_roles || [];
-  const isHiringManager = userRoles.some((r: any) => 
-    r.role_type === 'hiring_manager' || 
+  const isHiringManager = userRoles.some((r: any) =>
+    r.role_type === 'hiring_manager' ||
     r.role_type === 'HIRING_MANAGER' ||
-    r.name?.toLowerCase() === 'hiring_manager' || 
+    r.name?.toLowerCase() === 'hiring_manager' ||
     r.name?.toLowerCase() === 'hr'
   ) || !!companyData;
 
   // Check if user is a Techie Admin
-  const isTechieAdmin = adminRoles.includes('techie_admin') || 
+  const isTechieAdmin = adminRoles.includes('techie_admin') ||
     userRoles.some((r: any) => r.role_type === 'techie_admin' || r.name?.toLowerCase() === 'techie_admin');
 
   // Determine display title based on role
@@ -726,7 +726,7 @@ const ProfilePage: React.FC = () => {
     firstName: user?.first_name || 'User',
     lastName: user?.last_name || '',
     title: getDisplayTitle(),
-    tagline: profile?.bio || (isHiringManager 
+    tagline: profile?.bio || (isHiringManager
       ? `${profile?.current_company ? `@ ${profile.current_company}` : 'Finding great talent'} 💼`
       : 'Building amazing things with code 🚀'),
     location: profile?.location || user?.country || 'Location not set',
@@ -795,8 +795,8 @@ const ProfilePage: React.FC = () => {
     .filter(Boolean) as TechLogo[];
 
   const handleCopyLink = () => {
-    const profileUrl = displayUser.vertechieId 
-      ? `vertechie.com/${displayUser.vertechieId}` 
+    const profileUrl = displayUser.vertechieId
+      ? `vertechie.com/${displayUser.vertechieId}`
       : `vertechie.com/u/${displayUser.username}`;
     navigator.clipboard.writeText(profileUrl);
     setCopied(true);
@@ -960,10 +960,10 @@ const ProfilePage: React.FC = () => {
 
     try {
       const isEditing = !!editingExperienceId;
-      const url = isEditing 
+      const url = isEditing
         ? getApiUrl(`/users/me/experiences/${editingExperienceId}`)
         : getApiUrl('/users/me/experiences');
-      
+
       // Ensure start_date is a valid date string in YYYY-MM-DD format
       let formattedStartDate = newExperience.startDate;
       if (!formattedStartDate || formattedStartDate.trim() === '') {
@@ -992,7 +992,7 @@ const ProfilePage: React.FC = () => {
       }
 
       // Skills should be an array of strings (skill names only), not objects
-      const skillNames = (newExperience.skills || []).map((s: any) => 
+      const skillNames = (newExperience.skills || []).map((s: any) =>
         typeof s === 'string' ? s : (s.name || s)
       );
 
@@ -1007,9 +1007,15 @@ const ProfilePage: React.FC = () => {
           is_current: newExperience.current || false,
           description: newExperience.description?.trim() || null,
           skills: skillNames,
+          client_name: newExperience.clientName?.trim() || null,
+          company_website: newExperience.website?.trim() || null,
+          manager_name: newExperience.managerName?.trim() || null,
+          manager_email: newExperience.managerEmail?.trim() || null,
+          manager_phone: newExperience.managerPhone?.trim() || null,
+          manager_linkedin: newExperience.managerLinkedIn?.trim() || null,
         }),
       });
-      
+
       if (response.ok) {
         setSnackbar({ open: true, message: isEditing ? 'Experience updated successfully!' : 'Experience added successfully!', severity: 'success' });
         setEditingExperienceId(null);
@@ -1131,13 +1137,13 @@ const ProfilePage: React.FC = () => {
 
     setIsSavingEducation(true);
     setEducationErrors({});
-    
+
     try {
       const isEditing = !!editingEducationId;
-      const url = isEditing 
+      const url = isEditing
         ? getApiUrl(`/users/me/educations/${editingEducationId}`)
         : getApiUrl('/users/me/educations');
-      
+
       // Parse start_year safely - ensure it's a valid integer or null
       let startYear: number | null = null;
       if (newEducation.startDate && newEducation.startDate.trim() !== '') {
@@ -1184,7 +1190,7 @@ const ProfilePage: React.FC = () => {
           description: null,
         }),
       });
-      
+
       if (response.ok) {
         setSnackbar({ open: true, message: isEditing ? 'Education updated successfully!' : 'Education added successfully!', severity: 'success' });
         setEditingEducationId(null);
@@ -1209,9 +1215,9 @@ const ProfilePage: React.FC = () => {
       <PageContainer>
         <Container maxWidth="xl" sx={{ py: 4, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
           <Box sx={{ textAlign: 'center' }}>
-            <Box sx={{ 
-              width: 60, 
-              height: 60, 
+            <Box sx={{
+              width: 60,
+              height: 60,
               borderRadius: '50%',
               border: '3px solid rgba(99, 102, 241, 0.3)',
               borderTopColor: '#6366f1',
@@ -1244,12 +1250,12 @@ const ProfilePage: React.FC = () => {
     <PageContainer>
       <Container maxWidth="xl" sx={{ py: 4, position: 'relative', zIndex: 1 }}>
         {/* Floating Decorative Elements */}
-        <Box sx={{ 
-          position: 'absolute', 
-          top: 100, 
-          right: 50, 
-          width: 200, 
-          height: 200, 
+        <Box sx={{
+          position: 'absolute',
+          top: 100,
+          right: 50,
+          width: 200,
+          height: 200,
           borderRadius: '50%',
           background: 'radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%)',
           animation: `${float} 6s ease-in-out infinite`,
@@ -1287,7 +1293,7 @@ const ProfilePage: React.FC = () => {
                     {displayUser.firstName[0]}{displayUser.lastName?.[0] || ''}
                   </ProfileAvatar>
                 </Badge>
-                
+
                 <Box sx={{ flex: 1, minWidth: 280 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
                     <GradientText variant="h3">
@@ -1296,10 +1302,10 @@ const ProfilePage: React.FC = () => {
                     {displayUser.isVerified && (
                       <VerifiedIcon sx={{ color: '#6366f1', fontSize: 28 }} />
                     )}
-                    <Chip 
+                    <Chip
                       label={getLevelTitle(displayUser.level)}
                       size="small"
-                      sx={{ 
+                      sx={{
                         ml: 1,
                         background: 'linear-gradient(135deg, #6366f1, #a855f7)',
                         color: '#1e293b',
@@ -1307,15 +1313,15 @@ const ProfilePage: React.FC = () => {
                       }}
                     />
                   </Box>
-                  
+
                   <Typography variant="h6" sx={{ color: 'rgba(0,0,0,0.7)', mb: 1, fontWeight: 500 }}>
                     {displayUser.title}
                   </Typography>
-                  
+
                   <Typography variant="body1" sx={{ color: 'rgba(0,0,0,0.5)', mb: 2 }}>
                     {displayUser.tagline}
                   </Typography>
-                  
+
                   <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'rgba(0,0,0,0.5)' }}>
                       <LocationOnIcon sx={{ fontSize: 18 }} />
@@ -1329,14 +1335,14 @@ const ProfilePage: React.FC = () => {
                 </Box>
               </Box>
             </Grid>
-            
+
             {/* Actions */}
             <Grid item xs={12} md={4}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: { xs: 'flex-start', md: 'flex-end' } }}>
                 {/* Profile Link */}
-                <Box sx={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
+                <Box sx={{
+                  display: 'flex',
+                  alignItems: 'center',
                   gap: 1,
                   p: 1.5,
                   borderRadius: 2,
@@ -1344,35 +1350,35 @@ const ProfilePage: React.FC = () => {
                   border: '1px solid rgba(0, 0, 0, 0.08)',
                 }}>
                   <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.5)', fontFamily: 'monospace' }}>
-                    {displayUser.vertechieId 
-                      ? `vertechie.com/${displayUser.vertechieId}` 
+                    {displayUser.vertechieId
+                      ? `vertechie.com/${displayUser.vertechieId}`
                       : `vertechie.com/u/${displayUser.username}`}
                   </Typography>
                   <IconButton size="small" onClick={handleCopyLink} sx={{ color: copied ? '#10b981' : 'rgba(255,255,255,0.5)' }}>
                     {copied ? <VerifiedIcon /> : <ContentCopyIcon />}
                   </IconButton>
                 </Box>
-                
+
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                   {displayUser.github && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <IconButton 
+                      <IconButton
                         onClick={() => window.open(`https://github.com/${displayUser.github}`, '_blank')}
                         sx={{ color: 'rgba(0,0,0,0.7)', '&:hover': { color: '#1e293b' } }}
                       >
                         <GitHubIcon />
                       </IconButton>
                       {profile?.github_username && isOwnProfile && (
-                        <Chip 
-                          size="small" 
-                          label="Connected" 
-                          sx={{ 
-                            bgcolor: '#238636', 
+                        <Chip
+                          size="small"
+                          label="Connected"
+                          sx={{
+                            bgcolor: '#238636',
                             color: 'white',
                             height: 20,
                             fontSize: '0.7rem',
                             fontWeight: 600,
-                          }} 
+                          }}
                         />
                       )}
                     </Box>
@@ -1401,7 +1407,7 @@ const ProfilePage: React.FC = () => {
                     </Box>
                   )}
                   {displayUser.website && (
-                    <IconButton 
+                    <IconButton
                       onClick={() => window.open(displayUser.website, '_blank')}
                       sx={{ color: 'rgba(0,0,0,0.7)', '&:hover': { color: '#1e293b' } }}
                     >
@@ -1413,8 +1419,8 @@ const ProfilePage: React.FC = () => {
                       variant="outlined"
                       startIcon={<EditIcon />}
                       onClick={() => setEditDialogOpen(true)}
-                      sx={{ 
-                        borderColor: 'rgba(255,255,255,0.2)', 
+                      sx={{
+                        borderColor: 'rgba(255,255,255,0.2)',
                         color: '#1e293b',
                         '&:hover': { borderColor: '#6366f1', bgcolor: 'rgba(99,102,241,0.1)' },
                       }}
@@ -1426,7 +1432,7 @@ const ProfilePage: React.FC = () => {
               </Box>
             </Grid>
           </Grid>
-          
+
           {/* XP Progress */}
           <Box sx={{ mt: 4, pt: 3, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
@@ -1437,11 +1443,11 @@ const ProfilePage: React.FC = () => {
                 {displayUser.xp.toLocaleString()} XP
               </Typography>
             </Box>
-            <LinearProgress 
-              variant="determinate" 
-              value={65} 
-              sx={{ 
-                height: 8, 
+            <LinearProgress
+              variant="determinate"
+              value={65}
+              sx={{
+                height: 8,
                 borderRadius: 4,
                 bgcolor: 'rgba(0,0,0,0.06)',
                 '& .MuiLinearProgress-bar': {
@@ -1501,12 +1507,12 @@ const ProfilePage: React.FC = () => {
                   </Typography>
                 </Box>
                 {isOwnProfile && (
-                  <IconButton 
-                    size="small" 
+                  <IconButton
+                    size="small"
                     onClick={() => {
                       setEditableSkills(profile?.skills || []);
                       setEditSkillsOpen(true);
-                    }} 
+                    }}
                     sx={{ color: 'rgba(0,0,0,0.5)' }}
                   >
                     <EditIcon fontSize="small" />
@@ -1519,10 +1525,10 @@ const ProfilePage: React.FC = () => {
                     {skills.map((skill) => (
                       <SkillBadge key={skill.name} level={skill.level}>
                         {skill.logo && (
-                          <img 
-                            src={skill.logo} 
-                            alt={skill.name} 
-                            style={{ width: 18, height: 18, objectFit: 'contain' }} 
+                          <img
+                            src={skill.logo}
+                            alt={skill.name}
+                            style={{ width: 18, height: 18, objectFit: 'contain' }}
                           />
                         )}
                         {skill.name}
@@ -1540,8 +1546,8 @@ const ProfilePage: React.FC = () => {
                     No skills added yet
                   </Typography>
                   {isOwnProfile && (
-                    <Button 
-                      size="small" 
+                    <Button
+                      size="small"
                       onClick={() => {
                         setEditableSkills([]);
                         setEditSkillsOpen(true);
@@ -1564,13 +1570,13 @@ const ProfilePage: React.FC = () => {
                     Company Details
                   </Typography>
                 </Box>
-                
+
                 {companyData ? (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {/* Company Name */}
-                    <Box sx={{ 
-                      p: 2.5, 
-                      bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                    <Box sx={{
+                      p: 2.5,
+                      bgcolor: 'rgba(99, 102, 241, 0.05)',
                       borderRadius: 2,
                       border: '1px solid rgba(99, 102, 241, 0.1)'
                     }}>
@@ -1584,9 +1590,9 @@ const ProfilePage: React.FC = () => {
 
                     {/* Company Website */}
                     {companyData.website && (
-                      <Box sx={{ 
-                        p: 2.5, 
-                        bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                      <Box sx={{
+                        p: 2.5,
+                        bgcolor: 'rgba(99, 102, 241, 0.05)',
                         borderRadius: 2,
                         border: '1px solid rgba(99, 102, 241, 0.1)'
                       }}>
@@ -1595,9 +1601,9 @@ const ProfilePage: React.FC = () => {
                         </Typography>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <LanguageOutlinedIcon sx={{ color: '#6366f1', fontSize: 20 }} />
-                          <Link 
-                            href={companyData.website} 
-                            target="_blank" 
+                          <Link
+                            href={companyData.website}
+                            target="_blank"
                             rel="noopener noreferrer"
                             sx={{ color: '#6366f1', fontWeight: 500, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
                           >
@@ -1609,9 +1615,9 @@ const ProfilePage: React.FC = () => {
 
                     {/* Company Email */}
                     {companyData.email && (
-                      <Box sx={{ 
-                        p: 2.5, 
-                        bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                      <Box sx={{
+                        p: 2.5,
+                        bgcolor: 'rgba(99, 102, 241, 0.05)',
                         borderRadius: 2,
                         border: '1px solid rgba(99, 102, 241, 0.1)'
                       }}>
@@ -1629,9 +1635,9 @@ const ProfilePage: React.FC = () => {
 
                     {/* Industry */}
                     {companyData.industry && (
-                      <Box sx={{ 
-                        p: 2.5, 
-                        bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                      <Box sx={{
+                        p: 2.5,
+                        bgcolor: 'rgba(99, 102, 241, 0.05)',
                         borderRadius: 2,
                         border: '1px solid rgba(99, 102, 241, 0.1)'
                       }}>
@@ -1646,9 +1652,9 @@ const ProfilePage: React.FC = () => {
 
                     {/* Headquarters */}
                     {companyData.headquarters && (
-                      <Box sx={{ 
-                        p: 2.5, 
-                        bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                      <Box sx={{
+                        p: 2.5,
+                        bgcolor: 'rgba(99, 102, 241, 0.05)',
                         borderRadius: 2,
                         border: '1px solid rgba(99, 102, 241, 0.1)'
                       }}>
@@ -1668,10 +1674,10 @@ const ProfilePage: React.FC = () => {
                     {(companyData.company_size || companyData.founded_year) && (
                       <Box sx={{ display: 'flex', gap: 2 }}>
                         {companyData.company_size && (
-                          <Box sx={{ 
+                          <Box sx={{
                             flex: 1,
-                            p: 2.5, 
-                            bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                            p: 2.5,
+                            bgcolor: 'rgba(99, 102, 241, 0.05)',
                             borderRadius: 2,
                             border: '1px solid rgba(99, 102, 241, 0.1)'
                           }}>
@@ -1684,10 +1690,10 @@ const ProfilePage: React.FC = () => {
                           </Box>
                         )}
                         {companyData.founded_year && (
-                          <Box sx={{ 
+                          <Box sx={{
                             flex: 1,
-                            p: 2.5, 
-                            bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                            p: 2.5,
+                            bgcolor: 'rgba(99, 102, 241, 0.05)',
                             borderRadius: 2,
                             border: '1px solid rgba(99, 102, 241, 0.1)'
                           }}>
@@ -1704,9 +1710,9 @@ const ProfilePage: React.FC = () => {
 
                     {/* Description */}
                     {companyData.description && (
-                      <Box sx={{ 
-                        p: 2.5, 
-                        bgcolor: 'rgba(99, 102, 241, 0.05)', 
+                      <Box sx={{
+                        p: 2.5,
+                        bgcolor: 'rgba(99, 102, 241, 0.05)',
                         borderRadius: 2,
                         border: '1px solid rgba(99, 102, 241, 0.1)'
                       }}>
@@ -1732,279 +1738,279 @@ const ProfilePage: React.FC = () => {
 
             {/* Experience - Hide for HR users who only have company details */}
             {!isHiringManager && (
-            <GlassCard sx={{ p: 3, mb: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <WorkIcon sx={{ color: '#6366f1' }} />
-                  <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
-                    Experience
-                  </Typography>
+              <GlassCard sx={{ p: 3, mb: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <WorkIcon sx={{ color: '#6366f1' }} />
+                    <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
+                      Experience
+                    </Typography>
+                  </Box>
+                  {isOwnProfile && (
+                    <Button
+                      variant="contained"
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onClick={handleAddExperienceClick}
+                      sx={{
+                        bgcolor: '#6366f1',
+                        color: 'white',
+                        textTransform: 'none',
+                        fontWeight: 600,
+                        '&:hover': { bgcolor: '#4f46e5' },
+                      }}
+                    >
+                      Add Experience
+                    </Button>
+                  )}
                 </Box>
-                {isOwnProfile && (
-                  <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={<AddIcon />}
-                    onClick={handleAddExperienceClick}
-                    sx={{
-                      bgcolor: '#6366f1',
-                      color: 'white',
-                      textTransform: 'none',
-                      fontWeight: 600,
-                      '&:hover': { bgcolor: '#4f46e5' },
-                    }}
-                  >
-                    Add Experience
-                  </Button>
-                )}
-              </Box>
-              {experience.length > 0 ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {experience.map((exp, idx) => (
-                    <ExperienceCard key={exp.id || idx} sx={{ position: 'relative' }}>
-                      {/* Edit/Delete buttons */}
-                      {isOwnProfile && (
-                        <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 0.5 }}>
-                          <Tooltip title="Edit">
-                            <IconButton 
-                              size="small" 
-                              onClick={() => {
-                                // Find the original experience data
-                                const originalExp = experiences.find(e => e.id === exp.id);
-                                if (originalExp) {
-                                  setEditingExperienceId(exp.id);
-                                  setNewExperience({
-                                    company: originalExp.company || '',
-                                    companyName: originalExp.company || '',
-                                    clientName: originalExp.title || '',
-                                    website: '',
-                                    workLocation: originalExp.location || '',
-                                    position: originalExp.title || '',
-                                    startDate: originalExp.start_date || '',
-                                    endDate: originalExp.end_date || '',
-                                    current: originalExp.is_current || false,
-                                    skills: (originalExp.skills || []).map((s: string) => ({ name: s, experience: '', rating: 5 })),
-                                    description: originalExp.description || '',
-                                    managerName: '',
-                                    managerEmail: '',
-                                    managerPhone: '',
-                                    managerLinkedIn: '',
-                                  });
-                                  setShowExperienceWarning(false);
-                                  setEditExperienceOpen(true);
-                                }
-                              }}
-                              sx={{ color: 'rgba(0,0,0,0.4)', '&:hover': { color: '#6366f1', bgcolor: 'rgba(99,102,241,0.1)' } }}
-                            >
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete">
-                            <IconButton 
-                              size="small" 
-                              onClick={async () => {
-                                if (window.confirm('Are you sure you want to delete this experience?')) {
-                                  try {
-                                    const response = await fetchWithAuth(getApiUrl(`/users/me/experiences/${exp.id}`), {
-                                      method: 'DELETE',
+                {experience.length > 0 ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {experience.map((exp, idx) => (
+                      <ExperienceCard key={exp.id || idx} sx={{ position: 'relative' }}>
+                        {/* Edit/Delete buttons */}
+                        {isOwnProfile && (
+                          <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 0.5 }}>
+                            <Tooltip title="Edit">
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  // Find the original experience data
+                                  const originalExp = experiences.find(e => e.id === exp.id);
+                                  if (originalExp) {
+                                    setEditingExperienceId(exp.id);
+                                    setNewExperience({
+                                      company: originalExp.company_name || originalExp.company || '',
+                                      companyName: originalExp.company_name || originalExp.company || '',
+                                      clientName: (originalExp as any).client_name || '',
+                                      website: (originalExp as any).company_website || '',
+                                      workLocation: originalExp.location || '',
+                                      position: originalExp.title || '',
+                                      startDate: originalExp.start_date || '',
+                                      endDate: originalExp.end_date || '',
+                                      current: originalExp.is_current || false,
+                                      skills: (originalExp.skills || []).map((s: string) => ({ name: s, experience: '', rating: 5 })),
+                                      description: originalExp.description || '',
+                                      managerName: (originalExp as any).manager_name || '',
+                                      managerEmail: (originalExp as any).manager_email || '',
+                                      managerPhone: (originalExp as any).manager_phone || '',
+                                      managerLinkedIn: (originalExp as any).manager_linkedin || '',
                                     });
-                                    if (response.ok) {
-                                      setSnackbar({ open: true, message: 'Experience deleted successfully', severity: 'success' });
-                                      fetchUserData(); // Refresh data
-                                    } else {
+                                    setShowExperienceWarning(false);
+                                    setEditExperienceOpen(true);
+                                  }
+                                }}
+                                sx={{ color: 'rgba(0,0,0,0.4)', '&:hover': { color: '#6366f1', bgcolor: 'rgba(99,102,241,0.1)' } }}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete">
+                              <IconButton
+                                size="small"
+                                onClick={async () => {
+                                  if (window.confirm('Are you sure you want to delete this experience?')) {
+                                    try {
+                                      const response = await fetchWithAuth(getApiUrl(`/users/me/experiences/${exp.id}`), {
+                                        method: 'DELETE',
+                                      });
+                                      if (response.ok) {
+                                        setSnackbar({ open: true, message: 'Experience deleted successfully', severity: 'success' });
+                                        fetchUserData(); // Refresh data
+                                      } else {
+                                        setSnackbar({ open: true, message: 'Failed to delete experience', severity: 'error' });
+                                      }
+                                    } catch (err: any) {
+                                      if (err.message?.includes('Session expired')) return;
                                       setSnackbar({ open: true, message: 'Failed to delete experience', severity: 'error' });
                                     }
-                                  } catch (err: any) {
-                                    if (err.message?.includes('Session expired')) return;
-                                    setSnackbar({ open: true, message: 'Failed to delete experience', severity: 'error' });
                                   }
-                                }
-                              }}
-                              sx={{ color: 'rgba(0,0,0,0.4)', '&:hover': { color: '#ef4444', bgcolor: 'rgba(239,68,68,0.1)' } }}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      )}
-                      <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 600, mb: 0.5, pr: isOwnProfile ? 5 : 0 }}>
-                        {exp.title}
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.6)', mb: 1 }}>
-                        {exp.company} • {exp.period}
-                      </Typography>
-                      {exp.description && (
-                        <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.5)', mb: 1, fontSize: '0.85rem' }}>
-                          {exp.description}
+                                }}
+                                sx={{ color: 'rgba(0,0,0,0.4)', '&:hover': { color: '#ef4444', bgcolor: 'rgba(239,68,68,0.1)' } }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        )}
+                        <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 600, mb: 0.5, pr: isOwnProfile ? 5 : 0 }}>
+                          {exp.title}
                         </Typography>
-                      )}
-                      {exp.tech && exp.tech.length > 0 && (
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                          {exp.tech.map((t) => (
-                            <Chip 
-                              key={t} 
-                              label={t} 
-                              size="small"
-                              sx={{ 
-                                bgcolor: 'rgba(99, 102, 241, 0.1)', 
-                                color: '#4f46e5',
-                                border: '1px solid rgba(99, 102, 241, 0.25)',
-                              }}
-                            />
-                          ))}
-                        </Box>
-                      )}
-                    </ExperienceCard>
-                  ))}
-                </Box>
-              ) : (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.4)' }}>
-                    No work experience added yet. {isOwnProfile && 'Click the edit icon to add your experience.'}
-                  </Typography>
-                </Box>
-              )}
-            </GlassCard>
+                        <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.6)', mb: 1 }}>
+                          {exp.company} • {exp.period}
+                        </Typography>
+                        {exp.description && (
+                          <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.5)', mb: 1, fontSize: '0.85rem' }}>
+                            {exp.description}
+                          </Typography>
+                        )}
+                        {exp.tech && exp.tech.length > 0 && (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                            {exp.tech.map((t) => (
+                              <Chip
+                                key={t}
+                                label={t}
+                                size="small"
+                                sx={{
+                                  bgcolor: 'rgba(99, 102, 241, 0.1)',
+                                  color: '#4f46e5',
+                                  border: '1px solid rgba(99, 102, 241, 0.25)',
+                                }}
+                              />
+                            ))}
+                          </Box>
+                        )}
+                      </ExperienceCard>
+                    ))}
+                  </Box>
+                ) : (
+                  <Box sx={{ textAlign: 'center', py: 4 }}>
+                    <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.4)' }}>
+                      No work experience added yet. {isOwnProfile && 'Click the edit icon to add your experience.'}
+                    </Typography>
+                  </Box>
+                )}
+              </GlassCard>
             )}
 
             {/* Education - Hide for HR users who only have company details */}
             {!isHiringManager && (
-            <GlassCard sx={{ p: 3, mb: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <SchoolIcon sx={{ color: '#10b981' }} />
-                  <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
-                    Education
-                  </Typography>
+              <GlassCard sx={{ p: 3, mb: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <SchoolIcon sx={{ color: '#10b981' }} />
+                    <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
+                      Education
+                    </Typography>
+                  </Box>
+                  {isOwnProfile && (
+                    <Button
+                      variant="contained"
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onClick={() => setEditEducationOpen(true)}
+                      sx={{
+                        bgcolor: '#10b981',
+                        color: 'white',
+                        textTransform: 'none',
+                        fontWeight: 600,
+                        '&:hover': { bgcolor: '#059669' },
+                      }}
+                    >
+                      Add Education
+                    </Button>
+                  )}
                 </Box>
-                {isOwnProfile && (
-                  <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={<AddIcon />}
-                    onClick={() => setEditEducationOpen(true)}
-                    sx={{
-                      bgcolor: '#10b981',
-                      color: 'white',
-                      textTransform: 'none',
-                      fontWeight: 600,
-                      '&:hover': { bgcolor: '#059669' },
-                    }}
-                  >
-                    Add Education
-                  </Button>
-                )}
-              </Box>
-              {education.length > 0 ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {education.map((edu, idx) => (
-                    <ExperienceCard key={edu.id || idx} sx={{ position: 'relative' }}>
-                      {/* Edit/Delete buttons */}
-                      {isOwnProfile && (
-                        <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 0.5 }}>
-                          <Tooltip title="Edit">
-                            <IconButton 
-                              size="small" 
-                              onClick={() => {
-                                // Find the original education data
-                                const originalEdu = educations.find(e => e.id === edu.id);
-                                if (originalEdu) {
-                                  setEditingEducationId(edu.id);
-                                  setNewEducation({
-                                    institution: originalEdu.school_name || originalEdu.institution || '',
-                                    levelOfEducation: originalEdu.degree || '',
-                                    fieldOfStudy: originalEdu.field_of_study || '',
-                                    startDate: originalEdu.start_year ? `${originalEdu.start_year}-01-01` : '',
-                                    endDate: originalEdu.end_year ? `${originalEdu.end_year}-01-01` : '',
-                                    gpa: originalEdu.grade || originalEdu.gpa || '',
-                                  });
-                                  setEditEducationOpen(true);
-                                }
-                              }}
-                              sx={{ color: 'rgba(0,0,0,0.4)', '&:hover': { color: '#10b981', bgcolor: 'rgba(16,185,129,0.1)' } }}
-                            >
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete">
-                            <IconButton 
-                              size="small" 
-                              onClick={async () => {
-                                if (window.confirm('Are you sure you want to delete this education?')) {
-                                  try {
-                                    const response = await fetchWithAuth(getApiUrl(`/users/me/educations/${edu.id}`), {
-                                      method: 'DELETE',
+                {education.length > 0 ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {education.map((edu, idx) => (
+                      <ExperienceCard key={edu.id || idx} sx={{ position: 'relative' }}>
+                        {/* Edit/Delete buttons */}
+                        {isOwnProfile && (
+                          <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 0.5 }}>
+                            <Tooltip title="Edit">
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  // Find the original education data
+                                  const originalEdu = educations.find(e => e.id === edu.id);
+                                  if (originalEdu) {
+                                    setEditingEducationId(edu.id);
+                                    setNewEducation({
+                                      institution: originalEdu.school_name || originalEdu.institution || '',
+                                      levelOfEducation: originalEdu.degree || '',
+                                      fieldOfStudy: originalEdu.field_of_study || '',
+                                      startDate: originalEdu.start_year ? `${originalEdu.start_year}-01-01` : '',
+                                      endDate: originalEdu.end_year ? `${originalEdu.end_year}-01-01` : '',
+                                      gpa: originalEdu.grade || originalEdu.gpa || '',
                                     });
-                                    if (response.ok) {
-                                      setSnackbar({ open: true, message: 'Education deleted successfully', severity: 'success' });
-                                      fetchUserData(); // Refresh data
-                                    } else {
+                                    setEditEducationOpen(true);
+                                  }
+                                }}
+                                sx={{ color: 'rgba(0,0,0,0.4)', '&:hover': { color: '#10b981', bgcolor: 'rgba(16,185,129,0.1)' } }}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete">
+                              <IconButton
+                                size="small"
+                                onClick={async () => {
+                                  if (window.confirm('Are you sure you want to delete this education?')) {
+                                    try {
+                                      const response = await fetchWithAuth(getApiUrl(`/users/me/educations/${edu.id}`), {
+                                        method: 'DELETE',
+                                      });
+                                      if (response.ok) {
+                                        setSnackbar({ open: true, message: 'Education deleted successfully', severity: 'success' });
+                                        fetchUserData(); // Refresh data
+                                      } else {
+                                        setSnackbar({ open: true, message: 'Failed to delete education', severity: 'error' });
+                                      }
+                                    } catch (err: any) {
+                                      if (err.message?.includes('Session expired')) return;
                                       setSnackbar({ open: true, message: 'Failed to delete education', severity: 'error' });
                                     }
-                                  } catch (err: any) {
-                                    if (err.message?.includes('Session expired')) return;
-                                    setSnackbar({ open: true, message: 'Failed to delete education', severity: 'error' });
                                   }
-                                }
-                              }}
-                              sx={{ color: 'rgba(0,0,0,0.4)', '&:hover': { color: '#ef4444', bgcolor: 'rgba(239,68,68,0.1)' } }}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      )}
-                      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-                        <Box sx={{
-                          width: 48,
-                          height: 48,
-                          borderRadius: 2,
-                          bgcolor: 'rgba(16, 185, 129, 0.1)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}>
-                          <SchoolIcon sx={{ color: '#10b981' }} />
-                        </Box>
-                        <Box sx={{ flex: 1, pr: isOwnProfile ? 4 : 0 }}>
-                          <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 600, mb: 0.5, fontSize: '1rem' }}>
-                            {edu.degree}
-                          </Typography>
-                          <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.6)', mb: 0.5 }}>
-                            {edu.institution}
-                          </Typography>
-                          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                            <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.4)' }}>
-                              {edu.period}
-                            </Typography>
-                            {edu.gpa && (
-                              <Chip 
-                                label={`GPA: ${edu.gpa}`}
-                                size="small"
-                                sx={{ 
-                                  height: 20,
-                                  bgcolor: 'rgba(16, 185, 129, 0.1)', 
-                                  color: '#10b981',
-                                  border: '1px solid rgba(16, 185, 129, 0.2)',
-                                  fontSize: '0.7rem',
                                 }}
-                              />
-                            )}
+                                sx={{ color: 'rgba(0,0,0,0.4)', '&:hover': { color: '#ef4444', bgcolor: 'rgba(239,68,68,0.1)' } }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        )}
+                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                          <Box sx={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: 2,
+                            bgcolor: 'rgba(16, 185, 129, 0.1)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}>
+                            <SchoolIcon sx={{ color: '#10b981' }} />
+                          </Box>
+                          <Box sx={{ flex: 1, pr: isOwnProfile ? 4 : 0 }}>
+                            <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 600, mb: 0.5, fontSize: '1rem' }}>
+                              {edu.degree}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.6)', mb: 0.5 }}>
+                              {edu.institution}
+                            </Typography>
+                            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                              <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.4)' }}>
+                                {edu.period}
+                              </Typography>
+                              {edu.gpa && (
+                                <Chip
+                                  label={`GPA: ${edu.gpa}`}
+                                  size="small"
+                                  sx={{
+                                    height: 20,
+                                    bgcolor: 'rgba(16, 185, 129, 0.1)',
+                                    color: '#10b981',
+                                    border: '1px solid rgba(16, 185, 129, 0.2)',
+                                    fontSize: '0.7rem',
+                                  }}
+                                />
+                              )}
+                            </Box>
                           </Box>
                         </Box>
-                      </Box>
-                    </ExperienceCard>
-                  ))}
-                </Box>
-              ) : (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.4)' }}>
-                    No education added yet. {isOwnProfile && 'Click the edit icon to add your education.'}
-                  </Typography>
-                </Box>
-              )}
-            </GlassCard>
+                      </ExperienceCard>
+                    ))}
+                  </Box>
+                ) : (
+                  <Box sx={{ textAlign: 'center', py: 4 }}>
+                    <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.4)' }}>
+                      No education added yet. {isOwnProfile && 'Click the edit icon to add your education.'}
+                    </Typography>
+                  </Box>
+                )}
+              </GlassCard>
             )}
 
             {/* Certificates Section */}
@@ -2077,9 +2083,9 @@ const ProfilePage: React.FC = () => {
                   </Typography>
                 </Box>
                 {isOwnProfile && (
-                  <Button 
-                    size="small" 
-                    onClick={() => setAddProjectOpen(true)} 
+                  <Button
+                    size="small"
+                    onClick={() => setAddProjectOpen(true)}
                     sx={{ color: '#f59e0b', textTransform: 'none' }}
                     startIcon={<AddIcon />}
                   >
@@ -2094,8 +2100,8 @@ const ProfilePage: React.FC = () => {
                     No projects added yet
                   </Typography>
                   {isOwnProfile && (
-                    <Button 
-                      size="small" 
+                    <Button
+                      size="small"
                       onClick={() => setAddProjectOpen(true)}
                       sx={{ mt: 1, color: '#f59e0b', textTransform: 'none' }}
                     >
@@ -2107,8 +2113,8 @@ const ProfilePage: React.FC = () => {
                 <Grid container spacing={2}>
                   {projects.map((project) => (
                     <Grid item xs={12} key={project.id}>
-                      <Box 
-                        sx={{ 
+                      <Box
+                        sx={{
                           borderRadius: 3,
                           overflow: 'hidden',
                           background: 'rgba(255, 255, 255, 0.9)',
@@ -2123,10 +2129,10 @@ const ProfilePage: React.FC = () => {
                         onClick={() => project.link && window.open(project.link, '_blank')}
                       >
                         {/* Project Header with gradient */}
-                        <Box 
-                          sx={{ 
-                            height: 80, 
-                            background: project.image 
+                        <Box
+                          sx={{
+                            height: 80,
+                            background: project.image
                               ? `url(${project.image}) center/cover`
                               : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
                             position: 'relative',
@@ -2139,7 +2145,7 @@ const ProfilePage: React.FC = () => {
                             <RocketLaunchIcon sx={{ fontSize: 32, color: 'rgba(255,255,255,0.5)' }} />
                           )}
                         </Box>
-                        
+
                         {/* Project Info */}
                         <Box sx={{ p: 2 }}>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
@@ -2147,8 +2153,8 @@ const ProfilePage: React.FC = () => {
                               {project.name}
                             </Typography>
                             {isOwnProfile && (
-                              <IconButton 
-                                size="small" 
+                              <IconButton
+                                size="small"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const updatedProjects = projects.filter(p => p.id !== project.id);
@@ -2162,23 +2168,23 @@ const ProfilePage: React.FC = () => {
                               </IconButton>
                             )}
                           </Box>
-                          
+
                           {project.description && (
                             <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.5)', mb: 1.5, fontSize: '0.8rem', lineHeight: 1.5 }}>
                               {project.description}
                             </Typography>
                           )}
-                          
+
                           {project.technologies.length > 0 && (
                             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                               {project.technologies.map((t) => (
-                                <Chip 
-                                  key={t} 
-                                  label={t} 
+                                <Chip
+                                  key={t}
+                                  label={t}
                                   size="small"
-                                  sx={{ 
+                                  sx={{
                                     height: 22,
-                                    bgcolor: 'rgba(99, 102, 241, 0.1)', 
+                                    bgcolor: 'rgba(99, 102, 241, 0.1)',
                                     color: '#6366f1',
                                     border: '1px solid rgba(99, 102, 241, 0.2)',
                                     fontSize: '0.7rem',
@@ -2187,7 +2193,7 @@ const ProfilePage: React.FC = () => {
                               ))}
                             </Box>
                           )}
-                          
+
                           {project.link && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
                               <LinkIcon sx={{ fontSize: 14, color: 'rgba(0,0,0,0.4)' }} />
@@ -2219,10 +2225,10 @@ const ProfilePage: React.FC = () => {
                 {techStack.map((tech, idx) => (
                   <Tooltip key={idx} title={tech.name} arrow>
                     <TechStackIcon>
-                      <img 
-                        src={tech.logo} 
-                        alt={tech.name} 
-                        style={{ width: 28, height: 28, objectFit: 'contain' }} 
+                      <img
+                        src={tech.logo}
+                        alt={tech.name}
+                        style={{ width: 28, height: 28, objectFit: 'contain' }}
                       />
                     </TechStackIcon>
                   </Tooltip>
@@ -2238,7 +2244,7 @@ const ProfilePage: React.FC = () => {
                   Problem Solving
                 </Typography>
               </Box>
-              
+
               {[
                 { label: 'Easy', solved: 120, total: 150, color: '#10b981' },
                 { label: 'Medium', solved: 95, total: 200, color: '#f59e0b' },
@@ -2253,11 +2259,11 @@ const ProfilePage: React.FC = () => {
                       {diff.solved}/{diff.total}
                     </Typography>
                   </Box>
-                  <LinearProgress 
-                    variant="determinate" 
+                  <LinearProgress
+                    variant="determinate"
                     value={(diff.solved / diff.total) * 100}
-                    sx={{ 
-                      height: 8, 
+                    sx={{
+                      height: 8,
                       borderRadius: 4,
                       bgcolor: 'rgba(0,0,0,0.06)',
                       '& .MuiLinearProgress-bar': { bgcolor: diff.color, borderRadius: 4 },
@@ -2265,9 +2271,9 @@ const ProfilePage: React.FC = () => {
                   />
                 </Box>
               ))}
-              
+
               <Divider sx={{ my: 2, borderColor: 'rgba(0,0,0,0.08)' }} />
-              
+
               <Box sx={{ display: 'flex', justifyContent: 'space-around' }}>
                 <Box sx={{ textAlign: 'center' }}>
                   <Typography variant="h4" sx={{ fontWeight: 800, color: '#6366f1' }}>256</Typography>
@@ -2288,10 +2294,10 @@ const ProfilePage: React.FC = () => {
       </Container>
 
       {/* Edit Profile Dialog */}
-      <Dialog 
-        open={editDialogOpen} 
-        onClose={() => setEditDialogOpen(false)} 
-        maxWidth="sm" 
+      <Dialog
+        open={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        maxWidth="sm"
         fullWidth
         PaperProps={{ sx: { bgcolor: '#ffffff', backgroundImage: 'none' } }}
       >
@@ -2299,13 +2305,13 @@ const ProfilePage: React.FC = () => {
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={6}>
-              <TextField 
-                fullWidth 
-                label="First Name" 
+              <TextField
+                fullWidth
+                label="First Name"
                 defaultValue={displayUser.firstName}
                 disabled
                 helperText="Cannot be changed"
-                sx={{ 
+                sx={{
                   '& .MuiOutlinedInput-root': { color: 'rgba(0,0,0,0.5)' },
                   '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.4)' },
                   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
@@ -2314,13 +2320,13 @@ const ProfilePage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={6}>
-              <TextField 
-                fullWidth 
-                label="Last Name" 
+              <TextField
+                fullWidth
+                label="Last Name"
                 defaultValue={displayUser.lastName}
                 disabled
                 helperText="Cannot be changed"
-                sx={{ 
+                sx={{
                   '& .MuiOutlinedInput-root': { color: 'rgba(0,0,0,0.5)' },
                   '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.4)' },
                   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
@@ -2329,11 +2335,11 @@ const ProfilePage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth 
-                label="Title" 
+              <TextField
+                fullWidth
+                label="Title"
                 defaultValue={displayUser.title}
-                sx={{ 
+                sx={{
                   '& .MuiOutlinedInput-root': { color: '#1e293b' },
                   '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
                   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' },
@@ -2341,11 +2347,11 @@ const ProfilePage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth 
-                label="Tagline" 
+              <TextField
+                fullWidth
+                label="Tagline"
                 defaultValue={displayUser.tagline}
-                sx={{ 
+                sx={{
                   '& .MuiOutlinedInput-root': { color: '#1e293b' },
                   '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
                   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' },
@@ -2353,8 +2359,8 @@ const ProfilePage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth 
+              <TextField
+                fullWidth
                 label="GitHub Profile URL"
                 placeholder="https://github.com/yourusername"
                 defaultValue={profile?.github_url || ''}
@@ -2365,7 +2371,7 @@ const ProfilePage: React.FC = () => {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ 
+                sx={{
                   '& .MuiOutlinedInput-root': { color: '#1e293b' },
                   '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
                   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' },
@@ -2373,8 +2379,8 @@ const ProfilePage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth 
+              <TextField
+                fullWidth
                 label="GitLab Profile URL"
                 placeholder="https://gitlab.com/yourusername"
                 defaultValue={profile?.gitlab_url || ''}
@@ -2385,7 +2391,7 @@ const ProfilePage: React.FC = () => {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ 
+                sx={{
                   '& .MuiOutlinedInput-root': { color: '#1e293b' },
                   '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
                   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' },
@@ -2393,8 +2399,8 @@ const ProfilePage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth 
+              <TextField
+                fullWidth
                 label="Personal Website"
                 placeholder="https://yourwebsite.com"
                 defaultValue={profile?.website || ''}
@@ -2405,7 +2411,7 @@ const ProfilePage: React.FC = () => {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ 
+                sx={{
                   '& .MuiOutlinedInput-root': { color: '#1e293b' },
                   '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
                   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' },
@@ -2413,13 +2419,13 @@ const ProfilePage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth 
-                label="Country" 
+              <TextField
+                fullWidth
+                label="Country"
                 defaultValue={displayUser.location}
                 disabled
                 helperText="Cannot be changed"
-                sx={{ 
+                sx={{
                   '& .MuiOutlinedInput-root': { color: 'rgba(0,0,0,0.5)' },
                   '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.4)' },
                   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
@@ -2433,8 +2439,8 @@ const ProfilePage: React.FC = () => {
           <Button onClick={() => setEditDialogOpen(false)} sx={{ color: 'rgba(0,0,0,0.7)' }}>
             Cancel
           </Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             onClick={() => setEditDialogOpen(false)}
             sx={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}
           >
@@ -2470,7 +2476,7 @@ const ProfilePage: React.FC = () => {
                 Limited Updates & Permanent Job Title
               </Typography>
               <Typography variant="caption">
-                • Job description can only be updated once every 30 days<br/>
+                • Job description can only be updated once every 30 days<br />
                 • Job title CANNOT be changed after account creation
               </Typography>
             </Alert>
@@ -2480,7 +2486,7 @@ const ProfilePage: React.FC = () => {
                 100% Accuracy Required
               </Typography>
               <Typography variant="body2">
-                Provide 100% accurate roles and responsibilities that you EXACTLY performed. 
+                Provide 100% accurate roles and responsibilities that you EXACTLY performed.
                 Mention only genuine technical skills and tools that you actually used.
               </Typography>
             </Alert>
@@ -2492,9 +2498,9 @@ const ProfilePage: React.FC = () => {
               <Typography variant="body2" sx={{ color: '#7f1d1d' }}>
                 We will verify your information directly with company official authorities.
                 Any misrepresentation will result in:
-                <br/>• Permanent blocking from the platform
-                <br/>• Your photo, name, and reason for blocking will be visible to ALL our partnered clients and vendors
-                <br/>• Legal actions will be taken against you
+                <br />• Permanent blocking from the platform
+                <br />• Your photo, name, and reason for blocking will be visible to ALL our partnered clients and vendors
+                <br />• Legal actions will be taken against you
               </Typography>
             </Alert>
 
@@ -2535,10 +2541,10 @@ const ProfilePage: React.FC = () => {
       </Dialog>
 
       {/* Edit Experience Dialog (Full Form) */}
-      <Dialog 
-        open={editExperienceOpen} 
-        onClose={handleExperienceFormClose} 
-        maxWidth="md" 
+      <Dialog
+        open={editExperienceOpen}
+        onClose={handleExperienceFormClose}
+        maxWidth="md"
         fullWidth
         PaperProps={{ sx: { bgcolor: '#ffffff', backgroundImage: 'none', borderRadius: 3 } }}
       >
@@ -2596,10 +2602,10 @@ const ProfilePage: React.FC = () => {
                       companySearchResults.length === 0 && newExperience.companyName.length >= 2 ? (
                         <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <span>Company not found.</span>
-                          <Button 
-                            size="small" 
+                          <Button
+                            size="small"
                             onClick={() => {
-                              setCompanyInvite(prev => ({...prev, companyName: newExperience.companyName}));
+                              setCompanyInvite(prev => ({ ...prev, companyName: newExperience.companyName }));
                               setShowCompanyInvite(true);
                             }}
                             sx={{ textTransform: 'none', p: 0, minWidth: 'auto', fontSize: '0.75rem' }}
@@ -2736,10 +2742,10 @@ const ProfilePage: React.FC = () => {
                               <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#1e293b' }}>
                                 {skill.name}
                               </Typography>
-                              <Chip 
-                                label={`${skill.rating}/10`} 
-                                size="small" 
-                                sx={{ 
+                              <Chip
+                                label={`${skill.rating}/10`}
+                                size="small"
+                                sx={{
                                   bgcolor: skill.rating >= 8 ? '#dcfce7' : skill.rating >= 5 ? '#fef3c7' : '#fee2e2',
                                   color: skill.rating >= 8 ? '#166534' : skill.rating >= 5 ? '#92400e' : '#991b1b',
                                   fontWeight: 600
@@ -2950,37 +2956,37 @@ const ProfilePage: React.FC = () => {
               <Typography variant="body2" sx={{ fontWeight: 600 }}>Resume Upload Not Allowed</Typography>
               <Typography variant="caption">You cannot upload any resume later. This job description will serve as your professional profile.</Typography>
             </Alert>
-            
+
             <Alert severity="warning">
               <Typography variant="body2" sx={{ fontWeight: 600 }}>Limited Updates</Typography>
-              <Typography variant="caption">• Job description can only be updated once every 30 days<br/>• Job title CANNOT be changed after account creation</Typography>
+              <Typography variant="caption">• Job description can only be updated once every 30 days<br />• Job title CANNOT be changed after account creation</Typography>
             </Alert>
-            
+
             <Alert severity="info">
               <Typography variant="body2" sx={{ fontWeight: 600 }}>Accuracy Required</Typography>
               <Typography variant="caption">Provide 100% accurate roles and responsibilities that you EXACTLY performed. Mention only genuine technical skills and tools.</Typography>
             </Alert>
-            
+
             <Alert severity="error" sx={{ bgcolor: '#fef2f2' }}>
               <Typography variant="body2" sx={{ fontWeight: 700, color: '#991b1b' }}>Verification & Consequences</Typography>
-              <Typography variant="caption" sx={{ color: '#7f1d1d' }}>We will verify your information directly with company official authorities. Any misrepresentation is considered a crime and will result in:<br/>• Permanent blocking from the platform<br/>• Your profile and reason for blocking will be visible to all our customers</Typography>
+              <Typography variant="caption" sx={{ color: '#7f1d1d' }}>We will verify your information directly with company official authorities. Any misrepresentation is considered a crime and will result in:<br />• Permanent blocking from the platform<br />• Your profile and reason for blocking will be visible to all our customers</Typography>
             </Alert>
-            
+
             <Divider />
-            
+
             <Alert severity="warning" sx={{ bgcolor: '#fffbeb' }}>
               <Typography variant="body2" sx={{ fontWeight: 600, color: '#92400e' }}>Official Email Required</Typography>
               <Typography variant="caption" sx={{ color: '#78350f' }}>Failing to provide official email of the client reference will not allow you to access our platform.</Typography>
             </Alert>
-            
+
             <Typography variant="body2" sx={{ fontStyle: 'italic', color: '#64748b', mt: 1 }}>
               This job description will act as your resume for anyone viewing your profile. Fill in exactly what you did - nothing more, nothing less.
             </Typography>
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             color="primary"
             onClick={() => {
               setJobDescAcknowledged(true);
@@ -3006,7 +3012,7 @@ const ProfilePage: React.FC = () => {
                 label="Skill Name *"
                 placeholder="e.g., React, Python, AWS, SQL"
                 value={currentSkill.name}
-                onChange={(e) => setCurrentSkill(prev => ({...prev, name: e.target.value}))}
+                onChange={(e) => setCurrentSkill(prev => ({ ...prev, name: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12}>
@@ -3017,7 +3023,7 @@ const ProfilePage: React.FC = () => {
                 rows={4}
                 placeholder="Describe specific projects, tasks, and responsibilities where you used this skill..."
                 value={currentSkill.experience}
-                onChange={(e) => setCurrentSkill(prev => ({...prev, experience: e.target.value}))}
+                onChange={(e) => setCurrentSkill(prev => ({ ...prev, experience: e.target.value }))}
                 onPaste={(e) => e.preventDefault()}
                 onDrop={(e) => e.preventDefault()}
                 helperText="Copy-paste disabled. Type manually. Be specific about what you did."
@@ -3030,7 +3036,7 @@ const ProfilePage: React.FC = () => {
                 <Typography variant="body2" color="text.secondary">1</Typography>
                 <Slider
                   value={currentSkill.rating}
-                  onChange={(_, value) => setCurrentSkill(prev => ({...prev, rating: value as number}))}
+                  onChange={(_, value) => setCurrentSkill(prev => ({ ...prev, rating: value as number }))}
                   min={1}
                   max={10}
                   step={1}
@@ -3054,8 +3060,8 @@ const ProfilePage: React.FC = () => {
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setShowSkillDialog(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             onClick={() => {
               if (currentSkill.name.trim() && currentSkill.experience.trim()) {
                 setNewExperience(prev => ({
@@ -3090,7 +3096,7 @@ const ProfilePage: React.FC = () => {
                 fullWidth
                 label="Company Full Name *"
                 value={companyInvite.companyName}
-                onChange={(e) => setCompanyInvite(prev => ({...prev, companyName: e.target.value}))}
+                onChange={(e) => setCompanyInvite(prev => ({ ...prev, companyName: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12}>
@@ -3100,7 +3106,7 @@ const ProfilePage: React.FC = () => {
                 multiline
                 rows={2}
                 value={companyInvite.address}
-                onChange={(e) => setCompanyInvite(prev => ({...prev, address: e.target.value}))}
+                onChange={(e) => setCompanyInvite(prev => ({ ...prev, address: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -3109,7 +3115,7 @@ const ProfilePage: React.FC = () => {
                 label="Company Website"
                 placeholder="https://company.com"
                 value={companyInvite.website}
-                onChange={(e) => setCompanyInvite(prev => ({...prev, website: e.target.value}))}
+                onChange={(e) => setCompanyInvite(prev => ({ ...prev, website: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -3117,7 +3123,7 @@ const ProfilePage: React.FC = () => {
                 fullWidth
                 label="Contact Person Name *"
                 value={companyInvite.contactPersonName}
-                onChange={(e) => setCompanyInvite(prev => ({...prev, contactPersonName: e.target.value}))}
+                onChange={(e) => setCompanyInvite(prev => ({ ...prev, contactPersonName: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -3126,10 +3132,10 @@ const ProfilePage: React.FC = () => {
                 label="Contact Person Role"
                 placeholder="e.g., HR Manager"
                 value={companyInvite.contactPersonRole}
-                onChange={(e) => setCompanyInvite(prev => ({...prev, contactPersonRole: e.target.value}))}
+                onChange={(e) => setCompanyInvite(prev => ({ ...prev, contactPersonRole: e.target.value }))}
               />
             </Grid>
-            
+
             {/* Email Fields */}
             <Grid item xs={12}>
               <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Company Email(s)</Typography>
@@ -3143,16 +3149,16 @@ const ProfilePage: React.FC = () => {
                     onChange={(e) => {
                       const newEmails = [...companyInvite.emails];
                       newEmails[idx] = e.target.value;
-                      setCompanyInvite(prev => ({...prev, emails: newEmails}));
+                      setCompanyInvite(prev => ({ ...prev, emails: newEmails }));
                     }}
                   />
                   {companyInvite.emails.length > 1 && (
-                    <Button 
-                      size="small" 
+                    <Button
+                      size="small"
                       color="error"
                       onClick={() => {
                         setCompanyInvite(prev => ({
-                          ...prev, 
+                          ...prev,
                           emails: prev.emails.filter((_, i) => i !== idx)
                         }));
                       }}
@@ -3162,14 +3168,14 @@ const ProfilePage: React.FC = () => {
                   )}
                 </Box>
               ))}
-              <Button 
-                size="small" 
-                onClick={() => setCompanyInvite(prev => ({...prev, emails: [...prev.emails, '']}))}
+              <Button
+                size="small"
+                onClick={() => setCompanyInvite(prev => ({ ...prev, emails: [...prev.emails, ''] }))}
               >
                 + Add Another Email
               </Button>
             </Grid>
-            
+
             {/* Phone Fields */}
             <Grid item xs={12}>
               <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Company Phone(s)</Typography>
@@ -3183,16 +3189,16 @@ const ProfilePage: React.FC = () => {
                     onChange={(e) => {
                       const newPhones = [...companyInvite.phoneNumbers];
                       newPhones[idx] = e.target.value;
-                      setCompanyInvite(prev => ({...prev, phoneNumbers: newPhones}));
+                      setCompanyInvite(prev => ({ ...prev, phoneNumbers: newPhones }));
                     }}
                   />
                   {companyInvite.phoneNumbers.length > 1 && (
-                    <Button 
-                      size="small" 
+                    <Button
+                      size="small"
                       color="error"
                       onClick={() => {
                         setCompanyInvite(prev => ({
-                          ...prev, 
+                          ...prev,
                           phoneNumbers: prev.phoneNumbers.filter((_, i) => i !== idx)
                         }));
                       }}
@@ -3202,9 +3208,9 @@ const ProfilePage: React.FC = () => {
                   )}
                 </Box>
               ))}
-              <Button 
-                size="small" 
-                onClick={() => setCompanyInvite(prev => ({...prev, phoneNumbers: [...prev.phoneNumbers, '']}))}
+              <Button
+                size="small"
+                onClick={() => setCompanyInvite(prev => ({ ...prev, phoneNumbers: [...prev.phoneNumbers, ''] }))}
               >
                 + Add Another Phone
               </Button>
@@ -3213,8 +3219,8 @@ const ProfilePage: React.FC = () => {
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setShowCompanyInvite(false)}>Skip - Proceed Without Inviting</Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             onClick={handleSendCompanyInvite}
             disabled={!companyInvite.companyName || !companyInvite.contactPersonName}
           >
@@ -3224,10 +3230,10 @@ const ProfilePage: React.FC = () => {
       </Dialog>
 
       {/* Edit Education Dialog */}
-      <Dialog 
-        open={editEducationOpen} 
-        onClose={handleEducationFormClose} 
-        maxWidth="md" 
+      <Dialog
+        open={editEducationOpen}
+        onClose={handleEducationFormClose}
+        maxWidth="md"
         fullWidth
         PaperProps={{ sx: { bgcolor: '#ffffff', backgroundImage: 'none', borderRadius: 3 } }}
       >
@@ -3254,7 +3260,7 @@ const ProfilePage: React.FC = () => {
                 <Divider sx={{ my: 3 }} />
               </Box>
             )}
-            
+
             {/* Add New Education Form */}
             <Typography variant="subtitle2" sx={{ color: '#10b981', mb: 2, fontWeight: 600 }}>
               Add New Education
@@ -3262,8 +3268,8 @@ const ProfilePage: React.FC = () => {
             <Grid container spacing={3}>
               {/* Institution Name */}
               <Grid item xs={12} md={6}>
-                <TextField 
-                  fullWidth 
+                <TextField
+                  fullWidth
                   label="Institution Name *"
                   placeholder="e.g. Stanford University"
                   value={newEducation.institution}
@@ -3280,7 +3286,7 @@ const ProfilePage: React.FC = () => {
                   required
                 />
               </Grid>
-              
+
               {/* Level of Education */}
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth required error={!!educationErrors.levelOfEducation}>
@@ -3311,11 +3317,11 @@ const ProfilePage: React.FC = () => {
                   )}
                 </FormControl>
               </Grid>
-              
+
               {/* Field of Study */}
               <Grid item xs={12} md={6}>
-                <TextField 
-                  fullWidth 
+                <TextField
+                  fullWidth
                   label="Field of Study *"
                   placeholder="e.g. Computer Science"
                   value={newEducation.fieldOfStudy}
@@ -3332,11 +3338,11 @@ const ProfilePage: React.FC = () => {
                   required
                 />
               </Grid>
-              
+
               {/* GPA */}
               <Grid item xs={12} md={6}>
-                <TextField 
-                  fullWidth 
+                <TextField
+                  fullWidth
                   label="GPA/Score"
                   placeholder="e.g. 3.8 or 8.5"
                   value={newEducation.gpa}
@@ -3352,11 +3358,11 @@ const ProfilePage: React.FC = () => {
                   helperText={educationErrors.gpa || "Enter GPA (0-4 or 0-10 scale)"}
                 />
               </Grid>
-              
+
               {/* From Date */}
               <Grid item xs={12} md={6}>
-                <TextField 
-                  fullWidth 
+                <TextField
+                  fullWidth
                   label="From Date *"
                   type="date"
                   value={newEducation.startDate}
@@ -3374,11 +3380,11 @@ const ProfilePage: React.FC = () => {
                   required
                 />
               </Grid>
-              
+
               {/* To Date */}
               <Grid item xs={12} md={6}>
-                <TextField 
-                  fullWidth 
+                <TextField
+                  fullWidth
                   label="To Date * (or expected)"
                   type="date"
                   value={newEducation.endDate}
@@ -3417,8 +3423,8 @@ const ProfilePage: React.FC = () => {
           >
             Cancel
           </Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             onClick={handleSaveEducation}
             disabled={isSavingEducation}
             startIcon={isSavingEducation ? <CircularProgress size={20} color="inherit" /> : null}
@@ -3430,13 +3436,13 @@ const ProfilePage: React.FC = () => {
       </Dialog>
 
       {/* Edit Skills Dialog */}
-      <Dialog 
-        open={editSkillsOpen} 
+      <Dialog
+        open={editSkillsOpen}
         onClose={() => {
           setEditSkillsOpen(false);
           setNewSkillInput('');
-        }} 
-        maxWidth="sm" 
+        }}
+        maxWidth="sm"
         fullWidth
         PaperProps={{ sx: { bgcolor: '#ffffff', backgroundImage: 'none' } }}
       >
@@ -3445,7 +3451,7 @@ const ProfilePage: React.FC = () => {
           <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.5)', mb: 2 }}>
             Add your technical skills (e.g., React, Python, Node.js)
           </Typography>
-          
+
           {/* Current skills */}
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3, minHeight: 40 }}>
             {editableSkills.length === 0 ? (
@@ -3454,26 +3460,26 @@ const ProfilePage: React.FC = () => {
               </Typography>
             ) : (
               editableSkills.map((skill) => (
-                <Chip 
-                  key={skill} 
-                  label={skill} 
+                <Chip
+                  key={skill}
+                  label={skill}
                   onDelete={() => {
                     setEditableSkills(editableSkills.filter(s => s !== skill));
                   }}
-                  sx={{ 
-                    bgcolor: 'rgba(99, 102, 241, 0.15)', 
-                    color: '#4f46e5', 
-                    '& .MuiChip-deleteIcon': { color: 'rgba(0,0,0,0.5)', '&:hover': { color: '#ef4444' } } 
+                  sx={{
+                    bgcolor: 'rgba(99, 102, 241, 0.15)',
+                    color: '#4f46e5',
+                    '& .MuiChip-deleteIcon': { color: 'rgba(0,0,0,0.5)', '&:hover': { color: '#ef4444' } }
                   }}
                 />
               ))
             )}
           </Box>
-          
+
           {/* Add new skill input */}
-          <TextField 
-            fullWidth 
-            label="Add new skill" 
+          <TextField
+            fullWidth
+            label="Add new skill"
             placeholder="Type skill name and press Enter"
             value={newSkillInput}
             onChange={(e) => setNewSkillInput(e.target.value)}
@@ -3506,10 +3512,10 @@ const ProfilePage: React.FC = () => {
                 </InputAdornment>
               ),
             }}
-            sx={{ 
-              '& .MuiOutlinedInput-root': { color: '#1e293b' }, 
-              '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' }, 
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' } 
+            sx={{
+              '& .MuiOutlinedInput-root': { color: '#1e293b' },
+              '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' }
             }}
           />
           <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.4)', mt: 1, display: 'block' }}>
@@ -3517,25 +3523,25 @@ const ProfilePage: React.FC = () => {
           </Typography>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button 
+          <Button
             onClick={() => {
               setEditSkillsOpen(false);
               setNewSkillInput('');
-            }} 
+            }}
             sx={{ color: 'rgba(0,0,0,0.7)' }}
           >
             Cancel
           </Button>
-          <Button 
-            variant="contained" 
-            onClick={async () => { 
+          <Button
+            variant="contained"
+            onClick={async () => {
               try {
                 // Save skills to backend
                 const response = await fetchWithAuth(getApiUrl('/users/me/profile'), {
                   method: 'PUT',
                   body: JSON.stringify({ skills: editableSkills }),
                 });
-                
+
                 if (response.ok) {
                   const updatedProfile = await response.json();
                   setProfile(updatedProfile);
@@ -3550,7 +3556,7 @@ const ProfilePage: React.FC = () => {
                 console.error('Error saving skills:', err);
                 setSnackbar({ open: true, message: 'Failed to update skills', severity: 'error' });
               }
-            }} 
+            }}
             sx={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}
           >
             Save Skills
@@ -3559,13 +3565,13 @@ const ProfilePage: React.FC = () => {
       </Dialog>
 
       {/* Add Project Dialog */}
-      <Dialog 
-        open={addProjectOpen} 
+      <Dialog
+        open={addProjectOpen}
         onClose={() => {
           setAddProjectOpen(false);
           setNewProject({ name: '', description: '', url: '', technologies: '', image: '' });
-        }} 
-        maxWidth="sm" 
+        }}
+        maxWidth="sm"
         fullWidth
         PaperProps={{ sx: { bgcolor: '#ffffff', backgroundImage: 'none' } }}
       >
@@ -3573,9 +3579,9 @@ const ProfilePage: React.FC = () => {
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth 
-                label="Project Name" 
+              <TextField
+                fullWidth
+                label="Project Name"
                 placeholder="My Awesome Project"
                 value={newProject.name}
                 onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
@@ -3583,9 +3589,9 @@ const ProfilePage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth 
-                label="Description" 
+              <TextField
+                fullWidth
+                label="Description"
                 multiline
                 rows={3}
                 placeholder="Brief description of your project"
@@ -3595,9 +3601,9 @@ const ProfilePage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth 
-                label="GitHub/Project URL" 
+              <TextField
+                fullWidth
+                label="GitHub/Project URL"
                 placeholder="https://github.com/username/project"
                 type="url"
                 value={newProject.url}
@@ -3606,9 +3612,9 @@ const ProfilePage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth 
-                label="Technologies Used (comma separated)" 
+              <TextField
+                fullWidth
+                label="Technologies Used (comma separated)"
                 placeholder="React, Node.js, PostgreSQL"
                 value={newProject.technologies}
                 onChange={(e) => setNewProject({ ...newProject, technologies: e.target.value })}
@@ -3670,13 +3676,13 @@ const ProfilePage: React.FC = () => {
                     >
                       <CloseIcon fontSize="small" />
                     </IconButton>
-                    <Typography 
-                      variant="caption" 
-                      sx={{ 
-                        display: 'block', 
-                        textAlign: 'center', 
-                        mt: 1, 
-                        color: 'rgba(0,0,0,0.5)' 
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        display: 'block',
+                        textAlign: 'center',
+                        mt: 1,
+                        color: 'rgba(0,0,0,0.5)'
                       }}
                     >
                       Click to change image
@@ -3688,9 +3694,9 @@ const ProfilePage: React.FC = () => {
                     component="span"
                     fullWidth
                     startIcon={<CloudUploadIcon />}
-                    sx={{ 
-                      color: 'rgba(0,0,0,0.5)', 
-                      borderColor: 'rgba(0,0,0,0.15)', 
+                    sx={{
+                      color: 'rgba(0,0,0,0.5)',
+                      borderColor: 'rgba(0,0,0,0.15)',
                       borderStyle: 'dashed',
                       py: 3,
                       '&:hover': {
@@ -3711,10 +3717,10 @@ const ProfilePage: React.FC = () => {
             setAddProjectOpen(false);
             setNewProject({ name: '', description: '', url: '', technologies: '', image: '' });
           }} sx={{ color: 'rgba(0,0,0,0.7)' }}>Cancel</Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             disabled={!newProject.name.trim()}
-            onClick={() => { 
+            onClick={() => {
               // Create new project object
               const projectToAdd = {
                 id: Date.now().toString(),
@@ -3724,18 +3730,18 @@ const ProfilePage: React.FC = () => {
                 technologies: newProject.technologies.split(',').map(t => t.trim()).filter(Boolean),
                 image: newProject.image, // Include the uploaded image
               };
-              
+
               // Add to projects list
               const updatedProjects = [...projects, projectToAdd];
               setProjects(updatedProjects);
-              
+
               // Save to localStorage for persistence
               localStorage.setItem('userProjects', JSON.stringify(updatedProjects));
-              
-              setAddProjectOpen(false); 
+
+              setAddProjectOpen(false);
               setNewProject({ name: '', description: '', url: '', technologies: '', image: '' });
-              setSnackbar({ open: true, message: 'Project added successfully!', severity: 'success' }); 
-            }} 
+              setSnackbar({ open: true, message: 'Project added successfully!', severity: 'success' });
+            }}
             sx={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
           >
             Add Project

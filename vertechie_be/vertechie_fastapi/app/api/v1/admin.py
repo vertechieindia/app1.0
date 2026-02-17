@@ -935,6 +935,7 @@ async def approve_user(
     # Update verification status
     user.verification_status = VerificationStatus.APPROVED
     user.is_verified = True
+    user.email_verified = True
     user.reviewed_by_id = current_admin.id
     user.reviewed_at = datetime.utcnow()
     

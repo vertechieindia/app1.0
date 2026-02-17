@@ -2,7 +2,7 @@
 Authentication schemas.
 """
 
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import date
 from pydantic import BaseModel, EmailStr, Field, field_validator
 import re
@@ -40,6 +40,19 @@ class UserRegister(BaseModel):
     about: Optional[str] = None
     school_name: Optional[str] = None
     est_year: Optional[str] = None
+    
+    # Techie-specific complex fields (reuse admin schemas)
+    experiences: Optional[List[Any]] = None
+    educations: Optional[List[Any]] = None
+    face_verification: Optional[Any] = None
+    
+    # Additional organization fields
+    ein: Optional[str] = None
+    cin: Optional[str] = None
+    
+    # Verification flags from frontend
+    email_verified: bool = False
+    mobile_verified: bool = False
     
     class Config:
         extra = "ignore"  # Ignore extra fields from frontend

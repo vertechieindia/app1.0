@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     WORKERS: int = 4
+    FRONTEND_URL: str = "https://vertechie.com"
     
     # Database - PostgreSQL (default, can be overridden via .env)
     # Format: postgresql+asyncpg://user:password@host:port/database

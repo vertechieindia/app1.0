@@ -384,7 +384,8 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
                   <Typography variant="body2" sx={{ color: '#666', mt: 1 }}>
                     {edu.startDate ? new Date(edu.startDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''} - {' '}
                     {edu.endDate ? new Date(edu.endDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''}
-                    {edu.gpa && ` • GPA: ${edu.gpa}`}
+                    {(edu.scoreValue || edu.gpa) &&
+                      ` • ${edu.scoreType || 'Score'}: ${edu.scoreValue || edu.gpa}`}
                   </Typography>
                 </Box>
               ))}

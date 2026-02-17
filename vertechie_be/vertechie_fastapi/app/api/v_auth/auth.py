@@ -779,6 +779,24 @@ async def verify_email_otp(request: VerifyEmailOTPRequest) -> Dict[str, Any]:
     Verify email OTP.
     """
     if verify_stored_otp(request.email, request.otp):
+        # Update user in database if they exist
+        from app.db.session import AsyncSessionLocal
+        from app.models.user import User
+        from sqlalchemy import select
+        
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(User).where(User.email == request.email)
+                )
+                user = result.scalar_one_or_none()
+                if user:
+                    user.email_verified = True
+                    await db.commit()
+                    print(f"[OTP] Updated email_verified=True for existing user: {request.email}")
+        except Exception as e:
+            print(f"[OTP] Database update error: {e}")
+
         return {
             "success": True,
             "message": "Email verified successfully"

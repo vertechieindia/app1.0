@@ -72,17 +72,23 @@ async def register(
         gov_id=user_in.gov_id,
         username=username,
         vertechie_id=vertechie_id,
+        email_verified=user_in.email_verified,
+        mobile_verified=user_in.mobile_verified,
+        face_verification=user_in.face_verification,
     )
     
     db.add(user)
     await db.flush()
     
     # Create profile
-    profile = UserProfile(user_id=user.id)
+    profile = UserProfile(
+        user_id=user.id,
+        bio=user_in.about if user_in.about else None,
+        current_company=user_in.company_name if user_in.company_name else None,
+    )
     db.add(profile)
     
     # Determine role type based on frontend role field
-    # Map frontend role names to RoleType enum
     role_mapping = {
         "techie": RoleType.TECHIE,
         "hr": RoleType.HIRING_MANAGER,
@@ -91,20 +97,14 @@ async def register(
         "school": RoleType.SCHOOL_ADMIN,
     }
     
-    # Get role type from request (default to TECHIE if not specified)
     requested_role = (user_in.role or "techie").lower()
     role_type = role_mapping.get(requested_role, RoleType.TECHIE)
     
-    print(f"[Register] User {user_in.email} - requested role: {requested_role}, assigned role_type: {role_type}")
-    
     # Get or create the appropriate role
-    result = await db.execute(
-        select(UserRole).where(UserRole.role_type == role_type)
-    )
+    result = await db.execute(select(UserRole).where(UserRole.role_type == role_type))
     role = result.scalar_one_or_none()
     
     if not role:
-        # Create role with proper name
         role_names = {
             RoleType.TECHIE: "Techie",
             RoleType.HIRING_MANAGER: "Hiring Manager",
@@ -119,16 +119,112 @@ async def register(
         db.add(role)
         await db.flush()
     
-    # Add role association using SQL to avoid lazy loading issues
-    await db.execute(
-        insert(user_roles).values(user_id=user.id, role_id=role.id)
-    )
+    await db.execute(insert(user_roles).values(user_id=user.id, role_id=role.id))
     
+    # Handle techie-specific data (Experience & Education)
+    if user_in.experiences:
+        for exp_data in user_in.experiences:
+            start_date = None
+            end_date = None
+            try:
+                from datetime import datetime as dt
+                if hasattr(exp_data, 'from_date') or (isinstance(exp_data, dict) and exp_data.get('from_date')):
+                    fd = exp_data.get('from_date') if isinstance(exp_data, dict) else exp_data.from_date
+                    start_date = dt.strptime(fd, "%Y-%m-%d").date() if fd else None
+                if hasattr(exp_data, 'to_date') or (isinstance(exp_data, dict) and exp_data.get('to_date')):
+                    td = exp_data.get('to_date') if isinstance(exp_data, dict) else exp_data.to_date
+                    end_date = dt.strptime(td, "%Y-%m-%d").date() if td else None
+            except (ValueError, TypeError):
+                pass
+            
+            experience = Experience(
+                user_id=user.id,
+                title=(exp_data.get('job_title') if isinstance(exp_data, dict) else getattr(exp_data, 'job_title', '')) or "Position",
+                company_name=(exp_data.get('client_name') if isinstance(exp_data, dict) else getattr(exp_data, 'client_name', '')) or "Company",
+                location=exp_data.get('work_location') if isinstance(exp_data, dict) else getattr(exp_data, 'work_location', None),
+                start_date=start_date or datetime.utcnow().date(),
+                end_date=end_date,
+                is_current=not end_date,
+                description=exp_data.get('job_description') if isinstance(exp_data, dict) else getattr(exp_data, 'job_description', None),
+                skills=exp_data.get('skills') if isinstance(exp_data, dict) else getattr(exp_data, 'skills', []),
+            )
+            db.add(experience)
+
+    if user_in.educations:
+        for edu_data in user_in.educations:
+            start_year = None
+            end_year = None
+            try:
+                fd = edu_data.get('from_date') if isinstance(edu_data, dict) else edu_data.from_date
+                td = edu_data.get('to_date') if isinstance(edu_data, dict) else edu_data.to_date
+                if fd: start_year = int(fd[:4])
+                if td: end_year = int(td[:4])
+            except (ValueError, TypeError, IndexError):
+                pass
+            
+            education = Education(
+                user_id=user.id,
+                school_name=(edu_data.get('institution_name') if isinstance(edu_data, dict) else getattr(edu_data, 'institution_name', '')) or "Institution",
+                degree=edu_data.get('level_of_education') if isinstance(edu_data, dict) else getattr(edu_data, 'level_of_education', None),
+                field_of_study=edu_data.get('field_of_study') if isinstance(edu_data, dict) else getattr(edu_data, 'field_of_study', None),
+                start_year=start_year,
+                end_year=end_year,
+                grade=edu_data.get('score_value') or edu_data.get('gpa_score') if isinstance(edu_data, dict) else None,
+            )
+            db.add(education)
+
+    # Handle organization linking for HR/Company/School
+    if role_type in [RoleType.HIRING_MANAGER, RoleType.COMPANY_ADMIN] and user_in.company_name:
+        company_name = user_in.company_name
+        company_slug = slugify(company_name)
+        result = await db.execute(select(Company).where((func.lower(Company.name) == func.lower(company_name)) | (Company.slug == company_slug)))
+        company = result.scalar_one_or_none()
+        if not company:
+            company = Company(
+                name=company_name,
+                slug=company_slug,
+                email=user_in.company_email or user_in.email,
+                website=user_in.company_website,
+                description=user_in.about,
+                status=CompanyStatus.ACTIVE,
+                is_verified=True
+            )
+            db.add(company)
+            await db.flush()
+        
+        link_role = "hr" if role_type == RoleType.HIRING_MANAGER else "owner"
+        admin_result = await db.execute(select(CompanyAdmin).where(CompanyAdmin.company_id == company.id, CompanyAdmin.user_id == user.id))
+        if not admin_result.scalar_one_or_none():
+            db.add(CompanyAdmin(
+                company_id=company.id, user_id=user.id, role=link_role,
+                can_manage_jobs=True, can_manage_candidates=True,
+                can_manage_team=(link_role == "owner"), can_manage_admins=(link_role == "owner")
+            ))
+
+    elif role_type == RoleType.SCHOOL_ADMIN and user_in.school_name:
+        school_name = user_in.school_name
+        school_slug = slugify(school_name)
+        result = await db.execute(select(School).where((func.lower(School.name) == func.lower(school_name)) | (School.slug == school_slug)))
+        school = result.scalar_one_or_none()
+        if not school:
+            school = School(
+                name=school_name, slug=school_slug, email=user_in.email,
+                school_type=SchoolType.UNIVERSITY, status=SchoolStatus.ACTIVE, is_verified=True
+            )
+            db.add(school)
+            await db.flush()
+        
+        admin_result = await db.execute(select(SchoolAdmin).where(SchoolAdmin.school_id == school.id, SchoolAdmin.user_id == user.id))
+        if not admin_result.scalar_one_or_none():
+            db.add(SchoolAdmin(
+                school_id=school.id, user_id=user.id, role="owner",
+                can_manage_students=True, can_manage_programs=True,
+                can_manage_placements=True, can_manage_admins=True
+            ))
+
     await db.commit()
     await db.refresh(user)
     
-    # Return as dict to avoid async lazy loading issues
-    # Include role in response for frontend
     return {
         "id": str(user.id),
         "email": user.email,
@@ -141,12 +237,13 @@ async def register(
         "is_verified": user.is_verified,
         "email_verified": user.email_verified,
         "mobile_verified": user.mobile_verified,
+        "face_verification": user.face_verification,
         "country": user.country,
         "dob": str(user.dob) if user.dob else None,
         "address": user.address,
         "created_at": str(user.created_at) if user.created_at else None,
-        "role": role_type.value,  # Include assigned role in response
-        "role_type": role_type.value,  # Alias for compatibility
+        "role": role_type.value,
+        "role_type": role_type.value,
     }
 
 
@@ -603,6 +700,17 @@ async def admin_create_user(
                 except (ValueError, TypeError):
                     pass
                 
+                raw_score_value = (edu_data.score_value or edu_data.gpa_score or "").strip()
+                inferred_score_type = None
+                if edu_data.score_type:
+                    inferred_score_type = edu_data.score_type.lower()
+                elif raw_score_value:
+                    try:
+                        numeric_score = float(raw_score_value)
+                        inferred_score_type = "cgpa" if numeric_score <= 10 else ("percentage" if numeric_score <= 100 else "grade")
+                    except ValueError:
+                        inferred_score_type = "grade"
+
                 education = Education(
                     user_id=user.id,
                     school_name=edu_data.institution_name or "Institution",
@@ -610,7 +718,9 @@ async def admin_create_user(
                     field_of_study=edu_data.field_of_study,
                     start_year=start_year,
                     end_year=end_year,
-                    grade=edu_data.gpa_score,
+                    grade=edu_data.score_value or edu_data.gpa_score,
+                    score_type=inferred_score_type,
+                    score_value=raw_score_value or None,
                 )
                 db.add(education)
         

@@ -205,6 +205,7 @@ async def get_me(
 
 
 @router.put("/me", response_model=UserResponse)
+@router.patch("/me", response_model=UserResponse)
 async def update_me(
     user_in: UserUpdate,
     current_user: User = Depends(get_current_user),
@@ -246,6 +247,7 @@ async def get_my_profile(
 
 
 @router.put("/me/profile", response_model=UserProfileResponse)
+@router.patch("/me/profile", response_model=UserProfileResponse)
 async def update_my_profile(
     profile_in: UserProfileUpdate,
     current_user: User = Depends(get_current_user),
@@ -397,6 +399,7 @@ async def add_experience(
 
 
 @router.put("/me/experiences/{exp_id}", response_model=ExperienceResponse)
+@router.patch("/me/experiences/{exp_id}", response_model=ExperienceResponse)
 async def update_experience(
     exp_id: UUID,
     exp_in: ExperienceCreate,
@@ -517,6 +520,7 @@ async def add_education(
 
 
 @router.put("/me/educations/{edu_id}", response_model=EducationResponse)
+@router.patch("/me/educations/{edu_id}", response_model=EducationResponse)
 async def update_education(
     edu_id: UUID,
     edu_in: EducationCreate,

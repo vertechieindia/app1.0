@@ -288,7 +288,7 @@ class Interview(Base):
     interview_type = Column(SQLEnum(InterviewType))
     
     # Scheduling
-    scheduled_at = Column(DateTime, nullable=False)
+    scheduled_at = Column(DateTime(timezone=True), nullable=False)
     duration_minutes = Column(Integer, default=60)
     timezone = Column(String(50), default="UTC")
     
