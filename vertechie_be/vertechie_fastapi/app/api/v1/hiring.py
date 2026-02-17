@@ -8,9 +8,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, cast
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
-from sqlalchemy.dialects.postgresql import JSONB
+from urllib.parse import urlparse
 
 from app.db.session import get_db
 from app.models.hiring import (
@@ -35,6 +35,43 @@ import logging
 
 router = APIRouter(tags=["Hiring/ATS"])
 logger = logging.getLogger(__name__)
+
+
+def _to_utc_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    """Normalize datetimes to UTC while preserving absolute time."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _normalize_meeting_link(raw_link: Optional[str]) -> Optional[str]:
+    """
+    Normalize meeting links so production notifications never contain localhost URLs.
+    """
+    if not raw_link:
+        return raw_link
+
+    link = raw_link.strip()
+    frontend_base = settings.FRONTEND_URL.rstrip("/")
+
+    if link.startswith("/"):
+        return f"{frontend_base}{link}"
+
+    parsed = urlparse(link)
+    if parsed.scheme in {"http", "https"} and parsed.hostname in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        query = f"?{parsed.query}" if parsed.query else ""
+        fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+        return f"{frontend_base}{parsed.path}{query}{fragment}"
+
+    return link
+
+
+def _is_user_interviewer(interview: Interview, user_id: UUID) -> bool:
+    interviewers = interview.interviewers or []
+    current_user_id = str(user_id)
+    return any(str(interviewer_id) == current_user_id for interviewer_id in interviewers)
 
 
 # ============= Pydantic Schemas =============
@@ -104,13 +141,13 @@ class InterviewCreate(BaseModel):
 
 class InterviewResponse(BaseModel):
     id: UUID
-    application_id: UUID
+    application_id: Optional[UUID] = None
     interview_type: InterviewType
     scheduled_at: datetime
     duration_minutes: int = 60
     location: Optional[str] = None
     meeting_link: Optional[str] = None
-    interviewers: List[UUID] = []
+    interviewers: List[str] = []
     notes: Optional[str] = None
     status: InterviewStatus
     created_at: datetime
@@ -573,8 +610,6 @@ async def list_my_interviews(
     current_user: User = Depends(get_current_user)
 ):
     """List interviews for HM - includes interviews for their jobs or where they are interviewer."""
-    from sqlalchemy import String
-    
     # Get all job IDs posted by this HM
     jobs_result = await db.execute(
         select(Job.id).where(Job.posted_by_id == current_user.id)
@@ -588,32 +623,28 @@ async def list_my_interviews(
             select(JobApplication.id).where(JobApplication.job_id.in_(hm_job_ids))
         )
         hm_application_ids = [row[0] for row in apps_result.fetchall()]
-    
-    # Query interviews where:
-    # 1. Current user is in interviewers list, OR
-    # 2. Interview is for an application to HM's job
-    if hm_application_ids:
-        query = select(Interview).where(
-            or_(
-                cast(Interview.interviewers, JSONB).contains([str(current_user.id)]),
-                Interview.application_id.in_(hm_application_ids)
-            )
-        )
-    else:
-        query = select(Interview).where(
-            cast(Interview.interviewers, JSONB).contains([str(current_user.id)])
-        )
-    
+
+    query = select(Interview)
+
     if upcoming:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         query = query.where(Interview.scheduled_at >= now)
         query = query.order_by(Interview.scheduled_at.asc())  # Upcoming: earliest first
     else:
         query = query.order_by(Interview.scheduled_at.desc())  # All: most recent first
-    
-    query = query.offset(skip).limit(limit)
+
     result = await db.execute(query)
-    interviews = result.scalars().all()
+    all_interviews = result.scalars().all()
+
+    hm_application_ids_set = set(hm_application_ids)
+    filtered_interviews = [
+        interview for interview in all_interviews
+        if (
+            interview.application_id in hm_application_ids_set
+            or _is_user_interviewer(interview, current_user.id)
+        )
+    ]
+    interviews = filtered_interviews[skip:skip + limit]
     
     # Enrich interviews with candidate and job details
     enriched_interviews = []
@@ -651,8 +682,8 @@ async def list_my_interviews(
             scheduled_at=interview.scheduled_at,
             duration_minutes=interview.duration_minutes,
             location=interview.location,
-            meeting_link=interview.meeting_link,
-            interviewers=interview.interviewers or [],
+            meeting_link=_normalize_meeting_link(interview.meeting_link),
+            interviewers=[str(i) for i in (interview.interviewers or [])],
             notes=interview.notes,
             status=interview.status,
             created_at=interview.created_at,
@@ -674,8 +705,9 @@ async def schedule_interview(
     
     # Create interview record
     interview_data = interview.model_dump()
-    if interview_data.get('scheduled_at') and interview_data['scheduled_at'].tzinfo:
-        interview_data['scheduled_at'] = interview_data['scheduled_at'].astimezone(timezone.utc).replace(tzinfo=None)
+    interview_data["scheduled_at"] = _to_utc_datetime(interview_data.get("scheduled_at"))
+    interview_data["meeting_link"] = _normalize_meeting_link(interview_data.get("meeting_link"))
+    interview_data["interviewers"] = [str(i) for i in (interview_data.get("interviewers") or [])]
     
     db_interview = Interview(**interview_data)
     db_interview.status = InterviewStatus.SCHEDULED
@@ -710,8 +742,8 @@ async def schedule_interview(
     
     # Send email notification to candidate
     if candidate and candidate.email:
-        interview_date = interview.scheduled_at.strftime("%B %d, %Y")
-        interview_time = interview.scheduled_at.strftime("%I:%M %p")
+        interview_date = db_interview.scheduled_at.strftime("%B %d, %Y")
+        interview_time = db_interview.scheduled_at.strftime("%I:%M %p")
         job_title = job.title if job else "the position"
         
         email_subject = f"📅 Interview Scheduled: {job_title}"
@@ -725,7 +757,7 @@ Great news! Your interview for {job_title} has been scheduled.
 ⏱️ Duration: {interview.duration_minutes} minutes
 📍 Type: {interview.interview_type.value.replace('_', ' ').title()}
 
-{f"📎 Meeting Link: {interview.meeting_link}" if interview.meeting_link else "Meeting link will be shared soon."}
+{f"📎 Meeting Link: {db_interview.meeting_link}" if db_interview.meeting_link else "Meeting link will be shared soon."}
 
 Please make sure to:
 ✓ Test your camera and microphone beforehand
@@ -777,8 +809,8 @@ The VerTechie Team
         scheduled_at=db_interview.scheduled_at,
         duration_minutes=db_interview.duration_minutes,
         location=db_interview.location,
-        meeting_link=db_interview.meeting_link,
-        interviewers=db_interview.interviewers or [],
+        meeting_link=_normalize_meeting_link(db_interview.meeting_link),
+        interviewers=[str(i) for i in (db_interview.interviewers or [])],
         notes=db_interview.notes,
         status=db_interview.status,
         created_at=db_interview.created_at,
@@ -886,13 +918,13 @@ async def update_interview_status(
 class InterviewDetailResponse(BaseModel):
     """Detailed interview response with full candidate info."""
     id: UUID
-    application_id: UUID
+    application_id: Optional[UUID] = None
     interview_type: InterviewType
     scheduled_at: datetime
     duration_minutes: int
     location: Optional[str] = None
     meeting_link: Optional[str] = None
-    interviewers: List[UUID] = []
+    interviewers: List[str] = []
     notes: Optional[str] = None
     status: InterviewStatus
     created_at: datetime
@@ -1005,8 +1037,8 @@ async def get_interview_details(
         scheduled_at=interview.scheduled_at,
         duration_minutes=interview.duration_minutes,
         location=interview.location,
-        meeting_link=interview.meeting_link,
-        interviewers=interview.interviewers or [],
+        meeting_link=_normalize_meeting_link(interview.meeting_link),
+        interviewers=[str(i) for i in (interview.interviewers or [])],
         notes=interview.notes,
         status=interview.status,
         created_at=interview.created_at,
@@ -1045,17 +1077,14 @@ async def reschedule_interview(
     old_date = interview.scheduled_at
     
     # Update interview
-    if reschedule.scheduled_at and reschedule.scheduled_at.tzinfo:
-        interview.scheduled_at = reschedule.scheduled_at.astimezone(timezone.utc).replace(tzinfo=None)
-    else:
-        interview.scheduled_at = reschedule.scheduled_at
+    interview.scheduled_at = _to_utc_datetime(reschedule.scheduled_at)
         
     if reschedule.duration_minutes:
         interview.duration_minutes = reschedule.duration_minutes
     if reschedule.location:
         interview.location = reschedule.location
     if reschedule.meeting_link:
-        interview.meeting_link = reschedule.meeting_link
+        interview.meeting_link = _normalize_meeting_link(reschedule.meeting_link)
     if reschedule.notes:
         interview.notes = reschedule.notes
     interview.status = InterviewStatus.SCHEDULED
@@ -1421,7 +1450,7 @@ async def get_my_interviews(
     query = select(Interview).where(Interview.application_id.in_(application_ids))
     
     if upcoming:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         query = query.where(Interview.scheduled_at >= now)
     
     query = query.order_by(Interview.scheduled_at.asc())
@@ -1453,7 +1482,7 @@ async def get_my_interviews(
             status=interview.status,
             scheduled_at=interview.scheduled_at,
             duration_minutes=interview.duration_minutes,
-            meeting_link=interview.meeting_link,
+            meeting_link=_normalize_meeting_link(interview.meeting_link),
             location=interview.location,
             notes=interview.notes,
             job_title=job_title,
@@ -1481,7 +1510,7 @@ async def get_my_interviews_count(
         return {"upcoming": 0, "total": 0}
     
     # Count upcoming interviews
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     upcoming_result = await db.execute(
         select(func.count(Interview.id))
         .where(Interview.application_id.in_(application_ids))
@@ -1684,14 +1713,6 @@ async def get_hiring_analytics(
             'offers': len([a for a in job_apps if a.status and a.status.value.lower() in ['offered', 'hired']]),
             'status': 'active' if job.status == 'published' else job.status,
         })
-    
-    # Count interviews
-    interviews_result = await db.execute(
-        select(func.count(Interview.id)).where(
-            cast(Interview.interviewers, JSONB).contains([str(current_user.id)])
-        )
-    )
-    interviews_count = interviews_result.scalar() or 0
     
     # Source metrics (all from VerTechie for now)
     source_metrics = [

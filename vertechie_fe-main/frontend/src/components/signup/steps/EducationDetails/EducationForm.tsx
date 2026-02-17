@@ -26,7 +26,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import { StepComponentProps } from '../../types';
 import axios from 'axios';
 import { getApiUrl, API_ENDPOINTS } from '../../../../config/api';
-import { isValidDateRange, isValidGPA } from '../../../../utils/validation';
+import { isValidDateRange, isValidEducationScore, EducationScoreType } from '../../../../utils/validation';
 import { formatDateToMMDDYYYY } from '../../utils/formatters';
 
 interface EducationFormData {
@@ -35,6 +35,8 @@ interface EducationFormData {
   fieldOfStudy: string;
   startDate: string;
   endDate: string;
+  scoreType: EducationScoreType;
+  scoreValue: string;
   gpa?: string;
 }
 
@@ -55,6 +57,8 @@ const EducationForm: React.FC<StepComponentProps> = ({
     fieldOfStudy: '',
     startDate: '',
     endDate: '',
+    scoreType: 'CGPA',
+    scoreValue: '',
     gpa: '',
   });
 
@@ -74,7 +78,9 @@ const EducationForm: React.FC<StepComponentProps> = ({
       fieldOfStudy: edu.fieldOfStudy || '',
       startDate: edu.startDate || '',
       endDate: edu.endDate || '',
-      gpa: edu.gpa || '',
+      scoreType: edu.scoreType || 'CGPA',
+      scoreValue: edu.scoreValue || edu.gpa || '',
+      gpa: edu.gpa || edu.scoreValue || '',
     });
     setShowEducationForm(true);
   }, [education]);
@@ -97,6 +103,8 @@ const EducationForm: React.FC<StepComponentProps> = ({
       fieldOfStudy: '',
       startDate: '',
       endDate: '',
+      scoreType: 'CGPA',
+      scoreValue: '',
       gpa: '',
     });
   }, [setErrors]);
@@ -138,10 +146,20 @@ const EducationForm: React.FC<StepComponentProps> = ({
       }
     }
 
-    // Validate GPA (if provided)
-    if (newEducation.gpa && newEducation.gpa.trim()) {
-      if (!isValidGPA(newEducation.gpa.trim())) {
-        validationErrors.gpa = 'Please enter a valid GPA (0-4 or 0-10 scale)';
+    // Validate score type/value
+    if (!newEducation.scoreType) {
+      validationErrors.scoreType = 'Score Type is required';
+    }
+
+    if (!newEducation.scoreValue || !newEducation.scoreValue.trim()) {
+      validationErrors.scoreValue = 'Score Value is required';
+    } else if (!isValidEducationScore(newEducation.scoreType, newEducation.scoreValue.trim())) {
+      if (newEducation.scoreType === 'CGPA') {
+        validationErrors.scoreValue = 'Enter a valid CGPA between 0 and 10';
+      } else if (newEducation.scoreType === 'Percentage') {
+        validationErrors.scoreValue = 'Enter a valid Percentage between 0 and 100';
+      } else {
+        validationErrors.scoreValue = 'Enter a valid Grade (e.g., A+, A, B1, O)';
       }
     }
 
@@ -224,7 +242,9 @@ const EducationForm: React.FC<StepComponentProps> = ({
         field_of_study: newEducation.fieldOfStudy.trim() || null,
         start_year: startYear,
         end_year: endYear,
-        grade: (newEducation.gpa || '').trim() || null,
+        grade: (newEducation.scoreValue || '').trim() || null,
+        score_type: newEducation.scoreType.toLowerCase(),
+        score_value: (newEducation.scoreValue || '').trim() || null,
       };
 
       console.log('Posting education details to API:', payload);
@@ -266,7 +286,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
       if (editingIndex !== null && education[editingIndex]?.id) {
         // Update existing education using PATCH
         const educationId = education[editingIndex].id;
-        const updateUrl = `${apiUrl}${educationId}/`;
+        const updateUrl = `${apiUrl}/${educationId}`;
         console.log('Patching education details:', updateUrl);
         response = await axios.patch(updateUrl, payload, { headers });
         console.log('Education details updated successfully:', response.data);
@@ -289,7 +309,9 @@ const EducationForm: React.FC<StepComponentProps> = ({
         fieldOfStudy: newEducation.fieldOfStudy,
         startDate: newEducation.startDate,
         endDate: newEducation.endDate,
-        gpa: newEducation.gpa,
+        scoreType: newEducation.scoreType,
+        scoreValue: newEducation.scoreValue,
+        gpa: newEducation.scoreValue,
         // Store API response ID if available
         id: response.data?.id || response.data?.education_id || education[editingIndex || 0]?.id,
       };
@@ -360,9 +382,15 @@ const EducationForm: React.FC<StepComponentProps> = ({
     setNewEducation((prev) => ({ ...prev, [name]: value }));
   }, []);
 
-  const handleSelectChange = useCallback((e: SelectChangeEvent<string>) => {
+  const handleLevelChange = useCallback((e: SelectChangeEvent<string>) => {
     const { value } = e.target;
     setNewEducation((prev) => ({ ...prev, levelOfEducation: value }));
+  }, []);
+
+  const handleScoreTypeChange = useCallback((e: SelectChangeEvent<string>) => {
+    const { value } = e.target;
+    const scoreType = value as EducationScoreType;
+    setNewEducation((prev) => ({ ...prev, scoreType, scoreValue: '' }));
   }, []);
 
   return (
@@ -465,9 +493,9 @@ const EducationForm: React.FC<StepComponentProps> = ({
                     <Typography variant="body2" sx={{ color: '#666' }}>
                       {edu.endDate ? new Date(edu.endDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'End Date'}
                     </Typography>
-                    {edu.gpa && (
+                    {(edu.scoreValue || edu.gpa) && (
                       <Typography variant="body2" sx={{ color: '#666', ml: 2 }}>
-                        • GPA: {edu.gpa}
+                        • {edu.scoreType || 'Score'}: {edu.scoreValue || edu.gpa}
                       </Typography>
                     )}
                   </Box>
@@ -539,7 +567,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
                   <InputLabel>Level of Education *</InputLabel>
                   <Select
                     value={newEducation.levelOfEducation}
-                    onChange={handleSelectChange}
+                    onChange={handleLevelChange}
                     label="Level of Education *"
                   >
                     <MenuItem value="PhD">PhD</MenuItem>
@@ -569,14 +597,46 @@ const EducationForm: React.FC<StepComponentProps> = ({
                 />
               </Grid>
               <Grid item xs={12} md={6}>
+                <FormControl fullWidth required error={!!errors.scoreType}>
+                  <InputLabel>Score Type *</InputLabel>
+                  <Select
+                    value={newEducation.scoreType}
+                    onChange={handleScoreTypeChange}
+                    label="Score Type *"
+                  >
+                    <MenuItem value="CGPA">CGPA</MenuItem>
+                    <MenuItem value="Percentage">Percentage</MenuItem>
+                    <MenuItem value="Grade">Grade</MenuItem>
+                  </Select>
+                  {errors.scoreType && (
+                    <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
+                      {errors.scoreType}
+                    </Typography>
+                  )}
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="GPA/Score"
-                  name="gpa"
-                  value={newEducation.gpa}
+                  required
+                  label={newEducation.scoreType === 'Grade' ? 'Grade *' : `${newEducation.scoreType} *`}
+                  name="scoreValue"
+                  value={newEducation.scoreValue}
                   onChange={handleTextFieldChange}
-                  error={!!errors.gpa}
-                  helperText={errors.gpa || "Enter GPA (0-4 or 0-10 scale)"}
+                  error={!!errors.scoreValue}
+                  helperText={
+                    errors.scoreValue ||
+                    (newEducation.scoreType === 'CGPA'
+                      ? 'Enter CGPA between 0 and 10'
+                      : newEducation.scoreType === 'Percentage'
+                        ? 'Enter Percentage between 0 and 100'
+                        : 'Enter Grade (e.g., A+, A, B1, O)')
+                  }
+                  inputProps={
+                    newEducation.scoreType === 'Grade'
+                      ? { maxLength: 5 }
+                      : { inputMode: 'decimal' }
+                  }
                 />
               </Grid>
               <Grid item xs={12} md={6}>

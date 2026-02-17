@@ -34,6 +34,7 @@ import {
   Tabs,
   Tab,
   Tooltip,
+  CircularProgress,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
@@ -101,6 +102,8 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // '' = All (show all statuses by default)
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState(false);
 
   // Reject dialog
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -248,6 +251,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
 
   // Handle approve
   const handleApprove = async (approvalId: string) => {
+    setApprovingId(approvalId);
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch(`${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}${approvalId}/approve/`, {
@@ -261,13 +265,15 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
 
       if (response.ok) {
         setSnackbar({ open: true, message: 'User approved successfully', severity: 'success' });
-        fetchApprovals();
+        await fetchApprovals();
       } else {
         const error = await response.json();
         setSnackbar({ open: true, message: error.error || 'Failed to approve', severity: 'error' });
       }
     } catch (error) {
       setSnackbar({ open: true, message: 'Error approving user', severity: 'error' });
+    } finally {
+      setApprovingId(null);
     }
   };
 
@@ -275,6 +281,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   const handleReject = async () => {
     if (!selectedApproval || rejectReason.length < 10) return;
 
+    setRejecting(true);
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch(`${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}${selectedApproval.id}/reject/`, {
@@ -287,17 +294,19 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
       });
 
       if (response.ok) {
-        setSnackbar({ open: true, message: 'User rejected', severity: 'success' });
+        setSnackbar({ open: true, message: 'User rejected successfully', severity: 'success' });
         setRejectDialogOpen(false);
         setRejectReason('');
         setSelectedApproval(null);
-        fetchApprovals();
+        await fetchApprovals();
       } else {
         const error = await response.json();
         setSnackbar({ open: true, message: error.error || 'Failed to reject', severity: 'error' });
       }
     } catch (error) {
       setSnackbar({ open: true, message: 'Error rejecting user', severity: 'error' });
+    } finally {
+      setRejecting(false);
     }
   };
 
@@ -424,45 +433,6 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
 
   const innerContent = (
     <>
-      {/* Top summary cards (reference UI) */}
-      <Grid container spacing={2} sx={{ p: 2.5, pb: 0 }}>
-        <Grid item xs={6} sm={4} md={2.4}>
-          <SummaryCard sx={{ bgcolor: '#eff6ff' }}>
-            <People sx={{ fontSize: 28, color: '#3b82f6', mx: 'auto', mb: 0.5 }} />
-            <Typography variant="h5" sx={{ fontWeight: 700, color: '#1d4ed8' }}>{topStats.totalAdmins}</Typography>
-            <Typography variant="caption" color="text.secondary">Total Admins</Typography>
-          </SummaryCard>
-        </Grid>
-        <Grid item xs={6} sm={4} md={2.4}>
-          <SummaryCard sx={{ bgcolor: '#f0fdf4' }}>
-            <CheckCircle sx={{ fontSize: 28, color: '#22c55e', mx: 'auto', mb: 0.5 }} />
-            <Typography variant="h5" sx={{ fontWeight: 700, color: '#16a34a' }}>{topStats.activeAdmins}</Typography>
-            <Typography variant="caption" color="text.secondary">Active Admins</Typography>
-          </SummaryCard>
-        </Grid>
-        <Grid item xs={6} sm={4} md={2.4}>
-          <SummaryCard sx={{ bgcolor: '#faf5ff' }}>
-            <People sx={{ fontSize: 28, color: '#9333ea', mx: 'auto', mb: 0.5 }} />
-            <Typography variant="h5" sx={{ fontWeight: 700, color: '#7c3aed' }}>{topStats.totalUsers}</Typography>
-            <Typography variant="caption" color="text.secondary">Total Users</Typography>
-          </SummaryCard>
-        </Grid>
-        <Grid item xs={6} sm={4} md={2.4}>
-          <SummaryCard sx={{ bgcolor: '#fffbeb' }}>
-            <People sx={{ fontSize: 28, color: '#f59e0b', mx: 'auto', mb: 0.5 }} />
-            <Typography variant="h5" sx={{ fontWeight: 700, color: '#d97706' }}>{topStats.pendingUsers}</Typography>
-            <Typography variant="caption" color="text.secondary">Pending (Users)</Typography>
-          </SummaryCard>
-        </Grid>
-        <Grid item xs={6} sm={4} md={2.4}>
-          <SummaryCard sx={{ bgcolor: '#fef2f2' }}>
-            <Security sx={{ fontSize: 28, color: '#dc2626', mx: 'auto', mb: 0.5 }} />
-            <Typography variant="h5" sx={{ fontWeight: 700, color: '#b91c1c' }}>{topStats.roles}</Typography>
-            <Typography variant="caption" color="text.secondary">Roles</Typography>
-          </SummaryCard>
-        </Grid>
-      </Grid>
-
       {/* Pending Approvals content */}
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 2 }}>
@@ -604,7 +574,11 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                     <TableCell>{new Date(approval.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</TableCell>
                     <TableCell>
                       <Chip
-                        label={String(approval.status).toLowerCase()}
+                        label={
+                          approval.status === 'approved' ? 'Accepted' :
+                            approval.status === 'rejected' ? 'Rejected' :
+                              String(approval.status).charAt(0).toUpperCase() + String(approval.status).slice(1).toLowerCase()
+                        }
                         size="small"
                         sx={{
                           bgcolor: approval.status === 'pending' ? '#fffbeb' : approval.status === 'approved' ? '#f0fdf4' : '#fef2f2',
@@ -620,13 +594,19 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                             <IconButton
                               size="small"
                               onClick={() => handleApprove(approval.id)}
+                              disabled={approvingId !== null}
                               sx={{
                                 color: '#16a34a',
                                 transition: 'all 0.3s ease',
                                 '&:hover': { bgcolor: 'rgba(22, 163, 74, 0.1)', transform: 'scale(1.15)' },
+                                '&.Mui-disabled': { color: '#16a34a', opacity: 0.7 }
                               }}
                             >
-                              <CheckCircle fontSize="small" />
+                              {approvingId === approval.id ? (
+                                <CircularProgress size={16} color="inherit" />
+                              ) : (
+                                <CheckCircle fontSize="small" />
+                              )}
                             </IconButton>
                           </Tooltip>
                         )}
@@ -722,9 +702,10 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
             variant="contained"
             color="error"
             onClick={handleReject}
-            disabled={rejectReason.length < 10}
+            disabled={rejectReason.length < 10 || rejecting}
+            startIcon={rejecting ? <CircularProgress size={16} color="inherit" /> : null}
           >
-            Reject
+            {rejecting ? 'Rejecting...' : 'Reject'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -862,13 +843,13 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                   <Chip
                     size="small"
-                    label="Email Verified"
+                    label={reviewData.email_verified ? "Email Verified" : "Email Not Verified"}
                     icon={reviewData.email_verified ? <CheckCircle sx={{ fontSize: 16, color: '#16a34a' }} /> : <Cancel sx={{ fontSize: 16, color: '#dc2626' }} />}
                     sx={{ bgcolor: reviewData.email_verified ? '#f0fdf4' : '#fef2f2', color: reviewData.email_verified ? '#16a34a' : '#dc2626', fontWeight: 600 }}
                   />
                   <Chip
                     size="small"
-                    label="Mobile Verified"
+                    label={reviewData.mobile_verified ? "Mobile Verified" : "Mobile Not Verified"}
                     icon={reviewData.mobile_verified ? <CheckCircle sx={{ fontSize: 16, color: '#16a34a' }} /> : <Cancel sx={{ fontSize: 16, color: '#dc2626' }} />}
                     sx={{ bgcolor: reviewData.mobile_verified ? '#f0fdf4' : '#fef2f2', color: reviewData.mobile_verified ? '#16a34a' : '#dc2626', fontWeight: 600 }}
                   />
@@ -880,7 +861,9 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                   />
                   <Chip
                     size="small"
-                    label={`Status: ${(reviewData.verification_status || 'PENDING').toUpperCase()}`}
+                    label={`Status: ${(reviewData.verification_status || '').toLowerCase() === 'approved' ? 'ACCEPTED' :
+                      (reviewData.verification_status || 'PENDING').toUpperCase()
+                      }`}
                     sx={{
                       bgcolor: (reviewData.verification_status || '').toLowerCase() === 'approved' ? '#f0fdf4' : (reviewData.verification_status || '').toLowerCase() === 'rejected' ? '#fef2f2' : '#fffbeb',
                       color: (reviewData.verification_status || '').toLowerCase() === 'approved' ? '#16a34a' : (reviewData.verification_status || '').toLowerCase() === 'rejected' ? '#dc2626' : '#d97706',

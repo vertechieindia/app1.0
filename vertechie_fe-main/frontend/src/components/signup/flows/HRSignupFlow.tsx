@@ -81,6 +81,8 @@ const HRSignupFlow: React.FC<HRSignupFlowProps> = ({
       fieldOfStudy: string;
       startDate: string;
       endDate: string;
+      scoreType?: 'CGPA' | 'Percentage' | 'Grade';
+      scoreValue?: string;
       gpa?: string;
     }>,
     

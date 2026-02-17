@@ -240,7 +240,15 @@ class Experience(Base, UUIDMixin, TimestampMixin):
     
     # Description
     description = Column(Text, nullable=True)
-    skills = Column(ARRAY(String), default=list)  # PostgreSQL character varying[]
+    skills = Column(JSON, default=list)
+    
+    # Client & Manager Info (from signup)
+    client_name = Column(String(200), nullable=True)
+    company_website = Column(String(255), nullable=True)
+    manager_name = Column(String(100), nullable=True)
+    manager_email = Column(String(255), nullable=True)
+    manager_phone = Column(String(20), nullable=True)
+    manager_linkedin = Column(String(512), nullable=True)
     
     # Verification
     is_verified = Column(Boolean, default=False)
@@ -272,6 +280,8 @@ class Education(Base, UUIDMixin, TimestampMixin):
     
     # Details
     grade = Column(String(50), nullable=True)
+    score_type = Column(String(20), nullable=True)   # cgpa | percentage | grade
+    score_value = Column(String(50), nullable=True)  # raw value as entered by user
     activities = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
     

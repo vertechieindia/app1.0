@@ -81,8 +81,8 @@ async def send_password_reset_email(email: str, token: str, user_name: str = "Us
     Returns:
         True if email sent successfully
     """
-    # Get frontend URL from settings or use default
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+    # Get frontend URL from settings (defaults to production host in config)
+    frontend_url = settings.FRONTEND_URL
     reset_link = f"{frontend_url}/reset-password?token={token}"
     
     subject = "Reset Your VerTechie Password"

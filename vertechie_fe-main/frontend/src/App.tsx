@@ -100,9 +100,6 @@ import {
   AnalyticsPage,
 } from './pages/techie/ats';
 
-// Interview Lobby (VerTechie Meet)
-import InterviewLobby from './pages/techie/lobby/InterviewLobby';
-
 // SMS (School Management System) Pages
 import {
   SMSPosts,
@@ -528,7 +525,7 @@ const AppRoutes: React.FC = () => {
             <Route path="/hr/feed" element={<Navigate to="/techie/home/feed" replace />} />
             <Route path="/hr/jobs" element={<HRDashboard />} />
             <Route path="/hr/candidates" element={<HRDashboard />} />
-            <Route path="/hr/interviews" element={<HRDashboard />} />
+            <Route path="/hr/interviews" element={<InterviewsPage />} />
             <Route path="/hr/analytics" element={<HRDashboard />} />
             <Route path="/hr/chat" element={<Chat />} />
             <Route path="/hr/alerts" element={<Notifications />} />
@@ -545,7 +542,7 @@ const AppRoutes: React.FC = () => {
             <Route path="/hm/jobs" element={<HRDashboard />} />
             <Route path="/hm/candidates" element={<HRDashboard />} />
             <Route path="/hm/assessments" element={<HRDashboard />} />
-            <Route path="/hm/interviews" element={<HRDashboard />} />
+            <Route path="/hm/interviews" element={<InterviewsPage />} />
             <Route path="/hm/analytics" element={<HRDashboard />} />
             
             {/* User Applications */}
@@ -813,9 +810,9 @@ const AppRoutes: React.FC = () => {
             } />
 
             {/* Video Conferencing Routes */}
-            <Route path="/techie/lobby/interview-:meetingId" element={
+            <Route path="/techie/lobby/interview-:roomId" element={
               <ProtectedRoute requiredRole="user">
-                <InterviewLobby />
+                <MeetingLobby />
               </ProtectedRoute>
             } />
             <Route path="/techie/lobby/:roomId" element={

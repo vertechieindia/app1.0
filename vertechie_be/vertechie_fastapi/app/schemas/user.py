@@ -5,7 +5,8 @@ User schemas.
 from typing import Optional, List
 from datetime import datetime, date
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field, field_validator
+import re
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
 class UserBase(BaseModel):
@@ -135,6 +136,12 @@ class ExperienceCreate(BaseModel):
     is_current: bool = False
     description: Optional[str] = None
     skills: List[str] = []
+    client_name: Optional[str] = None
+    company_website: Optional[str] = None
+    manager_name: Optional[str] = None
+    manager_email: Optional[str] = None
+    manager_phone: Optional[str] = None
+    manager_linkedin: Optional[str] = None
 
 
 class ExperienceResponse(ExperienceCreate):
@@ -159,8 +166,74 @@ class EducationCreate(BaseModel):
     start_year: Optional[int] = None
     end_year: Optional[int] = None
     grade: Optional[str] = None
+    score_type: Optional[str] = None  # cgpa | percentage | grade
+    score_value: Optional[str] = None
     activities: Optional[str] = None
     description: Optional[str] = None
+
+    @field_validator("score_type")
+    @classmethod
+    def validate_score_type(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip().lower()
+        if cleaned == "":
+            return None
+        if cleaned not in {"cgpa", "percentage", "grade"}:
+            raise ValueError("score_type must be one of: cgpa, percentage, grade")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_score_fields(self):
+        score_type = self.score_type
+        score_value = (self.score_value or "").strip()
+        legacy_grade = (self.grade or "").strip()
+
+        # Backward compatibility: infer score fields from legacy grade
+        if not score_type and not score_value and legacy_grade:
+            if re.fullmatch(r"\d+(\.\d+)?", legacy_grade):
+                numeric_grade = float(legacy_grade)
+                if numeric_grade <= 10:
+                    score_type = "cgpa"
+                elif numeric_grade <= 100:
+                    score_type = "percentage"
+                else:
+                    score_type = "grade"
+            else:
+                score_type = "grade"
+            score_value = legacy_grade
+            self.score_type = score_type
+            self.score_value = score_value
+
+        if score_type and not score_value:
+            raise ValueError("score_value is required when score_type is provided")
+        if score_value and not score_type:
+            raise ValueError("score_type is required when score_value is provided")
+
+        if score_type == "cgpa":
+            try:
+                num = float(score_value)
+            except ValueError:
+                raise ValueError("score_value must be numeric for cgpa")
+            if num < 0 or num > 10:
+                raise ValueError("cgpa must be between 0 and 10")
+
+        if score_type == "percentage":
+            try:
+                num = float(score_value)
+            except ValueError:
+                raise ValueError("score_value must be numeric for percentage")
+            if num < 0 or num > 100:
+                raise ValueError("percentage must be between 0 and 100")
+
+        if score_type == "grade" and score_value:
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9+\-]{0,4}", score_value):
+                raise ValueError("grade must be like A, A+, B1, O, etc.")
+
+        # Keep legacy field populated for backward compatibility
+        if score_value and not legacy_grade:
+            self.grade = score_value
+        return self
 
 
 class EducationResponse(EducationCreate):
@@ -199,6 +272,8 @@ class AdminEducationCreate(BaseModel):
     from_date: Optional[str] = None
     to_date: Optional[str] = None
     gpa_score: Optional[str] = None
+    score_type: Optional[str] = None
+    score_value: Optional[str] = None
 
 
 class AdminUserCreate(BaseModel):

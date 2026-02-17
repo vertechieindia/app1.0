@@ -95,16 +95,16 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
     managerPhone: '',
     managerLinkedIn: '',
   });
-  
+
   // Skills dialog state
   const [showSkillDialog, setShowSkillDialog] = useState(false);
   const [currentSkill, setCurrentSkill] = useState<Skill>({ name: '', experience: '', rating: 5 });
   const [skillInput, setSkillInput] = useState('');
-  
+
   // Job description warning state
   const [showJobDescWarning, setShowJobDescWarning] = useState(false);
   const [jobDescAcknowledged, setJobDescAcknowledged] = useState(false);
-  
+
   // Company invite state
   const [showCompanyInvite, setShowCompanyInvite] = useState(false);
   const [companyInvite, setCompanyInvite] = useState<CompanyInviteData>({
@@ -116,7 +116,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
     contactPersonName: '',
     contactPersonRole: '',
   });
-  const [companySearchResults] = useState<Array<{id: string, name: string}>>([]);
+  const [companySearchResults] = useState<Array<{ id: string, name: string }>>([]);
 
   const experiences = formData.experience || [];
 
@@ -297,10 +297,10 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
     }
 
     // Get auth token - check multiple sources in order of priority (declare outside try block)
-    const token = 
-      localStorage.getItem('authToken') || 
-      (formData as any)?.access_token || 
-      (formData as any)?.token || 
+    const token =
+      localStorage.getItem('authToken') ||
+      (formData as any)?.access_token ||
+      (formData as any)?.token ||
       (formData as any)?.tokenResponse?.access ||           // Token API returns token in 'access' field
       (formData as any)?.tokenResponse?.access_token ||
       (formData as any)?.tokenResponse?.accessToken ||
@@ -339,7 +339,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
 
       // Prepare API payload for backend
       // Skills should be an array of strings (skill names only), not objects
-      const skillNames = (newExperience.skills || []).map((skill: any) => 
+      const skillNames = (newExperience.skills || []).map((skill: any) =>
         typeof skill === 'string' ? skill : (skill.name || skill)
       );
 
@@ -353,6 +353,12 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
         description: newExperience.description?.trim() || null,
         skills: skillNames,
         is_remote: newExperience.workLocation?.toLowerCase().includes('remote') || false,
+        client_name: newExperience.clientName?.trim() || null,
+        company_website: newExperience.website?.trim() || null,
+        manager_name: newExperience.managerName?.trim() || null,
+        manager_email: newExperience.managerEmail?.trim() || null,
+        manager_phone: newExperience.managerPhone?.trim() || null,
+        manager_linkedin: newExperience.managerLinkedIn?.trim() || null,
       };
 
       let savedId = editingIndex !== null ? experiences[editingIndex]?.id : `temp-${Date.now()}`;
@@ -389,30 +395,30 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
 
       // Create the experience object to store locally (for UI display)
       const savedExperience = {
-          id: savedId,
-          company: newExperience.companyName,
-          companyName: newExperience.companyName,
-          clientName: newExperience.clientName,
-          website: newExperience.website,
-          workLocation: newExperience.workLocation,
-          position: newExperience.position,
-          startDate: newExperience.startDate,
-          endDate: newExperience.current ? '' : newExperience.endDate,
-          current: newExperience.current,
-          skills: newExperience.skills,
-          description: newExperience.description,
-          managerName: newExperience.managerName,
-          managerEmail: newExperience.managerEmail,
-          managerPhone: newExperience.managerPhone,
-          managerLinkedIn: newExperience.managerLinkedIn,
-          // Store the payload format for reference
-          client_name: newExperience.clientName.trim(),
-          company_website: newExperience.website.trim(),
-          work_location: newExperience.workLocation.trim(),
-          job_title: newExperience.position.trim(),
-          from_date: newExperience.startDate,
-          to_date: newExperience.current ? '' : (newExperience.endDate || ''),
-          job_description: newExperience.description.trim(),
+        id: savedId,
+        company: newExperience.companyName,
+        companyName: newExperience.companyName,
+        clientName: newExperience.clientName,
+        website: newExperience.website,
+        workLocation: newExperience.workLocation,
+        position: newExperience.position,
+        startDate: newExperience.startDate,
+        endDate: newExperience.current ? '' : newExperience.endDate,
+        current: newExperience.current,
+        skills: newExperience.skills,
+        description: newExperience.description,
+        managerName: newExperience.managerName,
+        managerEmail: newExperience.managerEmail,
+        managerPhone: newExperience.managerPhone,
+        managerLinkedIn: newExperience.managerLinkedIn,
+        // Store the payload format for reference
+        client_name: newExperience.clientName.trim(),
+        company_website: newExperience.website.trim(),
+        work_location: newExperience.workLocation.trim(),
+        job_title: newExperience.position.trim(),
+        from_date: newExperience.startDate,
+        to_date: newExperience.current ? '' : (newExperience.endDate || ''),
+        job_description: newExperience.description.trim(),
       };
 
       if (editingIndex !== null) {
@@ -426,12 +432,12 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
           experience: [
             ...experiences,
             savedExperience,
-        ],
-      });
+          ],
+        });
       }
 
-    // Reset form and close modal
-    handleExperienceFormClose();
+      // Reset form and close modal
+      handleExperienceFormClose();
     } catch (error: any) {
       console.error('Error posting work experience:', error);
       console.error('Error details:', {
@@ -446,7 +452,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
           headers: error.config?.headers,
         },
       });
-      
+
       // Check if it's an authentication error
       if (error.response?.status === 401 || error.response?.status === 403) {
         console.error('Authentication error detected!');
@@ -458,14 +464,14 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
           formData_tokenResponse: (formData as any)?.tokenResponse ? 'Available' : 'Not available',
         });
       }
-      
-      const errorMessage = 
-        error.response?.data?.message || 
-        error.response?.data?.error || 
+
+      const errorMessage =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
         error.response?.data?.detail ||
-        error.message || 
+        error.message ||
         'Failed to save work experience. Please try again.';
-      
+
       if (setErrors) {
         setErrors({ submit: errorMessage });
       } else {
@@ -607,17 +613,17 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                   {exp.skills && exp.skills.length > 0 && (
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1.5 }}>
                       {exp.skills.slice(0, 5).map((skill: Skill | string, idx: number) => (
-                        <Chip 
-                          key={idx} 
-                          label={typeof skill === 'string' ? skill : `${skill.name} (${skill.rating}/10)`} 
-                          size="small" 
+                        <Chip
+                          key={idx}
+                          label={typeof skill === 'string' ? skill : `${skill.name} (${skill.rating}/10)`}
+                          size="small"
                           sx={{ bgcolor: '#e0e7ff', color: '#4338ca', fontSize: '0.7rem' }}
                         />
                       ))}
                       {exp.skills.length > 5 && (
-                        <Chip 
-                          label={`+${exp.skills.length - 5} more`} 
-                          size="small" 
+                        <Chip
+                          label={`+${exp.skills.length - 5} more`}
+                          size="small"
                           sx={{ bgcolor: '#f1f5f9', color: '#64748b', fontSize: '0.7rem' }}
                         />
                       )}
@@ -677,7 +683,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 Limited Updates & Permanent Job Title
               </Typography>
               <Typography variant="caption">
-                • Job description can only be updated once every 30 days<br/>
+                • Job description can only be updated once every 30 days<br />
                 • Job title CANNOT be changed after account creation
               </Typography>
             </Alert>
@@ -687,7 +693,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 100% Accuracy Required
               </Typography>
               <Typography variant="body2">
-                Provide 100% accurate roles and responsibilities that you EXACTLY performed. 
+                Provide 100% accurate roles and responsibilities that you EXACTLY performed.
                 Mention only genuine technical skills and tools that you actually used.
               </Typography>
             </Alert>
@@ -699,9 +705,9 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
               <Typography variant="body2" sx={{ color: '#7f1d1d' }}>
                 We will verify your information directly with company official authorities.
                 Any misrepresentation will result in:
-                <br/>• Permanent blocking from the platform
-                <br/>• Your photo, name, and reason for blocking will be visible to ALL our partnered clients and vendors
-                <br/>• Legal actions will be taken against you
+                <br />• Permanent blocking from the platform
+                <br />• Your photo, name, and reason for blocking will be visible to ALL our partnered clients and vendors
+                <br />• Legal actions will be taken against you
               </Typography>
             </Alert>
 
@@ -796,10 +802,10 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                       companySearchResults.length === 0 && newExperience.companyName.length >= 2 ? (
                         <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <span>Company not found.</span>
-                          <Button 
-                            size="small" 
+                          <Button
+                            size="small"
                             onClick={() => {
-                              setCompanyInvite(prev => ({...prev, companyName: newExperience.companyName}));
+                              setCompanyInvite(prev => ({ ...prev, companyName: newExperience.companyName }));
                               setShowCompanyInvite(true);
                             }}
                             sx={{ textTransform: 'none', p: 0, minWidth: 'auto', fontSize: '0.75rem' }}
@@ -939,7 +945,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                             if (inputElement) {
                               // Get the position of the input field
                               const rect = inputElement.getBoundingClientRect();
-                              
+
                               // Create a temporary date input
                               const tempInput = document.createElement('input');
                               tempInput.type = 'date';
@@ -949,7 +955,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                               tempInput.style.width = `${rect.width}px`;
                               tempInput.style.opacity = '0';
                               tempInput.style.pointerEvents = 'none';
-                              
+
                               // Set current value if exists
                               if (newExperience.startDate) {
                                 if (newExperience.startDate.includes('-')) {
@@ -959,9 +965,9 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                                   tempInput.value = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
                                 }
                               }
-                              
+
                               tempInput.max = new Date().toISOString().split('T')[0];
-                              
+
                               // Handle date selection
                               const handleDateChange = (event: any) => {
                                 const selectedDate = event.target.value;
@@ -976,10 +982,10 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                                   }
                                 }, 100);
                               };
-                                
+
                               tempInput.addEventListener('change', handleDateChange);
                               document.body.appendChild(tempInput);
-                              
+
                               // Trigger date picker
                               setTimeout(() => {
                                 tempInput.focus();
@@ -1086,7 +1092,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                               if (inputElement) {
                                 // Get the position of the input field
                                 const rect = inputElement.getBoundingClientRect();
-                                
+
                                 // Create a temporary date input
                                 const tempInput = document.createElement('input');
                                 tempInput.type = 'date';
@@ -1096,7 +1102,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                                 tempInput.style.width = `${rect.width}px`;
                                 tempInput.style.opacity = '0';
                                 tempInput.style.pointerEvents = 'none';
-                                
+
                                 // Set current value if exists
                                 if (newExperience.endDate) {
                                   if (newExperience.endDate.includes('-')) {
@@ -1106,9 +1112,9 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                                     tempInput.value = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
                                   }
                                 }
-                                
+
                                 tempInput.max = new Date().toISOString().split('T')[0];
-                                
+
                                 // Set min date to start date
                                 if (newExperience.startDate) {
                                   if (newExperience.startDate.includes('-')) {
@@ -1118,7 +1124,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                                     tempInput.min = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
                                   }
                                 }
-                                
+
                                 // Handle date selection
                                 const handleDateChange = (event: any) => {
                                   const selectedDate = event.target.value;
@@ -1133,10 +1139,10 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                                     }
                                   }, 100);
                                 };
-                                
+
                                 tempInput.addEventListener('change', handleDateChange);
                                 document.body.appendChild(tempInput);
-                                
+
                                 // Trigger date picker
                                 setTimeout(() => {
                                   tempInput.focus();
@@ -1207,9 +1213,9 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                       <Paper
                         key={idx}
                         elevation={0}
-                        sx={{ 
-                          p: 2, 
-                          bgcolor: '#f8fafc', 
+                        sx={{
+                          p: 2,
+                          bgcolor: '#f8fafc',
                           border: '1px solid #e2e8f0',
                           borderRadius: 2
                         }}
@@ -1220,10 +1226,10 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                               <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#1e293b' }}>
                                 {skill.name}
                               </Typography>
-                              <Chip 
-                                label={`${skill.rating}/10`} 
-                                size="small" 
-                                sx={{ 
+                              <Chip
+                                label={`${skill.rating}/10`}
+                                size="small"
+                                sx={{
                                   bgcolor: skill.rating >= 8 ? '#dcfce7' : skill.rating >= 5 ? '#fef3c7' : '#fee2e2',
                                   color: skill.rating >= 8 ? '#166534' : skill.rating >= 5 ? '#92400e' : '#991b1b',
                                   fontWeight: 600
@@ -1465,41 +1471,41 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 You cannot upload any resume later. This job description will serve as your professional profile.
               </Typography>
             </Alert>
-            
+
             <Alert severity="warning">
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 Limited Updates
               </Typography>
               <Typography variant="caption">
-                • Job description can only be updated once every 30 days<br/>
+                • Job description can only be updated once every 30 days<br />
                 • Job title CANNOT be changed after account creation
               </Typography>
             </Alert>
-            
+
             <Alert severity="info">
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 Accuracy Required
               </Typography>
               <Typography variant="caption">
-                Provide 100% accurate roles and responsibilities that you EXACTLY performed. 
+                Provide 100% accurate roles and responsibilities that you EXACTLY performed.
                 Mention only genuine technical skills and tools.
               </Typography>
             </Alert>
-            
+
             <Alert severity="error" sx={{ bgcolor: '#fef2f2' }}>
               <Typography variant="body2" sx={{ fontWeight: 700, color: '#991b1b' }}>
                 Verification & Consequences
               </Typography>
               <Typography variant="caption" sx={{ color: '#7f1d1d' }}>
-                We will verify your information directly with company official authorities. 
+                We will verify your information directly with company official authorities.
                 Any misrepresentation is considered a crime and will result in:
-                <br/>• Permanent blocking from the platform
-                <br/>• Your profile and reason for blocking will be visible to all our customers
+                <br />• Permanent blocking from the platform
+                <br />• Your profile and reason for blocking will be visible to all our customers
               </Typography>
             </Alert>
-            
+
             <Divider />
-            
+
             <Alert severity="warning" sx={{ bgcolor: '#fffbeb' }}>
               <Typography variant="body2" sx={{ fontWeight: 600, color: '#92400e' }}>
                 Official Email Required
@@ -1508,16 +1514,16 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 Failing to provide official email of the client reference will not allow you to access our platform.
               </Typography>
             </Alert>
-            
+
             <Typography variant="body2" sx={{ fontStyle: 'italic', color: '#64748b', mt: 1 }}>
-              This job description will act as your resume for anyone viewing your profile. 
+              This job description will act as your resume for anyone viewing your profile.
               Fill in exactly what you did - nothing more, nothing less.
             </Typography>
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             color="primary"
             onClick={() => {
               setJobDescAcknowledged(true);
@@ -1545,7 +1551,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 label="Skill Name *"
                 placeholder="e.g., React, Python, AWS, SQL"
                 value={currentSkill.name}
-                onChange={(e) => setCurrentSkill(prev => ({...prev, name: e.target.value}))}
+                onChange={(e) => setCurrentSkill(prev => ({ ...prev, name: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12}>
@@ -1556,7 +1562,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 rows={4}
                 placeholder="Describe specific projects, tasks, and responsibilities where you used this skill..."
                 value={currentSkill.experience}
-                onChange={(e) => setCurrentSkill(prev => ({...prev, experience: e.target.value}))}
+                onChange={(e) => setCurrentSkill(prev => ({ ...prev, experience: e.target.value }))}
                 onPaste={(e) => e.preventDefault()}
                 onDrop={(e) => e.preventDefault()}
                 helperText="Copy-paste disabled. Type manually. Be specific about what you did."
@@ -1574,7 +1580,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 <Typography variant="body2" color="text.secondary">1</Typography>
                 <Slider
                   value={currentSkill.rating}
-                  onChange={(_, value) => setCurrentSkill(prev => ({...prev, rating: value as number}))}
+                  onChange={(_, value) => setCurrentSkill(prev => ({ ...prev, rating: value as number }))}
                   min={1}
                   max={10}
                   step={1}
@@ -1600,8 +1606,8 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
           <Button onClick={() => setShowSkillDialog(false)}>
             Cancel
           </Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             onClick={() => {
               if (currentSkill.name.trim() && currentSkill.experience.trim()) {
                 setNewExperience(prev => ({
@@ -1630,7 +1636,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2, color: '#64748b' }}>
-            Your company is not registered with us. You can invite them to create an account, 
+            Your company is not registered with us. You can invite them to create an account,
             or proceed without inviting by clicking "Skip".
           </Typography>
           <Grid container spacing={2}>
@@ -1639,7 +1645,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 fullWidth
                 label="Company Full Name *"
                 value={companyInvite.companyName}
-                onChange={(e) => setCompanyInvite(prev => ({...prev, companyName: e.target.value}))}
+                onChange={(e) => setCompanyInvite(prev => ({ ...prev, companyName: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12}>
@@ -1649,7 +1655,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 multiline
                 rows={2}
                 value={companyInvite.address}
-                onChange={(e) => setCompanyInvite(prev => ({...prev, address: e.target.value}))}
+                onChange={(e) => setCompanyInvite(prev => ({ ...prev, address: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -1658,7 +1664,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 label="Company Website"
                 placeholder="https://company.com"
                 value={companyInvite.website}
-                onChange={(e) => setCompanyInvite(prev => ({...prev, website: e.target.value}))}
+                onChange={(e) => setCompanyInvite(prev => ({ ...prev, website: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -1666,7 +1672,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 fullWidth
                 label="Contact Person Name *"
                 value={companyInvite.contactPersonName}
-                onChange={(e) => setCompanyInvite(prev => ({...prev, contactPersonName: e.target.value}))}
+                onChange={(e) => setCompanyInvite(prev => ({ ...prev, contactPersonName: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -1675,10 +1681,10 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 label="Contact Person Role"
                 placeholder="e.g., HR Manager"
                 value={companyInvite.contactPersonRole}
-                onChange={(e) => setCompanyInvite(prev => ({...prev, contactPersonRole: e.target.value}))}
+                onChange={(e) => setCompanyInvite(prev => ({ ...prev, contactPersonRole: e.target.value }))}
               />
             </Grid>
-            
+
             {/* Email Fields */}
             <Grid item xs={12}>
               <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Company Email(s)</Typography>
@@ -1692,16 +1698,16 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                     onChange={(e) => {
                       const newEmails = [...companyInvite.emails];
                       newEmails[idx] = e.target.value;
-                      setCompanyInvite(prev => ({...prev, emails: newEmails}));
+                      setCompanyInvite(prev => ({ ...prev, emails: newEmails }));
                     }}
                   />
                   {companyInvite.emails.length > 1 && (
-                    <Button 
-                      size="small" 
+                    <Button
+                      size="small"
                       color="error"
                       onClick={() => {
                         setCompanyInvite(prev => ({
-                          ...prev, 
+                          ...prev,
                           emails: prev.emails.filter((_, i) => i !== idx)
                         }));
                       }}
@@ -1711,14 +1717,14 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                   )}
                 </Box>
               ))}
-              <Button 
-                size="small" 
-                onClick={() => setCompanyInvite(prev => ({...prev, emails: [...prev.emails, '']}))}
+              <Button
+                size="small"
+                onClick={() => setCompanyInvite(prev => ({ ...prev, emails: [...prev.emails, ''] }))}
               >
                 + Add Another Email
               </Button>
             </Grid>
-            
+
             {/* Phone Fields */}
             <Grid item xs={12}>
               <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Company Phone(s)</Typography>
@@ -1732,16 +1738,16 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                     onChange={(e) => {
                       const newPhones = [...companyInvite.phoneNumbers];
                       newPhones[idx] = e.target.value;
-                      setCompanyInvite(prev => ({...prev, phoneNumbers: newPhones}));
+                      setCompanyInvite(prev => ({ ...prev, phoneNumbers: newPhones }));
                     }}
                   />
                   {companyInvite.phoneNumbers.length > 1 && (
-                    <Button 
-                      size="small" 
+                    <Button
+                      size="small"
                       color="error"
                       onClick={() => {
                         setCompanyInvite(prev => ({
-                          ...prev, 
+                          ...prev,
                           phoneNumbers: prev.phoneNumbers.filter((_, i) => i !== idx)
                         }));
                       }}
@@ -1751,9 +1757,9 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                   )}
                 </Box>
               ))}
-              <Button 
-                size="small" 
-                onClick={() => setCompanyInvite(prev => ({...prev, phoneNumbers: [...prev.phoneNumbers, '']}))}
+              <Button
+                size="small"
+                onClick={() => setCompanyInvite(prev => ({ ...prev, phoneNumbers: [...prev.phoneNumbers, ''] }))}
               >
                 + Add Another Phone
               </Button>
@@ -1764,8 +1770,8 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
           <Button onClick={() => setShowCompanyInvite(false)}>
             Skip - Proceed Without Inviting
           </Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             onClick={async () => {
               try {
                 const token = localStorage.getItem('authToken') || (formData as any)?.access_token;

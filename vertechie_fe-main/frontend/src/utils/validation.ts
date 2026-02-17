@@ -85,3 +85,23 @@ export const isValidGPA = (gpa: string): boolean => {
   // Allow 0-4 scale (common in US) or 0-10 scale (common internationally)
   return (numGpa >= 0 && numGpa <= 4) || (numGpa >= 0 && numGpa <= 10);
 }; 
+
+export type EducationScoreType = 'CGPA' | 'Percentage' | 'Grade';
+
+export const isValidEducationScore = (scoreType: EducationScoreType, scoreValue: string): boolean => {
+  if (!scoreValue || scoreValue.trim() === '') return false;
+  const value = scoreValue.trim();
+
+  if (scoreType === 'CGPA') {
+    const num = Number(value);
+    return !Number.isNaN(num) && num >= 0 && num <= 10;
+  }
+
+  if (scoreType === 'Percentage') {
+    const num = Number(value);
+    return !Number.isNaN(num) && num >= 0 && num <= 100;
+  }
+
+  // Grade: allow A, A+, A-, A1, O, B2, etc.
+  return /^[A-Za-z][A-Za-z0-9+\-]{0,4}$/.test(value);
+};

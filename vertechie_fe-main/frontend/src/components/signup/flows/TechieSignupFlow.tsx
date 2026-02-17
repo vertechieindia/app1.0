@@ -76,6 +76,8 @@ const TechieSignupFlow: React.FC<TechieSignupFlowProps> = ({
       fieldOfStudy: string;
       startDate: string;
       endDate: string;
+      scoreType?: 'CGPA' | 'Percentage' | 'Grade';
+      scoreValue?: string;
       gpa?: string;
     }>,
     
