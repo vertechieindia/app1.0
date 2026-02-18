@@ -90,7 +90,11 @@ import NoteIcon from '@mui/icons-material/Note';
 import StarIcon from '@mui/icons-material/Star';
 import TimerIcon from '@mui/icons-material/Timer';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import CancelIcon from '@mui/icons-material/Cancel';
 import LinkIcon from '@mui/icons-material/Link';
+import { fetchWithAuth } from '../../utils/apiInterceptor';
+import { getApiUrl } from '../../config/api';
 
 // Animations
 const pulse = keyframes`
@@ -296,6 +300,38 @@ const VideoRoom: React.FC = () => {
   const [moreMenuAnchor, setMoreMenuAnchor] = useState<null | HTMLElement>(null);
   const [reactionMenuAnchor, setReactionMenuAnchor] = useState<null | HTMLElement>(null);
 
+  const meetingType = searchParams.get('type') || 'interview';
+  const isInterview = meetingType === 'interview';
+  const interviewId = searchParams.get('interviewId') || roomId || '';
+  const isUuidInterviewId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(interviewId);
+  const returnTo = searchParams.get('returnTo') || '/techie/ats/interviews';
+
+  // Fetch initial interview details
+  useEffect(() => {
+    const fetchInterviewDetails = async () => {
+      if (!interviewId || !isUuidInterviewId) return;
+      try {
+        const url = getApiUrl(`/hiring/interviews/${interviewId}`);
+        const response = await fetchWithAuth(url);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.notes) {
+            // Split notes by newline or just set as one note if format is unknown
+            setInterviewNotes([{
+              id: 'initial',
+              content: data.notes,
+              timestamp: new Date(data.updated_at || data.created_at),
+              category: 'general'
+            }]);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching interview details:', err);
+      }
+    };
+    if (isInterview) fetchInterviewDetails();
+  }, [interviewId, isInterview, isUuidInterviewId]);
+
   // Meeting timer
   useEffect(() => {
     const timer = setInterval(() => {
@@ -385,7 +421,7 @@ const VideoRoom: React.FC = () => {
   };
 
   const endCall = () => {
-    navigate('/techie/ats/scheduling');
+    navigate(returnTo);
   };
 
   const copyMeetingLink = () => {
@@ -406,15 +442,83 @@ const VideoRoom: React.FC = () => {
     setNewMessage('');
   };
 
-  const addNote = () => {
-    if (!newNote.trim()) return;
+  const addNote = async () => {
+    if (!newNote.trim() || !interviewId || !isUuidInterviewId) return;
+
+    const noteContent = newNote.trim();
+    const timestamp = new Date();
+
+    // Optimistic update
+    const noteId = Date.now().toString();
     setInterviewNotes(prev => [...prev, {
-      id: Date.now().toString(),
-      content: newNote,
-      timestamp: new Date(),
+      id: noteId,
+      content: noteContent,
+      timestamp: timestamp,
       category: 'general',
     }]);
     setNewNote('');
+
+    // Persist to backend
+    try {
+      // Get current notes to append
+      const currentNotes = interviewNotes.map(n => n.content).join('\n\n');
+      const updatedNotes = currentNotes ? `${currentNotes}\n\n${noteContent}` : noteContent;
+
+      const response = await fetchWithAuth(getApiUrl(`/hiring/interviews/${interviewId}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: updatedNotes })
+      });
+
+      if (response.ok) {
+        setSnackbar({ open: true, message: 'Note saved to cloud' });
+      } else {
+        throw new Error('Failed to save note');
+      }
+    } catch (err) {
+      console.error('Error saving note:', err);
+      setSnackbar({ open: true, message: 'Failed to save note to cloud. Kept locally.' });
+    }
+  };
+
+  const handleRateCandidate = async (rating: number) => {
+    setCandidateRating(rating);
+    if (!interviewId || !isUuidInterviewId) return;
+
+    try {
+      const response = await fetchWithAuth(getApiUrl(`/hiring/interviews/${interviewId}/scorecard`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          overall_score: rating,
+          recommendation: rating >= 4 ? 'strong_yes' : rating >= 3 ? 'yes' : 'no',
+          notes: 'Rating submitted during call'
+        })
+      });
+
+      if (response.ok) {
+        setSnackbar({ open: true, message: `Candidate rated ${rating} stars` });
+      }
+    } catch (err) {
+      console.error('Error submitting rating:', err);
+    }
+  };
+
+  const handleCancelFromCall = async () => {
+    if (!interviewId || !isUuidInterviewId) return;
+    if (!window.confirm("Are you sure you want to CANCEL this interview? This will notify the candidate and end the session.")) return;
+
+    try {
+      const response = await fetchWithAuth(getApiUrl(`/hiring/interviews/${interviewId}/cancel`), {
+        method: 'PUT'
+      });
+      if (response.ok) {
+        setSnackbar({ open: true, message: 'Interview cancelled' });
+        setTimeout(() => navigate(returnTo), 2000);
+      }
+    } catch (err) {
+      console.error('Error cancelling interview:', err);
+    }
   };
 
   const sendReaction = (emoji: string) => {
@@ -422,8 +526,7 @@ const VideoRoom: React.FC = () => {
     setReactionMenuAnchor(null);
   };
 
-  const meetingType = searchParams.get('type') || 'interview';
-  const isInterview = meetingType === 'interview';
+
 
   return (
     <VideoContainer>
@@ -822,7 +925,7 @@ const VideoRoom: React.FC = () => {
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Candidate Rating</Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               {[1, 2, 3, 4, 5].map((star) => (
-                <IconButton key={star} onClick={() => setCandidateRating(star)} sx={{ color: star <= candidateRating ? '#ffc107' : 'rgba(255,255,255,0.3)' }}>
+                <IconButton key={star} onClick={() => handleRateCandidate(star)} sx={{ color: star <= candidateRating ? '#ffc107' : 'rgba(255,255,255,0.3)' }}>
                   <StarIcon />
                 </IconButton>
               ))}
@@ -898,6 +1001,17 @@ const VideoRoom: React.FC = () => {
 
       {/* More Options Menu */}
       <Menu anchorEl={moreMenuAnchor} open={Boolean(moreMenuAnchor)} onClose={() => setMoreMenuAnchor(null)}>
+        {isInterview && (
+          <Box>
+            <MenuItem onClick={() => { setShowNotes(true); setMoreMenuAnchor(null); }}>
+              <AssignmentIcon sx={{ mr: 1, color: '#42a5f5' }} /> Interview Notes & Rating
+            </MenuItem>
+            <MenuItem onClick={() => { handleCancelFromCall(); setMoreMenuAnchor(null); }} sx={{ color: '#ff4444' }}>
+              <CancelIcon sx={{ mr: 1 }} /> Cancel Interview
+            </MenuItem>
+            <Divider />
+          </Box>
+        )}
         <MenuItem onClick={() => { setShowSettings(true); setMoreMenuAnchor(null); }}>
           <SettingsIcon sx={{ mr: 1 }} /> Settings
         </MenuItem>

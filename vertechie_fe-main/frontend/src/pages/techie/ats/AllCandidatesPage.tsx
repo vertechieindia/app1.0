@@ -1,214 +1,270 @@
-/**
- * AllCandidatesPage - View and Manage All Candidates
- */
-
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, Avatar, Chip, IconButton, TextField, Button, Rating, Checkbox, Menu, MenuItem,
-  InputAdornment, FormControl, InputLabel, Select, Pagination, CircularProgress, Snackbar, Alert,
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  Checkbox,
+  Chip,
+  CircularProgress,
+  FormControl,
+  IconButton,
+  InputAdornment,
+  InputLabel,
+  Menu,
+  MenuItem,
+  Pagination,
+  Paper,
+  Select,
+  Snackbar,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import SearchIcon from '@mui/icons-material/Search';
+import DeleteIcon from '@mui/icons-material/Delete';
+import DownloadIcon from '@mui/icons-material/Download';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
-import EmailIcon from '@mui/icons-material/Email';
-import ScheduleIcon from '@mui/icons-material/Schedule';
-import DownloadIcon from '@mui/icons-material/Download';
+import SearchIcon from '@mui/icons-material/Search';
 import ATSLayout from './ATSLayout';
-import { userService } from '../../../services/jobPortalService';
+import { getApiUrl } from '../../../config/api';
 
-interface Candidate {
-  id: string | number;
+interface CandidateRow {
+  applicationId: string;
+  candidateId: string;
+  jobId: string;
   name: string;
   email: string;
   role: string;
   stage: string;
-  rating: number;
   source: string;
   applied: string;
   status: string;
   avatar?: string;
-  skills?: string[];
 }
+
+const STAGES = ['new', 'screening', 'interview', 'offer', 'hired', 'rejected'] as const;
+type StageType = typeof STAGES[number];
+
+const statusToStage = (status?: string): StageType => {
+  const s = (status || '').toLowerCase();
+  if (s === 'under_review' || s === 'shortlisted') return 'screening';
+  if (s === 'interview') return 'interview';
+  if (s === 'offered') return 'offer';
+  if (s === 'hired') return 'hired';
+  if (s === 'rejected') return 'rejected';
+  return 'new';
+};
+
+const stageLabel = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice(1);
 
 const getStageColor = (stage: string) => {
   switch (stage) {
-    case 'New': return { bg: alpha('#0d47a1', 0.1), text: '#0d47a1' };
-    case 'Screening': return { bg: alpha('#FF9500', 0.1), text: '#FF9500' };
-    case 'Interview': return { bg: alpha('#5856D6', 0.1), text: '#5856D6' };
-    case 'Offer': return { bg: alpha('#34C759', 0.1), text: '#34C759' };
-    case 'Hired': return { bg: alpha('#00C853', 0.1), text: '#00C853' };
-    case 'Rejected': return { bg: alpha('#FF3B30', 0.1), text: '#FF3B30' };
-    default: return { bg: alpha('#8E8E93', 0.1), text: '#8E8E93' };
+    case 'new':
+      return { bg: alpha('#0d47a1', 0.1), text: '#0d47a1' };
+    case 'screening':
+      return { bg: alpha('#FF9500', 0.1), text: '#FF9500' };
+    case 'interview':
+      return { bg: alpha('#5856D6', 0.1), text: '#5856D6' };
+    case 'offer':
+      return { bg: alpha('#34C759', 0.1), text: '#34C759' };
+    case 'hired':
+      return { bg: alpha('#00C853', 0.1), text: '#00C853' };
+    case 'rejected':
+      return { bg: alpha('#FF3B30', 0.1), text: '#FF3B30' };
+    default:
+      return { bg: alpha('#8E8E93', 0.1), text: '#8E8E93' };
   }
 };
 
 const AllCandidatesPage: React.FC = () => {
   const navigate = useNavigate();
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [candidates, setCandidates] = useState<CandidateRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<(string | number)[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
-  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+  const [selectedCandidate, setSelectedCandidate] = useState<CandidateRow | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState('');
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
-    open: false, message: '', severity: 'info'
-  });
+  const [bulkStage, setBulkStage] = useState<StageType>('screening');
   const [page, setPage] = useState(1);
   const itemsPerPage = 10;
-
-  // Fetch candidates who applied to HM's jobs
-  useEffect(() => {
-    const fetchCandidates = async () => {
-      try {
-        setLoading(true);
-        const token = localStorage.getItem('authToken');
-        const userData = localStorage.getItem('userData');
-        const user = userData ? JSON.parse(userData) : null;
-        
-        if (!token || !user) {
-          setLoading(false);
-          return;
-        }
-        
-        const headers = {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        };
-        
-        // Get all jobs posted by this HM
-        const jobsRes = await fetch(`http://localhost:8000/api/v1/jobs/`, { headers });
-        const allJobs = jobsRes.ok ? await jobsRes.json() : [];
-        const hmJobs = allJobs.filter((j: any) => j.posted_by_id === user.id);
-        
-        // Fetch applicants for each job
-        const allCandidates: Candidate[] = [];
-        const seenIds = new Set<string>();
-        
-        for (const job of hmJobs) {
-          try {
-            const appRes = await fetch(`http://localhost:8000/api/v1/jobs/${job.id}/applications`, { headers });
-            if (appRes.ok) {
-              const applications = await appRes.json();
-              
-              for (const app of applications) {
-                const applicant = app.applicant;
-                if (!applicant || seenIds.has(applicant.id)) continue;
-                seenIds.add(applicant.id);
-                
-                // Map application status to stage
-                const statusToStage: Record<string, string> = {
-                  'submitted': 'New',
-                  'under_review': 'Screening',
-                  'shortlisted': 'Screening',
-                  'interview': 'Interview',
-                  'offered': 'Offer',
-                  'hired': 'Hired',
-                  'rejected': 'Rejected',
-                };
-                
-                allCandidates.push({
-                  id: applicant.id,
-                  name: `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || applicant.email,
-                  email: applicant.email || '',
-                  role: job.title || 'Applied Position',
-                  stage: statusToStage[app.status?.toLowerCase()] || 'New',
-                  rating: app.match_score ? Math.round(app.match_score / 20) : 3,
-                  source: 'VerTechie',
-                  applied: app.applied_at ? new Date(app.applied_at).toLocaleDateString('en-US', {
-                    month: 'short', day: 'numeric', year: 'numeric'
-                  }) : 'Recently',
-                  status: app.status || 'submitted',
-                  avatar: applicant.avatar_url,
-                  skills: app.matched_skills || [],
-                });
-              }
-            }
-          } catch (e) {
-            console.warn('Error fetching applications for job:', job.id);
-          }
-        }
-        
-        // Filter by search query
-        const filtered = searchQuery
-          ? allCandidates.filter(c =>
-              c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-              c.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-              c.role.toLowerCase().includes(searchQuery.toLowerCase())
-            )
-          : allCandidates;
-        
-        setCandidates(filtered);
-      } catch (error) {
-        console.error('Error fetching candidates:', error);
-        setSnackbar({ open: true, message: 'Failed to load candidates', severity: 'error' });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchCandidates();
-  }, [searchQuery]);
-
-  // Filter candidates
-  const filteredCandidates = candidates.filter(c => {
-    const matchesStage = !stageFilter || c.stage.toLowerCase() === stageFilter.toLowerCase();
-    return matchesStage;
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
+    open: false,
+    message: '',
+    severity: 'info',
   });
 
-  // Paginate
+  const token = localStorage.getItem('authToken');
+
+  const headers: HeadersInit = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+
+  const fetchCandidates = async () => {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      const jobsRes = await fetch(getApiUrl('/jobs/'), { headers });
+      const allJobs = jobsRes.ok ? await jobsRes.json() : [];
+
+      const userData = localStorage.getItem('userData');
+      const currentUser = userData ? JSON.parse(userData) : null;
+      const hmJobs = (allJobs || []).filter((j: any) => j.posted_by_id === currentUser?.id);
+
+      const allRows: CandidateRow[] = [];
+      for (const job of hmJobs) {
+        const appRes = await fetch(getApiUrl(`/jobs/${job.id}/applications`), { headers });
+        if (!appRes.ok) continue;
+        const applications = await appRes.json();
+        for (const app of applications) {
+          const applicant = app.applicant;
+          if (!applicant?.id || !app.id) continue;
+          allRows.push({
+            applicationId: String(app.id),
+            candidateId: String(applicant.id),
+            jobId: String(job.id),
+            name: `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || applicant.email || 'Candidate',
+            email: applicant.email || '',
+            role: job.title || 'Applied Position',
+            stage: statusToStage(app.status),
+            source: 'VerTechie',
+            applied: app.submitted_at
+              ? new Date(app.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : 'Recently',
+            status: app.status || 'submitted',
+            avatar: applicant.avatar_url,
+          });
+        }
+      }
+
+      setCandidates(allRows);
+    } catch (error) {
+      console.error('Error fetching candidates:', error);
+      setSnackbar({ open: true, message: 'Failed to load candidates', severity: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCandidates();
+  }, []);
+
+  const filteredCandidates = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return candidates.filter((c) => {
+      const matchesStage = !stageFilter || c.stage === stageFilter;
+      const matchesQuery =
+        !q ||
+        c.name.toLowerCase().includes(q) ||
+        c.email.toLowerCase().includes(q) ||
+        c.role.toLowerCase().includes(q);
+      return matchesStage && matchesQuery;
+    });
+  }, [candidates, searchQuery, stageFilter]);
+
   const paginatedCandidates = filteredCandidates.slice((page - 1) * itemsPerPage, page * itemsPerPage);
   const totalPages = Math.ceil(filteredCandidates.length / itemsPerPage);
 
   const handleSelectAll = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.checked) {
-      setSelected(paginatedCandidates.map((c) => c.id));
+      setSelectedIds(paginatedCandidates.map((c) => c.applicationId));
     } else {
-      setSelected([]);
+      setSelectedIds([]);
     }
   };
 
-  const handleSelect = (id: string | number) => {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+  const handleSelect = (applicationId: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(applicationId) ? prev.filter((id) => id !== applicationId) : [...prev, applicationId]
     );
   };
 
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
-    setPage(1);
+  const runBulkStageUpdate = async () => {
+    if (!selectedIds.length) return;
+    try {
+      const res = await fetch(getApiUrl('/hiring/applications/bulk-stage'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          application_ids: selectedIds,
+          stage: bulkStage,
+        }),
+      });
+      if (!res.ok) throw new Error('bulk-stage-failed');
+      const data = await res.json();
+      setSnackbar({ open: true, message: `Updated ${data.count || 0} candidates to ${stageLabel(bulkStage)}`, severity: 'success' });
+      setSelectedIds([]);
+      await fetchCandidates();
+    } catch {
+      setSnackbar({ open: true, message: 'Bulk stage update failed', severity: 'error' });
+    }
+  };
+
+  const runBulkDelete = async () => {
+    if (!selectedIds.length) return;
+    const confirmDelete = window.confirm(`Delete ${selectedIds.length} application(s)? This cannot be undone.`);
+    if (!confirmDelete) return;
+
+    try {
+      const res = await fetch(getApiUrl('/hiring/applications/bulk-delete'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          application_ids: selectedIds,
+        }),
+      });
+      if (!res.ok) throw new Error('bulk-delete-failed');
+      const data = await res.json();
+      setSnackbar({ open: true, message: `Deleted ${data.count || 0} application(s)`, severity: 'success' });
+      setSelectedIds([]);
+      await fetchCandidates();
+    } catch {
+      setSnackbar({ open: true, message: 'Bulk delete failed', severity: 'error' });
+    }
   };
 
   return (
     <ATSLayout>
-      {/* Filters */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
           <TextField
             size="small"
             placeholder="Search candidates..."
             value={searchQuery}
-            onChange={handleSearch}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(1);
+            }}
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
             sx={{ width: 300 }}
           />
-          <FormControl size="small" sx={{ minWidth: 120 }}>
+          <FormControl size="small" sx={{ minWidth: 140 }}>
             <InputLabel>Stage</InputLabel>
-            <Select 
-              label="Stage" 
+            <Select
+              label="Stage"
               value={stageFilter}
-              onChange={(e) => { setStageFilter(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setStageFilter(e.target.value);
+                setPage(1);
+              }}
             >
               <MenuItem value="">All Stages</MenuItem>
-              <MenuItem value="new">New</MenuItem>
-              <MenuItem value="screening">Screening</MenuItem>
-              <MenuItem value="interview">Interview</MenuItem>
-              <MenuItem value="offer">Offer</MenuItem>
-              <MenuItem value="hired">Hired</MenuItem>
-              <MenuItem value="rejected">Rejected</MenuItem>
+              {STAGES.map((stage) => (
+                <MenuItem key={stage} value={stage}>{stageLabel(stage)}</MenuItem>
+              ))}
             </Select>
           </FormControl>
         </Box>
@@ -218,17 +274,30 @@ const AllCandidatesPage: React.FC = () => {
         </Box>
       </Box>
 
-      {/* Bulk Actions */}
-      {selected.length > 0 && (
+      {selectedIds.length > 0 && (
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2, p: 1.5, bgcolor: alpha('#0d47a1', 0.05), borderRadius: 2 }}>
-          <Typography variant="body2" fontWeight={500}>{selected.length} selected</Typography>
-          <Button size="small" startIcon={<EmailIcon />}>Send Email</Button>
-          <Button size="small" startIcon={<ScheduleIcon />}>Schedule Interview</Button>
-          <Button size="small" color="error">Reject</Button>
+          <Typography variant="body2" fontWeight={500}>{selectedIds.length} selected</Typography>
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel>Move To</InputLabel>
+            <Select
+              label="Move To"
+              value={bulkStage}
+              onChange={(e) => setBulkStage(e.target.value as StageType)}
+            >
+              {STAGES.map((stage) => (
+                <MenuItem key={stage} value={stage}>{stageLabel(stage)}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Button size="small" variant="contained" onClick={runBulkStageUpdate}>
+            Update Stage
+          </Button>
+          <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={runBulkDelete}>
+            Delete
+          </Button>
         </Box>
       )}
 
-      {/* Table */}
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
           <CircularProgress />
@@ -237,7 +306,7 @@ const AllCandidatesPage: React.FC = () => {
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Typography variant="h6" color="text.secondary">No candidates found</Typography>
           <Typography variant="body2" color="text.secondary">
-            {searchQuery ? 'Try adjusting your search criteria' : 'Candidates will appear here when they register'}
+            Try adjusting your search criteria
           </Typography>
         </Box>
       ) : (
@@ -246,17 +315,16 @@ const AllCandidatesPage: React.FC = () => {
             <TableHead>
               <TableRow sx={{ bgcolor: alpha('#0d47a1', 0.03) }}>
                 <TableCell padding="checkbox">
-                  <Checkbox 
-                    checked={selected.length === paginatedCandidates.length && paginatedCandidates.length > 0} 
-                    onChange={handleSelectAll} 
+                  <Checkbox
+                    checked={selectedIds.length === paginatedCandidates.length && paginatedCandidates.length > 0}
+                    onChange={handleSelectAll}
                   />
                 </TableCell>
                 <TableCell><strong>Candidate</strong></TableCell>
                 <TableCell><strong>Role/Title</strong></TableCell>
                 <TableCell><strong>Stage</strong></TableCell>
-                <TableCell><strong>Rating</strong></TableCell>
                 <TableCell><strong>Source</strong></TableCell>
-                <TableCell><strong>Joined</strong></TableCell>
+                <TableCell><strong>Applied</strong></TableCell>
                 <TableCell align="right"><strong>Actions</strong></TableCell>
               </TableRow>
             </TableHead>
@@ -264,16 +332,16 @@ const AllCandidatesPage: React.FC = () => {
               {paginatedCandidates.map((candidate) => {
                 const stageColor = getStageColor(candidate.stage);
                 return (
-                  <TableRow key={candidate.id} hover>
+                  <TableRow key={candidate.applicationId} hover>
                     <TableCell padding="checkbox">
-                      <Checkbox checked={selected.includes(candidate.id)} onChange={() => handleSelect(candidate.id)} />
+                      <Checkbox
+                        checked={selectedIds.includes(candidate.applicationId)}
+                        onChange={() => handleSelect(candidate.applicationId)}
+                      />
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <Avatar 
-                          src={candidate.avatar} 
-                          sx={{ bgcolor: alpha('#0d47a1', 0.1), color: '#0d47a1' }}
-                        >
+                        <Avatar src={candidate.avatar} sx={{ bgcolor: alpha('#0d47a1', 0.1), color: '#0d47a1' }}>
                           {candidate.name.charAt(0)}
                         </Avatar>
                         <Box>
@@ -284,9 +352,8 @@ const AllCandidatesPage: React.FC = () => {
                     </TableCell>
                     <TableCell>{candidate.role}</TableCell>
                     <TableCell>
-                      <Chip label={candidate.stage} size="small" sx={{ bgcolor: stageColor.bg, color: stageColor.text, fontWeight: 500 }} />
+                      <Chip label={stageLabel(candidate.stage)} size="small" sx={{ bgcolor: stageColor.bg, color: stageColor.text, fontWeight: 500 }} />
                     </TableCell>
-                    <TableCell><Rating value={candidate.rating} size="small" readOnly /></TableCell>
                     <TableCell>{candidate.source}</TableCell>
                     <TableCell>{candidate.applied}</TableCell>
                     <TableCell align="right">
@@ -302,41 +369,38 @@ const AllCandidatesPage: React.FC = () => {
         </TableContainer>
       )}
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3 }}>
           <Typography variant="body2" color="text.secondary">
             Showing {((page - 1) * itemsPerPage) + 1} - {Math.min(page * itemsPerPage, filteredCandidates.length)} of {filteredCandidates.length} candidates
           </Typography>
-          <Pagination 
-            count={totalPages} 
-            page={page}
-            onChange={(_, value) => setPage(value)}
-            color="primary" 
-          />
+          <Pagination count={totalPages} page={page} onChange={(_, value) => setPage(value)} color="primary" />
         </Box>
       )}
 
-      {/* Action Menu */}
-      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => { setMenuAnchor(null); setSelectedCandidate(null); }}>
-        <MenuItem onClick={() => { 
-          setMenuAnchor(null); 
-          if (selectedCandidate) {
-            navigate(`/techie/ats/candidate/${selectedCandidate.id}`);
-          }
-        }}>View Profile</MenuItem>
-        <MenuItem onClick={() => { 
-          setMenuAnchor(null); 
-          if (selectedCandidate?.email) {
-            window.location.href = `mailto:${selectedCandidate.email}`;
-          }
-        }}>Send Email</MenuItem>
-        <MenuItem onClick={() => { setMenuAnchor(null); setSnackbar({ open: true, message: 'Schedule interview feature coming soon', severity: 'info' }); }}>Schedule Interview</MenuItem>
-        <MenuItem onClick={() => { setMenuAnchor(null); setSnackbar({ open: true, message: 'Stage update feature coming soon', severity: 'info' }); }}>Move to Next Stage</MenuItem>
-        <MenuItem onClick={() => setMenuAnchor(null)} sx={{ color: 'error.main' }}>Reject</MenuItem>
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
+        onClose={() => { setMenuAnchor(null); setSelectedCandidate(null); }}
+      >
+        <MenuItem
+          onClick={() => {
+            setMenuAnchor(null);
+            if (selectedCandidate) navigate(`/techie/ats/candidate/${selectedCandidate.candidateId}`);
+          }}
+        >
+          View Profile
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setMenuAnchor(null);
+            if (selectedCandidate?.email) window.location.href = `mailto:${selectedCandidate.email}`;
+          }}
+        >
+          Send Email
+        </MenuItem>
       </Menu>
 
-      {/* Snackbar */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
@@ -352,5 +416,3 @@ const AllCandidatesPage: React.FC = () => {
 };
 
 export default AllCandidatesPage;
-
-

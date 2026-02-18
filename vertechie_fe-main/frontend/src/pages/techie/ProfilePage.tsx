@@ -4,7 +4,7 @@
  * Distinctly different from traditional social platforms
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getApiUrl, API_ENDPOINTS } from '../../config/api';
 import { fetchWithAuth, handleUnauthorized } from '../../utils/apiInterceptor';
@@ -344,6 +344,20 @@ interface CompanyData {
   school_name?: string;
 }
 
+interface GamificationData {
+  xp: number;
+  level: number;
+  streak_count: number;
+  next_level_xp: number;
+  current_level_progress: number;
+  activity_count_30d?: number;
+}
+
+interface ActivityHeatmapDay {
+  date: string;
+  count: number;
+}
+
 // Skill with rating interface
 interface SkillWithRating {
   name: string;
@@ -514,6 +528,15 @@ const ProfilePage: React.FC = () => {
   const [experiences, setExperiences] = useState<ExperienceData[]>([]);
   const [educations, setEducations] = useState<EducationData[]>([]);
   const [companyData, setCompanyData] = useState<CompanyData | null>(null);
+  const [gamification, setGamification] = useState<GamificationData>({
+    xp: 0,
+    level: 1,
+    streak_count: 0,
+    next_level_xp: 100,
+    current_level_progress: 0,
+    activity_count_30d: 0,
+  });
+  const [activityHeatmap, setActivityHeatmap] = useState<ActivityHeatmapDay[]>([]);
 
   // Fetch user data from API - when userId is in URL (and not 'me'), fetch that user's data; otherwise fetch current user
   const fetchUserData = useCallback(async () => {
@@ -663,8 +686,46 @@ const ProfilePage: React.FC = () => {
           if (err.message?.includes('Session expired')) return;
           console.warn('Could not fetch company:', err);
         }
+
+        try {
+          const gmRes = await fetchWithAuth(getApiUrl('/users/me/gamification'));
+          if (gmRes.ok) {
+            const gmData = await gmRes.json();
+            setGamification({
+              xp: gmData.xp ?? 0,
+              level: gmData.level ?? 1,
+              streak_count: gmData.streak_count ?? 0,
+              next_level_xp: gmData.next_level_xp ?? 100,
+              current_level_progress: gmData.current_level_progress ?? 0,
+              activity_count_30d: gmData.activity_count_30d ?? 0,
+            });
+          }
+        } catch (err: any) {
+          if (err.message?.includes('Session expired')) return;
+          console.warn('Could not fetch gamification:', err);
+        }
+
+        try {
+          const heatmapRes = await fetchWithAuth(getApiUrl('/users/me/activity/heatmap?days=180'));
+          if (heatmapRes.ok) {
+            const heatmapData = await heatmapRes.json();
+            setActivityHeatmap(Array.isArray(heatmapData) ? heatmapData : []);
+          }
+        } catch (err: any) {
+          if (err.message?.includes('Session expired')) return;
+          console.warn('Could not fetch activity heatmap:', err);
+        }
       } else {
         setCompanyData(null);
+        setGamification({
+          xp: 0,
+          level: 1,
+          streak_count: 0,
+          next_level_xp: 100,
+          current_level_progress: 0,
+          activity_count_30d: 0,
+        });
+        setActivityHeatmap([]);
       }
 
     } catch (error: any) {
@@ -732,8 +793,8 @@ const ProfilePage: React.FC = () => {
     location: profile?.location || user?.country || 'Location not set',
     email: user?.email || '',
     isVerified: user?.is_verified || false,
-    level: 1, // TODO: Calculate from activity
-    xp: 0, // TODO: Calculate from activity
+    level: gamification.level || 1,
+    xp: gamification.xp || 0,
     rank: 'Bronze',
     joinedDate: user?.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Recently',
     website: profile?.website || '',
@@ -746,10 +807,36 @@ const ProfilePage: React.FC = () => {
 
   const stats = [
     { label: 'Problems', value: 0, icon: '🧩', color: '#10b981' },
-    { label: 'Commits', value: '0', icon: '📦', color: '#3b82f6' },
-    { label: 'Streak', value: 0, icon: '🔥', color: '#f59e0b' },
+    { label: 'Activity(30d)', value: gamification.activity_count_30d || 0, icon: '📦', color: '#3b82f6' },
+    { label: 'Streak', value: gamification.streak_count || 0, icon: '🔥', color: '#f59e0b' },
     { label: 'Rank', value: '-', icon: '🏆', color: '#a855f7' },
   ];
+
+  const activityHeatmapMap = useMemo(() => {
+    const map = new Map<string, number>();
+    activityHeatmap.forEach((row) => map.set(row.date, row.count));
+    return map;
+  }, [activityHeatmap]);
+
+  const activityHeatmapCells = useMemo(() => {
+    const days = 84;
+    const today = new Date();
+    const cells: { date: string; count: number }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      cells.push({ date: key, count: activityHeatmapMap.get(key) || 0 });
+    }
+    return cells;
+  }, [activityHeatmapMap]);
+
+  const heatmapCellColor = (count: number) => {
+    if (count <= 0) return 'rgba(148, 163, 184, 0.18)';
+    if (count <= 2) return 'rgba(99, 102, 241, 0.35)';
+    if (count <= 5) return 'rgba(99, 102, 241, 0.55)';
+    return 'rgba(99, 102, 241, 0.8)';
+  };
 
   // Parse skills from profile
   const skills = (profile?.skills || []).map((skillName, idx) => ({
@@ -1494,6 +1581,38 @@ const ProfilePage: React.FC = () => {
                   </Typography>
                 </Box>
                 <ContributionHeatmap showControls={true} compact={false} onConnectionChange={fetchUserData} />
+              </Box>
+            </GlassCard>
+
+            <GlassCard sx={{ p: 3, mb: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
+                  Platform Activity Heatmap
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.5)' }}>
+                  Last 12 weeks
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(12, 1fr)',
+                  gap: 0.6,
+                }}
+              >
+                {activityHeatmapCells.map((cell) => (
+                  <Tooltip key={cell.date} title={`${cell.date}: ${cell.count} activities`}>
+                    <Box
+                      sx={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: 0.6,
+                        bgcolor: heatmapCellColor(cell.count),
+                        border: '1px solid rgba(99, 102, 241, 0.15)',
+                      }}
+                    />
+                  </Tooltip>
+                ))}
               </Box>
             </GlassCard>
 

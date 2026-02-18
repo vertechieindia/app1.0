@@ -158,3 +158,26 @@ class CourseEnrollment(Base, UUIDMixin, TimestampMixin):
     user = relationship("User", backref="enrollments")
     course = relationship("Course", back_populates="enrollments")
 
+
+class CourseCertificate(Base, UUIDMixin, TimestampMixin):
+    """
+    Certificates issued to users upon course completion.
+    """
+    __tablename__ = "course_certificates"
+    
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    course_id = Column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False)
+    
+    certificate_number = Column(String(50), unique=True, index=True)
+    issued_at = Column(DateTime, default=datetime.utcnow)
+    
+    # URL to the generated certificate (PDF or Image)
+    file_url = Column(String(500), nullable=True)
+    
+    # Verification metadata
+    verification_code = Column(String(20), unique=True)
+    
+    # Relationships
+    user = relationship("User", backref="course_certificates")
+    course = relationship("Course", backref="certificates")
+

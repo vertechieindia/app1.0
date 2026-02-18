@@ -17,6 +17,7 @@ from app.db.session import get_db
 from app.models.user import User, UserRole, UserProfile, Experience, Education, RoleType, VerificationStatus, user_roles
 from app.models.company import Company, CompanyAdmin, CompanyStatus
 from app.models.school import School, SchoolAdmin, SchoolStatus, SchoolType
+ from app.models.activity import ActivityType
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, TokenRefresh,
     PasswordReset, PasswordResetConfirm, PasswordChange,
@@ -28,6 +29,7 @@ from app.core.security import (
     create_access_token, create_refresh_token, verify_token,
     get_current_user, get_current_admin_user
 )
+from app.services import activity_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -286,6 +288,15 @@ async def login(
     
     # Update last login
     user.last_login = datetime.utcnow()
+    try:
+        await activity_service.log_activity(
+            db=db,
+            user_id=user.id,
+            activity_type=ActivityType.LOGIN,
+            data={"source": "email_login"},
+        )
+    except Exception as e:
+        logger.warning(f"Failed to log login activity for user {user.id}: {e}")
     await db.commit()
     
     # Fetch user roles using SQL to avoid lazy loading issues
@@ -377,6 +388,15 @@ async def token_login(
     
     # Update last login
     user.last_login = datetime.utcnow()
+    try:
+        await activity_service.log_activity(
+            db=db,
+            user_id=user.id,
+            activity_type=ActivityType.LOGIN,
+            data={"source": "token_login"},
+        )
+    except Exception as e:
+        logger.warning(f"Failed to log token login activity for user {user.id}: {e}")
     await db.commit()
     
     # Create tokens

@@ -408,3 +408,30 @@ class TutorialLessonProgress(Base, TimestampMixin):
     # Try It tracking
     code_submissions = Column(Integer, default=0)
     successful_runs = Column(Integer, default=0)
+
+
+# ============================================
+# CERTIFICATES
+# ============================================
+
+class Certificate(Base, TimestampMixin):
+    """
+    Certificates issued to users upon course completion.
+    """
+    __tablename__ = "tutorial_certificate"
+    
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
+    user_id = Column(String(36), nullable=False, index=True) # Matches TutorialEnrollment user_id type
+    tutorial_id = Column(String(36), ForeignKey("tutorial.id"), nullable=False)
+    
+    certificate_number = Column(String(50), unique=True, index=True)
+    issued_at = Column(DateTime, default=datetime.utcnow)
+    
+    # URL to the generated certificate (PDF or Image)
+    file_url = Column(String(500), nullable=True)
+    
+    # Verification metadata
+    verification_code = Column(String(20), unique=True)
+    
+    # Relationship
+    tutorial = relationship("Tutorial")

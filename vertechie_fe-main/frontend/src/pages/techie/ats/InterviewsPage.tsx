@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../../../config/api';
 import {
   Box, Typography, Card, CardContent, Avatar, Chip, IconButton, Button, Grid,
@@ -121,105 +121,105 @@ const durationOptions = [
 // Mock Data
 const interviews = {
   today: [
-    { 
-      id: 1, 
-      candidate: 'Sarah Johnson', 
-      role: 'Senior React Developer', 
-      time: '10:00 AM - 11:00 AM', 
+    {
+      id: 1,
+      candidate: 'Sarah Johnson',
+      role: 'Senior React Developer',
+      time: '10:00 AM - 11:00 AM',
       date: 'Today',
-      type: 'Technical', 
-      interviewers: ['John Doe', 'Jane Smith'], 
-      status: 'upcoming', 
+      type: 'Technical',
+      interviewers: ['John Doe', 'Jane Smith'],
+      status: 'upcoming',
       platform: 'VerTechie Meet',
       meetingLink: '/techie/lobby/interview-1768496035853?type=interview&title=Technical%20Interview%20-%20Sarah%20Johnson',
       duration: 60,
     },
-    { 
-      id: 2, 
-      candidate: 'Mike Chen', 
-      role: 'Senior React Developer', 
-      time: '2:00 PM - 2:45 PM', 
+    {
+      id: 2,
+      candidate: 'Mike Chen',
+      role: 'Senior React Developer',
+      time: '2:00 PM - 2:45 PM',
       date: 'Today',
-      type: 'HR Round', 
-      interviewers: ['HR Team'], 
-      status: 'upcoming', 
+      type: 'HR Round',
+      interviewers: ['HR Team'],
+      status: 'upcoming',
       platform: 'VerTechie Meet',
       meetingLink: '/techie/lobby/interview-1768496035854?type=interview&title=HR%20Round%20-%20Mike%20Chen',
       duration: 45,
     },
-    { 
-      id: 9, 
-      candidate: 'Lisa Wang', 
-      role: 'Product Designer', 
-      time: '4:00 PM - 5:00 PM', 
+    {
+      id: 9,
+      candidate: 'Lisa Wang',
+      role: 'Product Designer',
+      time: '4:00 PM - 5:00 PM',
       date: 'Today',
-      type: 'Portfolio Review', 
-      interviewers: ['Design Lead', 'UX Manager'], 
-      status: 'upcoming', 
+      type: 'Portfolio Review',
+      interviewers: ['Design Lead', 'UX Manager'],
+      status: 'upcoming',
       platform: 'VerTechie Meet',
       meetingLink: '/techie/lobby/interview-1768496035855?type=interview&title=Portfolio%20Review%20-%20Lisa%20Wang',
       duration: 60,
     },
   ],
   upcoming: [
-    { 
-      id: 3, 
-      candidate: 'Emily Davis', 
-      role: 'UX Designer', 
-      time: '10:00 AM', 
+    {
+      id: 3,
+      candidate: 'Emily Davis',
+      role: 'UX Designer',
+      time: '10:00 AM',
       date: 'Dec 30, 2025',
-      type: 'Portfolio Review', 
-      interviewers: ['Design Lead'], 
-      status: 'scheduled', 
+      type: 'Portfolio Review',
+      interviewers: ['Design Lead'],
+      status: 'scheduled',
       platform: 'Zoom',
       duration: 60,
     },
-    { 
-      id: 4, 
-      candidate: 'Alex Rivera', 
-      role: 'Product Manager', 
-      time: '3:00 PM', 
+    {
+      id: 4,
+      candidate: 'Alex Rivera',
+      role: 'Product Manager',
+      time: '3:00 PM',
       date: 'Dec 30, 2025',
-      type: 'Final Round', 
-      interviewers: ['CEO', 'VP Product'], 
-      status: 'scheduled', 
+      type: 'Final Round',
+      interviewers: ['CEO', 'VP Product'],
+      status: 'scheduled',
       platform: 'In-Person',
       location: 'Conference Room A, 5th Floor',
       duration: 90,
     },
-    { 
-      id: 5, 
-      candidate: 'Jordan Lee', 
-      role: 'DevOps Engineer', 
-      time: '11:00 AM', 
+    {
+      id: 5,
+      candidate: 'Jordan Lee',
+      role: 'DevOps Engineer',
+      time: '11:00 AM',
       date: 'Jan 2, 2026',
-      type: 'System Design', 
-      interviewers: ['Engineering Lead', 'CTO'], 
-      status: 'scheduled', 
+      type: 'System Design',
+      interviewers: ['Engineering Lead', 'CTO'],
+      status: 'scheduled',
       platform: 'Zoom',
       duration: 60,
     },
-    { 
-      id: 10, 
-      candidate: 'Robert Kim', 
-      role: 'Backend Developer', 
-      time: '9:00 AM', 
+    {
+      id: 10,
+      candidate: 'Robert Kim',
+      role: 'Backend Developer',
+      time: '9:00 AM',
       date: 'Jan 3, 2026',
-      type: 'Coding Challenge', 
-      interviewers: ['Tech Lead'], 
-      status: 'scheduled', 
+      type: 'Coding Challenge',
+      interviewers: ['Tech Lead'],
+      status: 'scheduled',
       platform: 'Phone Call',
       duration: 45,
     },
-    { 
-      id: 11, 
-      candidate: 'Amanda Scott', 
-      role: 'Engineering Manager', 
-      time: '2:00 PM', 
+    {
+      id: 11,
+      candidate: 'Amanda Scott',
+      role: 'Engineering Manager',
+      time: '2:00 PM',
       date: 'Jan 5, 2026',
-      type: 'Panel Interview', 
-      interviewers: ['VP Engineering', 'HR Director', 'CTO'], 
-      status: 'scheduled', 
+      type: 'Panel Interview',
+      interviewers: ['VP Engineering', 'HR Director', 'CTO'],
+      status: 'scheduled',
       platform: 'Webex',
       duration: 120,
     },
@@ -251,6 +251,12 @@ const getPlatformIcon = (platform: string) => {
 
 const InterviewsPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = location.pathname.startsWith('/hm/')
+    ? '/hm/interviews'
+    : location.pathname.startsWith('/hr/')
+      ? '/hr/interviews'
+      : '/techie/ats/interviews';
   const [activeTab, setActiveTab] = useState(0);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
@@ -259,7 +265,7 @@ const InterviewsPage: React.FC = () => {
     open: false, message: '', severity: 'info'
   });
   const [loading, setLoading] = useState(true);
-  
+
   // Real interview data state
   const [realInterviews, setRealInterviews] = useState<{
     today: any[];
@@ -270,7 +276,7 @@ const InterviewsPage: React.FC = () => {
     upcoming: [],
     completed: [],
   });
-  
+
   // Schedule form state
   const [scheduleForm, setScheduleForm] = useState({
     candidate: '',
@@ -291,6 +297,8 @@ const InterviewsPage: React.FC = () => {
   const [selectedInterviewDetail, setSelectedInterviewDetail] = useState<any>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [isUpdatingInterview, setIsUpdatingInterview] = useState(false);
   const [decisionDialogOpen, setDecisionDialogOpen] = useState(false);
   const [rescheduleForm, setRescheduleForm] = useState({
     date: '',
@@ -300,6 +308,16 @@ const InterviewsPage: React.FC = () => {
   });
   const [selectedDecision, setSelectedDecision] = useState<'selected' | 'rejected' | 'on_hold' | ''>('');
   const [decisionNotes, setDecisionNotes] = useState('');
+  const [editForm, setEditForm] = useState({
+    date: '',
+    time: '',
+    duration: 60,
+    type: 'technical',
+    location: '',
+    meetingLink: '',
+    notes: '',
+    status: 'scheduled',
+  });
 
   // Fetch real interviews from backend
   useEffect(() => {
@@ -317,16 +335,15 @@ const InterviewsPage: React.FC = () => {
 
       // Fetch ALL interviews for this HM (including past ones for Today/History tabs)
       const response = await fetch(getApiUrl('/hiring/interviews?upcoming=false&limit=50'), { headers });
-      
+
       if (response.ok) {
         const data = await response.json();
         const now = new Date();
-        const todayStr = now.toDateString();
-        
+
         const today: any[] = [];
         const upcoming: any[] = [];
         const completed: any[] = [];
-        
+
         data.forEach((interview: any) => {
           // Parse backend date (convert UTC to local)
           let dateStr = interview.scheduled_at;
@@ -339,25 +356,36 @@ const InterviewsPage: React.FC = () => {
           }
           const status = String(interview.status || '').toLowerCase();
 
+          // Robust "Today" check
+          const isSameDay = (d1: Date, d2: Date) =>
+            d1.getFullYear() === d2.getFullYear() &&
+            d1.getMonth() === d2.getMonth() &&
+            d1.getDate() === d2.getDate();
+
+          const isToday = isSameDay(interviewDate, now);
+
           const formattedInterview = {
             id: interview.id,
             candidate: interview.candidate_name || 'Candidate',
             role: interview.job_title || 'Position',
+            scheduled_at: interview.scheduled_at,
             time: interviewDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
             date: interviewDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
             type: interview.interview_type || 'Technical',
-            interviewers: interview.interviewers || [],
+            interviewers: Array.isArray(interview.interviewers) ? interview.interviewers : [],
             status,
             platform: 'VerTechie Meet',
-            meetingLink: interview.meeting_link || `/techie/lobby/${interview.id}?type=interview`,
+            meetingLink:
+              interview.meeting_link ||
+              `/techie/lobby/${interview.id}?type=interview&interviewId=${interview.id}&returnTo=${encodeURIComponent(returnTo)}`,
             duration: interview.duration_minutes || 60,
             location: interview.location,
             notes: interview.notes,
           };
-          
+
           if (status === 'completed' || status === 'cancelled' || status === 'no_show') {
             completed.push(formattedInterview);
-          } else if (interviewDate.toDateString() === todayStr) {
+          } else if (isToday) {
             today.push(formattedInterview);
           } else if (interviewDate > now) {
             upcoming.push(formattedInterview);
@@ -365,7 +393,7 @@ const InterviewsPage: React.FC = () => {
             completed.push(formattedInterview);
           }
         });
-        
+
         setRealInterviews({ today, upcoming, completed });
       } else {
         const errText = await response.text().catch(() => '');
@@ -393,9 +421,9 @@ const InterviewsPage: React.FC = () => {
     if (scheduleForm.platform === 'VerTechie Meet' && !meetingLink) {
       const meetingId = Date.now();
       const title = encodeURIComponent(`${scheduleForm.type} - ${scheduleForm.candidate}`);
-      meetingLink = `/techie/lobby/${meetingId}?type=interview&title=${title}`;
+      meetingLink = `/techie/lobby/${meetingId}?type=interview&title=${title}&interviewId=${meetingId}&returnTo=${encodeURIComponent(returnTo)}`;
     }
-    
+
     setSnackbar({ open: true, message: 'Interview scheduled successfully!', severity: 'success' });
     setScheduleDialogOpen(false);
     setScheduleForm({
@@ -424,7 +452,7 @@ const InterviewsPage: React.FC = () => {
     try {
       setLoadingDetail(true);
       setDetailDialogOpen(true);
-      
+
       const token = localStorage.getItem('authToken');
       const response = await fetch(getApiUrl(`/hiring/interviews/${interview.id}`), {
         headers: {
@@ -432,7 +460,7 @@ const InterviewsPage: React.FC = () => {
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (response.ok) {
         const detail = await response.json();
         setSelectedInterviewDetail(detail);
@@ -462,7 +490,7 @@ const InterviewsPage: React.FC = () => {
   // Cancel interview
   const handleCancelInterview = async () => {
     if (!selectedInterviewDetail) return;
-    
+
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch(getApiUrl(`/hiring/interviews/${selectedInterviewDetail.id}/cancel`), {
@@ -472,7 +500,7 @@ const InterviewsPage: React.FC = () => {
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (response.ok) {
         setSnackbar({ open: true, message: 'Interview cancelled successfully', severity: 'success' });
         setDetailDialogOpen(false);
@@ -488,7 +516,7 @@ const InterviewsPage: React.FC = () => {
   // Reschedule interview
   const handleRescheduleSubmit = async () => {
     if (!selectedInterviewDetail || !rescheduleForm.date || !rescheduleForm.time) return;
-    
+
     try {
       const token = localStorage.getItem('authToken');
       // Convert local date/time to UTC properly to avoid timezone mismatch
@@ -496,7 +524,7 @@ const InterviewsPage: React.FC = () => {
       const [hours, minutes] = rescheduleForm.time.split(':').map(Number);
       const localDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
       const scheduledAt = localDate.toISOString();
-      
+
       const response = await fetch(getApiUrl(`/hiring/interviews/${selectedInterviewDetail.id}/reschedule`), {
         method: 'PUT',
         headers: {
@@ -509,7 +537,7 @@ const InterviewsPage: React.FC = () => {
           notes: rescheduleForm.notes,
         }),
       });
-      
+
       if (response.ok) {
         setSnackbar({ open: true, message: 'Interview rescheduled successfully', severity: 'success' });
         setRescheduleDialogOpen(false);
@@ -526,7 +554,7 @@ const InterviewsPage: React.FC = () => {
   // Update decision (Selected/Rejected/On Hold)
   const handleDecisionSubmit = async () => {
     if (!selectedInterviewDetail || !selectedDecision) return;
-    
+
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch(getApiUrl(`/hiring/interviews/${selectedInterviewDetail.id}/decision`), {
@@ -540,13 +568,13 @@ const InterviewsPage: React.FC = () => {
           notes: decisionNotes,
         }),
       });
-      
+
       if (response.ok) {
         const result = await response.json();
-        setSnackbar({ 
-          open: true, 
-          message: `Candidate marked as ${selectedDecision.replace('_', ' ')}`, 
-          severity: 'success' 
+        setSnackbar({
+          open: true,
+          message: `Candidate marked as ${selectedDecision.replace('_', ' ')}`,
+          severity: 'success'
         });
         setDecisionDialogOpen(false);
         setDetailDialogOpen(false);
@@ -562,7 +590,7 @@ const InterviewsPage: React.FC = () => {
   // Update interview status
   const handleUpdateStatus = async (status: string) => {
     if (!selectedInterviewDetail) return;
-    
+
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch(getApiUrl(`/hiring/interviews/${selectedInterviewDetail.id}/status`), {
@@ -573,7 +601,7 @@ const InterviewsPage: React.FC = () => {
         },
         body: JSON.stringify({ status }),
       });
-      
+
       if (response.ok) {
         setSnackbar({ open: true, message: `Status updated to ${status}`, severity: 'success' });
         fetchInterviews();
@@ -600,26 +628,117 @@ const InterviewsPage: React.FC = () => {
     setMenuAnchor(null);
   };
 
+  const normalizeInterviewType = (value?: string) => {
+    const v = (value || '').toLowerCase();
+    if (v.includes('behavior')) return 'behavioral';
+    if (v.includes('panel')) return 'panel';
+    if (v.includes('onsite') || v.includes('in-person')) return 'onsite';
+    if (v.includes('video') || v.includes('meet') || v.includes('zoom')) return 'video';
+    if (v.includes('phone')) return 'phone';
+    return 'technical';
+  };
+
+  const openEditDialog = () => {
+    if (!selectedInterview) return;
+    const raw = selectedInterview.scheduled_at || selectedInterview.date;
+    let dt = new Date(raw);
+    if (selectedInterview.scheduled_at && !String(selectedInterview.scheduled_at).includes('Z') && !String(selectedInterview.scheduled_at).includes('+')) {
+      dt = new Date(String(selectedInterview.scheduled_at).replace(' ', 'T').replace(/\.000000$/, '') + 'Z');
+    }
+    if (Number.isNaN(dt.getTime())) dt = new Date();
+
+    setEditForm({
+      date: `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`,
+      time: `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`,
+      duration: selectedInterview.duration || 60,
+      type: normalizeInterviewType(selectedInterview.type || selectedInterview.interview_type),
+      location: selectedInterview.location || '',
+      meetingLink: selectedInterview.meetingLink || selectedInterview.meeting_link || '',
+      notes: selectedInterview.notes || '',
+      status: selectedInterview.status || 'scheduled',
+    });
+    setEditDialogOpen(true);
+    setMenuAnchor(null);
+  };
+
+  const handleEditInterviewSubmit = async () => {
+    if (!selectedInterview?.id || !editForm.date || !editForm.time) return;
+    try {
+      setIsUpdatingInterview(true);
+      const token = localStorage.getItem('authToken');
+      const [year, month, day] = editForm.date.split('-').map(Number);
+      const [hours, minutes] = editForm.time.split(':').map(Number);
+      const localDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
+
+      const response = await fetch(getApiUrl(`/hiring/interviews/${selectedInterview.id}`), {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          scheduled_at: localDate.toISOString(),
+          duration_minutes: editForm.duration,
+          interview_type: editForm.type,
+          location: editForm.location || null,
+          meeting_link: editForm.meetingLink || null,
+          notes: editForm.notes || null,
+          status: editForm.status,
+        }),
+      });
+
+      if (!response.ok) {
+        setSnackbar({ open: true, message: 'Failed to update interview', severity: 'error' });
+        return;
+      }
+
+      setSnackbar({ open: true, message: 'Interview updated successfully', severity: 'success' });
+      setEditDialogOpen(false);
+      await fetchInterviews();
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Failed to update interview', severity: 'error' });
+    } finally {
+      setIsUpdatingInterview(false);
+    }
+  };
+
   return (
     <ATSLayout>
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h5" fontWeight={600}>Interview Schedule</Typography>
-        <Button 
-          variant="contained" 
-          startIcon={<AddIcon />} 
-          onClick={() => setScheduleDialogOpen(true)}
-          sx={{ bgcolor: '#0d47a1', borderRadius: 2 }}
-        >
-          Schedule Interview
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1.5 }}>
+          <Button
+            variant="outlined"
+            startIcon={<CalendarTodayIcon />}
+            onClick={() => {
+              const calendarPath = returnTo.startsWith('/hm/')
+                ? '/hm/interviews/calendar'
+                : returnTo.startsWith('/hr/')
+                  ? '/hr/interviews/calendar'
+                  : '/techie/ats/calendar';
+              navigate(calendarPath);
+            }}
+            sx={{ borderRadius: 2 }}
+          >
+            Calendar View
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setScheduleDialogOpen(true)}
+            sx={{ bgcolor: '#0d47a1', borderRadius: 2 }}
+          >
+            Schedule Interview
+          </Button>
+        </Box>
       </Box>
 
       {/* Tabs */}
-      <Tabs 
-        value={activeTab} 
-        onChange={(_, v) => setActiveTab(v)} 
-        sx={{ 
+      <Tabs
+        value={activeTab}
+        onChange={(_, v) => setActiveTab(v)}
+        sx={{
           mb: 3,
           '& .MuiTab-root': { fontWeight: 600 },
         }}
@@ -650,17 +769,17 @@ const InterviewsPage: React.FC = () => {
           ) : null}
           {realInterviews.today.map((interview) => (
             <Grid item xs={12} md={6} lg={4} key={interview.id}>
-              <InterviewCard 
+              <InterviewCard
                 onClick={() => handleViewDetails(interview)}
                 sx={{ cursor: 'pointer' }}
               >
                 <CardContent>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                     <Box sx={{ display: 'flex', gap: 2 }}>
-                      <Avatar sx={{ 
-                        bgcolor: alpha('#0d47a1', 0.1), 
-                        color: '#0d47a1', 
-                        width: 52, 
+                      <Avatar sx={{
+                        bgcolor: alpha('#0d47a1', 0.1),
+                        color: '#0d47a1',
+                        width: 52,
                         height: 52,
                         fontSize: '1.2rem',
                         fontWeight: 600,
@@ -678,25 +797,25 @@ const InterviewsPage: React.FC = () => {
                   </Box>
 
                   <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-                    <Chip 
-                      icon={<AccessTimeIcon />} 
-                      label={interview.time} 
-                      size="small" 
+                    <Chip
+                      icon={<AccessTimeIcon />}
+                      label={interview.time}
+                      size="small"
                       sx={{ fontWeight: 500 }}
                     />
                     <TypeChip interviewtype={interview.type} label={interview.type} size="small" />
                   </Box>
 
                   <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                    <PlatformChip 
+                    <PlatformChip
                       platform={interview.platform}
-                      icon={getPlatformIcon(interview.platform)} 
-                      label={interview.platform} 
-                      size="small" 
+                      icon={getPlatformIcon(interview.platform)}
+                      label={interview.platform}
+                      size="small"
                     />
-                    <Chip 
-                      label={`${interview.duration} min`} 
-                      size="small" 
+                    <Chip
+                      label={`${interview.duration} min`}
+                      size="small"
                       variant="outlined"
                       sx={{ fontWeight: 500 }}
                     />
@@ -708,9 +827,9 @@ const InterviewsPage: React.FC = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <GroupsIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
                       <Tooltip title={interview.interviewers.join(', ')}>
-                        <Typography variant="body2" color="text.secondary" sx={{ 
-                          maxWidth: 120, 
-                          overflow: 'hidden', 
+                        <Typography variant="body2" color="text.secondary" sx={{
+                          maxWidth: 120,
+                          overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
                         }}>
@@ -718,11 +837,11 @@ const InterviewsPage: React.FC = () => {
                         </Typography>
                       </Tooltip>
                     </Box>
-                    <Button 
-                      size="small" 
-                      variant="contained" 
+                    <Button
+                      size="small"
+                      variant="contained"
                       startIcon={getPlatformIcon(interview.platform)}
-                      sx={{ 
+                      sx={{
                         bgcolor: interview.platform === 'VerTechie Meet' ? '#0d47a1' : '#0d47a1',
                         borderRadius: 2,
                         textTransform: 'none',
@@ -772,7 +891,7 @@ const InterviewsPage: React.FC = () => {
           ) : null}
           {realInterviews.upcoming.map((interview) => (
             <Grid item xs={12} key={interview.id}>
-              <InterviewCard 
+              <InterviewCard
                 onClick={() => handleViewDetails(interview)}
                 sx={{ mb: 0, cursor: 'pointer' }}
               >
@@ -787,24 +906,24 @@ const InterviewsPage: React.FC = () => {
                         <Typography variant="body2" color="text.secondary">{interview.role}</Typography>
                       </Box>
                     </Box>
-                    
+
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      <Chip 
-                        icon={<CalendarTodayIcon />} 
-                        label={`${interview.date} • ${interview.time}`} 
-                        size="small" 
+                      <Chip
+                        icon={<CalendarTodayIcon />}
+                        label={`${interview.date} • ${interview.time}`}
+                        size="small"
                         sx={{ fontWeight: 500 }}
                       />
                       <TypeChip interviewtype={interview.type} label={interview.type} size="small" />
-                      <PlatformChip 
+                      <PlatformChip
                         platform={interview.platform}
-                        icon={getPlatformIcon(interview.platform)} 
-                        label={interview.platform} 
-                        size="small" 
+                        icon={getPlatformIcon(interview.platform)}
+                        label={interview.platform}
+                        size="small"
                       />
-                      <Chip 
-                        label={`${interview.duration} min`} 
-                        size="small" 
+                      <Chip
+                        label={`${interview.duration} min`}
+                        size="small"
                         variant="outlined"
                       />
                     </Box>
@@ -815,14 +934,14 @@ const InterviewsPage: React.FC = () => {
                         {interview.interviewers.length} interviewer{interview.interviewers.length > 1 ? 's' : ''}
                       </Typography>
                     </Box>
-                    
+
                     <Box sx={{ display: 'flex', gap: 1 }}>
                       <Button size="small" variant="outlined" sx={{ borderRadius: 2 }}>
                         Reschedule
                       </Button>
-                      <Button 
-                        size="small" 
-                        variant="contained" 
+                      <Button
+                        size="small"
+                        variant="contained"
                         sx={{ bgcolor: '#0d47a1', borderRadius: 2 }}
                       >
                         Details
@@ -832,7 +951,7 @@ const InterviewsPage: React.FC = () => {
                       </IconButton>
                     </Box>
                   </Box>
-                  
+
                   {interview.platform === 'In-Person' && interview.location && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1.5, ml: 7 }}>
                       <LocationOnIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
@@ -869,16 +988,16 @@ const InterviewsPage: React.FC = () => {
           ) : null}
           {realInterviews.completed.map((interview) => (
             <Grid item xs={12} md={6} key={interview.id}>
-              <InterviewCard 
+              <InterviewCard
                 onClick={() => handleViewDetails(interview)}
                 sx={{ mb: 0, cursor: 'pointer' }}
               >
                 <CardContent>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                     <Box sx={{ display: 'flex', gap: 2 }}>
-                      <Avatar sx={{ 
-                        bgcolor: alpha(interview.result === 'passed' ? '#34C759' : '#FF3B30', 0.1), 
-                        color: interview.result === 'passed' ? '#34C759' : '#FF3B30' 
+                      <Avatar sx={{
+                        bgcolor: alpha(interview.result === 'passed' ? '#34C759' : '#FF3B30', 0.1),
+                        color: interview.result === 'passed' ? '#34C759' : '#FF3B30'
                       }}>
                         {interview.result === 'passed' ? <CheckCircleIcon /> : <CancelIcon />}
                       </Avatar>
@@ -897,19 +1016,19 @@ const InterviewsPage: React.FC = () => {
                       }}
                     />
                   </Box>
-                  
+
                   <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                    <Chip 
-                      icon={<CalendarTodayIcon />} 
-                      label={interview.time} 
-                      size="small" 
+                    <Chip
+                      icon={<CalendarTodayIcon />}
+                      label={interview.time}
+                      size="small"
                     />
                     <TypeChip interviewtype={interview.type} label={interview.type} size="small" />
                   </Box>
-                  
-                  <Box sx={{ 
-                    bgcolor: alpha('#0d47a1', 0.04), 
-                    p: 1.5, 
+
+                  <Box sx={{
+                    bgcolor: alpha('#0d47a1', 0.04),
+                    p: 1.5,
                     borderRadius: 2,
                     borderLeft: `3px solid ${interview.result === 'passed' ? '#34C759' : '#FF3B30'}`,
                   }}>
@@ -925,8 +1044,8 @@ const InterviewsPage: React.FC = () => {
       )}
 
       {/* Schedule Interview Dialog */}
-      <Dialog 
-        open={scheduleDialogOpen} 
+      <Dialog
+        open={scheduleDialogOpen}
         onClose={() => setScheduleDialogOpen(false)}
         maxWidth="md"
         fullWidth
@@ -1010,7 +1129,7 @@ const InterviewsPage: React.FC = () => {
                     variant={scheduleForm.platform === platform.name ? 'filled' : 'outlined'}
                     color={scheduleForm.platform === platform.name ? 'primary' : 'default'}
                     onClick={() => setScheduleForm({ ...scheduleForm, platform: platform.name })}
-                    sx={{ 
+                    sx={{
                       fontWeight: scheduleForm.platform === platform.name ? 600 : 400,
                     }}
                   />
@@ -1064,12 +1183,131 @@ const InterviewsPage: React.FC = () => {
         </DialogContent>
         <DialogActions sx={{ p: 2.5 }}>
           <Button onClick={() => setScheduleDialogOpen(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             onClick={handleScheduleSubmit}
             sx={{ bgcolor: '#0d47a1' }}
           >
             Schedule Interview
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Interview Dialog */}
+      <Dialog
+        open={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>Edit Interview</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Date"
+                type="date"
+                value={editForm.date}
+                onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Time"
+                type="time"
+                value={editForm.time}
+                onChange={(e) => setEditForm({ ...editForm, time: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Type</InputLabel>
+                <Select
+                  label="Type"
+                  value={editForm.type}
+                  onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
+                >
+                  <MenuItem value="technical">Technical</MenuItem>
+                  <MenuItem value="behavioral">Behavioral</MenuItem>
+                  <MenuItem value="panel">Panel</MenuItem>
+                  <MenuItem value="video">Video</MenuItem>
+                  <MenuItem value="phone">Phone</MenuItem>
+                  <MenuItem value="onsite">Onsite</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Status</InputLabel>
+                <Select
+                  label="Status"
+                  value={editForm.status}
+                  onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                >
+                  <MenuItem value="scheduled">Scheduled</MenuItem>
+                  <MenuItem value="confirmed">Confirmed</MenuItem>
+                  <MenuItem value="in_progress">In Progress</MenuItem>
+                  <MenuItem value="completed">Completed</MenuItem>
+                  <MenuItem value="cancelled">Cancelled</MenuItem>
+                  <MenuItem value="no_show">No Show</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel>Duration</InputLabel>
+                <Select
+                  label="Duration"
+                  value={editForm.duration}
+                  onChange={(e) => setEditForm({ ...editForm, duration: Number(e.target.value) })}
+                >
+                  {durationOptions.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Meeting Link"
+                value={editForm.meetingLink}
+                onChange={(e) => setEditForm({ ...editForm, meetingLink: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Location"
+                value={editForm.location}
+                onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Notes"
+                multiline
+                rows={2}
+                value={editForm.notes}
+                onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleEditInterviewSubmit}
+            disabled={isUpdatingInterview || !editForm.date || !editForm.time}
+            sx={{ bgcolor: '#0d47a1' }}
+          >
+            {isUpdatingInterview ? 'Saving...' : 'Save Changes'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1080,7 +1318,7 @@ const InterviewsPage: React.FC = () => {
         open={Boolean(menuAnchor)}
         onClose={() => setMenuAnchor(null)}
       >
-        <MenuItem onClick={() => { setMenuAnchor(null); setSnackbar({ open: true, message: 'Edit feature coming soon!', severity: 'info' }); }}>
+        <MenuItem onClick={openEditDialog}>
           <EditIcon fontSize="small" sx={{ mr: 1 }} />
           Edit Interview
         </MenuItem>
@@ -1113,8 +1351,8 @@ const InterviewsPage: React.FC = () => {
               label={selectedInterviewDetail.status?.replace('_', ' ').toUpperCase() || 'SCHEDULED'}
               color={
                 selectedInterviewDetail.status === 'completed' ? 'success' :
-                selectedInterviewDetail.status === 'cancelled' ? 'error' :
-                selectedInterviewDetail.status === 'in_progress' ? 'warning' : 'primary'
+                  selectedInterviewDetail.status === 'cancelled' ? 'error' :
+                    selectedInterviewDetail.status === 'in_progress' ? 'warning' : 'primary'
               }
               size="small"
             />
@@ -1183,8 +1421,8 @@ const InterviewsPage: React.FC = () => {
                     if (ds && !ds.includes('Z') && !ds.includes('+')) {
                       ds = ds.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
                     }
-                    return new Date(ds).toLocaleDateString('en-US', { 
-                      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+                    return new Date(ds).toLocaleDateString('en-US', {
+                      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
                     });
                   })()}
                 </Typography>
@@ -1194,8 +1432,8 @@ const InterviewsPage: React.FC = () => {
                     if (ds && !ds.includes('Z') && !ds.includes('+')) {
                       ds = ds.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
                     }
-                    return new Date(ds).toLocaleTimeString('en-US', { 
-                      hour: '2-digit', minute: '2-digit' 
+                    return new Date(ds).toLocaleTimeString('en-US', {
+                      hour: '2-digit', minute: '2-digit'
                     });
                   })()} ({selectedInterviewDetail.duration_minutes} min)
                 </Typography>
@@ -1222,7 +1460,7 @@ const InterviewsPage: React.FC = () => {
                     label={selectedInterviewDetail.application_status.replace('_', ' ').toUpperCase()}
                     color={
                       selectedInterviewDetail.application_status === 'offered' ? 'success' :
-                      selectedInterviewDetail.application_status === 'rejected' ? 'error' : 'default'
+                        selectedInterviewDetail.application_status === 'rejected' ? 'error' : 'default'
                     }
                     size="small"
                   />
@@ -1253,7 +1491,7 @@ const InterviewsPage: React.FC = () => {
                   const localDay = String(utcDate.getDate()).padStart(2, '0');
                   const localHours = String(utcDate.getHours()).padStart(2, '0');
                   const localMinutes = String(utcDate.getMinutes()).padStart(2, '0');
-                  
+
                   setRescheduleForm({
                     date: `${localYear}-${localMonth}-${localDay}`,
                     time: `${localHours}:${localMinutes}`,

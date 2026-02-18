@@ -50,6 +50,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ImageIcon from '@mui/icons-material/Image';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import CodeIcon from '@mui/icons-material/Code';
 
 // Pre-made banner templates (20 options)
 const BANNER_TEMPLATES = [
@@ -313,6 +314,8 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
     { path: '/techie/cms/employees', label: 'Employee Verification', icon: <PeopleIcon /> },
     { path: '/techie/cms/admins', label: 'Page Admins', icon: <GroupAddIcon /> },
     { path: '/techie/cms/jobs', label: 'Jobs', icon: <WorkIcon /> },
+    { path: '/techie/cms/media', label: 'Media Library', icon: <ImageIcon /> },
+    { path: '/techie/cms/snippets', label: 'Code Snippets', icon: <CodeIcon /> },
     { path: '/techie/cms/analytics', label: 'Analytics', icon: <AnalyticsIcon /> },
     { path: '/techie/cms/settings', label: 'Settings', icon: <SettingsIcon /> },
   ];

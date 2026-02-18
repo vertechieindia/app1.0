@@ -72,6 +72,8 @@ const colors = {
   error: '#FF3B30',
 };
 
+const AUTHOR_ID_STORAGE_KEY = 'v_user_id';
+
 // ============================================
 // ANIMATIONS
 // ============================================
@@ -227,6 +229,7 @@ interface BlogPost {
   isBookmarked: boolean;
   isLiked: boolean;
   isFeatured: boolean;
+  authorId?: string;
 }
 
 // ============================================
@@ -372,15 +375,21 @@ const Blogs: React.FC = () => {
   const [shareMenuAnchor, setShareMenuAnchor] = useState<null | HTMLElement>(null);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
-  
+
   // Blog form fields
   const [blogTitle, setBlogTitle] = useState('');
   const [blogCategory, setBlogCategory] = useState('');
   const [blogTags, setBlogTags] = useState('');
   const [blogContent, setBlogContent] = useState('');
-  
+
+  // Edit/Delete states
+  const [editingBlogId, setEditingBlogId] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [blogToDelete, setBlogToDelete] = useState<string | null>(null);
+  const currentUserId = typeof window !== 'undefined' ? localStorage.getItem(AUTHOR_ID_STORAGE_KEY) : null;
+
   // API Categories
-  const [apiCategories, setApiCategories] = useState<{id: string; name: string; slug: string}[]>([]);
+  const [apiCategories, setApiCategories] = useState<{ id: string; name: string; slug: string }[]>([]);
 
   // Fetch categories from API
   const fetchCategories = useCallback(async () => {
@@ -425,6 +434,7 @@ const Blogs: React.FC = () => {
           tags: article.tags || [],
           isFeatured: article.is_featured || false,
           isTrending: article.is_trending || false,
+          authorId: article.author_id,
         }));
         setBlogs(mappedBlogs.length > 0 ? mappedBlogs : mockBlogs);
       } else {
@@ -523,10 +533,10 @@ const Blogs: React.FC = () => {
   const handleShare = (platform: string) => {
     const blog = blogs.find(b => b.id === selectedBlogForShare);
     if (!blog) return;
-    
+
     const url = `https://vertechie.com/blogs/${blog.id}`;
     const text = `Check out "${blog.title}" on VerTechie`;
-    
+
     let shareUrl = '';
     switch (platform) {
       case 'twitter':
@@ -548,7 +558,7 @@ const Blogs: React.FC = () => {
         setShareMenuAnchor(null);
         return;
     }
-    
+
     window.open(shareUrl, '_blank', 'width=600,height=400');
     setShareMenuAnchor(null);
   };
@@ -569,12 +579,53 @@ const Blogs: React.FC = () => {
   };
 
   const handleCloseDialog = () => {
-    setWriteDialogOpen(false);
-    setCoverImage(null);
-    setBlogTitle('');
-    setBlogCategory('');
-    setBlogTags('');
     setBlogContent('');
+    setEditingBlogId(null);
+  };
+
+  const handleEditClick = async (blog: BlogPost, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      // Fetch full details to get content for editing
+      const response = await fetchWithAuth(getApiUrl(`/blog/articles/${blog.id}`));
+      if (response.ok) {
+        const fullBlog = await response.json();
+        setEditingBlogId(blog.id);
+        setBlogTitle(fullBlog.title || blog.title);
+        setBlogCategory(fullBlog.category_id || '');
+        setBlogTags(Array.isArray(fullBlog.tags) ? fullBlog.tags.join(', ') : '');
+        setBlogContent(fullBlog.content || '');
+        setCoverImage(fullBlog.cover_image || blog.coverImage);
+        setWriteDialogOpen(true);
+      } else {
+        console.error('Failed to fetch blog details');
+        alert('Could not load blog content for editing.');
+      }
+    } catch (err) {
+      console.error('Fetch blog details failed:', err);
+    }
+  };
+
+  const handleDeleteClick = (blogId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setBlogToDelete(blogId);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!blogToDelete) return;
+    try {
+      const response = await fetchWithAuth(getApiUrl(`/blog/articles/${blogToDelete}`), {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        setBlogs(prev => prev.filter(b => b.id !== blogToDelete));
+        setDeleteConfirmOpen(false);
+        setBlogToDelete(null);
+      }
+    } catch (err) {
+      console.error('Delete blog failed:', err);
+    }
   };
 
   // Generate slug from title
@@ -595,7 +646,7 @@ const Blogs: React.FC = () => {
       setPublishing(true);
       const slug = generateSlug(blogTitle);
       const tagsArray = blogTags.split(',').map(tag => tag.trim()).filter(Boolean);
-      
+
       // Build article data - set status to "published" so it's visible to all users
       const articleData: any = {
         title: blogTitle.trim(),
@@ -605,55 +656,36 @@ const Blogs: React.FC = () => {
         tags: tagsArray,
         status: "published",  // Make blog visible immediately
       };
-      
+
       // Only add cover_image if it exists
       if (coverImage) {
         articleData.cover_image = coverImage;
       }
-      
+
       // Only add category_id if a valid API category is selected
       // Check if it's a valid UUID (from API categories)
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (blogCategory && uuidRegex.test(blogCategory)) {
         articleData.category_id = blogCategory;
       }
-      
-      const response = await fetchWithAuth(getApiUrl('/blog/articles'), {
-        method: 'POST',
-        body: JSON.stringify(articleData),
-      });
+
+      const response = await fetchWithAuth(
+        editingBlogId
+          ? getApiUrl(`/blog/articles/${editingBlogId}`)
+          : getApiUrl('/blog/articles'),
+        {
+          method: editingBlogId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(articleData),
+        }
+      );
 
       if (response.ok) {
-        const newArticle = await response.json();
-        // Add to blogs list
-        const newBlog: BlogPost = {
-          id: newArticle.id,
-          title: newArticle.title,
-          excerpt: newArticle.excerpt || blogContent.substring(0, 200),
-          coverImage: coverImage || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
-          category: blogCategory || 'Technology',
-          author: {
-            id: 'current-user',
-            name: 'You',
-            avatar: '',
-            title: 'Author',
-            isVerified: false,
-            followers: 0,
-          },
-          publishedAt: new Date().toISOString(),
-          readTime: Math.ceil(blogContent.split(' ').length / 200),
-          likes: 0,
-          comments: 0,
-          views: 0,
-          tags: tagsArray,
-          isFeatured: false,
-          isBookmarked: false,
-          isLiked: false,
-        };
-        setBlogs([newBlog, ...blogs]);
         handleCloseDialog();
+        setWriteDialogOpen(false);
+        fetchBlogs();
       } else {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         console.error('Error publishing blog:', error);
         alert('Failed to publish blog. Please try again.');
       }
@@ -669,22 +701,22 @@ const Blogs: React.FC = () => {
   const filteredBlogs = blogs.filter(blog => {
     const matchesCategory = selectedCategory === 'all' || blog.category === selectedCategory;
     const matchesSearch = blog.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         blog.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         blog.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+      blog.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      blog.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
     return matchesCategory && matchesSearch;
   });
 
   const handleLike = (blogId: string) => {
-    setBlogs(prev => prev.map(blog => 
-      blog.id === blogId 
+    setBlogs(prev => prev.map(blog =>
+      blog.id === blogId
         ? { ...blog, isLiked: !blog.isLiked, likes: blog.isLiked ? blog.likes - 1 : blog.likes + 1 }
         : blog
     ));
   };
 
   const handleBookmark = (blogId: string) => {
-    setBlogs(prev => prev.map(blog => 
-      blog.id === blogId 
+    setBlogs(prev => prev.map(blog =>
+      blog.id === blogId
         ? { ...blog, isBookmarked: !blog.isBookmarked }
         : blog
     ));
@@ -775,16 +807,16 @@ const Blogs: React.FC = () => {
                       <Chip
                         label={categories.find(c => c.id === blog.category)?.name}
                         size="small"
-                        sx={{ 
-                          bgcolor: colors.accent, 
-                          color: colors.primaryDark, 
+                        sx={{
+                          bgcolor: colors.accent,
+                          color: colors.primaryDark,
                           fontWeight: 600,
                           width: 'fit-content',
                           mb: 2,
                         }}
                       />
-                      <Typography 
-                        variant={index === 0 ? 'h5' : 'h6'} 
+                      <Typography
+                        variant={index === 0 ? 'h5' : 'h6'}
                         sx={{ color: 'white', fontWeight: 700, mb: 1 }}
                       >
                         {blog.title}
@@ -912,11 +944,11 @@ const Blogs: React.FC = () => {
                       <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: colors.text, lineHeight: 1.3 }}>
                         {blog.title}
                       </Typography>
-                      <Typography 
-                        variant="body2" 
-                        color="text.secondary" 
-                        sx={{ 
-                          mb: 2, 
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{
+                          mb: 2,
                           flexGrow: 1,
                           display: '-webkit-box',
                           WebkitLineClamp: 2,
@@ -963,7 +995,7 @@ const Blogs: React.FC = () => {
                           <IconButton
                             size="small"
                             onClick={(e) => handleToggleLike(blog.id, e)}
-                            sx={{ 
+                            sx={{
                               transition: 'transform 0.2s',
                               '&:hover': { transform: 'scale(1.2)' }
                             }}
@@ -977,7 +1009,7 @@ const Blogs: React.FC = () => {
                           <Typography variant="caption" sx={{ minWidth: 20 }}>
                             {formatNumber(blog.likes)}
                           </Typography>
-                          
+
                           {/* Comment Button */}
                           <IconButton size="small">
                             <CommentIcon fontSize="small" />
@@ -985,26 +1017,26 @@ const Blogs: React.FC = () => {
                           <Typography variant="caption" sx={{ minWidth: 20 }}>
                             {formatNumber(blog.comments)}
                           </Typography>
-                          
+
                           {/* Share Button */}
                           <IconButton
                             size="small"
                             onClick={(e) => handleShareClick(blog.id, e)}
-                            sx={{ 
+                            sx={{
                               transition: 'transform 0.2s',
                               '&:hover': { transform: 'scale(1.2)', color: colors.primary }
                             }}
                           >
                             <ShareIcon fontSize="small" />
                           </IconButton>
-                          
+
                           {/* Bookmark Button */}
                           <IconButton
                             type="button"
                             size="small"
                             aria-label={savedBlogs.has(blog.id) ? 'Remove from saved' : 'Save blog'}
                             onClick={(e) => handleToggleSave(blog.id, e)}
-                            sx={{ 
+                            sx={{
                               transition: 'transform 0.2s',
                               '&:hover': { transform: 'scale(1.2)' }
                             }}
@@ -1017,6 +1049,31 @@ const Blogs: React.FC = () => {
                           </IconButton>
                         </Box>
                       </Box>
+
+                      {/* Edit/Delete Actions for Author */}
+                      {String(blog.authorId) === String(currentUserId) && (
+                        <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<EditIcon />}
+                            onClick={(e) => handleEditClick(blog, e)}
+                            sx={{ borderRadius: 2, textTransform: 'none' }}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            startIcon={<CloseIcon />}
+                            onClick={(e) => handleDeleteClick(blog.id, e)}
+                            sx={{ borderRadius: 2, textTransform: 'none' }}
+                          >
+                            Delete
+                          </Button>
+                        </Box>
+                      )}
                     </CardContent>
                   </BlogCard>
                 </Grid>
@@ -1397,8 +1454,8 @@ const Blogs: React.FC = () => {
           <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, py: 2 }}>
             <IconButton
               onClick={() => handleShare('twitter')}
-              sx={{ 
-                bgcolor: '#1DA1F2', 
+              sx={{
+                bgcolor: '#1DA1F2',
                 color: 'white',
                 '&:hover': { bgcolor: '#0d8ed9', transform: 'scale(1.1)' },
                 transition: 'all 0.2s',
@@ -1408,8 +1465,8 @@ const Blogs: React.FC = () => {
             </IconButton>
             <IconButton
               onClick={() => handleShare('linkedin')}
-              sx={{ 
-                bgcolor: '#0077B5', 
+              sx={{
+                bgcolor: '#0077B5',
                 color: 'white',
                 '&:hover': { bgcolor: '#006097', transform: 'scale(1.1)' },
                 transition: 'all 0.2s',
@@ -1419,8 +1476,8 @@ const Blogs: React.FC = () => {
             </IconButton>
             <IconButton
               onClick={() => handleShare('facebook')}
-              sx={{ 
-                bgcolor: '#1877F2', 
+              sx={{
+                bgcolor: '#1877F2',
                 color: 'white',
                 '&:hover': { bgcolor: '#0d65d9', transform: 'scale(1.1)' },
                 transition: 'all 0.2s',
@@ -1430,8 +1487,8 @@ const Blogs: React.FC = () => {
             </IconButton>
             <IconButton
               onClick={() => handleShare('whatsapp')}
-              sx={{ 
-                bgcolor: '#25D366', 
+              sx={{
+                bgcolor: '#25D366',
                 color: 'white',
                 '&:hover': { bgcolor: '#1eb851', transform: 'scale(1.1)' },
                 transition: 'all 0.2s',
@@ -1446,7 +1503,7 @@ const Blogs: React.FC = () => {
             variant="outlined"
             startIcon={copySuccess ? <SparkleIcon /> : <CopyIcon />}
             onClick={() => handleShare('copy')}
-            sx={{ 
+            sx={{
               borderRadius: 2,
               py: 1.5,
               borderColor: copySuccess ? colors.success : colors.primary,
@@ -1456,6 +1513,21 @@ const Blogs: React.FC = () => {
             {copySuccess ? 'Link Copied!' : 'Copy Link'}
           </Button>
         </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmOpen}
+        onClose={() => setDeleteConfirmOpen(false)}
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this blog post? This action cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmOpen(false)}>Cancel</Button>
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained">Delete</Button>
+        </DialogActions>
       </Dialog>
     </PageContainer>
   );

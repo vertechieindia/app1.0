@@ -9,4 +9,6 @@ export { default as CMSPageAdmins } from './CMSPageAdmins';
 export { default as CMSJobs } from './CMSJobs';
 export { default as CMSAnalytics } from './CMSAnalytics';
 export { default as CMSSettings } from './CMSSettings';
+export { default as CMSMedia } from './CMSMedia';
+export { default as CMSSnippets } from './CMSSnippets';
 
