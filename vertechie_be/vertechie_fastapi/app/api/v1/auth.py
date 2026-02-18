@@ -17,7 +17,7 @@ from app.db.session import get_db
 from app.models.user import User, UserRole, UserProfile, Experience, Education, RoleType, VerificationStatus, user_roles
 from app.models.company import Company, CompanyAdmin, CompanyStatus
 from app.models.school import School, SchoolAdmin, SchoolStatus, SchoolType
- from app.models.activity import ActivityType
+from app.models.activity import ActivityType
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, TokenRefresh,
     PasswordReset, PasswordResetConfirm, PasswordChange,
