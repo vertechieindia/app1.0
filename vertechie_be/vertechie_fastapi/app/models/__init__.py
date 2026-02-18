@@ -69,11 +69,12 @@ from app.models.quiz import Quiz, Question, QuestionOption, QuizAttempt
 
 # Learn Models (New - Enterprise Hierarchy - SQLite Compatible)
 from app.models.learn import (
-    TutorialCategory, Tutorial, TutorialSection, TutorialLesson,
-    ContentBlock, MediaAsset, CodeSnippet, TutorialEnrollment,
-    TutorialLessonProgress,
+    TutorialLessonProgress, Certificate,
     DifficultyLevel, ContentStatus, LessonType, BlockType, MediaType
 )
+
+# Activity Models
+from app.models.activity import UserActivity, ActivityType
 
 # Calendar Models
 from app.models.calendar import (
@@ -150,7 +151,11 @@ __all__ = [
     # Learn (New - Enterprise)
     "TutorialCategory", "Tutorial", "TutorialSection", "TutorialLesson",
     "ContentBlock", "MediaAsset", "CodeSnippet", "TutorialEnrollment",
+    "TutorialLessonProgress", "Certificate",
     "DifficultyLevel", "ContentStatus", "LessonType", "BlockType", "MediaType",
+    
+    # Activity
+    "UserActivity", "ActivityType",
     
     # Calendar
     "CalendarConnection", "AvailabilitySchedule",

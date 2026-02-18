@@ -53,10 +53,9 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
     ? (location === 'US' ? formatDateToMMDDYYYY(dob) : formatDateToDDMMYYYY(dob))
     : 'Not provided';
 
-  // Fetch company details for HR and Company - only once when component mounts or userId changes
+  // Fetch company details for HR and Company from current-user endpoint.
   useEffect(() => {
-    // Only fetch if HR or Company, has userId, and we haven't loaded company details yet
-    if ((isHR || isCompany) && (formData.userId || formData.user_id) && !companyDetails && !loadingCompany) {
+    if ((isHR || isCompany) && !companyDetails && !loadingCompany) {
       setLoadingCompany(true);
       const token = 
         localStorage.getItem('authToken') ||
@@ -67,14 +66,11 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
         (formData.tokenResponse as any)?.access_token ||
         (formData.tokenResponse as any)?.token;
 
-      // Use different endpoint for company signup vs HR signup
-      const endpoint = isCompany ? API_ENDPOINTS.COMPANY_SIGNUP : API_ENDPOINTS.COMPANY;
-      const apiUrl = getApiUrl(endpoint);
-      
-      // GET company details - use id from token response as query parameter
-      const userId = formData.userId || formData.user_id;
-      // Use 'id' query parameter instead of 'user' - id comes from token response
-      const getUrl = userId ? `${apiUrl}?id=${userId}` : apiUrl;
+      if (!token) {
+        setLoadingCompany(false);
+        return;
+      }
+      const getUrl = getApiUrl(API_ENDPOINTS.CMS.MY_COMPANY);
       
       axios.get(getUrl, {
         headers: {
@@ -93,10 +89,16 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
           }
           
           if (companyData) {
-            setCompanyDetails(companyData);
+            const normalized = {
+              ...companyData,
+              company_name: companyData.company_name || companyData.companyName || companyData.name || '',
+              company_email: companyData.company_email || companyData.companyEmail || companyData.email || '',
+              company_website: companyData.company_website || companyData.companyWebsite || companyData.website || '',
+            };
+            setCompanyDetails(normalized);
             setLoadingCompany(false); // Clear loading state when data is found
             // Store company ID in formData for edit functionality (only if not already set)
-            const companyId = companyData.id || companyData.company_id;
+            const companyId = normalized.id || normalized.company_id;
             if (companyId && updateFormData && !formData.companyId && !formData.company_id) {
               updateFormData({
                 companyId: companyId,
@@ -113,12 +115,11 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
           setCompanyError('Failed to load company details');
           setLoadingCompany(false);
         });
-    } else if ((!isHR && !isCompany) || !(formData.userId || formData.user_id)) {
-      // Not HR/Company or no userId - ensure loading is false
+    } else if (!isHR && !isCompany) {
       setLoadingCompany(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHR, isCompany, formData.userId, formData.user_id]);
+  }, [isHR, isCompany, formData.access_token, formData.access, formData.token]);
 
   // Fetch school details for School - only once when component mounts or userId changes
   useEffect(() => {
@@ -191,6 +192,8 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
   const fullName = `${firstName} ${lastName}`.trim();
   const email = formData.email || userData.email || registerUserData.email || registerUserData.email || '';
   const phone = formData.phone || userData.mobile_number || userData.phone || registerUserData.mobile_number || registerUserData.phone || '';
+
+  const resolvedCompanyDetails = companyDetails || formData.companyDetails || null;
 
   return (
     <Box>
@@ -438,12 +441,12 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
             <Alert severity="error" sx={{ mt: 1 }}>
               {companyError}
             </Alert>
-          ) : companyDetails ? (
+          ) : resolvedCompanyDetails ? (
             <Grid container spacing={2} sx={{ mt: 1 }}>
               <Grid item xs={12} md={6}>
                 <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>Company Name</Typography>
                 <Typography variant="body1" fontWeight={600}>
-                  {companyDetails.company_name || companyDetails.companyName || 'Not provided'}
+                  {resolvedCompanyDetails.company_name || resolvedCompanyDetails.companyName || resolvedCompanyDetails.name || 'Not provided'}
                 </Typography>
               </Grid>
               {isCompany ? (
@@ -451,7 +454,7 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
                   <Grid item xs={12} md={6}>
                     <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>Company Website</Typography>
                     <Typography variant="body1" fontWeight={600}>
-                      {companyDetails.company_website || companyDetails.companyWebsite || companyDetails.comapny_website || 'Not provided'}
+                      {resolvedCompanyDetails.company_website || resolvedCompanyDetails.companyWebsite || resolvedCompanyDetails.comapny_website || resolvedCompanyDetails.website || 'Not provided'}
                     </Typography>
                   </Grid>
                   {location === 'IN' ? (
@@ -460,8 +463,8 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
                       <Grid item xs={12} md={6}>
                         <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>CIN</Typography>
                         <Typography variant="body1" fontWeight={600}>
-                          {companyDetails?.cin || 
-                           companyDetails?.company_identification_number ||
+                          {resolvedCompanyDetails?.cin || 
+                           resolvedCompanyDetails?.company_identification_number ||
                            formData?.cin || 
                            formData?.companyDetails?.cin || 
                            'Not provided'}
@@ -470,8 +473,8 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
                       <Grid item xs={12} md={6}>
                         <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>Established Year</Typography>
                         <Typography variant="body1" fontWeight={600}>
-                          {companyDetails?.established_year || 
-                           companyDetails?.establishedYear || 
+                          {resolvedCompanyDetails?.established_year || 
+                           resolvedCompanyDetails?.establishedYear || 
                            formData?.establishedYear || 
                            formData?.companyDetails?.establishedYear || 
                            'Not provided'}
@@ -480,8 +483,8 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
                       <Grid item xs={12} md={6}>
                         <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>Registration State</Typography>
                         <Typography variant="body1" fontWeight={600}>
-                          {companyDetails?.reg_state || 
-                           companyDetails?.regState || 
+                          {resolvedCompanyDetails?.reg_state || 
+                           resolvedCompanyDetails?.regState || 
                            formData?.regState || 
                            formData?.companyDetails?.regState || 
                            'Not provided'}
@@ -490,8 +493,8 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
                       <Grid item xs={12}>
                         <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>Company Address</Typography>
                         <Typography variant="body1" fontWeight={600}>
-                          {companyDetails?.company_address || 
-                           companyDetails?.companyAddress || 
+                          {resolvedCompanyDetails?.company_address || 
+                           resolvedCompanyDetails?.companyAddress || 
                            formData?.companyAddress || 
                            formData?.companyDetails?.companyAddress || 
                            'Not provided'}
@@ -500,7 +503,7 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
                       <Grid item xs={12}>
                         <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>About</Typography>
                         <Typography variant="body1" fontWeight={600}>
-                          {companyDetails?.about || 
+                          {resolvedCompanyDetails?.about || 
                            formData?.about || 
                            formData?.companyDetails?.about || 
                            'Not provided'}
@@ -513,41 +516,41 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
                       <Grid item xs={12} md={6}>
                         <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>EIN</Typography>
                         <Typography variant="body1" fontWeight={600}>
-                          {companyDetails.ein || 'Not provided'}
+                          {resolvedCompanyDetails.ein || 'Not provided'}
                         </Typography>
                       </Grid>
                       <Grid item xs={12} md={6}>
                         <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>Everify Account Number</Typography>
                         <Typography variant="body1" fontWeight={600}>
-                          {companyDetails.account_number || companyDetails.accountNumber || 'Not provided'}
+                          {resolvedCompanyDetails.account_number || resolvedCompanyDetails.accountNumber || 'Not provided'}
                         </Typography>
                       </Grid>
                       <Grid item xs={12} md={6}>
                         <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>Registration State</Typography>
                         <Typography variant="body1" fontWeight={600}>
-                          {companyDetails.reg_state || companyDetails.regState || 'Not provided'}
+                          {resolvedCompanyDetails.reg_state || resolvedCompanyDetails.regState || 'Not provided'}
                         </Typography>
                       </Grid>
                       <Grid item xs={12} md={6}>
                         <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>Started Date</Typography>
                         <Typography variant="body1" fontWeight={600}>
-                          {companyDetails.started_date 
+                          {resolvedCompanyDetails.started_date 
                             ? (() => {
-                                const dateMatch = companyDetails.started_date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                                const dateMatch = resolvedCompanyDetails.started_date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
                                 if (dateMatch) {
                                   const [, year, month, day] = dateMatch;
                                   return `${month}-${day}-${year}`;
                                 }
-                                return companyDetails.started_date;
+                                return resolvedCompanyDetails.started_date;
                               })()
-                            : (companyDetails.startedDate 
+                            : (resolvedCompanyDetails.startedDate 
                                 ? (() => {
-                                    const dateMatch = companyDetails.startedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                                    const dateMatch = resolvedCompanyDetails.startedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
                                     if (dateMatch) {
                                       const [, year, month, day] = dateMatch;
                                       return `${month}-${day}-${year}`;
                                     }
-                                    return companyDetails.startedDate;
+                                    return resolvedCompanyDetails.startedDate;
                                   })()
                                 : 'Not provided')}
                         </Typography>
@@ -555,7 +558,7 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
                       <Grid item xs={12}>
                         <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>About</Typography>
                         <Typography variant="body1" fontWeight={600}>
-                          {companyDetails.about || 'Not provided'}
+                          {resolvedCompanyDetails.about || 'Not provided'}
                         </Typography>
                       </Grid>
                     </>
@@ -566,13 +569,13 @@ const ReviewContent: React.FC<ReviewContentProps> = ({ formData, location, goToS
                   <Grid item xs={12} md={6}>
                     <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>Company Email</Typography>
                     <Typography variant="body1" fontWeight={600}>
-                      {companyDetails.company_email || companyDetails.companyEmail || 'Not provided'}
+                      {resolvedCompanyDetails.company_email || resolvedCompanyDetails.companyEmail || resolvedCompanyDetails.email || 'Not provided'}
                     </Typography>
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>Company Website</Typography>
                     <Typography variant="body1" fontWeight={600}>
-                      {companyDetails.company_website || companyDetails.companyWebsite || companyDetails.compnay_website || 'Not provided'}
+                      {resolvedCompanyDetails.company_website || resolvedCompanyDetails.companyWebsite || resolvedCompanyDetails.compnay_website || resolvedCompanyDetails.website || 'Not provided'}
                     </Typography>
                   </Grid>
                 </>

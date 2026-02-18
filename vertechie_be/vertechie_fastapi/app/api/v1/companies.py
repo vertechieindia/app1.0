@@ -294,6 +294,7 @@ async def create_company(
 
 
 @router.put("/{company_id}", response_model=CompanyResponse)
+@router.patch("/{company_id}", response_model=CompanyResponse)
 async def update_company(
     company_id: UUID,
     company_update: CompanyUpdate,

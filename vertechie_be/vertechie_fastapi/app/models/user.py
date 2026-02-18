@@ -203,6 +203,12 @@ class UserProfile(Base, UUIDMixin, TimestampMixin):
     posts_count = Column(Integer, default=0)
     karma_points = Column(Integer, default=0)
     
+    # XP & Gamification
+    xp = Column(Integer, default=0)
+    level = Column(Integer, default=1)
+    streak_count = Column(Integer, default=0)
+    last_activity_date = Column(Date, nullable=True)
+    
     # Relationships
     user = relationship("User", back_populates="profile")
 

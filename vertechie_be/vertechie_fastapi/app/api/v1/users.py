@@ -8,9 +8,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
+from pydantic import BaseModel
 
 from app.db.session import get_db
 from app.models.user import User, UserProfile, Experience, Education, RoleType, VerificationStatus
+from app.models.activity import ActivityType
 from app.models.company import Company, CompanyAdmin
 from app.models.school import School, SchoolAdmin
 from app.schemas.user import (
@@ -21,10 +23,16 @@ from app.schemas.user import (
 from app.core.security import get_current_user, get_current_admin_user
 from sqlalchemy.orm import selectinload
 import logging
+from app.services import activity_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class ActivityLogRequest(BaseModel):
+    activity_type: ActivityType
+    data: Optional[dict] = None
 
 
 @router.get("/", response_model=List[UserResponse])
@@ -892,4 +900,48 @@ async def get_my_school(
         return _school_to_response(school)
 
     return None
+
+
+# ============= Gamification & Activity =============
+
+@router.get("/me/activity/heatmap")
+async def get_my_activity_heatmap(
+    days: int = Query(365, ge=7, le=1000),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Get activity heatmap data for current user."""
+    return await activity_service.get_user_heatmap(db, current_user.id, days)
+
+
+@router.get("/me/gamification")
+async def get_my_gamification_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Get XP, Level, and Streak info for current user."""
+    return await activity_service.get_user_gamification(db, current_user.id)
+
+
+@router.post("/me/activity/log")
+async def log_my_activity(
+    payload: ActivityLogRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Create an activity event for the current user and update XP/level."""
+    activity = await activity_service.log_activity(
+        db=db,
+        user_id=current_user.id,
+        activity_type=payload.activity_type,
+        data=payload.data or {},
+    )
+    await db.commit()
+    stats = await activity_service.get_user_gamification(db, current_user.id)
+    return {
+        "status": "logged",
+        "activity_id": str(activity.id),
+        "xp_earned": activity.xp_earned,
+        "gamification": stats,
+    }
 

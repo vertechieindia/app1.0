@@ -9,11 +9,15 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
-# Create async engine
+# Create async engine with proper connection pooling
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
-    poolclass=NullPool,  # Use NullPool for async
+    pool_size=10,  # Maximum number of connections in the pool
+    max_overflow=20,  # Maximum overflow connections
+    pool_timeout=30,  # Timeout for getting a connection from the pool
+    pool_recycle=3600,  # Recycle connections after 1 hour
+    pool_pre_ping=True,  # Verify connections before using them
     future=True,
 )
 

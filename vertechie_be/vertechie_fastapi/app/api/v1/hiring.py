@@ -23,9 +23,11 @@ from app.models.hiring import (
 from app.models.job import Job, JobApplication, ApplicationStatus
 from app.models.company import Company, CompanyAdmin
 from app.models.user import User
+from app.models.activity import ActivityType
 from app.models.notification import Notification, NotificationType
 from app.core.security import get_current_user, get_current_admin_user
 from app.core.config import settings
+from app.services import activity_service
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
 import smtplib
@@ -136,8 +138,25 @@ class InterviewCreate(BaseModel):
     duration_minutes: int = 60
     location: Optional[str] = None
     meeting_link: Optional[str] = None
-    interviewers: List[UUID] = []
+    interviewers: Optional[List[UUID]] = None
     notes: Optional[str] = None
+
+class InterviewUpdate(BaseModel):
+    interview_type: Optional[InterviewType] = None
+    scheduled_at: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    location: Optional[str] = None
+    meeting_link: Optional[str] = None
+    interviewers: Optional[List[UUID]] = None
+    notes: Optional[str] = None
+    status: Optional[InterviewStatus] = None
+
+class BulkStageUpdate(BaseModel):
+    application_ids: List[UUID]
+    stage: str
+
+class BulkDelete(BaseModel):
+    application_ids: List[UUID]
 
 class InterviewResponse(BaseModel):
     id: UUID
@@ -595,6 +614,200 @@ async def send_assessment(
     await db.commit()
     
     # TODO: Send email notification
+    submitted_time = app.submitted_at or app.created_at if hasattr(app, 'created_at') else now
+        
+    # Ensure both are naive for subtraction
+    if submitted_time.tzinfo:
+        submitted_time = submitted_time.astimezone(timezone.utc).replace(tzinfo=None)
+            
+    time_diff = now - submitted_time
+    if time_diff.days == 0:
+        hours = time_diff.seconds // 3600
+        if hours < 1:
+            time_str = "Just now"
+        else:
+            time_str = f"{hours} hours ago"
+    elif time_diff.days < 7:
+        time_str = f"{time_diff.days} days ago"
+    elif time_diff.days < 30:
+        time_str = f"{time_diff.days // 7} weeks ago"
+    else:
+        time_str = f"{time_diff.days // 30} months ago"
+        
+    candidate = PipelineCandidateResponse(
+            id=str(app.id),  # Use application ID as candidate ID
+            application_id=app.id,
+            user_id=applicant.id,  # The actual user ID for profile viewing
+            name=name,
+            email=applicant.email,
+            role=getattr(applicant, 'title', None) or getattr(applicant, 'headline', None) or job.title if job else None,
+            stage=stage,
+            stage_id=None,  # Will be set if using actual pipeline stages
+            skills=skills[:10],  # Limit to 10 skills
+            rating=app.rating if app.rating else None,
+            time=time_str,
+            score=app.rating * 20 if app.rating else 75,
+            matchScore=app.match_score if app.match_score else match_score,  # Use stored match_score
+            aiInsight=None,  # Can be enhanced with AI insights
+            experience=experience_years,
+            education=education,
+            source="VerTechie",
+            avatar=getattr(applicant, 'avatar_url', None) or getattr(applicant, 'profile_image', None),
+            job_id=app.job_id,
+            job_title=job.title if job else None,
+        )
+    candidates.append(candidate)
+    
+    return candidates
+
+
+@router.put("/candidates/{candidate_id}/move", response_model=dict)
+async def move_candidate(
+    candidate_id: UUID,
+    move_data: CandidateMove,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Move candidate to a different stage."""
+    result = await db.execute(
+        select(CandidateInPipeline)
+        .options(selectinload(CandidateInPipeline.pipeline))
+        .where(CandidateInPipeline.id == candidate_id)
+    )
+    candidate = result.scalar_one_or_none()
+    
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    if not await verify_company_admin(candidate.pipeline.company_id, current_user.id, db):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Update stage history
+    candidate.stage_history.append({
+        "stage_id": str(candidate.current_stage_id),
+        "left_at": datetime.utcnow().isoformat()
+    })
+    
+    candidate.current_stage_id = move_data.stage_id
+    candidate.entered_stage_at = datetime.utcnow()
+    
+    await db.commit()
+    return {"status": "moved"}
+
+
+@router.put("/applications/{application_id}/stage")
+async def update_application_stage(
+    application_id: UUID,
+    stage: str = Query(..., description="Pipeline stage: new, screening, interview, offer, hired"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update application stage (simplified pipeline management).
+    Maps to application status.
+    """
+    # Get application
+    app_result = await db.execute(
+        select(JobApplication)
+        .options(selectinload(JobApplication.job))
+        .where(JobApplication.id == application_id)
+    )
+    application = app_result.scalar_one_or_none()
+    
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    # Verify user owns the job
+    if application.job.posted_by_id != current_user.id and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Map stage to ApplicationStatus enum
+    stage_to_status = {
+        'new': ApplicationStatus.SUBMITTED,
+        'screening': ApplicationStatus.SHORTLISTED,
+        'interview': ApplicationStatus.INTERVIEW,
+        'offer': ApplicationStatus.OFFERED,
+        'hired': ApplicationStatus.HIRED,
+        'rejected': ApplicationStatus.REJECTED,
+    }
+    
+    new_status = stage_to_status.get(stage.lower(), ApplicationStatus.SUBMITTED)
+    application.status = new_status
+    
+    application.reviewed_at = datetime.utcnow()
+    await db.commit()
+    
+    return {"status": "updated", "stage": stage, "application_status": new_status.value}
+
+
+# ============= Assessments =============
+
+@router.get("/companies/{company_id}/assessments", response_model=List[AssessmentResponse])
+async def list_assessments(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List company assessments."""
+    if not await verify_company_admin(company_id, current_user.id, db):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.execute(
+        select(Assessment).where(Assessment.company_id == company_id)
+    )
+    return result.scalars().all()
+
+
+@router.post("/companies/{company_id}/assessments", response_model=AssessmentResponse)
+async def create_assessment(
+    company_id: UUID,
+    assessment: AssessmentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create an assessment."""
+    if not await verify_company_admin(company_id, current_user.id, db):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    db_assessment = Assessment(company_id=company_id, **assessment.model_dump())
+    db.add(db_assessment)
+    await db.commit()
+    await db.refresh(db_assessment)
+    return db_assessment
+
+
+@router.post("/assessments/{assessment_id}/send")
+async def send_assessment(
+    assessment_id: UUID,
+    candidate_id: UUID,
+    application_id: Optional[UUID] = None,
+    expires_in_days: int = 7,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Send assessment to a candidate."""
+    
+    assessment_result = await db.execute(
+        select(Assessment).where(Assessment.id == assessment_id)
+    )
+    assessment = assessment_result.scalar_one_or_none()
+    
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    
+    if not await verify_company_admin(assessment.company_id, current_user.id, db):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    candidate_assessment = CandidateAssessment(
+        assessment_id=assessment_id,
+        candidate_id=candidate_id,
+        application_id=application_id,
+        expires_at=datetime.utcnow() + timedelta(days=expires_in_days)
+    )
+    db.add(candidate_assessment)
+    await db.commit()
+    
+    # TODO: Send email notification
     
     return {"status": "sent"}
 
@@ -605,18 +818,18 @@ async def send_assessment(
 async def list_my_interviews(
     upcoming: bool = True,
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=50),
+    limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """List interviews for HM - includes interviews for their jobs or where they are interviewer."""
-    # Get all job IDs posted by this HM
+    # 1. Get all job IDs posted by this HM
     jobs_result = await db.execute(
         select(Job.id).where(Job.posted_by_id == current_user.id)
     )
     hm_job_ids = [row[0] for row in jobs_result.fetchall()]
     
-    # Get all application IDs for HM's jobs
+    # 2. Get all application IDs for HM's jobs
     hm_application_ids = []
     if hm_job_ids:
         apps_result = await db.execute(
@@ -624,19 +837,24 @@ async def list_my_interviews(
         )
         hm_application_ids = [row[0] for row in apps_result.fetchall()]
 
+    hm_application_ids_set = set(hm_application_ids)
+    
+    # 3. Build optimized query
     query = select(Interview)
-
+    
+    # Filter by HM ownership OR interviewer status
+    # Note: We filter in Python later if complex, but let's try to get more relevant data
     if upcoming:
         now = datetime.now(timezone.utc)
         query = query.where(Interview.scheduled_at >= now)
-        query = query.order_by(Interview.scheduled_at.asc())  # Upcoming: earliest first
+        query = query.order_by(Interview.scheduled_at.asc())
     else:
-        query = query.order_by(Interview.scheduled_at.desc())  # All: most recent first
+        query = query.order_by(Interview.scheduled_at.desc())
 
     result = await db.execute(query)
     all_interviews = result.scalars().all()
 
-    hm_application_ids_set = set(hm_application_ids)
+    # 4. Filter interviews relevant to this HM
     filtered_interviews = [
         interview for interview in all_interviews
         if (
@@ -644,36 +862,39 @@ async def list_my_interviews(
             or _is_user_interviewer(interview, current_user.id)
         )
     ]
-    interviews = filtered_interviews[skip:skip + limit]
     
-    # Enrich interviews with candidate and job details
-    enriched_interviews = []
-    for interview in interviews:
-        # Get the application to find candidate and job
-        app_result = await db.execute(
-            select(JobApplication).where(JobApplication.id == interview.application_id)
+    # Apply pagination on filtered list
+    paginated_interviews = filtered_interviews[skip:skip + limit]
+    
+    if not paginated_interviews:
+        return []
+
+    # 5. Optimized batch fetching for enrichment (Candidate and Job details)
+    # Get unique application IDs from the paginated result
+    app_ids = {i.application_id for i in paginated_interviews if i.application_id}
+    
+    app_details = {}
+    if app_ids:
+        # Fetch applications with applicant and job in one query
+        apps_query = (
+            select(JobApplication)
+            .options(
+                selectinload(JobApplication.applicant),
+                selectinload(JobApplication.job)
+            )
+            .where(JobApplication.id.in_(list(app_ids)))
         )
-        application = app_result.scalar_one_or_none()
-        
-        candidate_name = None
-        job_title = None
-        
-        if application:
-            # Get the applicant's name
-            user_result = await db.execute(
-                select(User).where(User.id == application.applicant_id)
-            )
-            applicant = user_result.scalar_one_or_none()
-            if applicant:
-                candidate_name = f"{applicant.first_name or ''} {applicant.last_name or ''}".strip() or applicant.email
-            
-            # Get the job title
-            job_result = await db.execute(
-                select(Job).where(Job.id == application.job_id)
-            )
-            job = job_result.scalar_one_or_none()
-            if job:
-                job_title = job.title
+        apps_data = await db.execute(apps_query)
+        for app in apps_data.scalars().all():
+            app_details[app.id] = {
+                "candidate_name": f"{app.applicant.first_name or ''} {app.applicant.last_name or ''}".strip() or app.applicant.email if app.applicant else "Unknown Candidate",
+                "job_title": app.job.title if app.job else "Unknown Position"
+            }
+    
+    # 6. Build final response
+    enriched_interviews = []
+    for interview in paginated_interviews:
+        details = app_details.get(interview.application_id, {})
         
         enriched_interviews.append(InterviewResponse(
             id=interview.id,
@@ -687,8 +908,8 @@ async def list_my_interviews(
             notes=interview.notes,
             status=interview.status,
             created_at=interview.created_at,
-            candidate_name=candidate_name,
-            job_title=job_title,
+            candidate_name=details.get("candidate_name"),
+            job_title=details.get("job_title"),
         ))
     
     return enriched_interviews
@@ -713,6 +934,16 @@ async def schedule_interview(
     db_interview.status = InterviewStatus.SCHEDULED
     db.add(db_interview)
     await db.flush()  # Get the ID
+    await activity_service.log_activity(
+        db=db,
+        user_id=current_user.id,
+        activity_type=ActivityType.INTERVIEW,
+        data={
+            "action": "schedule",
+            "interview_id": str(db_interview.id),
+            "application_id": str(db_interview.application_id) if db_interview.application_id else None,
+        },
+    )
     
     # Get the job application to find the candidate
     application = None
@@ -1124,6 +1355,37 @@ async def reschedule_interview(
     return {"status": "rescheduled", "new_date": reschedule.scheduled_at}
 
 
+@router.put("/interviews/{interview_id}", response_model=InterviewResponse)
+async def update_interview(
+    interview_id: UUID,
+    update: InterviewUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update interview details."""
+    result = await db.execute(
+        select(Interview).where(Interview.id == interview_id)
+    )
+    interview = result.scalar_one_or_none()
+    
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    
+    # Verify authorization (HM who posted job or interviewer)
+    # Simplified for now
+    
+    update_data = update.model_dump(exclude_unset=True)
+    if "scheduled_at" in update_data:
+        update_data["scheduled_at"] = _to_utc_datetime(update_data["scheduled_at"])
+    
+    for key, value in update_data.items():
+        setattr(interview, key, value)
+    
+    await db.commit()
+    await db.refresh(interview)
+    return interview
+
+
 @router.put("/interviews/{interview_id}/cancel")
 async def cancel_interview(
     interview_id: UUID,
@@ -1144,32 +1406,30 @@ async def cancel_interview(
     
     # Get candidate for notification
     app_result = await db.execute(
-        select(JobApplication).where(JobApplication.id == interview.application_id)
+        select(JobApplication).options(
+            selectinload(JobApplication.applicant),
+            selectinload(JobApplication.job)
+        ).where(JobApplication.id == interview.application_id)
     )
     application = app_result.scalar_one_or_none()
     
-    if application:
-        user_result = await db.execute(
-            select(User).where(User.id == application.applicant_id)
-        )
-        candidate = user_result.scalar_one_or_none()
+    if application and application.applicant:
+        candidate = application.applicant
+        job = application.job
         
-        job_result = await db.execute(
-            select(Job).where(Job.id == application.job_id)
+        notification = Notification(
+            user_id=candidate.id,
+            title="Interview Cancelled",
+            message=f"Your interview for {job.title if job else 'the position'} has been cancelled.",
+            notification_type=NotificationType.INTERVIEW_SCHEDULED,
+            link="/techie/my-interviews",
+            reference_id=interview.id,
+            reference_type="interview"
         )
-        job = job_result.scalar_one_or_none()
+        db.add(notification)
         
-        if candidate:
-            notification = Notification(
-                user_id=candidate.id,
-                title="Interview Cancelled",
-                message=f"Your interview for {job.title if job else 'the position'} has been cancelled.",
-                notification_type=NotificationType.INTERVIEW_SCHEDULED,
-                link="/techie/my-interviews",
-                reference_id=interview.id,
-                reference_type="interview"
-            )
-            db.add(notification)
+        # Move back to screening if they were in interview stage? 
+        # Or keep in interview stage but with cancelled status.
     
     await db.commit()
     
@@ -1733,4 +1993,174 @@ async def get_hiring_analytics(
         job_performance=job_performance,
         source_metrics=source_metrics,
     )
+
+
+# ============= Bulk Actions & Interview Management =============
+
+@router.put("/interviews/{interview_id}", response_model=InterviewResponse)
+async def update_interview(
+    interview_id: UUID,
+    interview_in: InterviewUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update an interview schedule."""
+    result = await db.execute(
+        select(Interview).where(Interview.id == interview_id)
+    )
+    db_interview = result.scalar_one_or_none()
+    
+    if not db_interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    
+    # Verify authorization (HM who owns the job or superuser)
+    app_result = await db.execute(
+        select(JobApplication).options(selectinload(JobApplication.job)).where(JobApplication.id == db_interview.application_id)
+    )
+    application = app_result.scalar_one_or_none()
+    if not application or (application.job.posted_by_id != current_user.id and not current_user.is_superuser):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    update_data = interview_in.model_dump(exclude_unset=True)
+    if "scheduled_at" in update_data:
+        update_data["scheduled_at"] = _to_utc_datetime(update_data["scheduled_at"])
+    if "interviewers" in update_data:
+        update_data["interviewers"] = [str(i) for i in update_data["interviewers"]]
+    
+    for field, value in update_data.items():
+        setattr(db_interview, field, value)
+    await activity_service.log_activity(
+        db=db,
+        user_id=current_user.id,
+        activity_type=ActivityType.INTERVIEW,
+        data={
+            "action": "edit",
+            "interview_id": str(db_interview.id),
+            "updated_fields": list(update_data.keys()),
+        },
+    )
+    
+    await db.commit()
+    await db.refresh(db_interview)
+    
+    # Potentially send update notification here
+    
+    return db_interview
+
+
+@router.delete("/interviews/{interview_id}")
+async def cancel_interview(
+    interview_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Cancel and delete an interview."""
+    result = await db.execute(
+        select(Interview).where(Interview.id == interview_id)
+    )
+    db_interview = result.scalar_one_or_none()
+    
+    if not db_interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    
+    # Verify authorization
+    app_result = await db.execute(
+        select(JobApplication).options(selectinload(JobApplication.job)).where(JobApplication.id == db_interview.application_id)
+    )
+    application = app_result.scalar_one_or_none()
+    if not application or (application.job.posted_by_id != current_user.id and not current_user.is_superuser):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.delete(db_interview)
+    await db.commit()
+    
+    return {"status": "cancelled"}
+
+
+@router.post("/applications/bulk-stage")
+async def bulk_update_application_stage(
+    bulk_data: BulkStageUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update stage for multiple applications at once."""
+    from sqlalchemy import update
+    
+    # Map stage to ApplicationStatus
+    stage_to_status = {
+        'new': ApplicationStatus.SUBMITTED,
+        'screening': ApplicationStatus.SHORTLISTED,
+        'interview': ApplicationStatus.INTERVIEW,
+        'offer': ApplicationStatus.OFFERED,
+        'hired': ApplicationStatus.HIRED,
+        'rejected': ApplicationStatus.REJECTED,
+    }
+    new_status = stage_to_status.get(bulk_data.stage.lower(), ApplicationStatus.SUBMITTED)
+    
+    # Only update applications belonging to jobs posted by current user
+    # First, find IDs of jobs posted by current user
+    jobs_result = await db.execute(
+        select(Job.id).where(Job.posted_by_id == current_user.id)
+    )
+    my_job_ids = [row[0] for row in jobs_result.fetchall()]
+    
+    # Perform bulk update
+    query = (
+        update(JobApplication)
+        .where(JobApplication.id.in_(bulk_data.application_ids))
+        .where(JobApplication.job_id.in_(my_job_ids))
+        .values(status=new_status, reviewed_at=datetime.utcnow())
+    )
+    
+    result = await db.execute(query)
+    if result.rowcount and result.rowcount > 0:
+        await activity_service.log_activity(
+            db=db,
+            user_id=current_user.id,
+            activity_type=ActivityType.PROJECT,
+            data={
+                "action": "bulk_stage_update",
+                "stage": bulk_data.stage,
+                "count": int(result.rowcount),
+            },
+        )
+    await db.commit()
+    
+    return {"status": "bulk_updated", "count": result.rowcount}
+
+
+@router.post("/applications/bulk-delete")
+async def bulk_delete_applications(
+    bulk_data: BulkDelete,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete multiple applications at once."""
+    from sqlalchemy import delete
+    
+    jobs_result = await db.execute(
+        select(Job.id).where(Job.posted_by_id == current_user.id)
+    )
+    my_job_ids = [row[0] for row in jobs_result.fetchall()]
+    
+    query = (
+        delete(JobApplication)
+        .where(JobApplication.id.in_(bulk_data.application_ids))
+        .where(JobApplication.job_id.in_(my_job_ids))
+    )
+    
+    result = await db.execute(query)
+    if result.rowcount and result.rowcount > 0:
+        await activity_service.log_activity(
+            db=db,
+            user_id=current_user.id,
+            activity_type=ActivityType.PROJECT,
+            data={
+                "action": "bulk_delete_applications",
+                "count": int(result.rowcount),
+            },
+        )
+    await db.commit()
+    
+    return {"status": "bulk_deleted", "count": result.rowcount}
 

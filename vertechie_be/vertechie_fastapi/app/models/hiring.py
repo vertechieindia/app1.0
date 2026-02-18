@@ -290,7 +290,7 @@ class Interview(Base):
     # Scheduling
     scheduled_at = Column(DateTime(timezone=True), nullable=False)
     duration_minutes = Column(Integer, default=60)
-    timezone = Column(String(50), default="UTC")
+    timezone = Column(String(50))
     
     # Location/Link
     location = Column(String(200))

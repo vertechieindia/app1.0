@@ -103,6 +103,12 @@ import {
   TableChart as TableIcon,
   Link as LinkIcon,
   HorizontalRule as DividerIcon,
+  CloudUpload as UploadIcon,
+  Download as DownloadIcon,
+  Share as ShareIcon,
+  FilterList as FilterIcon,
+  InsertDriveFile as FileIcon,
+  Tag as TagIcon,
 } from '@mui/icons-material';
 
 import { getApiUrl } from '../../config/api';
@@ -216,21 +222,21 @@ const BLOCK_TYPES = [
 const LearnAdmin: React.FC = () => {
   // Navigation State
   const [activeTab, setActiveTab] = useState(0);
-  const [breadcrumbs, setBreadcrumbs] = useState<{label: string, onClick?: () => void}[]>([
+  const [breadcrumbs, setBreadcrumbs] = useState<{ label: string, onClick?: () => void }[]>([
     { label: 'Learn Admin' }
   ]);
-  
+
   // Data State
   const [categories, setCategories] = useState<Category[]>([]);
   const [tutorials, setTutorials] = useState<Tutorial[]>([]);
   const [selectedTutorial, setSelectedTutorial] = useState<any>(null);
   const [selectedLesson, setSelectedLesson] = useState<any>(null);
-  
+
   // UI State
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  
+
   // Dialogs
   const [categoryDialog, setCategoryDialog] = useState(false);
   const [tutorialDialog, setTutorialDialog] = useState(false);
@@ -238,14 +244,14 @@ const LearnAdmin: React.FC = () => {
   const [lessonDialog, setLessonDialog] = useState(false);
   const [blockDialog, setBlockDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<any>(null);
-  
+
   // Edit mode flags
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [editingSection, setEditingSection] = useState<Section | null>(null);
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [editingBlock, setEditingBlock] = useState<ContentBlock | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
-  
+
   // Forms
   const [categoryForm, setCategoryForm] = useState({
     name: '',
@@ -253,7 +259,7 @@ const LearnAdmin: React.FC = () => {
     icon: '📚',
     color: '#0d47a1',
   });
-  
+
   const [tutorialForm, setTutorialForm] = useState({
     title: '',
     category_id: '',
@@ -264,14 +270,14 @@ const LearnAdmin: React.FC = () => {
     is_free: true,
     tags: '',
   });
-  
+
   const [sectionForm, setSectionForm] = useState({
     title: '',
     description: '',
     is_free_preview: false,
     estimated_minutes: 0,
   });
-  
+
   const [lessonForm, setLessonForm] = useState({
     title: '',
     description: '',
@@ -282,7 +288,7 @@ const LearnAdmin: React.FC = () => {
     has_exercise: false,
     has_try_it: true,
   });
-  
+
   const [blockForm, setBlockForm] = useState<{
     block_type: string;
     content: BlockContentForm;
@@ -300,12 +306,12 @@ const LearnAdmin: React.FC = () => {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.detail || 'API call failed');
     }
-    
+
     return response.json();
   }, []);
 
@@ -326,8 +332,8 @@ const LearnAdmin: React.FC = () => {
   const loadTutorials = useCallback(async (categoryId?: string) => {
     try {
       setLoading(true);
-      const url = categoryId 
-        ? `${API_BASE}/tutorials?category_id=${categoryId}` 
+      const url = categoryId
+        ? `${API_BASE}/tutorials?category_id=${categoryId}`
         : `${API_BASE}/tutorials`;
       const data = await apiCall(url);
       setTutorials(data);
@@ -405,7 +411,7 @@ const LearnAdmin: React.FC = () => {
         ...tutorialForm,
         tags: tutorialForm.tags.split(',').map(t => t.trim()).filter(Boolean),
       };
-      
+
       const result = await apiCall(`${API_BASE}/tutorials`, 'POST', payload);
       setSuccess('Tutorial created successfully');
       setTutorialDialog(false);
@@ -431,7 +437,7 @@ const LearnAdmin: React.FC = () => {
   const handleSaveSection = async () => {
     try {
       if (!selectedTutorial) return;
-      
+
       if (editingSection) {
         await apiCall(`${API_BASE}/sections/${editingSection.id}`, 'PUT', sectionForm);
         setSuccess('Section updated successfully');
@@ -452,7 +458,7 @@ const LearnAdmin: React.FC = () => {
   const handleSaveLesson = async () => {
     try {
       if (!selectedSectionId) return;
-      
+
       if (editingLesson) {
         await apiCall(`${API_BASE}/lessons/${editingLesson.id}`, 'PUT', lessonForm);
         setSuccess('Lesson updated successfully');
@@ -484,7 +490,7 @@ const LearnAdmin: React.FC = () => {
   const handleSaveBlock = async () => {
     try {
       if (!selectedLesson) return;
-      
+
       if (editingBlock) {
         await apiCall(`${API_BASE}/blocks/${editingBlock.id}`, 'PUT', blockForm);
         setSuccess('Block updated successfully');
@@ -506,7 +512,7 @@ const LearnAdmin: React.FC = () => {
     try {
       const { type, id } = deleteDialog;
       let endpoint = '';
-      
+
       switch (type) {
         case 'category':
           endpoint = `${API_BASE}/categories/${id}`;
@@ -524,11 +530,11 @@ const LearnAdmin: React.FC = () => {
           endpoint = `${API_BASE}/blocks/${id}`;
           break;
       }
-      
+
       await apiCall(endpoint, 'DELETE');
       setSuccess(`${type.charAt(0).toUpperCase() + type.slice(1)} deleted successfully`);
       setDeleteDialog(null);
-      
+
       // Refresh appropriate data
       if (type === 'category') loadCategories();
       else if (type === 'tutorial') { loadTutorials(); setSelectedTutorial(null); }
@@ -669,11 +675,11 @@ const LearnAdmin: React.FC = () => {
     if (selectedLesson) {
       return renderContentBuilder();
     }
-    
+
     if (selectedTutorial) {
       return renderSectionBuilder();
     }
-    
+
     return (
       <Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -874,9 +880,9 @@ const LearnAdmin: React.FC = () => {
                           <ListItem key={lesson.id} divider button onClick={() => loadLessonDetails(lesson.id)}>
                             <ListItemIcon>
                               {lesson.lesson_type === 'video' ? <PlayIcon /> :
-                               lesson.lesson_type === 'quiz' ? <QuizIcon /> :
-                               lesson.lesson_type === 'interactive' ? <CodeIcon /> :
-                               <ArticleIcon />}
+                                lesson.lesson_type === 'quiz' ? <QuizIcon /> :
+                                  lesson.lesson_type === 'interactive' ? <CodeIcon /> :
+                                    <ArticleIcon />}
                             </ListItemIcon>
                             <ListItemText
                               primary={lesson.title}
@@ -1102,6 +1108,73 @@ const LearnAdmin: React.FC = () => {
     </Box>
   );
 
+  const renderMediaLibraryTab = () => (
+    <Box>
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="h6" fontWeight={700}>System Media Library</Typography>
+        <Button variant="contained" startIcon={<UploadIcon />} onClick={() => setSuccess('Upload opened')}>
+          Upload Asset
+        </Button>
+      </Box>
+      <Grid container spacing={3}>
+        {[1, 2, 3, 4, 5, 6].map((idx) => (
+          <Grid item xs={12} sm={6} md={4} lg={3} key={idx}>
+            <Card sx={{ borderRadius: 3, border: '1px solid rgba(0,0,0,0.05)', boxShadow: 'none' }}>
+              <Box sx={{ height: 140, bgcolor: 'grey.100', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {idx % 3 === 0 ? <VideoIcon fontSize="large" color="action" /> : <ImageIcon fontSize="large" color="action" />}
+              </Box>
+              <CardContent sx={{ p: 2 }}>
+                <Typography variant="subtitle2" fontWeight={700} noWrap>Tutorial Asset_{idx}.png</Typography>
+                <Typography variant="caption" color="text.secondary">2.4 MB • Image</Typography>
+                <Box sx={{ mt: 1, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                  <IconButton size="small"><LinkIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" color="error"><DeleteIcon fontSize="small" /></IconButton>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  );
+
+  const renderCodeSnippetsTab = () => (
+    <Box>
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="h6" fontWeight={700}>Tutorial Code Snippets</Typography>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setSuccess('New snippet form')}>
+          New Snippet
+        </Button>
+      </Box>
+      <Grid container spacing={3}>
+        {[1, 2, 3, 4].map((idx) => (
+          <Grid item xs={12} md={6} key={idx}>
+            <Card sx={{ borderRadius: 3, border: '1px solid rgba(0,0,0,0.05)', boxShadow: 'none' }}>
+              <CardContent sx={{ p: 2.5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                  <Typography variant="subtitle1" fontWeight={700}>React Context API Template</Typography>
+                  <Chip label="JavaScript" size="small" color="primary" variant="outlined" />
+                </Box>
+                <Box sx={{ bgcolor: '#0a0a1a', p: 2, borderRadius: 2, mb: 2 }}>
+                  <Typography variant="caption" sx={{ color: '#00ff88', fontFamily: 'monospace' }}>
+                    const MyContext = React.createContext();...
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="caption" color="text.secondary">Shared with 12 tutorials</Typography>
+                  <Box>
+                    <IconButton size="small"><CopyIcon fontSize="small" /></IconButton>
+                    <IconButton size="small"><EditIcon fontSize="small" /></IconButton>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  );
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Snackbars */}
@@ -1146,12 +1219,8 @@ const LearnAdmin: React.FC = () => {
         <>
           {activeTab === 0 && !selectedTutorial && renderCategoriesTab()}
           {activeTab === 1 && renderTutorialsTab()}
-          {activeTab === 2 && !selectedTutorial && (
-            <Alert severity="info">Media Library - Coming Soon</Alert>
-          )}
-          {activeTab === 3 && !selectedTutorial && (
-            <Alert severity="info">Code Snippets Library - Coming Soon</Alert>
-          )}
+          {activeTab === 2 && renderMediaLibraryTab()}
+          {activeTab === 3 && renderCodeSnippetsTab()}
         </>
       )}
 
@@ -1486,7 +1555,7 @@ const LearnAdmin: React.FC = () => {
             </Grid>
             <Grid item xs={12}>
               <Divider sx={{ my: 2 }} />
-              
+
               {/* Dynamic content fields based on block type */}
               {blockForm.block_type === 'header' && (
                 <Grid container spacing={2}>

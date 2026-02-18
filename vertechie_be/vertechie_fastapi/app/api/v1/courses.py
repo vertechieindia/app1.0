@@ -12,9 +12,9 @@ from sqlalchemy import select, or_
 from slugify import slugify
 
 from app.db.session import get_db
-from app.models.course import Course, CourseCategory, CourseEnrollment, EnrollmentStatus
+from app.models.course import Course, CourseCategory, CourseEnrollment, EnrollmentStatus, CourseCertificate
 from app.models.lesson import Module, Lesson, LessonProgress, LessonStatus
-from app.models.user import User
+from app.models.user import User, UserProfile
 from app.schemas.course import (
     CourseCreate, CourseUpdate, CourseResponse, CourseListResponse,
     CourseCategoryResponse, EnrollmentResponse, ModuleResponse, LessonResponse
@@ -446,11 +446,94 @@ async def complete_lesson(
     
     if course.total_lessons > 0:
         enrollment.progress_percentage = (enrollment.completed_lessons / course.total_lessons) * 100
-    
+        
     await db.commit()
+    
+    # Check if course completed and generate certificate
+    certificate_id = None
+    if enrollment.progress_percentage >= 100 and enrollment.status != EnrollmentStatus.COMPLETED:
+        enrollment.status = EnrollmentStatus.COMPLETED
+        enrollment.completed_at = datetime.utcnow()
+        certificate_id = await generate_certificate(db, current_user, course)
+        await db.commit()
     
     return {
         "message": "Lesson completed",
-        "course_progress": float(enrollment.progress_percentage)
+        "course_progress": float(enrollment.progress_percentage),
+        "completed": enrollment.status == EnrollmentStatus.COMPLETED,
+        "certificate_id": certificate_id
     }
+
+
+async def generate_certificate(db: AsyncSession, user: User, course: Course) -> Optional[str]:
+    """Helper to generate a certificate record."""
+    # Check if already exists
+    res = await db.execute(
+        select(CourseCertificate).where(CourseCertificate.user_id == user.id, CourseCertificate.course_id == course.id)
+    )
+    if res.scalar_one_or_none():
+        return None
+        
+    cert_num = f"CERT-{uuid4().hex[:8].upper()}"
+    cert = CourseCertificate(
+        user_id=user.id,
+        course_id=course.id,
+        certificate_number=cert_num,
+        verification_code=uuid4().hex[:12].upper(),
+        issued_at=datetime.utcnow()
+    )
+    db.add(cert)
+    return str(cert.id)
+
+
+@router.get("/{course_id}/certificate")
+async def get_course_certificate(
+    course_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Get certificate for a completed course."""
+    result = await db.execute(
+        select(CourseCertificate).where(
+            CourseCertificate.user_id == current_user.id,
+            CourseCertificate.course_id == course_id
+        )
+    )
+    cert = result.scalar_one_or_none()
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificate not found")
+        
+    return {
+        "id": cert.id,
+        "certificate_number": cert.certificate_number,
+        "issued_at": cert.issued_at,
+        "verification_code": cert.verification_code,
+        "url": cert.file_url or f"/api/v1/courses/{course_id}/certificate/view"
+    }
+
+
+@router.get("/me/recommendations")
+async def get_course_recommendations(
+    limit: int = 5,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Get personalized course recommendations based on profile skills."""
+    # Simple logic: Find courses in categories matching user's skills
+    profile_res = await db.execute(
+        select(UserProfile).where(UserProfile.user_id == current_user.id)
+    )
+    profile = profile_res.scalar_one_or_none()
+    
+    query = select(Course).where(Course.is_published == True)
+    
+    if profile and profile.skills:
+        # If user has skills, prioritize those
+        skill_filters = [Course.title.ilike(f"%{skill}%") for skill in profile.skills[:3]]
+        if skill_filters:
+            query = query.where(or_(*skill_filters))
+            
+    query = query.order_by(Course.enrollment_count.desc()).limit(limit)
+    res = await db.execute(query)
+    return res.scalars().all()
 

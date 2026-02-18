@@ -119,6 +119,8 @@ import {
   CMSJobs,
   CMSAnalytics,
   CMSSettings,
+  CMSMedia,
+  CMSSnippets,
 } from './pages/techie/cms';
 
 // Public Pages
@@ -128,18 +130,18 @@ import PublicSchedulingPage from './pages/public/PublicSchedulingPage';
  * PublicLayout - For unauthenticated pages (Home, About, Login, etc.)
  */
 const PublicLayout: React.FC = () => (
-  <Box sx={{ 
-    display: 'flex', 
-    flexDirection: 'column', 
-    minHeight: '100vh', 
-    width: '100%', 
+  <Box sx={{
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: '100vh',
+    width: '100%',
     maxWidth: '100vw',
     overflowX: 'hidden',
     background: theme.palette.background.gradient,
   }}>
     <Navbar />
-    <Box component="main" sx={{ 
-      flexGrow: 1, 
+    <Box component="main" sx={{
+      flexGrow: 1,
       width: '100%',
       maxWidth: '100vw',
       overflowX: 'hidden'
@@ -161,19 +163,19 @@ const HEADER_HEIGHT = 64;
 const BOTTOM_NAV_HEIGHT = 80;
 
 const AuthenticatedLayout: React.FC = () => (
-  <Box sx={{ 
-    display: 'flex', 
-    flexDirection: 'column', 
-    minHeight: '100vh', 
-    width: '100%', 
+  <Box sx={{
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: '100vh',
+    width: '100%',
     maxWidth: '100vw',
     overflowX: 'hidden',
     background: 'linear-gradient(180deg, #f0f4f8 0%, #e8eef5 100%)',
     bgcolor: '#f0f4f8',
   }}>
     <AppHeader />
-    <Box component="main" sx={{ 
-      flexGrow: 1, 
+    <Box component="main" sx={{
+      flexGrow: 1,
       width: '100%',
       maxWidth: '100vw',
       overflowX: 'hidden',
@@ -197,7 +199,7 @@ const PasswordResetListener: React.FC<{ children: React.ReactNode }> = ({ childr
     // Initialize BroadcastChannel listener
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       broadcastChannelRef.current = new BroadcastChannel('password-reset-channel');
-      
+
       const handleMessage = (event: MessageEvent) => {
         if (event.data?.type === 'PASSWORD_RESET_COMPLETED') {
           const resetTime = event.data.timestamp || Date.now();
@@ -208,9 +210,9 @@ const PasswordResetListener: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         }
       };
-      
+
       broadcastChannelRef.current.addEventListener('message', handleMessage);
-      
+
       return () => {
         if (broadcastChannelRef.current) {
           broadcastChannelRef.current.removeEventListener('message', handleMessage);
@@ -231,9 +233,9 @@ const PasswordResetListener: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }
     };
-    
+
     window.addEventListener('storage', handleStorageChange);
-    
+
     // Check if reset was completed while this tab was inactive
     const checkResetStatus = () => {
       const resetTimeStr = localStorage.getItem('passwordResetCompleted');
@@ -247,11 +249,11 @@ const PasswordResetListener: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }
     };
-    
+
     // Check on focus
     window.addEventListener('focus', checkResetStatus);
     checkResetStatus(); // Initial check
-    
+
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('focus', checkResetStatus);
@@ -268,10 +270,10 @@ const PasswordResetListener: React.FC<{ children: React.ReactNode }> = ({ childr
     setTimeout(() => {
       localStorage.removeItem('passwordResetCompleted');
     }, 10000);
-    
+
     // Show message
     setShowResetMessage(true);
-    
+
     // Redirect to login after showing message (unless already on login/reset-password page)
     const currentPath = window.location.pathname;
     if (currentPath !== '/login' && currentPath !== '/reset-password') {
@@ -290,9 +292,9 @@ const PasswordResetListener: React.FC<{ children: React.ReactNode }> = ({ childr
         onClose={() => setShowResetMessage(false)}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
-        <Alert 
-          onClose={() => setShowResetMessage(false)} 
-          severity="info" 
+        <Alert
+          onClose={() => setShowResetMessage(false)}
+          severity="info"
           sx={{ width: '100%' }}
         >
           Password reset completed. Please login again.
@@ -324,21 +326,21 @@ const AppRoutes: React.FC = () => {
             <Route path="/signup-success" element={<SignupSuccess />} />
             <Route path="/verification" element={<Verification />} />
             <Route path="/privacy" element={<Privacy />} />
-            
+
             {/* Status Routes */}
             <Route path="/status/processing" element={<StatusProcessing />} />
             <Route path="/status/accepted" element={<StatusAccepted />} />
             <Route path="/status/rejected" element={<StatusRejected />} />
             <Route path="/reset-password" element={<ResetPassword />} />
-            
+
             {/* GitHub OAuth Callback */}
             <Route path="/github/callback" element={<GitHubCallback />} />
             {/* GitLab OAuth Callback */}
             <Route path="/gitlab/callback" element={<GitLabCallback />} />
-            
+
             {/* Profile Completion Route */}
             <Route path="/complete-profile" element={<CompleteProfile />} />
-            
+
             {/* Company Info Routes */}
             <Route path="/companies/post-job" element={<PostJob />} />
             <Route path="/companies/talent-search" element={<TalentSearch />} />
@@ -346,27 +348,27 @@ const AppRoutes: React.FC = () => {
             <Route path="/companies/enterprise" element={<Enterprise />} />
             <Route path="/companies/contact-sales" element={<ContactSales />} />
             <Route path="/pricing" element={<Pricing />} />
-            
+
             {/* Public Jobs */}
             <Route path="/jobs" element={<JobListings />} />
             <Route path="/jobs/:jobId" element={<JobDetails />} />
-            
+
             {/* Legal & Support */}
             <Route path="/support" element={<Support />} />
             <Route path="/accessibility" element={<Accessibility />} />
             <Route path="/cookie-policy" element={<CookiePolicy />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/terms-of-service" element={<TermsOfService />} />
-            
+
             {/* Redirect /admin to /super-admin */}
             <Route path="/admin" element={<Navigate to="/super-admin" replace />} />
           </Route>
-          
+
           {/* ========== AUTHENTICATED ROUTES ========== */}
           <Route element={<AuthenticatedLayout />}>
-            
+
             {/* ========== ADMIN ROUTES (Under /vertechie/) ========== */}
-            
+
             {/* Super Admin - Full Platform Control */}
             <Route path="/vertechie/super-admin" element={
               <ProtectedRoute requiredRole="superadmin">
@@ -378,7 +380,7 @@ const AppRoutes: React.FC = () => {
                 <SuperAdmin />
               </ProtectedRoute>
             } />
-            
+
             {/* Company Admin - Manages Company Registrations & Approvals */}
             <Route path="/vertechie/companyadmin" element={
               <ProtectedRoute requiredRole="admin">
@@ -390,7 +392,7 @@ const AppRoutes: React.FC = () => {
                 <CompanyAdminDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* School Admin - Manages School Registrations & Approvals */}
             <Route path="/vertechie/schooladmin" element={
               <ProtectedRoute requiredRole="admin">
@@ -402,7 +404,7 @@ const AppRoutes: React.FC = () => {
                 <SchoolAdminDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* Techie Admin - Manages Tech Professional Registrations & Approvals */}
             <Route path="/vertechie/techieadmin" element={
               <ProtectedRoute requiredRole="admin">
@@ -414,7 +416,7 @@ const AppRoutes: React.FC = () => {
                 <TechieAdminDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* Hiring Manager Admin - Manages HM Registrations & Approvals */}
             <Route path="/vertechie/hiringmanageradmin" element={
               <ProtectedRoute requiredRole="admin">
@@ -437,7 +439,7 @@ const AppRoutes: React.FC = () => {
                 <HMAdminDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* Multi-Role Admin - One screen with tabs for each role (techie_admin, hm_admin, etc.) */}
             <Route path="/vertechie/role-admin" element={
               <ProtectedRoute requiredRole="admin">
@@ -449,7 +451,7 @@ const AppRoutes: React.FC = () => {
                 <MultiRoleAdminDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* BDM Admin */}
             <Route path="/vertechie/bdmadmin" element={
               <ProtectedRoute requiredRole="admin">
@@ -461,7 +463,7 @@ const AppRoutes: React.FC = () => {
                 <BDMAdminDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* Multi-Role Admin - For admins with multiple roles */}
             <Route path="/vertechie/admin" element={
               <ProtectedRoute requiredRole="admin">
@@ -473,7 +475,7 @@ const AppRoutes: React.FC = () => {
                 <Admin />
               </ProtectedRoute>
             } />
-            
+
             {/* Learn Admin - Complete Course Management System */}
             <Route path="/vertechie/learn-admin" element={
               <ProtectedRoute requiredRole="admin">
@@ -495,14 +497,14 @@ const AppRoutes: React.FC = () => {
                 <LearnAdmin />
               </ProtectedRoute>
             } />
-            
+
             {/* Legacy Course Management (Simple Version) */}
             <Route path="/vertechie/course-simple" element={
               <ProtectedRoute requiredRole="admin">
                 <CourseManagement />
               </ProtectedRoute>
             } />
-            
+
             {/* Legacy routes - redirect to new structure */}
             <Route path="/super-admin" element={
               <ProtectedRoute requiredRole="superadmin">
@@ -519,14 +521,27 @@ const AppRoutes: React.FC = () => {
                 <SuperAdminChat />
               </ProtectedRoute>
             } />
-            
+
             {/* HR Routes */}
             <Route path="/hr/dashboard" element={<HRDashboard />} />
             <Route path="/hr/feed" element={<Navigate to="/techie/home/feed" replace />} />
             <Route path="/hr/jobs" element={<HRDashboard />} />
             <Route path="/hr/candidates" element={<HRDashboard />} />
-            <Route path="/hr/interviews" element={<InterviewsPage />} />
-            <Route path="/hr/analytics" element={<HRDashboard />} />
+            <Route path="/hr/interviews" element={
+              <ProtectedRoute requiredRole="hr">
+                <InterviewsPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/hr/interviews/calendar" element={
+              <ProtectedRoute requiredRole="hr">
+                <ATSCalendarPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/hr/analytics" element={
+              <ProtectedRoute requiredRole="hr">
+                <AnalyticsPage />
+              </ProtectedRoute>
+            } />
             <Route path="/hr/chat" element={<Chat />} />
             <Route path="/hr/alerts" element={<Notifications />} />
             <Route path="/hr/profile" element={<ProfilePage />} />
@@ -536,15 +551,28 @@ const AppRoutes: React.FC = () => {
             <Route path="/hr/create-job" element={<CreateJobPost />} />
             <Route path="/hr/job/:jobId/edit" element={<CreateJobPost />} />
             <Route path="/hr/job/:jobId/applicants" element={<ViewApplicants />} />
-            
+
             {/* Hiring Manager Routes */}
             <Route path="/hm/dashboard" element={<HRDashboard />} />
             <Route path="/hm/jobs" element={<HRDashboard />} />
             <Route path="/hm/candidates" element={<HRDashboard />} />
             <Route path="/hm/assessments" element={<HRDashboard />} />
-            <Route path="/hm/interviews" element={<InterviewsPage />} />
-            <Route path="/hm/analytics" element={<HRDashboard />} />
-            
+            <Route path="/hm/interviews" element={
+              <ProtectedRoute requiredRole="hr">
+                <InterviewsPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/hm/interviews/calendar" element={
+              <ProtectedRoute requiredRole="hr">
+                <ATSCalendarPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/hm/analytics" element={
+              <ProtectedRoute requiredRole="hr">
+                <AnalyticsPage />
+              </ProtectedRoute>
+            } />
+
             {/* User Applications */}
             <Route path="/jobs/:jobId/apply" element={
               <ProtectedRoute requiredRole="user">
@@ -556,7 +584,7 @@ const AppRoutes: React.FC = () => {
                 <MyApplications />
               </ProtectedRoute>
             } />
-            
+
             {/* ========== TECHIE PLATFORM ROUTES ========== */}
             <Route path="/techie" element={
               <Navigate to="/techie/home/feed" replace />
@@ -566,7 +594,7 @@ const AppRoutes: React.FC = () => {
                 <TechieDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* Jobs Section */}
             <Route path="/techie/jobs" element={
               <ProtectedRoute requiredRole="user">
@@ -588,7 +616,7 @@ const AppRoutes: React.FC = () => {
                 <MyApplications />
               </ProtectedRoute>
             } />
-            
+
             {/* Practice Section */}
             <Route path="/techie/practice" element={
               <ProtectedRoute requiredRole="user">
@@ -615,7 +643,7 @@ const AppRoutes: React.FC = () => {
                 <TechieDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* Network is now the Home page - redirects handled below */}
             <Route path="/techie/network" element={
               <Navigate to="/techie/home" replace />
@@ -623,7 +651,7 @@ const AppRoutes: React.FC = () => {
             <Route path="/techie/network/*" element={
               <Navigate to="/techie/home" replace />
             } />
-            
+
             {/* Community Section - Redirects to Network pages */}
             <Route path="/techie/community" element={
               <Navigate to="/techie/home/feed" replace />
@@ -634,7 +662,7 @@ const AppRoutes: React.FC = () => {
             <Route path="/techie/feed" element={
               <Navigate to="/techie/home/feed" replace />
             } />
-            
+
             {/* Learn Section */}
             <Route path="/techie/learn" element={
               <ProtectedRoute requiredRole="user">
@@ -676,7 +704,7 @@ const AppRoutes: React.FC = () => {
                 <Learn />
               </ProtectedRoute>
             } />
-            
+
             {/* Other Techie Pages */}
             <Route path="/techie/achievements" element={
               <ProtectedRoute requiredRole="user">
@@ -693,14 +721,14 @@ const AppRoutes: React.FC = () => {
                 <TechieDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* Chat Section */}
             <Route path="/techie/chat" element={
               <ProtectedRoute requiredRole="user">
                 <Chat />
               </ProtectedRoute>
             } />
-            
+
             {/* Home - Network Hub with separate pages for each section */}
             <Route path="/techie/home" element={
               <Navigate to="/techie/home/feed" replace />
@@ -730,7 +758,7 @@ const AppRoutes: React.FC = () => {
                 <Combinator />
               </ProtectedRoute>
             } />
-            
+
             {/* Create Company/School Pages (for Tech Professionals & Hiring Managers) */}
             <Route path="/techie/create-company" element={
               <ProtectedRoute requiredRole="user">
@@ -742,7 +770,7 @@ const AppRoutes: React.FC = () => {
                 <TechieDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* User Settings & Saved */}
             <Route path="/techie/settings" element={
               <ProtectedRoute requiredRole="user">
@@ -759,9 +787,9 @@ const AppRoutes: React.FC = () => {
                 <TechieDashboard />
               </ProtectedRoute>
             } />
-            
+
             {/* ========== USER-SIDE MANAGEMENT PAGES ========== */}
-            
+
             {/* ATS - Applicant Tracking System (Separate Pages for Better Usability) */}
             <Route path="/techie/ats" element={
               <ProtectedRoute requiredRole="user">
@@ -830,14 +858,14 @@ const AppRoutes: React.FC = () => {
                 <ScheduleInterview />
               </ProtectedRoute>
             } />
-            
+
             {/* My Interviews - For Techies to see their scheduled interviews */}
             <Route path="/techie/my-interviews" element={
               <ProtectedRoute requiredRole="user">
                 <MyInterviews />
               </ProtectedRoute>
             } />
-            
+
             {/* Scheduling - Calendar & Scheduling (Calendly-like) */}
             <Route path="/techie/scheduling" element={
               <ProtectedRoute requiredRole="user">
@@ -849,7 +877,7 @@ const AppRoutes: React.FC = () => {
                 <SchedulingPage />
               </ProtectedRoute>
             } />
-            
+
             {/* Calendar View - Full Calendar with Events */}
             <Route path="/techie/calendar" element={
               <ProtectedRoute requiredRole="user">
@@ -861,7 +889,7 @@ const AppRoutes: React.FC = () => {
                 <CalendarView />
               </ProtectedRoute>
             } />
-            
+
             {/* SMS - School Page Management (for School Page Owners - like LinkedIn page management) */}
             {/* SMS - School Management System (Separate Pages) */}
             <Route path="/techie/sms" element={<Navigate to="/techie/sms/posts" replace />} />
@@ -900,7 +928,7 @@ const AppRoutes: React.FC = () => {
                 <SMSSettings />
               </ProtectedRoute>
             } />
-            
+
             {/* CMS - Company Management System (Separate Pages) */}
             <Route path="/techie/cms" element={<Navigate to="/techie/cms/posts" replace />} />
             <Route path="/techie/cms/posts" element={
@@ -933,7 +961,17 @@ const AppRoutes: React.FC = () => {
                 <CMSSettings />
               </ProtectedRoute>
             } />
-            
+            <Route path="/techie/cms/media" element={
+              <ProtectedRoute requiredRole="user">
+                <CMSMedia />
+              </ProtectedRoute>
+            } />
+            <Route path="/techie/cms/snippets" element={
+              <ProtectedRoute requiredRole="user">
+                <CMSSnippets />
+              </ProtectedRoute>
+            } />
+
             {/* Enterprise IDE Routes */}
             <Route path="/techie/ide" element={
               <ProtectedRoute requiredRole="user">
@@ -945,35 +983,35 @@ const AppRoutes: React.FC = () => {
                 <IDEPage />
               </ProtectedRoute>
             } />
-            
+
             {/* Blog (authenticated view) */}
             <Route path="/techie/blogs" element={
               <ProtectedRoute requiredRole="user">
                 <Blogs />
               </ProtectedRoute>
             } />
-            
+
             {/* Search Results */}
             <Route path="/techie/search" element={
               <ProtectedRoute requiredRole="user">
                 <SearchResults />
               </ProtectedRoute>
             } />
-            
+
             {/* Alerts/Notifications */}
             <Route path="/techie/alerts" element={
               <ProtectedRoute requiredRole="user">
                 <Notifications />
               </ProtectedRoute>
             } />
-            
+
             {/* Profile Completion (First Login After Approval) */}
             <Route path="/techie/profile-completion" element={
               <ProtectedRoute requiredRole="user">
                 <ProfileCompletion />
               </ProtectedRoute>
             } />
-            
+
             {/* User Profile & Settings */}
             <Route path="/techie/profile" element={
               <ProtectedRoute requiredRole="user">
@@ -1006,7 +1044,7 @@ const AppRoutes: React.FC = () => {
               </ProtectedRoute>
             } />
           </Route>
-          
+
           {/* Public Scheduling Pages - No Authentication Required */}
           <Route path="/schedule/:username" element={<PublicSchedulingPage />} />
           <Route path="/book/:linkId" element={<PublicSchedulingPage />} />

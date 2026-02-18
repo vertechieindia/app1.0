@@ -117,6 +117,10 @@ class UserProfileResponse(BaseModel):
     following_count: int = 0
     posts_count: int = 0
     karma_points: int = 0
+    xp: int = 0
+    level: int = 1
+    streak_count: int = 0
+    last_activity_date: Optional[date] = None
     
     class Config:
         from_attributes = True

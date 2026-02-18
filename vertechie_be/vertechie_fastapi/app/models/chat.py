@@ -75,8 +75,8 @@ class ChatMember(Base, UUIDMixin, TimestampMixin):
     
     __tablename__ = "chat_members"
     
-    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     
     # Role
     role = Column(Enum(MemberRole), default=MemberRole.MEMBER)

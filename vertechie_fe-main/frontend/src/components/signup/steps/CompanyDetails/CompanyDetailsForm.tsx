@@ -128,18 +128,10 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
       const hasNoData = !companyDetails && !formData.companyName && !formData.companyWebsite &&
         (isCompanySignup ? (!formData.ein && !formData.accountNumber) : !formData.companyEmail);
       
-      // Get user ID from token response (id from token API)
-      // This id should be used to fetch company details
-      const userId = formData.userId || formData.user_id || 
-                     (formData.tokenResponse as any)?.user_data?.id ||
-                     (formData.tokenResponse as any)?.user_id ||
-                     (formData.tokenResponse as any)?.user?.id ||
-                     null;
-      
-      // Only fetch if we have user ID from token response and haven't already loaded data
-      // Always try to fetch company details using the id from token response
-      // If data exists, show it. If not, show empty form for user to add
-      if (!wasExplicitlyRemoved && hasNoData && userId && !formData.companyDetails) {
+      const companyId = formData.companyId || formData.company_id || null;
+
+      // Fetch once when there is no local company details yet.
+      if (!wasExplicitlyRemoved && hasNoData && !formData.companyDetails) {
         try {
           // Get token from multiple sources - check all possible locations
           const token = 
@@ -162,12 +154,9 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
             return;
           }
           
-          console.log('Fetching company details using id from token response:', userId);
-          // Use different endpoint for company signup vs HR signup
-          const endpoint = isCompanySignup ? API_ENDPOINTS.COMPANY_SIGNUP : API_ENDPOINTS.COMPANY;
-          const apiUrl = getApiUrl(endpoint);
-          // Use 'id' query parameter instead of 'user' - id comes from token response
-          const getUrl = `${apiUrl}?id=${userId}`;
+          const getUrl = companyId
+            ? `${getApiUrl(API_ENDPOINTS.COMPANY)}${companyId}/`
+            : getApiUrl(API_ENDPOINTS.CMS.MY_COMPANY);
           
           console.log('Fetching company details with token:', token ? `${token.substring(0, 20)}...` : 'No token');
           
@@ -187,19 +176,20 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
           }
 
           if (fetchedData) {
-            // Validate that fetched data matches current location (for company signup)
+            // Validate location-specific fields only when location-specific data is present.
             if (isCompanySignup) {
               const hasCin = !!(fetchedData.cin && fetchedData.cin.trim());
               const hasEin = !!(fetchedData.ein && fetchedData.ein.trim());
               const hasAddress = !!(fetchedData.company_address && fetchedData.company_address.trim());
               const hasStartedDate = !!(fetchedData.started_date || fetchedData.startedDate);
+              const hasLocationSpecificData = hasCin || hasEin || hasAddress || hasStartedDate;
               
               // Check if data matches current location
               const isDataForIndia = hasCin && hasAddress && !hasEin && !hasStartedDate;
               const isDataForUS = hasEin && hasStartedDate && !hasCin;
               
               // Only use the data if it matches the current location
-              if (!((isIndia && isDataForIndia) || (!isIndia && isDataForUS))) {
+              if (hasLocationSpecificData && !((isIndia && isDataForIndia) || (!isIndia && isDataForUS))) {
                 // Data doesn't match location - don't use it, set to null
                 console.log('Fetched company details do not match current location. Ignoring fetched data.');
                 if (formData.companyDetails === undefined) {
@@ -213,8 +203,8 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
             
             const companyId = fetchedData.id || fetchedData.company_id;
             const savedCompanyDetails: any = {
-              companyName: fetchedData.company_name || fetchedData.companyName || '',
-              companyWebsite: fetchedData.company_website || fetchedData.companyWebsite || fetchedData.comapny_website || fetchedData.compnay_website || '',
+              companyName: fetchedData.company_name || fetchedData.companyName || fetchedData.name || '',
+              companyWebsite: fetchedData.company_website || fetchedData.companyWebsite || fetchedData.comapny_website || fetchedData.compnay_website || fetchedData.website || '',
               id: companyId,
             };
 
@@ -254,7 +244,7 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
                 updateData.about = savedCompanyDetails.about;
               }
             } else {
-              savedCompanyDetails.companyEmail = fetchedData.company_email || fetchedData.companyEmail || '';
+              savedCompanyDetails.companyEmail = fetchedData.company_email || fetchedData.companyEmail || fetchedData.email || '';
               updateData.companyEmail = savedCompanyDetails.companyEmail;
             }
 
@@ -314,8 +304,8 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
   // Initialize form when company details exist
   useEffect(() => {
     if (companyDetails && !showCompanyForm) {
-      setCompanyName(companyDetails.companyName || companyDetails.company_name || '');
-      setCompanyWebsite(companyDetails.companyWebsite || companyDetails.company_website || companyDetails.comapny_website || '');
+      setCompanyName(companyDetails.companyName || companyDetails.company_name || companyDetails.name || '');
+      setCompanyWebsite(companyDetails.companyWebsite || companyDetails.company_website || companyDetails.comapny_website || companyDetails.website || '');
       if (isCompanySignup) {
         if (isIndia) {
           // India fields
@@ -354,7 +344,7 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
           setAbout(companyDetails.about || '');
         }
       } else {
-        setCompanyEmail(companyDetails.companyEmail || companyDetails.company_email || '');
+        setCompanyEmail(companyDetails.companyEmail || companyDetails.company_email || companyDetails.email || '');
       }
     }
   }, [companyDetails, showCompanyForm, isCompanySignup, isIndia]);
@@ -392,8 +382,8 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
   const handleEditCompany = useCallback(() => {
     if (companyDetails) {
       setIsEditing(true);
-      setCompanyName(companyDetails.companyName || companyDetails.company_name || '');
-      setCompanyWebsite(companyDetails.companyWebsite || companyDetails.company_website || companyDetails.comapny_website || '');
+      setCompanyName(companyDetails.companyName || companyDetails.company_name || companyDetails.name || '');
+      setCompanyWebsite(companyDetails.companyWebsite || companyDetails.company_website || companyDetails.comapny_website || companyDetails.website || '');
       if (isCompanySignup) {
         if (isIndia) {
           // India fields
@@ -432,7 +422,7 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
           setAbout(companyDetails.about || '');
         }
       } else {
-        setCompanyEmail(companyDetails.companyEmail || companyDetails.company_email || '');
+        setCompanyEmail(companyDetails.companyEmail || companyDetails.company_email || companyDetails.email || '');
       }
       setShowCompanyForm(true);
     }
@@ -501,9 +491,7 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
         (formData.tokenResponse as any)?.access_token ||
         (formData.tokenResponse as any)?.token;
 
-      // Use different endpoint for company signup vs HR signup
-      const endpoint = isCompanySignup ? API_ENDPOINTS.COMPANY_SIGNUP : API_ENDPOINTS.COMPANY;
-      const apiUrl = getApiUrl(endpoint);
+      const apiUrl = getApiUrl(API_ENDPOINTS.COMPANY);
       const deleteUrl = `${apiUrl}${companyId}/`;
       
       await axios.delete(deleteUrl, {
@@ -862,6 +850,8 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
 
       if (isCompanySignup) {
         // Company signup payload
+        payload.name = companyName.trim();
+        payload.website = companyWebsite.trim();
         payload.company_name = companyName.trim();
         payload.company_website = companyWebsite.trim();
         
@@ -899,6 +889,9 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
         }
       } else {
         // HR signup payload
+        payload.name = companyName.trim();
+        payload.email = companyEmail.trim();
+        payload.website = companyWebsite.trim();
         payload.company_name = companyName.trim();
         payload.company_email = companyEmail.trim();
         payload.company_website = companyWebsite.trim();
@@ -910,20 +903,18 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
       const companyId = formData.companyId || formData.company_id || null;
       const isEdit = !!companyId;
 
-      console.log('Company operation:', isEdit ? 'PATCH (Update)' : 'POST (Create)');
+      console.log('Company operation:', isEdit ? 'PUT (Update)' : 'POST (Create)');
       console.log('Company ID:', companyId || 'Not found (will create new)');
 
-      // Call company API - Use different endpoint for company signup vs HR signup
-      // Use PATCH for editing, POST for new
-      const endpoint = isCompanySignup ? API_ENDPOINTS.COMPANY_SIGNUP : API_ENDPOINTS.COMPANY;
-      const apiUrl = getApiUrl(endpoint);
+      // Use /companies/ for both HR and Company signup details.
+      const apiUrl = getApiUrl(API_ENDPOINTS.COMPANY);
       let response;
       
       if (isEdit && companyId) {
-        // Update existing company details using PATCH
+        // Update existing company details using PUT
         const updateUrl = `${apiUrl}${companyId}/`;
-        console.log('Patching company details:', updateUrl);
-        response = await axios.patch(updateUrl, payload, {
+        console.log('Updating company details:', updateUrl);
+        response = await axios.put(updateUrl, payload, {
           headers: {
             'Content-Type': 'application/json',
             ...(token && { Authorization: `Bearer ${token}` }),
@@ -1029,7 +1020,7 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
     } finally {
       setIsSaving(false);
     }
-  }, [companyName, companyEmail, companyWebsite, ein, accountNumber, regState, startedDate, about, isCompanySignup, setErrors, updateFormData, formData, handleCompanyFormClose]);
+  }, [companyName, companyEmail, companyWebsite, ein, accountNumber, regState, startedDate, about, isCompanySignup, isIndia, setErrors, updateFormData, formData, handleCompanyFormClose]);
 
   return (
     <Box>
@@ -1117,14 +1108,14 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <Box sx={{ flex: 1 }}>
                 <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: primaryColor }}>
-                  {companyDetails.companyName || companyDetails.company_name || 'Company Name'}
+                  {companyDetails.companyName || companyDetails.company_name || companyDetails.name || 'Company Name'}
                 </Typography>
                 {isCompanySignup ? (
                   isIndia ? (
                     <>
-                      {companyDetails.companyWebsite && (
+                      {(companyDetails.companyWebsite || companyDetails.company_website || companyDetails.website) && (
                         <Typography variant="body2" sx={{ color: '#1976d2', mb: 0.5 }}>
-                          {companyDetails.companyWebsite || companyDetails.company_website || companyDetails.comapny_website}
+                          {companyDetails.companyWebsite || companyDetails.company_website || companyDetails.comapny_website || companyDetails.website}
                         </Typography>
                       )}
                       {companyDetails.cin && (
@@ -1145,9 +1136,9 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
                     </>
                   ) : (
                     <>
-                      {companyDetails.companyWebsite && (
+                      {(companyDetails.companyWebsite || companyDetails.company_website || companyDetails.website) && (
                         <Typography variant="body2" sx={{ color: '#1976d2', mb: 0.5 }}>
-                          {companyDetails.companyWebsite || companyDetails.company_website || companyDetails.comapny_website}
+                          {companyDetails.companyWebsite || companyDetails.company_website || companyDetails.comapny_website || companyDetails.website}
                         </Typography>
                       )}
                       {companyDetails.ein && (
@@ -1165,11 +1156,11 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
                 ) : (
                   <>
                     <Typography variant="body1" sx={{ mb: 1, color: '#333', fontWeight: 600 }}>
-                      {companyDetails.companyEmail || companyDetails.company_email || 'Company Email'}
+                      {companyDetails.companyEmail || companyDetails.company_email || companyDetails.email || 'Company Email'}
                     </Typography>
-                    {companyDetails.companyWebsite && (
+                    {(companyDetails.companyWebsite || companyDetails.company_website || companyDetails.website) && (
                       <Typography variant="body2" sx={{ color: '#1976d2', mb: 1 }}>
-                        {companyDetails.companyWebsite || companyDetails.company_website}
+                        {companyDetails.companyWebsite || companyDetails.company_website || companyDetails.website}
                       </Typography>
                     )}
                   </>

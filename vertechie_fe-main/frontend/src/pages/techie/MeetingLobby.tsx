@@ -309,8 +309,13 @@ const MeetingLobby: React.FC = () => {
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('type', meetingType);
+    if (!params.has('interviewId') && roomId) {
+      params.set('interviewId', roomId);
+    }
     setTimeout(() => {
-      navigate(`/techie/meet/${roomId}?type=${meetingType}`);
+      navigate(`/techie/meet/${roomId}?${params.toString()}`);
     }, 1000);
   };
 
