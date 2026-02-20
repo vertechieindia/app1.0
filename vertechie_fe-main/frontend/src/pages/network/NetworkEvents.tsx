@@ -51,17 +51,6 @@ interface NetworkEvent {
 }
 
 // ============================================
-// MOCK DATA
-// ============================================
-const mockEvents: NetworkEvent[] = [
-  { id: '1', title: 'Tech Leaders Summit 2024', description: 'Join top tech leaders for insights on the future of technology. Network with industry experts and learn about emerging trends.', date: 'Jan 25, 2024', time: '10:00 AM PST', attendees_count: 1250, host: { id: '1', name: 'VerTechie Events', avatar: '' }, type: 'conference', is_registered: true },
-  { id: '2', title: 'React Best Practices Workshop', description: 'Hands-on workshop on React optimization and patterns. Learn from experienced developers and improve your skills.', date: 'Jan 28, 2024', time: '2:00 PM PST', attendees_count: 450, host: { id: '2', name: 'React Community', avatar: '' }, type: 'workshop', is_registered: false },
-  { id: '3', title: 'AI/ML Networking Meetup', description: 'Virtual networking for AI/ML professionals. Connect with peers, share experiences, and explore collaboration opportunities.', date: 'Feb 1, 2024', time: '6:00 PM PST', attendees_count: 280, host: { id: '3', name: 'AI Enthusiasts', avatar: '' }, type: 'meetup', is_registered: false },
-  { id: '4', title: 'Cloud Architecture Deep Dive', description: 'Learn advanced cloud architecture patterns from AWS certified architects. Hands-on labs included.', date: 'Feb 5, 2024', time: '11:00 AM PST', attendees_count: 380, host: { id: '4', name: 'Cloud Pros', avatar: '' }, type: 'webinar', is_registered: false },
-  { id: '5', title: 'Startup Pitch Night', description: 'Watch innovative startups pitch their ideas to investors. Great networking opportunity for founders and investors alike.', date: 'Feb 10, 2024', time: '7:00 PM PST', attendees_count: 620, host: { id: '5', name: 'Startup Network', avatar: '' }, type: 'meetup', is_registered: true },
-];
-
-// ============================================
 // COMPONENT
 // ============================================
 const NetworkEvents: React.FC = () => {
@@ -411,4 +400,3 @@ const NetworkEvents: React.FC = () => {
 };
 
 export default NetworkEvents;
-

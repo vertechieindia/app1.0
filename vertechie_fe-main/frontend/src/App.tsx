@@ -13,7 +13,6 @@ import { TechieAdminDashboard, HMAdminDashboard, CompanyAdminDashboard, SchoolAd
 import BDMAdminDashboard from './pages/BDMAdminDashboard';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Networking from './pages/Networking';
-import Network from './pages/Network';
 import NetworkFeed from './pages/network/NetworkFeed';
 import MyNetwork from './pages/network/MyNetwork';
 import NetworkGroups from './pages/network/NetworkGroups';

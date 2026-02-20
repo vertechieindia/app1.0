@@ -17,7 +17,8 @@ import { API_ENDPOINTS } from '../../config/api';
 import {
   Box, Container, Grid, Typography, Card, CardContent, Avatar, Button, IconButton,
   Tabs, Tab, Paper, List, ListItem, ListItemText, Badge, Divider, Chip,
-  useTheme, alpha, CircularProgress,
+  CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
+  TextField, Snackbar, Alert,
 } from '@mui/material';
 import { styled, keyframes } from '@mui/material/styles';
 import {
@@ -80,29 +81,6 @@ export interface NetworkEvent {
 }
 
 // ============================================
-// MOCK DATA
-// ============================================
-const mockStats = {
-  connections: 127,
-  followers: 342,
-  following: 89,
-  pending_requests: 5,
-  group_memberships: 12,
-  profile_views: 1250,
-};
-
-const mockSuggestions: User[] = [
-  { id: '4', name: 'David Kim', title: 'DevOps Engineer', company: 'AWS', mutual_connections: 18, is_verified: true },
-  { id: '5', name: 'Lisa Wang', title: 'Frontend Developer', company: 'Stripe', mutual_connections: 6, is_verified: false },
-  { id: '6', name: 'James Wilson', title: 'CTO', company: 'StartupXYZ', mutual_connections: 22, is_verified: true },
-];
-
-const mockEvents: NetworkEvent[] = [
-  { id: '1', title: 'Tech Leaders Summit 2024', description: 'Join top tech leaders for insights on the future of technology.', date: 'Jan 25, 2024', time: '10:00 AM PST', attendees_count: 1250, host: { id: '1', name: 'VerTechie Events', avatar: '' }, type: 'conference', is_registered: true },
-  { id: '2', title: 'React Best Practices Workshop', description: 'Hands-on workshop on React optimization and patterns.', date: 'Jan 28, 2024', time: '2:00 PM PST', attendees_count: 450, host: { id: '2', name: 'React Community', avatar: '' }, type: 'workshop', is_registered: false },
-];
-
-// ============================================
 // TAB ROUTES
 // ============================================
 const tabRoutes = [
@@ -114,7 +92,7 @@ const tabRoutes = [
 ];
 
 // ============================================
-// STATS SHAPE (from API or mock)
+// STATS SHAPE
 // ============================================
 interface NetworkStatsState {
   connections: number;
@@ -133,19 +111,38 @@ interface NetworkLayoutProps {
 }
 
 const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
-  const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [stats, setStats] = useState<NetworkStatsState>(mockStats);
+  const [stats, setStats] = useState<NetworkStatsState>({
+    connections: 0,
+    followers: 0,
+    following: 0,
+    pending_requests: 0,
+    group_memberships: 0,
+    profile_views: 0,
+  });
   const [userName, setUserName] = useState<string>('User');
   const [userRole, setUserRole] = useState<string>('');
-  const suggestions = mockSuggestions;
-  const events = mockEvents;
+  const [suggestions, setSuggestions] = useState<User[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [sidebarError, setSidebarError] = useState<string | null>(null);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [inviteEmails, setInviteEmails] = useState('');
+  const [inviteMessage, setInviteMessage] = useState(
+    "Hey! I've been using VerTechie to connect with like-minded professionals and grow my network. I think you'd love it too! Join me on VerTechie."
+  );
+  const [isSendingInvites, setIsSendingInvites] = useState(false);
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'info' | 'warning';
+  }>({ open: false, message: '', severity: 'info' });
 
   const fetchStats = useCallback(async () => {
     try {
       const data = await api.get(API_ENDPOINTS.UNIFIED_NETWORK.STATS) as any;
+      setSidebarError(null);
       setStats({
         connections: data.connections_count ?? 0,
         followers: data.followers_count ?? 0,
@@ -156,6 +153,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
       });
     } catch (err) {
       console.error('NetworkLayout: error fetching stats', err);
+      setSidebarError('Some network stats could not be loaded.');
     }
   }, []);
 
@@ -166,6 +164,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
     try {
       setLoadingEvents(true);
       const data = await api.get(`${API_ENDPOINTS.COMMUNITY.EVENTS}?limit=3`) as any[];
+      setSidebarError(null);
 
       const mapped = data.map(event => ({
         id: event.id,
@@ -182,8 +181,35 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
       setSidebarEvents(mapped);
     } catch (err) {
       console.error('NetworkLayout: error fetching events', err);
+      setSidebarError('Some sidebar data could not be loaded.');
+      setSidebarEvents([]);
     } finally {
       setLoadingEvents(false);
+    }
+  }, []);
+
+  const fetchSuggestions = useCallback(async () => {
+    try {
+      setLoadingSuggestions(true);
+      const data = await api.get<any[]>(`${API_ENDPOINTS.UNIFIED_NETWORK.SUGGESTIONS_PEOPLE}?limit=3`);
+      setSidebarError(null);
+      const mapped: User[] = (Array.isArray(data) ? data : []).map((item: any) => ({
+        id: item.id,
+        name: item.name || 'User',
+        avatar: item.avatar_url || '',
+        title: item.title || '',
+        company: item.company || '',
+        mutual_connections: item.mutual_connections || 0,
+        is_verified: !!item.is_verified,
+        skills: item.skills || [],
+      }));
+      setSuggestions(mapped);
+    } catch (err) {
+      console.error('NetworkLayout: error fetching suggestions', err);
+      setSidebarError('Some sidebar data could not be loaded.');
+      setSuggestions([]);
+    } finally {
+      setLoadingSuggestions(false);
     }
   }, []);
 
@@ -225,7 +251,8 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
   useEffect(() => {
     fetchStats();
     fetchSidebarEvents();
-  }, [fetchStats, fetchSidebarEvents]);
+    fetchSuggestions();
+  }, [fetchStats, fetchSidebarEvents, fetchSuggestions]);
 
   // Determine active tab based on current route
   const activeTab = tabRoutes.findIndex(route => location.pathname.startsWith(route.path));
@@ -237,6 +264,44 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
 
   const handleConnect = (userId: string) => {
     console.log('Connecting with user:', userId);
+  };
+
+  const handleSendInvites = async () => {
+    const emails = inviteEmails
+      .split(',')
+      .map((email) => email.trim())
+      .filter((email) => email && email.includes('@'));
+
+    if (emails.length === 0) {
+      setSnackbar({ open: true, message: 'Please enter valid email addresses', severity: 'error' });
+      return;
+    }
+
+    try {
+      setIsSendingInvites(true);
+      const response = await api.post<{
+        total_requested: number;
+        total_sent: number;
+        failed_emails?: string[];
+        message?: string;
+      }>(API_ENDPOINTS.NETWORK.SEND_INVITES, {
+        emails,
+        message: inviteMessage,
+      });
+
+      const failed = response.failed_emails?.length || 0;
+      const successMessage = failed > 0
+        ? `Invites sent to ${response.total_sent}. Failed: ${failed}`
+        : (response.message || `Invitations sent to ${response.total_sent} people!`);
+
+      setSnackbar({ open: true, message: successMessage, severity: failed > 0 ? 'warning' : 'success' });
+      setInviteDialogOpen(false);
+      setInviteEmails('');
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.message || 'Failed to send invites', severity: 'error' });
+    } finally {
+      setIsSendingInvites(false);
+    }
   };
 
   return (
@@ -332,7 +397,19 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                   <Button size="small">See All</Button>
                 </Box>
 
-                {suggestions.slice(0, 3).map(user => (
+                {loadingSuggestions && (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                    <CircularProgress size={20} />
+                  </Box>
+                )}
+
+                {!loadingSuggestions && suggestions.length === 0 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                    No suggestions available
+                  </Typography>
+                )}
+
+                {!loadingSuggestions && suggestions.slice(0, 3).map(user => (
                   <Box key={user.id} sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <Avatar sx={{ bgcolor: 'primary.main', mr: 1.5 }}>
                       {user.name.charAt(0)}
@@ -349,6 +426,11 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                     </IconButton>
                   </Box>
                 ))}
+                {sidebarError && (
+                  <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1 }}>
+                    {sidebarError}
+                  </Typography>
+                )}
               </CardContent>
             </StyledCard>
 
@@ -367,6 +449,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                     fullWidth
                     startIcon={<Send />}
                     sx={{ borderRadius: 2, mb: 1 }}
+                    onClick={() => setInviteDialogOpen(true)}
                   >
                     Invite to VerTechie
                   </Button>
@@ -499,6 +582,60 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
           </Grid>
         </Grid>
       </Container>
+
+      <Dialog
+        open={inviteDialogOpen}
+        onClose={() => setInviteDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Invite Friends to VerTechie</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Enter one or more email addresses (comma separated)
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={2}
+            label="Email addresses"
+            placeholder="john@example.com, jane@example.com"
+            value={inviteEmails}
+            onChange={(e) => setInviteEmails(e.target.value)}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            fullWidth
+            multiline
+            minRows={3}
+            label="Message"
+            value={inviteMessage}
+            onChange={(e) => setInviteMessage(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInviteDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleSendInvites} disabled={!inviteEmails.trim() || isSendingInvites}>
+            {isSendingInvites ? 'Sending...' : 'Send Invite'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </PageContainer>
   );
 };

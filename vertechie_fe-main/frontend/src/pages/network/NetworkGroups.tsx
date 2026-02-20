@@ -53,18 +53,6 @@ interface Group {
 }
 
 // ============================================
-// MOCK DATA
-// ============================================
-const mockGroups: Group[] = [
-  { id: '1', name: 'React Developers Community', description: 'A community for React developers to share knowledge and best practices.', member_count: 15420, post_count: 892, category: 'Technology', is_joined: true, is_private: false, is_featured: true },
-  { id: '2', name: 'AI & Machine Learning', description: 'Discuss the latest in AI, ML, and data science.', member_count: 28350, post_count: 1456, category: 'Technology', is_joined: true, is_private: false, is_featured: true },
-  { id: '3', name: 'Startup Founders Network', description: 'Connect with other startup founders and entrepreneurs.', member_count: 8920, post_count: 567, category: 'Business', is_joined: false, is_private: true },
-  { id: '4', name: 'Cloud Computing Pros', description: 'AWS, Azure, GCP - discuss cloud technologies.', member_count: 12680, post_count: 789, category: 'Technology', is_joined: false, is_private: false },
-  { id: '5', name: 'Women in Tech', description: 'Supporting and empowering women in technology.', member_count: 21500, post_count: 1234, category: 'Community', is_joined: true, is_private: false, is_featured: true },
-  { id: '6', name: 'Career Growth Hub', description: 'Share tips and advice for career advancement.', member_count: 18750, post_count: 945, category: 'Career', is_joined: false, is_private: false },
-];
-
-// ============================================
 // COMPONENT
 // ============================================
 const NetworkGroups: React.FC = () => {
@@ -107,16 +95,16 @@ const NetworkGroups: React.FC = () => {
         member_count: bg.member_count || 0,
         post_count: bg.post_count || 0,
         category: bg.category || 'Technology',
-        is_joined: false, // TODO: Check if user is member
-        is_private: false, // TODO: Check group_type from backend
-        is_featured: false, // TODO: Get from backend if available
+        is_joined: !!(bg as any).is_joined,
+        is_private: ((bg as any).group_type || (bg as any).type) === 'private',
+        is_featured: !!(bg as any).is_featured,
       }));
       
-      setGroups(mappedGroups.length > 0 ? mappedGroups : mockGroups);
+      setGroups(mappedGroups);
     } catch (err: any) {
       console.error('Error fetching groups:', err);
-      setError('Failed to load groups. Showing sample groups.');
-      setGroups(mockGroups);
+      setError('Failed to load groups.');
+      setGroups([]);
     } finally {
       setLoading(false);
     }
@@ -136,9 +124,14 @@ const NetworkGroups: React.FC = () => {
 
   // Leave group
   const handleLeaveGroup = async (groupId: string) => {
-    // TODO: Add leave group API endpoint
-    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, is_joined: false, member_count: g.member_count - 1 } : g));
-    setSnackbar({ open: true, message: 'Left group', severity: 'success' });
+    try {
+      await communityService.leaveGroup(groupId);
+      setGroups(prev => prev.map(g => g.id === groupId ? { ...g, is_joined: false, member_count: Math.max(0, g.member_count - 1) } : g));
+      setSnackbar({ open: true, message: 'Left group', severity: 'success' });
+    } catch (err) {
+      console.error('Error leaving group:', err);
+      setSnackbar({ open: true, message: 'Failed to leave group. Please try again.', severity: 'error' });
+    }
   };
 
   // Create group
@@ -363,4 +356,3 @@ const NetworkGroups: React.FC = () => {
 };
 
 export default NetworkGroups;
-

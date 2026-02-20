@@ -111,6 +111,14 @@ const trendingHashtags = [
 
 const commonEmojis = ['😀', '😂', '❤️', '👍', '🎉', '🔥', '💡', '✨', '🚀', '💪', '👏', '🙌', '💯', '⭐', '🎯', '📈'];
 
+const parseApiDate = (value: string): Date => {
+  // Backend may return naive UTC timestamps (without trailing Z).
+  const hasTimezone = /[zZ]|[+\-]\d{2}:?\d{2}$/.test(value);
+  const normalized = hasTimezone ? value : `${value}Z`;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? new Date(value) : parsed;
+};
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -183,8 +191,8 @@ const NetworkFeed: React.FC = () => {
         shares_count: item.shares_count || 0,
         is_liked: item.is_liked || false,
         is_saved: item.is_saved || false,
-        created_at: item.created_at 
-          ? `posted ${formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}` 
+        created_at: item.created_at
+          ? `posted ${formatDistanceToNow(parseApiDate(item.created_at), { addSuffix: true })}`
           : 'posted just now',
         group: item.group_id && item.group_name 
           ? { id: item.group_id, name: item.group_name }
@@ -913,7 +921,7 @@ const NetworkFeed: React.FC = () => {
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
                                 {commentDate 
-                                  ? formatDistanceToNow(new Date(commentDate), { addSuffix: true })
+                                  ? formatDistanceToNow(parseApiDate(commentDate), { addSuffix: true })
                                   : 'just now'}
                               </Typography>
                             </Box>

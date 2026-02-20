@@ -5,7 +5,7 @@ Network and Connection schemas.
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 class ConnectionRequestCreate(BaseModel):
@@ -87,4 +87,20 @@ class UserNetworkStats(BaseModel):
     followers_count: int = 0
     following_count: int = 0
     pending_requests_count: int = 0
+
+
+class NetworkInviteRequest(BaseModel):
+    """Invite users to join VerTechie."""
+
+    emails: List[EmailStr]
+    message: Optional[str] = None
+
+
+class NetworkInviteResponse(BaseModel):
+    """Response for sending network invites."""
+
+    total_requested: int
+    total_sent: int
+    failed_emails: List[str] = []
+    message: str
 
