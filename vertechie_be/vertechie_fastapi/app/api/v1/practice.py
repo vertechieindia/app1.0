@@ -19,7 +19,7 @@ from app.models.practice import (
     Contest, ContestRegistration, UserProgress, ProblemBookmark,
     Difficulty, ProblemStatus, SubmissionStatus, ContestStatus
 )
-from app.models.user import User
+from app.models.user import User, UserProfile
 from app.core.security import get_current_user, get_current_admin_user, get_optional_user
 from pydantic import BaseModel, field_validator
 from datetime import datetime, date, timedelta
@@ -183,6 +183,19 @@ class UserProgressResponse(BaseModel):
     rating: int
     badges: List[str] = []
     
+    class Config:
+        from_attributes = True
+
+
+class LeaderboardEntryResponse(BaseModel):
+    rank: int
+    user_id: UUID
+    name: str
+    avatar_url: Optional[str] = None
+    points: int
+    streak: int
+    lessons_completed: int
+
     class Config:
         from_attributes = True
 
@@ -1108,6 +1121,47 @@ async def get_my_progress(
         await db.refresh(progress)
     
     return progress
+
+
+@router.get("/leaderboard", response_model=List[LeaderboardEntryResponse])
+async def get_leaderboard(
+    limit: int = Query(10, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get top learners leaderboard from real user_progress data."""
+    result = await db.execute(
+        select(UserProgress, User, UserProfile)
+        .join(User, User.id == UserProgress.user_id)
+        .outerjoin(UserProfile, UserProfile.user_id == User.id)
+        .order_by(
+            UserProgress.total_solved.desc(),
+            UserProgress.current_streak.desc(),
+            UserProgress.rating.desc(),
+            UserProgress.updated_at.desc(),
+        )
+        .limit(limit)
+    )
+
+    rows = result.all()
+    leaderboard: List[LeaderboardEntryResponse] = []
+
+    for idx, row in enumerate(rows, start=1):
+        progress, user, profile = row
+        display_name = user.full_name or user.email.split("@")[0]
+        leaderboard.append(
+            LeaderboardEntryResponse(
+                rank=idx,
+                user_id=user.id,
+                name=display_name,
+                avatar_url=profile.avatar_url if profile else None,
+                points=int(progress.rating or 0),
+                streak=int(progress.current_streak or 0),
+                lessons_completed=int(progress.total_solved or 0),
+            )
+        )
+
+    return leaderboard
 
 
 # ============= Admin Endpoints =============

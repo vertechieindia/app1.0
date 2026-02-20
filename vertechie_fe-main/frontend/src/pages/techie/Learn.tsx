@@ -3,7 +3,7 @@
  * Enterprise-level curriculum with interactive tutorials
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box, Typography, Paper, Button, IconButton, Chip, Grid, Card, CardContent,
   TextField, InputAdornment, Avatar, LinearProgress, Tooltip, List, ListItem,
@@ -38,6 +38,8 @@ import SchoolIcon from '@mui/icons-material/School';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { categories, allTutorials, Tutorial } from '../../data/curriculum';
+import { api } from '../../services/apiClient';
+import { API_ENDPOINTS } from '../../config/api';
 
 // Animations
 const pulseGlow = keyframes`
@@ -187,19 +189,80 @@ const SidebarItem = styled(ListItem)<{ active?: boolean; color?: string }>(({ ac
   },
 }));
 
-// Leaderboard data
-const leaderboard = [
-  { rank: 1, name: 'Alex Thompson', points: 15420, avatar: 'A', streak: 45 },
-  { rank: 2, name: 'Maria Garcia', points: 14850, avatar: 'M', streak: 38 },
-  { rank: 3, name: 'John Smith', points: 13200, avatar: 'J', streak: 30 },
-  { rank: 4, name: 'Sarah Lee', points: 12100, avatar: 'S', streak: 25 },
-  { rank: 5, name: 'David Kim', points: 11500, avatar: 'D', streak: 22 },
+type PracticeProgress = {
+  total_solved: number;
+  accepted_submissions: number;
+  current_streak: number;
+  rating: number;
+  badges: string[];
+};
+
+type CourseEnrollment = {
+  course_id: string;
+  status: string;
+  progress_percentage: number;
+  completed_lessons: number;
+  certificate_issued: boolean;
+};
+
+type CourseListItem = {
+  id: string;
+  estimated_hours: number;
+};
+
+type LeaderboardUser = {
+  rank: number;
+  user_id: string;
+  name: string;
+  avatar_url?: string | null;
+  points: number;
+  streak: number;
+  lessons_completed: number;
+};
+
+type UserStats = {
+  lessonsCompleted: number;
+  quizzesPassed: number;
+  certificates: number;
+  streak: number;
+  karmaPoints: number;
+  rank: string;
+  totalHours: number;
+};
+
+type BadgeItem = {
+  icon: string;
+  name: string;
+  earned: boolean;
+};
+
+const defaultUserStats: UserStats = {
+  lessonsCompleted: 0,
+  quizzesPassed: 0,
+  certificates: 0,
+  streak: 0,
+  karmaPoints: 0,
+  rank: '-',
+  totalHours: 0,
+};
+
+const defaultBadges: BadgeItem[] = [
+  { icon: '🔥', name: '7-Day Streak', earned: false },
+  { icon: '📚', name: 'First Lesson', earned: false },
+  { icon: '✅', name: 'Quiz Master', earned: false },
+  { icon: '🚀', name: 'Fast Learner', earned: false },
+  { icon: '🏆', name: 'Certified', earned: false },
+  { icon: '⭐', name: 'Top 10%', earned: false },
 ];
 
 const Learn: React.FC = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['web', 'programming']);
+  const [userStats, setUserStats] = useState<UserStats>(defaultUserStats);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardUser[]>([]);
+  const [badges, setBadges] = useState<BadgeItem[]>(defaultBadges);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
 
   const handleTutorialClick = (tutorialSlug: string) => {
     navigate(`/techie/learn/tutorial/${tutorialSlug}`);
@@ -213,16 +276,71 @@ const Learn: React.FC = () => {
     );
   };
 
-  // User stats (mock)
-  const userStats = {
-    lessonsCompleted: 156,
-    quizzesPassed: 42,
-    certificates: 3,
-    streak: 12,
-    karmaPoints: 4250,
-    rank: 'Rising Star',
-    totalHours: 48,
-  };
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadLearnDashboard = async () => {
+      try {
+        setDashboardError(null);
+
+        const [progress, enrollments, leaderboardData, me, courses] = await Promise.all([
+          api.get<PracticeProgress>(API_ENDPOINTS.PRACTICE.PROGRESS),
+          api.get<CourseEnrollment[]>(API_ENDPOINTS.COURSES.MY_ENROLLMENTS),
+          api.get<LeaderboardUser[]>(API_ENDPOINTS.PRACTICE.LEADERBOARD),
+          api.get<{ id: string }>(API_ENDPOINTS.AUTH.ME),
+          api.get<CourseListItem[]>(API_ENDPOINTS.COURSES.LIST, { params: { limit: 200 } }),
+        ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        const courseHoursMap = new Map(courses.map((course) => [course.id, Number(course.estimated_hours || 0)]));
+        const certificates = enrollments.filter((enrollment) =>
+          enrollment.certificate_issued || enrollment.status === 'completed'
+        ).length;
+        const learningHours = enrollments.reduce((sum, enrollment) => {
+          const estimatedHours = courseHoursMap.get(enrollment.course_id) || 0;
+          return sum + (estimatedHours * Number(enrollment.progress_percentage || 0)) / 100;
+        }, 0);
+        const myRank = leaderboardData.find((entry) => entry.user_id === me.id);
+
+        setUserStats({
+          lessonsCompleted: Number(progress.total_solved || 0),
+          quizzesPassed: Number(progress.accepted_submissions || 0),
+          certificates,
+          streak: Number(progress.current_streak || 0),
+          karmaPoints: Number(progress.rating || 0),
+          rank: myRank ? `#${myRank.rank}` : '-',
+          totalHours: Math.round(learningHours),
+        });
+
+        setLeaderboard(leaderboardData);
+        setBadges([
+          { icon: '🔥', name: '7-Day Streak', earned: Number(progress.current_streak || 0) >= 7 },
+          { icon: '📚', name: 'First Lesson', earned: Number(progress.total_solved || 0) > 0 },
+          { icon: '✅', name: 'Quiz Master', earned: Number(progress.accepted_submissions || 0) >= 25 },
+          { icon: '🚀', name: 'Fast Learner', earned: Number(progress.total_solved || 0) >= 50 },
+          { icon: '🏆', name: 'Certified', earned: certificates > 0 },
+          { icon: '⭐', name: 'Top 10%', earned: !!myRank && myRank.rank <= 10 },
+        ]);
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+        setDashboardError('Unable to load live learning stats right now.');
+        setUserStats(defaultUserStats);
+        setLeaderboard([]);
+        setBadges(defaultBadges);
+      }
+    };
+
+    loadLearnDashboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Filter tutorials by search
   const filteredTutorials = useMemo(() => {
@@ -525,12 +643,18 @@ const Learn: React.FC = () => {
               </Box>
 
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {leaderboard.length === 0 && (
+                  <Typography variant="body2" color="text.secondary">
+                    No leaderboard data yet.
+                  </Typography>
+                )}
                 {leaderboard.map(user => (
                   <LeaderboardItem key={user.rank} rank={user.rank}>
                     <Typography variant="body2" fontWeight={700} sx={{ minWidth: 24 }}>
                       #{user.rank}
                     </Typography>
                     <Avatar
+                      src={user.avatar_url || undefined}
                       sx={{
                         width: 32,
                         height: 32,
@@ -538,7 +662,7 @@ const Learn: React.FC = () => {
                         fontSize: '0.875rem',
                       }}
                     >
-                      {user.avatar}
+                      {user.name.charAt(0).toUpperCase()}
                     </Avatar>
                     <Box sx={{ flex: 1 }}>
                       <Typography variant="body2" fontWeight={600}>{user.name}</Typography>
@@ -556,9 +680,9 @@ const Learn: React.FC = () => {
                 ))}
               </Box>
 
-              <Button fullWidth variant="text" sx={{ mt: 2, textTransform: 'none' }}>
-                View Full Leaderboard
-              </Button>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+                Your rank: {userStats.rank}
+              </Typography>
             </Paper>
 
             {/* Achievements */}
@@ -569,14 +693,7 @@ const Learn: React.FC = () => {
               </Box>
 
               <Grid container spacing={1}>
-                {[
-                  { icon: '🔥', name: '7-Day Streak', earned: true },
-                  { icon: '📚', name: 'First Lesson', earned: true },
-                  { icon: '✅', name: 'Quiz Master', earned: true },
-                  { icon: '🚀', name: 'Fast Learner', earned: true },
-                  { icon: '🏆', name: 'Certified', earned: false },
-                  { icon: '⭐', name: 'Top 10%', earned: false },
-                ].map((badge, idx) => (
+                {badges.map((badge, idx) => (
                   <Grid item xs={4} key={idx}>
                     <Tooltip title={badge.name}>
                       <Paper
@@ -599,28 +716,13 @@ const Learn: React.FC = () => {
               </Grid>
             </Paper>
 
-            {/* Pro Tips */}
-            <Paper sx={{ p: 3, borderRadius: 3, bgcolor: alpha('#0d47a1', 0.03) }}>
-              <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                💡 Learning Tips
-              </Typography>
-              <List dense disablePadding>
-                {[
-                  'Complete exercises after each lesson',
-                  'Take quizzes to test your knowledge',
-                  'Use the "Try it Yourself" editor',
-                  'Build projects to practice skills',
-                  'Join the community for help',
-                ].map((tip, idx) => (
-                  <ListItem key={idx} sx={{ py: 0.5, px: 0 }}>
-                    <ListItemIcon sx={{ minWidth: 28 }}>
-                      <CheckCircleIcon sx={{ fontSize: 16, color: '#4CAF50' }} />
-                    </ListItemIcon>
-                    <ListItemText primary={tip} primaryTypographyProps={{ fontSize: '0.85rem' }} />
-                  </ListItem>
-                ))}
-              </List>
-            </Paper>
+            {dashboardError && (
+              <Paper sx={{ p: 2, borderRadius: 3, bgcolor: alpha('#ff9800', 0.08) }}>
+                <Typography variant="body2" color="text.secondary">
+                  {dashboardError}
+                </Typography>
+              </Paper>
+            )}
           </Grid>
         </Grid>
       </Box>

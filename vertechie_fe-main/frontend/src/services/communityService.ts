@@ -111,6 +111,13 @@ export const communityService = {
   },
 
   /**
+   * Leave a group
+   */
+  leaveGroup: async (groupId: string): Promise<void> => {
+    await api.delete(API_ENDPOINTS.COMMUNITY.LEAVE_GROUP(groupId));
+  },
+
+  /**
    * List posts (feed)
    */
   getPosts: async (params?: PostListParams): Promise<Post[]> => {

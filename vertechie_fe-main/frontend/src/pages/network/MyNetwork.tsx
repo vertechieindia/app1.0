@@ -46,6 +46,7 @@ const ConnectionCard = styled(Card)(({ theme }) => ({
 // ============================================
 interface User {
   id: string;
+  request_id?: string;
   name: string;
   avatar?: string;
   title?: string;
@@ -70,42 +71,23 @@ interface NetworkStats {
 }
 
 // ============================================
-// MOCK DATA
-// ============================================
-const mockConnections: Connection[] = [
-  { id: '1', name: 'Sarah Chen', title: 'Senior Software Engineer', company: 'Google', mutual_connections: 15, is_verified: true, connected_at: '2024-01-15', status: 'connected', skills: ['React', 'TypeScript', 'Node.js'] },
-  { id: '2', name: 'Michael Brown', title: 'Product Manager', company: 'Microsoft', mutual_connections: 8, is_verified: true, connected_at: '2024-02-20', status: 'connected', skills: ['Agile', 'Product Strategy'] },
-  { id: '3', name: 'Emily Zhang', title: 'Data Scientist', company: 'Meta', mutual_connections: 12, is_verified: false, connected_at: '2024-03-10', status: 'connected', skills: ['Python', 'ML', 'TensorFlow'] },
-  { id: '4', name: 'David Kim', title: 'DevOps Engineer', company: 'AWS', mutual_connections: 18, is_verified: true, connected_at: '2024-01-05', status: 'connected', skills: ['AWS', 'Kubernetes', 'Docker'] },
-  { id: '5', name: 'Lisa Wang', title: 'Frontend Developer', company: 'Stripe', mutual_connections: 6, is_verified: false, connected_at: '2024-02-15', status: 'connected', skills: ['React', 'Vue', 'CSS'] },
-  { id: '6', name: 'James Wilson', title: 'CTO', company: 'StartupXYZ', mutual_connections: 22, is_verified: true, connected_at: '2024-01-25', status: 'connected', skills: ['Leadership', 'Architecture'] },
-];
-
-const mockPendingRequests: User[] = [
-  { id: '101', name: 'Alex Thompson', title: 'Senior UX Designer', company: 'Apple', mutual_connections: 5, is_verified: false },
-  { id: '102', name: 'Maria Garcia', title: 'Engineering Manager', company: 'Netflix', mutual_connections: 8, is_verified: true },
-  { id: '103', name: 'John Davis', title: 'Backend Developer', company: 'Uber', mutual_connections: 3, is_verified: false },
-];
-
-const mockStats = {
-  connections: 127,
-  followers: 342,
-  following: 89,
-  pending_requests: 5,
-  group_memberships: 12,
-  profile_views: 1250,
-};
-
-// ============================================
 // COMPONENT
 // ============================================
 const MyNetwork: React.FC = () => {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [pendingRequests, setPendingRequests] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [stats, setStats] = useState(mockStats);
+  const [stats, setStats] = useState({
+    connections: 0,
+    followers: 0,
+    following: 0,
+    pending_requests: 0,
+    group_memberships: 0,
+    profile_views: 0,
+  });
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Fetch network stats from API
   const fetchStats = useCallback(async () => {
@@ -121,59 +103,96 @@ const MyNetwork: React.FC = () => {
       });
     } catch (err) {
       console.error('Error fetching stats:', err);
-      // Keep mockStats as fallback
     }
+  }, []);
+
+  const getUserMap = useCallback(async (userIds: string[]) => {
+    const unique = Array.from(new Set(userIds.filter(Boolean)));
+    const entries = await Promise.all(
+      unique.map(async (id) => {
+        try {
+          const response = await fetchWithAuth(getApiUrl(API_ENDPOINTS.USERS.GET(id)));
+          if (!response.ok) return [id, null] as const;
+          const user = await response.json();
+          return [id, user] as const;
+        } catch {
+          return [id, null] as const;
+        }
+      })
+    );
+    return new Map(entries);
   }, []);
 
   // Fetch connections from API
   const fetchConnections = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError(null);
+      const meRes = await fetchWithAuth(getApiUrl('/users/me'));
+      if (!meRes.ok) throw new Error('Unable to load current user');
+      const me = await meRes.json();
+
       const response = await fetchWithAuth(getApiUrl('/network/connections'));
-      if (response.ok) {
-        const data = await response.json();
-        const mappedConnections: Connection[] = data.map((conn: any) => ({
-          id: conn.id || conn.user?.id,
-          name: conn.user?.name || `${conn.user?.first_name || ''} ${conn.user?.last_name || ''}`.trim() || 'User',
-          avatar: conn.user?.avatar_url || '',
-          title: conn.user?.headline || '',
-          company: conn.user?.current_company || '',
+      if (!response.ok) throw new Error('Unable to load connections');
+      const data = await response.json();
+
+      const otherUserIds: string[] = (Array.isArray(data) ? data : []).map((conn: any) =>
+        conn.user_id === me.id ? conn.connected_user_id : conn.user_id
+      );
+      const userMap = await getUserMap(otherUserIds);
+
+      const mappedConnections: Connection[] = (Array.isArray(data) ? data : []).map((conn: any) => {
+        const otherId = conn.user_id === me.id ? conn.connected_user_id : conn.user_id;
+        const other = userMap.get(otherId);
+        return {
+          id: otherId,
+          name: other ? `${other.first_name || ''} ${other.last_name || ''}`.trim() || other.email || 'User' : 'User',
+          avatar: '',
+          title: other?.headline || '',
+          company: other?.current_company || '',
           mutual_connections: 0,
-          is_verified: false,
+          is_verified: !!other?.is_verified,
           connected_at: conn.connected_at || new Date().toISOString(),
-          status: 'connected' as const,
+          status: 'connected',
           skills: [],
-        }));
-        setConnections(mappedConnections.length > 0 ? mappedConnections : mockConnections);
-      } else {
-        setConnections(mockConnections);
-      }
+        };
+      });
+      setConnections(mappedConnections);
     } catch (err) {
       console.error('Error fetching connections:', err);
-      setConnections(mockConnections);
+      setLoadError('Failed to load network data');
+      setConnections([]);
+      setPendingRequests([]);
+      setLoading(false);
+      return;
     }
     
     // Fetch pending requests
     try {
-      const reqResponse = await fetchWithAuth(getApiUrl('/network/requests'));
-      if (reqResponse.ok) {
-        const reqData = await reqResponse.json();
-        const mappedRequests: User[] = reqData.map((req: any) => ({
-          id: req.id || req.user?.id,
-          name: req.user?.name || `${req.user?.first_name || ''} ${req.user?.last_name || ''}`.trim() || 'User',
-          avatar: req.user?.avatar_url || '',
-          title: req.user?.headline || '',
-          company: '',
+      const reqResponse = await fetchWithAuth(getApiUrl('/network/requests/received'));
+      if (!reqResponse.ok) throw new Error('Unable to load pending requests');
+      const reqData = await reqResponse.json();
+
+      const senderIds: string[] = (Array.isArray(reqData) ? reqData : []).map((req: any) => req.sender_id);
+      const userMap = await getUserMap(senderIds);
+
+      const mappedRequests: User[] = (Array.isArray(reqData) ? reqData : []).map((req: any) => {
+        const sender = userMap.get(req.sender_id);
+        return {
+          id: req.sender_id,
+          request_id: req.id,
+          name: sender ? `${sender.first_name || ''} ${sender.last_name || ''}`.trim() || sender.email || 'User' : 'User',
+          avatar: '',
+          title: sender?.headline || '',
+          company: sender?.current_company || '',
           mutual_connections: 0,
-          is_verified: false,
-        }));
-        setPendingRequests(mappedRequests.length > 0 ? mappedRequests : mockPendingRequests);
-      } else {
-        setPendingRequests(mockPendingRequests);
-      }
+          is_verified: !!sender?.is_verified,
+        };
+      });
+      setPendingRequests(mappedRequests);
     } catch (err) {
       console.error('Error fetching requests:', err);
-      setPendingRequests(mockPendingRequests);
+      setPendingRequests([]);
     }
     
     setLoading(false);
@@ -185,17 +204,18 @@ const MyNetwork: React.FC = () => {
   }, [fetchStats, fetchConnections]);
 
   // Accept connection request
-  const handleAcceptRequest = async (userId: string) => {
-    const user = pendingRequests.find(u => u.id === userId);
+  const handleAcceptRequest = async (requestId: string) => {
+    const user = pendingRequests.find(u => u.request_id === requestId);
     if (user) {
       try {
-        // Call API to accept request
-        const response = await fetchWithAuth(getApiUrl(`/network/requests/${userId}/accept`), {
+        const response = await fetchWithAuth(getApiUrl(`/network/requests/${requestId}/respond`), {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'accept' }),
         });
         
         if (response.ok) {
-          setPendingRequests(prev => prev.filter(u => u.id !== userId));
+          setPendingRequests(prev => prev.filter(u => u.request_id !== requestId));
           const newConnection: Connection = {
             ...user,
             connected_at: new Date().toISOString(),
@@ -204,35 +224,33 @@ const MyNetwork: React.FC = () => {
           setConnections(prev => [newConnection, ...prev]);
           setSnackbar({ open: true, message: `Connected with ${user.name}!`, severity: 'success' });
         } else {
-          // Fallback for demo - still update UI
-          setPendingRequests(prev => prev.filter(u => u.id !== userId));
-          const newConnection: Connection = {
-            ...user,
-            connected_at: new Date().toISOString(),
-            status: 'connected',
-          };
-          setConnections(prev => [newConnection, ...prev]);
-          setSnackbar({ open: true, message: `Connected with ${user.name}!`, severity: 'success' });
+          setSnackbar({ open: true, message: 'Failed to accept request', severity: 'error' });
         }
       } catch (err) {
         console.error('Error accepting request:', err);
-        // Still update UI for demo
-        setPendingRequests(prev => prev.filter(u => u.id !== userId));
-        const newConnection: Connection = {
-          ...user,
-          connected_at: new Date().toISOString(),
-          status: 'connected',
-        };
-        setConnections(prev => [newConnection, ...prev]);
-        setSnackbar({ open: true, message: `Connected with ${user.name}!`, severity: 'success' });
+        setSnackbar({ open: true, message: 'Failed to accept request', severity: 'error' });
       }
     }
   };
 
   // Decline connection request
-  const handleDeclineRequest = async (userId: string) => {
-    setPendingRequests(prev => prev.filter(u => u.id !== userId));
-    setSnackbar({ open: true, message: 'Request declined', severity: 'success' });
+  const handleDeclineRequest = async (requestId: string) => {
+    try {
+      const response = await fetchWithAuth(getApiUrl(`/network/requests/${requestId}/respond`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'decline' }),
+      });
+      if (response.ok) {
+        setPendingRequests(prev => prev.filter(u => u.request_id !== requestId));
+        setSnackbar({ open: true, message: 'Request declined', severity: 'success' });
+      } else {
+        setSnackbar({ open: true, message: 'Failed to decline request', severity: 'error' });
+      }
+    } catch (err) {
+      console.error('Error declining request:', err);
+      setSnackbar({ open: true, message: 'Failed to decline request', severity: 'error' });
+    }
   };
 
   // Filter connections based on search
@@ -244,6 +262,11 @@ const MyNetwork: React.FC = () => {
 
   return (
     <NetworkLayout>
+      {loadError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {loadError}
+        </Alert>
+      )}
       {/* Pending Requests */}
       {pendingRequests.length > 0 && (
         <StyledCard sx={{ mb: 3 }}>
@@ -256,7 +279,7 @@ const MyNetwork: React.FC = () => {
             </Typography>
             
             {pendingRequests.map(user => (
-              <Box key={user.id} sx={{ display: 'flex', alignItems: 'center', py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Box key={user.request_id || user.id} sx={{ display: 'flex', alignItems: 'center', py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
                 <Avatar sx={{ bgcolor: 'primary.main', width: 56, height: 56, mr: 2 }}>
                   {user.name.charAt(0)}
                 </Avatar>
@@ -275,7 +298,7 @@ const MyNetwork: React.FC = () => {
                     variant="contained" 
                     size="small" 
                     sx={{ borderRadius: 2 }}
-                    onClick={() => handleAcceptRequest(user.id)}
+                    onClick={() => user.request_id && handleAcceptRequest(user.request_id)}
                   >
                     Accept
                   </Button>
@@ -283,7 +306,7 @@ const MyNetwork: React.FC = () => {
                     variant="outlined" 
                     size="small" 
                     sx={{ borderRadius: 2 }}
-                    onClick={() => handleDeclineRequest(user.id)}
+                    onClick={() => user.request_id && handleDeclineRequest(user.request_id)}
                   >
                     Ignore
                   </Button>
@@ -313,8 +336,14 @@ const MyNetwork: React.FC = () => {
             />
           </Box>
 
+          {loading && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+              <CircularProgress size={24} />
+            </Box>
+          )}
+
           <Grid container spacing={2}>
-            {filteredConnections.map(conn => (
+            {!loading && filteredConnections.map(conn => (
               <Grid item xs={12} sm={6} key={conn.id}>
                 <ConnectionCard>
                   <Avatar sx={{ bgcolor: 'primary.main', width: 56, height: 56 }}>
@@ -340,6 +369,14 @@ const MyNetwork: React.FC = () => {
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <Typography variant="body1" color="text.secondary">
                 No connections found matching "{searchQuery}"
+              </Typography>
+            </Box>
+          )}
+
+          {!loading && !searchQuery && filteredConnections.length === 0 && (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Typography variant="body1" color="text.secondary">
+                No connections found
               </Typography>
             </Box>
           )}

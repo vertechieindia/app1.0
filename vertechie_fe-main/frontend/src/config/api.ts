@@ -207,6 +207,15 @@ export const API_ENDPOINTS = {
     },
 
     // ============================================
+    // PRACTICE (/practice)
+    // ============================================
+    PRACTICE: {
+        PROGRESS: '/practice/progress',
+        STREAKS: '/practice/streaks/',
+        LEADERBOARD: '/practice/leaderboard',
+    },
+
+    // ============================================
     // CALENDAR (/calendar)
     // ============================================
     CALENDAR: {
@@ -260,6 +269,7 @@ export const API_ENDPOINTS = {
         CONNECTIONS: '/network/connections',
         REQUESTS: '/network/requests',
         SEND_REQUEST: '/network/requests',
+        SEND_INVITES: '/network/invites',
         ACCEPT_REQUEST: (id: string) => `/network/requests/${id}/accept`,
         DECLINE_REQUEST: (id: string) => `/network/requests/${id}/decline`,
         REMOVE_CONNECTION: (id: string) => `/network/connections/${id}`,
@@ -272,6 +282,7 @@ export const API_ENDPOINTS = {
         GROUPS: '/community/groups',
         CREATE_GROUP: '/community/groups',
         JOIN_GROUP: (id: string) => `/community/groups/${id}/join`,
+        LEAVE_GROUP: (id: string) => `/community/groups/${id}/leave`,
         UPLOAD: '/community/upload',
         POSTS: '/community/posts',
         CREATE_POST: '/community/posts',

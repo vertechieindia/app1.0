@@ -5,6 +5,7 @@ Network and Connections API endpoints.
 from typing import Any, List, Optional
 from uuid import UUID
 from datetime import datetime
+import html
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,9 +18,12 @@ from app.schemas.network import (
     ConnectionRequestCreate, ConnectionRequestResponse,
     ConnectionResponse, ConnectionRequestAction,
     FollowCreate, FollowResponse,
-    BlockUserCreate, UserNetworkStats
+    BlockUserCreate, UserNetworkStats,
+    NetworkInviteRequest, NetworkInviteResponse
 )
 from app.core.security import get_current_user
+from app.core.config import settings
+from app.core.email import send_email
 
 router = APIRouter()
 
@@ -470,5 +474,100 @@ async def get_network_stats(
         followers_count=profile.followers_count if profile else 0,
         following_count=profile.following_count if profile else 0,
         pending_requests_count=pending_count,
+    )
+
+
+# ============= Invites =============
+
+@router.post("/invites", response_model=NetworkInviteResponse)
+async def send_platform_invites(
+    invite_in: NetworkInviteRequest,
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Send invite emails to join VerTechie."""
+
+    raw_emails = [email.strip().lower() for email in invite_in.emails if email and email.strip()]
+    unique_emails = list(dict.fromkeys(raw_emails))
+
+    if not unique_emails:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one valid email is required"
+        )
+
+    if len(unique_emails) > 50:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You can invite at most 50 emails at a time"
+        )
+
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Email service is not configured. Please contact support."
+        )
+
+    inviter_name = f"{(current_user.first_name or '').strip()} {(current_user.last_name or '').strip()}".strip()
+    if not inviter_name:
+        inviter_name = current_user.username or current_user.email or "A VerTechie member"
+
+    inviter_email = current_user.email or ""
+    safe_message_html = html.escape((invite_in.message or "").strip()).replace("\n", "<br>")
+    safe_message_text = (invite_in.message or "").strip()
+    join_url = settings.FRONTEND_URL or "https://vertechie.com"
+    subject = f"{inviter_name} invited you to join VerTechie"
+
+    sent_count = 0
+    failed_emails: List[str] = []
+
+    for email in unique_emails:
+        if inviter_email and email == inviter_email.lower():
+            failed_emails.append(email)
+            continue
+
+        html_body = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; color: #1f2937;">
+            <h2>You're invited to join VerTechie</h2>
+            <p><strong>{html.escape(inviter_name)}</strong> invited you to join VerTechie.</p>
+            {'<p><strong>Personal message:</strong><br>' + safe_message_html + '</p>' if safe_message_html else ''}
+            <p>
+              Join now:
+              <a href="{join_url}" target="_blank" rel="noopener noreferrer">{join_url}</a>
+            </p>
+            <p style="color:#6b7280;font-size:12px;">This invite was sent by {html.escape(inviter_email)}.</p>
+          </body>
+        </html>
+        """
+
+        text_body = (
+            f"{inviter_name} invited you to join VerTechie.\n\n"
+            + (f"Personal message:\n{safe_message_text}\n\n" if safe_message_text else "")
+            + f"Join now: {join_url}\n\n"
+            + f"This invite was sent by {inviter_email}."
+        )
+
+        sent = await send_email(
+            to_email=email,
+            subject=subject,
+            html_content=html_body,
+            text_content=text_body,
+        )
+        if sent:
+            sent_count += 1
+        else:
+            failed_emails.append(email)
+
+    if sent_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send invites. Please try again later."
+        )
+
+    return NetworkInviteResponse(
+        total_requested=len(unique_emails),
+        total_sent=sent_count,
+        failed_emails=failed_emails,
+        message=f"Invitations sent to {sent_count} recipient(s)",
     )
 

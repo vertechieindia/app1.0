@@ -326,6 +326,8 @@ interface EducationData {
   end_year?: number;
   gpa?: string;
   grade?: string;
+  score_type?: string;
+  score_value?: string;
   description?: string;
 }
 
@@ -423,11 +425,30 @@ const isValidDateRange = (start: string, end: string): boolean => {
   return new Date(start) <= new Date(end);
 };
 
-const isValidGPA = (gpa: string): boolean => {
-  const numGpa = parseFloat(gpa);
-  if (isNaN(numGpa)) return false;
-  // Accept GPA on 0-4 scale or 0-10 scale
-  return numGpa >= 0 && numGpa <= 10;
+type EducationScoreType = 'CGPA' | 'Percentage' | 'Grade';
+
+const normalizeScoreType = (scoreType?: string): EducationScoreType => {
+  const normalized = (scoreType || '').toLowerCase();
+  if (normalized === 'percentage') return 'Percentage';
+  if (normalized === 'grade') return 'Grade';
+  return 'CGPA';
+};
+
+const isValidEducationScore = (scoreType: EducationScoreType, scoreValue: string): boolean => {
+  if (!scoreValue || scoreValue.trim() === '') return false;
+  const value = scoreValue.trim();
+
+  if (scoreType === 'CGPA') {
+    const parsed = Number(value);
+    return !Number.isNaN(parsed) && parsed >= 0 && parsed <= 10;
+  }
+
+  if (scoreType === 'Percentage') {
+    const parsed = Number(value);
+    return !Number.isNaN(parsed) && parsed >= 0 && parsed <= 100;
+  }
+
+  return /^[A-Za-z][A-Za-z0-9+\-]{0,4}$/.test(value);
 };
 
 // Main Component
@@ -519,7 +540,8 @@ const ProfilePage: React.FC = () => {
     fieldOfStudy: '',
     startDate: '',
     endDate: '',
-    gpa: '',
+    scoreType: 'CGPA' as EducationScoreType,
+    scoreValue: '',
   });
 
   // Real user data from API
@@ -664,7 +686,9 @@ const ProfilePage: React.FC = () => {
           const mappedEducations = (Array.isArray(eduData) ? eduData : []).map((edu: any) => ({
             ...edu,
             institution: edu.school_name || edu.institution || '',
-            gpa: edu.grade || edu.gpa || '',
+            gpa: edu.score_value || edu.grade || edu.gpa || '',
+            score_type: edu.score_type || undefined,
+            score_value: edu.score_value || edu.grade || edu.gpa || '',
           }));
           setEducations(mappedEducations);
         }
@@ -861,7 +885,8 @@ const ProfilePage: React.FC = () => {
     degree: `${edu.degree}${edu.field_of_study ? ` in ${edu.field_of_study}` : ''}`,
     institution: edu.institution || edu.school_name || '',
     period: `${edu.start_year} - ${edu.end_year || 'Present'}`,
-    gpa: edu.gpa || edu.grade || '',
+    gpa: edu.score_value || edu.gpa || edu.grade || '',
+    scoreType: normalizeScoreType(edu.score_type),
   }));
 
   // Load projects from localStorage on mount
@@ -1157,7 +1182,8 @@ const ProfilePage: React.FC = () => {
       fieldOfStudy: '',
       startDate: '',
       endDate: '',
-      gpa: '',
+      scoreType: 'CGPA',
+      scoreValue: '',
     });
     setEducationErrors({});
     setIsSavingEducation(false);
@@ -1208,10 +1234,20 @@ const ProfilePage: React.FC = () => {
       }
     }
 
-    // Validate GPA (if provided)
-    if (newEducation.gpa && newEducation.gpa.trim()) {
-      if (!isValidGPA(newEducation.gpa.trim())) {
-        validationErrors.gpa = 'Please enter a valid GPA (0-4 or 0-10 scale)';
+    // Validate score type/value (signup flow)
+    if (!newEducation.scoreType) {
+      validationErrors.scoreType = 'Score Type is required';
+    }
+
+    if (!newEducation.scoreValue || !newEducation.scoreValue.trim()) {
+      validationErrors.scoreValue = 'Score Value is required';
+    } else if (!isValidEducationScore(newEducation.scoreType, newEducation.scoreValue.trim())) {
+      if (newEducation.scoreType === 'CGPA') {
+        validationErrors.scoreValue = 'Enter a valid CGPA between 0 and 10';
+      } else if (newEducation.scoreType === 'Percentage') {
+        validationErrors.scoreValue = 'Enter a valid Percentage between 0 and 100';
+      } else {
+        validationErrors.scoreValue = 'Enter a valid Grade (e.g., A+, A, B1, O)';
       }
     }
 
@@ -1273,7 +1309,9 @@ const ProfilePage: React.FC = () => {
           field_of_study: newEducation.fieldOfStudy.trim() || null,
           start_year: startYear,
           end_year: endYear,
-          grade: newEducation.gpa.trim() || null,
+          grade: newEducation.scoreValue.trim() || null,
+          score_type: newEducation.scoreType.toLowerCase(),
+          score_value: newEducation.scoreValue.trim() || null,
           description: null,
         }),
       });
@@ -2041,7 +2079,8 @@ const ProfilePage: React.FC = () => {
                                       fieldOfStudy: originalEdu.field_of_study || '',
                                       startDate: originalEdu.start_year ? `${originalEdu.start_year}-01-01` : '',
                                       endDate: originalEdu.end_year ? `${originalEdu.end_year}-01-01` : '',
-                                      gpa: originalEdu.grade || originalEdu.gpa || '',
+                                      scoreType: normalizeScoreType(originalEdu.score_type),
+                                      scoreValue: originalEdu.score_value || originalEdu.grade || originalEdu.gpa || '',
                                     });
                                     setEditEducationOpen(true);
                                   }
@@ -2105,7 +2144,7 @@ const ProfilePage: React.FC = () => {
                               </Typography>
                               {edu.gpa && (
                                 <Chip
-                                  label={`GPA: ${edu.gpa}`}
+                                  label={`${edu.scoreType || 'Score'}: ${edu.gpa}`}
                                   size="small"
                                   sx={{
                                     height: 20,
@@ -3458,23 +3497,76 @@ const ProfilePage: React.FC = () => {
                 />
               </Grid>
 
-              {/* GPA */}
+              {/* Score Type */}
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth required error={!!educationErrors.scoreType}>
+                  <InputLabel>GPA/Score Type *</InputLabel>
+                  <Select
+                    value={newEducation.scoreType}
+                    onChange={(e: SelectChangeEvent<string>) => {
+                      setNewEducation({
+                        ...newEducation,
+                        scoreType: e.target.value as EducationScoreType,
+                        scoreValue: '',
+                      });
+                      if (educationErrors.scoreType || educationErrors.scoreValue) {
+                        const newErrors = { ...educationErrors };
+                        delete newErrors.scoreType;
+                        delete newErrors.scoreValue;
+                        setEducationErrors(newErrors);
+                      }
+                    }}
+                    label="GPA/Score Type *"
+                  >
+                    <MenuItem value="CGPA">CGPA</MenuItem>
+                    <MenuItem value="Percentage">Percentage</MenuItem>
+                    <MenuItem value="Grade">Grade</MenuItem>
+                  </Select>
+                  {educationErrors.scoreType && (
+                    <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
+                      {educationErrors.scoreType}
+                    </Typography>
+                  )}
+                </FormControl>
+              </Grid>
+
+              {/* Score Value */}
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="GPA/Score"
-                  placeholder="e.g. 3.8 or 8.5"
-                  value={newEducation.gpa}
+                  label={newEducation.scoreType === 'Grade' ? 'Grade *' : `${newEducation.scoreType} *`}
+                  placeholder={
+                    newEducation.scoreType === 'CGPA'
+                      ? 'e.g. 8.5'
+                      : newEducation.scoreType === 'Percentage'
+                        ? 'e.g. 82'
+                        : 'e.g. A+'
+                  }
+                  type={newEducation.scoreType === 'Grade' ? 'text' : 'number'}
+                  value={newEducation.scoreValue}
                   onChange={(e) => {
-                    setNewEducation({ ...newEducation, gpa: e.target.value });
-                    if (educationErrors.gpa) {
+                    setNewEducation({ ...newEducation, scoreValue: e.target.value });
+                    if (educationErrors.scoreValue) {
                       const newErrors = { ...educationErrors };
-                      delete newErrors.gpa;
+                      delete newErrors.scoreValue;
                       setEducationErrors(newErrors);
                     }
                   }}
-                  error={!!educationErrors.gpa}
-                  helperText={educationErrors.gpa || "Enter GPA (0-4 or 0-10 scale)"}
+                  error={!!educationErrors.scoreValue}
+                  helperText={
+                    educationErrors.scoreValue ||
+                    (newEducation.scoreType === 'CGPA'
+                      ? 'Enter CGPA between 0 and 10'
+                      : newEducation.scoreType === 'Percentage'
+                        ? 'Enter Percentage between 0 and 100'
+                        : 'Enter Grade (e.g., A+, A, B1, O)')
+                  }
+                  inputProps={
+                    newEducation.scoreType === 'Grade'
+                      ? { maxLength: 5 }
+                      : { min: 0, step: 'any' }
+                  }
+                  required
                 />
               </Grid>
 

@@ -28,6 +28,8 @@ import {
   GroupAdd, FilterList, Sort, ViewModule, ViewList, Refresh, OpenInNew,
   Lightbulb, RocketLaunch,
 } from '@mui/icons-material';
+import { api } from '../services/apiClient';
+import { API_ENDPOINTS } from '../config/api';
 
 // ============================================
 // ANIMATIONS
@@ -494,17 +496,34 @@ const Network: React.FC = () => {
   };
 
   // Send invitations to join VerTechie
-  const handleSendInvites = () => {
+  const handleSendInvites = async () => {
     const emails = inviteEmails.split(',').map(e => e.trim()).filter(e => e && e.includes('@'));
     if (emails.length === 0) {
       setSnackbar({ open: true, message: 'Please enter valid email addresses', severity: 'error' });
       return;
     }
-    // Mock API call - in real app, this would send invitations
-    console.log('Sending invites to:', emails, 'with message:', inviteMessage);
-    setSnackbar({ open: true, message: `Invitations sent to ${emails.length} people!`, severity: 'success' });
-    setInviteDialogOpen(false);
-    setInviteEmails('');
+    try {
+      const response = await api.post<{
+        total_requested: number;
+        total_sent: number;
+        failed_emails?: string[];
+        message?: string;
+      }>(API_ENDPOINTS.NETWORK.SEND_INVITES, {
+        emails,
+        message: inviteMessage,
+      });
+
+      const failed = response.failed_emails?.length || 0;
+      const successMessage = failed > 0
+        ? `Invites sent to ${response.total_sent}. Failed: ${failed}`
+        : (response.message || `Invitations sent to ${response.total_sent} people!`);
+
+      setSnackbar({ open: true, message: successMessage, severity: failed > 0 ? 'warning' : 'success' });
+      setInviteDialogOpen(false);
+      setInviteEmails('');
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.message || 'Failed to send invites', severity: 'error' });
+    }
   };
 
   // Create a new group
