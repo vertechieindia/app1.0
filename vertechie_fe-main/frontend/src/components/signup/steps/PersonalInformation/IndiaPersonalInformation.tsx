@@ -33,13 +33,13 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [phoneSkipped, setPhoneSkipped] = useState(false);
-  
+
   // All types use same colors: US = light thick blue, India = peacock green
   const roleType = role === 'hr' ? 'hr' : (role || 'techie');
   const primaryColor = getPrimaryColor(roleType as 'techie' | 'hr' | 'company' | 'school', 'IN');
   const lightColor = getLightColor(roleType as 'techie' | 'hr' | 'company' | 'school', 'IN');
   const borderColor = primaryColor;
-  
+
   // OTP Verification Hook
   const otpHook = useOTPVerification();
 
@@ -56,10 +56,10 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
       // Store current values before updating to prevent loss
       const currentEmail = formData.email;
       const currentPhone = formData.phone;
-      
+
       // Only update phoneVerified status, don't overwrite other fields
       updateFormData({ phoneVerified: true });
-      
+
       // Immediately restore email if it was lost (shouldn't happen, but safeguard)
       if (currentEmail && currentEmail.trim() && currentEmail !== 'abc@gmail.com') {
         // Use setTimeout to ensure updateFormData has processed
@@ -69,7 +69,7 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
           }
         }, 0);
       }
-      
+
       // Preserve phone number - ensure it's not overwritten with email
       if (currentPhone && currentPhone.trim() && !currentPhone.includes('@')) {
         // Use setTimeout to ensure updateFormData has processed
@@ -105,13 +105,19 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
 
   const handleChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
-    
+
     // Prevent phone field from being set to email value
-    if (field === 'phone' && (newValue.includes('@') || newValue === 'abc@gmail.com' || newValue === formData.email)) {
-      console.warn('Attempted to set phone field to email value, preventing update');
-      return; // Don't update if trying to set phone to email
+    if (field === 'phone') {
+      if (newValue.includes('@') || newValue === 'abc@gmail.com' || newValue === formData.email) {
+        console.warn('Attempted to set phone field to email value, preventing update');
+        return;
+      }
+      // Only allow digits for phone
+      const digitsOnly = newValue.replace(/\D/g, '');
+      updateFormData({ [field]: digitsOnly });
+      return;
     }
-    
+
     updateFormData({ [field]: newValue });
     // Clear error when user starts typing
     if (errors[field]) {
@@ -122,7 +128,7 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
       // Use the new value from the event and the current formData value
       const password = field === 'password' ? newValue : formData.password;
       const confirmPassword = field === 'confirmPassword' ? newValue : formData.confirmPassword;
-      
+
       if (password && confirmPassword) {
         if (password.trim() !== confirmPassword.trim()) {
           setErrors({ ...errors, confirmPassword: 'Passwords do not match' });
@@ -146,7 +152,9 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
   }, [formData.email, otpHook, errors, setErrors]);
 
   const handlePhoneVerify = useCallback(async () => {
-    const success = await otpHook.sendPhoneOTP(formData.phone || '');
+    // Combine fixed dial code with digits
+    const fullPhone = `+91${formData.phone || ''}`;
+    const success = await otpHook.sendPhoneOTP(fullPhone);
     if (!success && otpHook.errors.phone) {
       setErrors({ ...errors, phone: otpHook.errors.phone });
     }
@@ -160,18 +168,18 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value.replace(/\D/g, '').slice(0, 6);
       otpHook.setEmailOTP(value);
-      
+
       // Reset verification trigger when OTP changes to less than 6 digits
       if (value.length < 6) {
         emailVerificationTriggeredRef.current = false;
         lastVerifiedEmailOTPRef.current = ''; // Reset when user deletes OTP
       }
-      
+
       // Clear error when user starts typing a different OTP
       if (errors.email && value !== lastVerifiedEmailOTPRef.current && value.length < 6) {
         setErrors({ ...errors, email: '' });
       }
-      
+
       // Auto-verify when 6 digits are entered (only once per unique OTP value)
       // The hook itself will prevent duplicate calls for the same OTP
       if (
@@ -200,18 +208,18 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value.replace(/\D/g, '').slice(0, 6);
       otpHook.setPhoneOTP(value);
-      
+
       // Reset verification trigger when OTP changes to less than 6 digits
       if (value.length < 6) {
         verificationTriggeredRef.current = false;
         lastVerifiedOTPRef.current = ''; // Reset when user deletes OTP
       }
-      
+
       // Clear error when user starts typing a different OTP
       if (errors.phone && value !== lastVerifiedOTPRef.current && value.length < 6) {
         setErrors({ ...errors, phone: '' });
       }
-      
+
       // Auto-verify when 6 digits are entered (only once per unique OTP value)
       // The hook itself will prevent duplicate calls for the same OTP
       if (
@@ -393,7 +401,7 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
                       if (inputElement) {
                         // Get the position of the input field
                         const rect = inputElement.getBoundingClientRect();
-                        
+
                         // Create a temporary date input
                         const tempInput = document.createElement('input');
                         tempInput.type = 'date';
@@ -403,14 +411,14 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
                         tempInput.style.width = `${rect.width}px`;
                         tempInput.style.opacity = '0';
                         tempInput.style.pointerEvents = 'none';
-                        
+
                         // Set current value if exists
                         if (formData.dateOfBirth && formData.dateOfBirth.includes('-') && formData.dateOfBirth.length === 10) {
                           tempInput.value = formData.dateOfBirth;
                         }
-                        
+
                         tempInput.max = new Date().toISOString().split('T')[0];
-                        
+
                         // Handle date selection
                         const handleDateChange = (event: any) => {
                           const selectedDate = event.target.value;
@@ -425,10 +433,10 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
                             }
                           }, 100);
                         };
-                        
+
                         tempInput.addEventListener('change', handleDateChange);
                         document.body.appendChild(tempInput);
-                        
+
                         // Trigger date picker
                         setTimeout(() => {
                           tempInput.focus();
@@ -534,7 +542,7 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
             onChange={handleChange('phone')}
             error={!!errors.phone || !!otpHook.errors.phone}
             helperText={errors.phone || otpHook.errors.phone || (phoneSkipped ? 'Skipped for now - you can verify later' : '')}
-            placeholder="+91 98765 43210"
+            placeholder="98765 43210"
             required={!phoneSkipped}
             disabled={!otpHook.emailVerified || otpHook.phoneVerified || phoneSkipped}
             sx={{
@@ -543,6 +551,13 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
               },
             }}
             InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Box sx={{ display: 'flex', alignItems: 'center', pr: 1, borderRight: '1px solid rgba(0,0,0,0.12)', mr: 1 }}>
+                    <Typography sx={{ fontWeight: 600, color: 'text.primary' }}>+91</Typography>
+                  </Box>
+                </InputAdornment>
+              ),
               endAdornment: (
                 <InputAdornment position="end">
                   {otpHook.phoneVerified ? (
@@ -666,15 +681,15 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
               />
             </Grid>
             <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
+              <TextField
+                fullWidth
                 label={(role === 'company' || role === 'school') ? "Admin Confirm Password *" : "Confirm Password *"}
                 type={showConfirmPassword ? 'text' : 'password'}
                 value={formData.confirmPassword || ''}
                 onChange={handleChange('confirmPassword')}
                 error={!!errors.confirmPassword}
                 helperText={errors.confirmPassword}
-            required
+                required
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">
@@ -687,8 +702,8 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
                     </InputAdornment>
                   ),
                 }}
-          />
-        </Grid>
+              />
+            </Grid>
           </>
         )}
 
@@ -709,10 +724,10 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
       {/* Error Messages */}
       {(errors.submit || otpHook.errors.email || otpHook.errors.phone) && (
         <Box sx={{ mt: 2 }}>
-      {errors.submit && (
+          {errors.submit && (
             <Alert severity="error" sx={{ mb: 1 }}>
-          {errors.submit}
-        </Alert>
+              {errors.submit}
+            </Alert>
           )}
           {otpHook.errors.email && (
             <Alert severity="error" sx={{ mb: 1 }}>
@@ -769,7 +784,7 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
             }}
             variant="contained"
             disabled={
-              otpHook.emailOTP.length !== 6 || 
+              otpHook.emailOTP.length !== 6 ||
               otpHook.emailVerifying ||
               (otpHook.emailOTP === lastVerifiedEmailOTPRef.current && lastVerifiedEmailOTPRef.current !== '')
             }
@@ -833,7 +848,7 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
             }}
             variant="contained"
             disabled={
-              otpHook.phoneOTP.length !== 6 || 
+              otpHook.phoneOTP.length !== 6 ||
               otpHook.phoneVerifying ||
               (otpHook.phoneOTP === lastVerifiedOTPRef.current && lastVerifiedOTPRef.current !== '')
             }
