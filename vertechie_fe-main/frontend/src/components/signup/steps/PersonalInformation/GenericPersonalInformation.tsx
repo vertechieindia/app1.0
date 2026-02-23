@@ -30,6 +30,7 @@ import AddressAutocomplete from '../../../ui/AddressAutocomplete';
 // Country-specific configurations
 const countryConfig: Record<string, {
   name: string;
+  dialCode: string;
   dateFormat: string;
   dateFormatExample: string;
   workAuthLabel: string;
@@ -37,6 +38,7 @@ const countryConfig: Record<string, {
 }> = {
   UK: {
     name: 'United Kingdom',
+    dialCode: '+44',
     dateFormat: 'DD/MM/YYYY',
     dateFormatExample: 'DD/MM/YYYY',
     workAuthLabel: 'Right to Work Status',
@@ -55,6 +57,7 @@ const countryConfig: Record<string, {
   },
   CA: {
     name: 'Canada',
+    dialCode: '+1',
     dateFormat: 'DD/MM/YYYY',
     dateFormatExample: 'DD/MM/YYYY',
     workAuthLabel: 'Work Authorization',
@@ -72,6 +75,7 @@ const countryConfig: Record<string, {
   },
   DE: {
     name: 'Germany',
+    dialCode: '+49',
     dateFormat: 'DD.MM.YYYY',
     dateFormatExample: 'DD.MM.YYYY',
     workAuthLabel: 'Arbeitserlaubnis',
@@ -89,6 +93,7 @@ const countryConfig: Record<string, {
   },
   CH: {
     name: 'Switzerland',
+    dialCode: '+41',
     dateFormat: 'DD.MM.YYYY',
     dateFormatExample: 'DD.MM.YYYY',
     workAuthLabel: 'Arbeitsbewilligung',
@@ -104,6 +109,7 @@ const countryConfig: Record<string, {
   },
   CN: {
     name: 'China',
+    dialCode: '+86',
     dateFormat: 'YYYY-MM-DD',
     dateFormatExample: 'YYYY-MM-DD',
     workAuthLabel: '工作许可 / Work Authorization',
@@ -116,6 +122,26 @@ const countryConfig: Record<string, {
       { value: 'other', label: 'Other' },
     ],
   },
+  US: {
+    name: 'USA',
+    dialCode: '+1',
+    dateFormat: 'MM/DD/YYYY',
+    dateFormatExample: 'MM/DD/YYYY',
+    workAuthLabel: 'Work Authorization',
+    workAuthOptions: [
+      { value: 'us_citizen', label: 'US Citizen' },
+      { value: 'permanent_resident', label: 'Permanent Resident (Green Card)' },
+      { value: 'h1b', label: 'H-1B Visa' },
+      { value: 'l1', label: 'L-1 Visa' },
+      { value: 'opt', label: 'F-1 (OPT)' },
+      { value: 'other', label: 'Other' },
+    ],
+  },
+};
+
+// Update existing configs logic removed as it is now integrated into the main object
+const updateConfigs = () => {
+  // No-op as dialysis codes are now in the initial definition
 };
 
 const GenericPersonalInformation: React.FC<StepComponentProps> = ({
@@ -131,7 +157,7 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
   const primaryColor = getPrimaryColor(roleType as 'techie' | 'hr' | 'company' | 'school', location as SignupLocation);
   const lightColor = getLightColor(roleType as 'techie' | 'hr' | 'company' | 'school', location as SignupLocation);
   const borderColor = primaryColor;
-  
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -162,7 +188,11 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       const { name, value } = e.target;
-      if (name === 'phone' && (value.includes('@') || value === formData.email)) {
+      if (name === 'phone') {
+        if (value.includes('@') || value === formData.email) return;
+        // Only allow digits
+        const digitsOnly = value.replace(/\D/g, '');
+        updateFormData({ [name]: digitsOnly });
         return;
       }
       updateFormData({ [name]: value });
@@ -200,11 +230,13 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
   }, [formData.email, otpHook, errors, setErrors]);
 
   const handlePhoneVerify = useCallback(async () => {
-    const success = await otpHook.sendPhoneOTP(formData.phone || '');
+    const dialCode = (countryConfig[location as string] || countryConfig.UK).dialCode;
+    const fullPhone = `${dialCode}${formData.phone || ''}`;
+    const success = await otpHook.sendPhoneOTP(fullPhone);
     if (!success && otpHook.errors.phone) {
       setErrors({ ...errors, phone: otpHook.errors.phone });
     }
-  }, [formData.phone, otpHook, errors, setErrors]);
+  }, [formData.phone, otpHook, errors, setErrors, location]);
 
   const lastVerifiedEmailOTPRef = React.useRef<string>('');
   const emailVerificationTriggeredRef = React.useRef(false);
@@ -213,12 +245,12 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value.replace(/\D/g, '').slice(0, 6);
       otpHook.setEmailOTP(value);
-      
+
       if (value.length < 6) {
         emailVerificationTriggeredRef.current = false;
         lastVerifiedEmailOTPRef.current = '';
       }
-      
+
       if (
         value.length === 6 &&
         !otpHook.emailVerifying &&
@@ -242,12 +274,12 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value.replace(/\D/g, '').slice(0, 6);
       otpHook.setPhoneOTP(value);
-      
+
       if (value.length < 6) {
         verificationTriggeredRef.current = false;
         lastVerifiedOTPRef.current = '';
       }
-      
+
       if (
         value.length === 6 &&
         !otpHook.phoneVerifying &&
@@ -269,7 +301,7 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
   const formatDateForDisplay = (date: string) => {
     if (!date) return '';
     if (!date.includes('-')) return date;
-    
+
     const [year, month, day] = date.split('-');
     if (location === 'CN') {
       return `${year}-${month}-${day}`; // YYYY-MM-DD
@@ -283,7 +315,7 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
   return (
     <Box>
       <Typography variant="h5" sx={{ fontWeight: 700, mb: 4, color: '#333' }}>
-        Personal Information - {config.name}
+        Personal Information
       </Typography>
 
       <Grid container spacing={3}>
@@ -415,6 +447,13 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
             required
             disabled={!otpHook.emailVerified || otpHook.phoneVerified}
             InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Box sx={{ display: 'flex', alignItems: 'center', pr: 1, borderRight: '1px solid rgba(0,0,0,0.12)', mr: 1 }}>
+                    <Typography sx={{ fontWeight: 600, color: 'text.primary' }}>{(countryConfig[location as string] || countryConfig.UK).dialCode}</Typography>
+                  </Box>
+                </InputAdornment>
+              ),
               endAdornment: (
                 <InputAdornment position="end">
                   {otpHook.phoneVerified ? (
