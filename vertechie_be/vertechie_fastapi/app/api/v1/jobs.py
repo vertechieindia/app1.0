@@ -105,176 +105,6 @@ async def create_job(
     return job
 
 
-@router.get("/{job_id}", response_model=JobResponse)
-async def get_job(
-    job_id: UUID,
-    db: AsyncSession = Depends(get_db)
-) -> Any:
-    """Get job by ID."""
-    
-    result = await db.execute(
-        select(Job).where(Job.id == job_id)
-    )
-    job = result.scalar_one_or_none()
-    
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
-        )
-    
-    # Increment view count
-    job.views_count += 1
-    await db.commit()
-    
-    return job
-
-
-@router.put("/{job_id}", response_model=JobResponse)
-async def update_job(
-    job_id: UUID,
-    job_in: JobUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-) -> Any:
-    """Update job posting. Allows if user posted it OR is company admin with can_manage_jobs."""
-    
-    result = await db.execute(
-        select(Job).where(Job.id == job_id)
-    )
-    job = result.scalar_one_or_none()
-    
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
-        )
-    
-    # Check ownership OR company admin permission
-    is_owner = job.posted_by_id == current_user.id
-    is_company_admin = False
-    
-    if job.company_id and not is_owner:
-        from app.models.company import CompanyAdmin
-        admin_check = await db.execute(
-            select(CompanyAdmin).where(
-                CompanyAdmin.company_id == job.company_id,
-                CompanyAdmin.user_id == current_user.id,
-                CompanyAdmin.can_manage_jobs == True
-            )
-        )
-        is_company_admin = admin_check.scalar_one_or_none() is not None
-    
-    if not (is_owner or is_company_admin or current_user.is_superuser):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this job"
-        )
-    
-    update_data = job_in.model_dump(exclude_unset=True)
-    
-    # Convert status string to enum if provided
-    if 'status' in update_data:
-        status_str = update_data.pop('status')
-        if status_str:
-            try:
-                job.status = JobStatus(status_str)
-            except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid status: {status_str}. Must be one of: draft, published, paused, closed, archived"
-                )
-    
-    # Update other fields
-    for field, value in update_data.items():
-        if value is not None:  # Only update non-None values
-            setattr(job, field, value)
-    
-    await db.commit()
-    await db.refresh(job)
-    
-    return job
-
-
-@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_job(
-    job_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-) -> None:
-    """Delete job posting. Allows if user posted it OR is company admin with can_manage_jobs."""
-    
-    result = await db.execute(
-        select(Job).where(Job.id == job_id)
-    )
-    job = result.scalar_one_or_none()
-    
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
-        )
-    
-    # Check ownership OR company admin permission
-    is_owner = job.posted_by_id == current_user.id
-    is_company_admin = False
-    
-    if job.company_id and not is_owner:
-        from app.models.company import CompanyAdmin
-        admin_check = await db.execute(
-            select(CompanyAdmin).where(
-                CompanyAdmin.company_id == job.company_id,
-                CompanyAdmin.user_id == current_user.id,
-                CompanyAdmin.can_manage_jobs == True
-            )
-        )
-        is_company_admin = admin_check.scalar_one_or_none() is not None
-    
-    if not (is_owner or is_company_admin or current_user.is_superuser):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this job"
-        )
-    
-    await db.delete(job)
-    await db.commit()
-
-
-@router.post("/{job_id}/publish")
-async def publish_job(
-    job_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-) -> Any:
-    """Publish a job."""
-    
-    result = await db.execute(
-        select(Job).where(Job.id == job_id)
-    )
-    job = result.scalar_one_or_none()
-    
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
-        )
-    
-    if job.posted_by_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized"
-        )
-    
-    job.status = JobStatus.PUBLISHED
-    job.published_at = datetime.utcnow()
-    
-    await db.commit()
-    
-    return {"message": "Job published successfully"}
-
-
-# ============= Applications =============
-
 @router.post("/{job_id}/apply", response_model=JobApplicationResponse, status_code=status.HTTP_201_CREATED)
 async def apply_to_job(
     job_id: UUID,
@@ -647,4 +477,172 @@ async def unsave_job(
     if saved:
         await db.delete(saved)
         await db.commit()
+
+
+@router.get("/{job_id}", response_model=JobResponse)
+async def get_job(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Get job by ID."""
+    
+    result = await db.execute(
+        select(Job).where(Job.id == job_id)
+    )
+    job = result.scalar_one_or_none()
+    
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+    
+    # Increment view count
+    job.views_count += 1
+    await db.commit()
+    
+    return job
+
+
+@router.put("/{job_id}", response_model=JobResponse)
+async def update_job(
+    job_id: UUID,
+    job_in: JobUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Update job posting. Allows if user posted it OR is company admin with can_manage_jobs."""
+    
+    result = await db.execute(
+        select(Job).where(Job.id == job_id)
+    )
+    job = result.scalar_one_or_none()
+    
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+    
+    # Check ownership OR company admin permission
+    is_owner = job.posted_by_id == current_user.id
+    is_company_admin = False
+    
+    if job.company_id and not is_owner:
+        from app.models.company import CompanyAdmin
+        admin_check = await db.execute(
+            select(CompanyAdmin).where(
+                CompanyAdmin.company_id == job.company_id,
+                CompanyAdmin.user_id == current_user.id,
+                CompanyAdmin.can_manage_jobs == True
+            )
+        )
+        is_company_admin = admin_check.scalar_one_or_none() is not None
+    
+    if not (is_owner or is_company_admin or current_user.is_superuser):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this job"
+        )
+    
+    update_data = job_in.model_dump(exclude_unset=True)
+    
+    # Convert status string to enum if provided
+    if 'status' in update_data:
+        status_str = update_data.pop('status')
+        if status_str:
+            try:
+                job.status = JobStatus(status_str)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid status: {status_str}. Must be one of: draft, published, paused, closed, archived"
+                )
+    
+    # Update other fields
+    for field, value in update_data.items():
+        if value is not None:  # Only update non-None values
+            setattr(job, field, value)
+    
+    await db.commit()
+    await db.refresh(job)
+    
+    return job
+
+
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_job(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> None:
+    """Delete job posting. Allows if user posted it OR is company admin with can_manage_jobs."""
+    
+    result = await db.execute(
+        select(Job).where(Job.id == job_id)
+    )
+    job = result.scalar_one_or_none()
+    
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+    
+    # Check ownership OR company admin permission
+    is_owner = job.posted_by_id == current_user.id
+    is_company_admin = False
+    
+    if job.company_id and not is_owner:
+        from app.models.company import CompanyAdmin
+        admin_check = await db.execute(
+            select(CompanyAdmin).where(
+                CompanyAdmin.company_id == job.company_id,
+                CompanyAdmin.user_id == current_user.id,
+                CompanyAdmin.can_manage_jobs == True
+            )
+        )
+        is_company_admin = admin_check.scalar_one_or_none() is not None
+    
+    if not (is_owner or is_company_admin or current_user.is_superuser):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this job"
+        )
+    
+    await db.delete(job)
+    await db.commit()
+
+
+@router.post("/{job_id}/publish")
+async def publish_job(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Publish a job."""
+    
+    result = await db.execute(
+        select(Job).where(Job.id == job_id)
+    )
+    job = result.scalar_one_or_none()
+    
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+    
+    if job.posted_by_id != current_user.id and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized"
+        )
+    
+    job.status = JobStatus.PUBLISHED
+    job.published_at = datetime.utcnow()
+    
+    await db.commit()
+    
+    return {"message": "Job published successfully"}
 
