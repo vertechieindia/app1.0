@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
+import os
 
 # Create async engine with proper connection pooling
 engine = create_async_engine(
@@ -79,9 +80,13 @@ async def create_default_superuser() -> None:
                 logger.info(f"Superuser already exists: {existing_superuser.email}")
                 return
             
-            # Create default superuser
-            default_email = "admin@vertechie.com"
-            default_password = "admin123"  # Change this in production!
+            # Create default superuser only when explicit credentials are provided.
+            default_email = os.getenv("BOOTSTRAP_SUPERUSER_EMAIL", "").strip()
+            default_password = os.getenv("BOOTSTRAP_SUPERUSER_PASSWORD", "").strip()
+
+            if not default_email or not default_password:
+                logger.info("Bootstrap superuser skipped: BOOTSTRAP_SUPERUSER_EMAIL/PASSWORD not set")
+                return
             
             # Check if this specific email already exists
             result = await session.execute(
@@ -109,8 +114,7 @@ async def create_default_superuser() -> None:
             session.add(superuser)
             await session.commit()
             
-            logger.info(f"✅ Default superuser created: {default_email} / {default_password}")
-            logger.warning("⚠️  IMPORTANT: Change the default password in production!")
+            logger.info(f"Bootstrap superuser created: {default_email}")
             
         except Exception as e:
             logger.error(f"Error creating default superuser: {e}")

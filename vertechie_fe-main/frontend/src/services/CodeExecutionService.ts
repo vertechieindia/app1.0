@@ -11,6 +11,9 @@
 
 import { getApiUrl } from '../config/api';
 
+const ALLOW_UNSAFE_BROWSER_EVAL =
+  import.meta.env.DEV && import.meta.env.VITE_ALLOW_BROWSER_EVAL === 'true';
+
 /** Human-readable label for the status (e.g. "Wrong Answer", "Runtime Error") */
 export const STATUS_LABELS: Record<string, string> = {
   success: 'Accepted',
@@ -222,6 +225,14 @@ const syntaxValidators: Record<string, (code: string) => { valid: boolean; error
  * Real JavaScript/TypeScript execution in browser
  */
 function executeJavaScriptInBrowser(code: string, input: string): ExecutionResult {
+  if (!ALLOW_UNSAFE_BROWSER_EVAL) {
+    return {
+      status: 'runtime_error',
+      output: '',
+      error: 'Browser-side execution is disabled. Please use backend judge service.',
+    };
+  }
+
   const startTime = performance.now();
   const logs: string[] = [];
   let error = '';
@@ -319,6 +330,14 @@ function executeJavaScriptInBrowser(code: string, input: string): ExecutionResul
  * This analyzes the code and simulates execution
  */
 function simulatePythonExecution(code: string, input: string): ExecutionResult {
+  if (!ALLOW_UNSAFE_BROWSER_EVAL) {
+    return {
+      status: 'runtime_error',
+      output: '',
+      error: 'Browser-side execution is disabled. Please use backend judge service.',
+    };
+  }
+
   const startTime = performance.now();
   const outputs: string[] = [];
   let error = '';

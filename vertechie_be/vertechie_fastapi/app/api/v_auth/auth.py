@@ -18,8 +18,10 @@ from pydantic import BaseModel, EmailStr
 from fastapi import APIRouter, HTTPException, status
 
 from app.core.config import settings
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # In-memory OTP storage (for development - use Redis in production)
 _otp_storage: Dict[str, Dict[str, Any]] = {}
@@ -110,9 +112,7 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
     try:
         # Check if SMTP credentials are configured
         if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-            print(f"[EMAIL] SMTP credentials not configured. Email would be sent to: {to_email}")
-            print(f"[EMAIL] Subject: {subject}")
-            print(f"[EMAIL] Body: {body}")
+            logger.warning("SMTP credentials not configured; skipping outbound email.")
             return True  # Return True for dev mode
         
         # Create message
@@ -125,7 +125,7 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
         msg.attach(MIMEText(body, 'html'))
         
         # Connect to SMTP server and send
-        print(f"[EMAIL] Connecting to SMTP server: {settings.SMTP_HOST}:{settings.SMTP_PORT}")
+        logger.info("Connecting to SMTP server for outbound email")
         
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30) as server:
             if settings.SMTP_USE_TLS:
@@ -133,17 +133,17 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.send_message(msg)
         
-        print(f"[EMAIL] Successfully sent email to: {to_email}")
+        logger.info("Email sent successfully")
         return True
         
     except smtplib.SMTPAuthenticationError as e:
-        print(f"[EMAIL] SMTP Authentication failed: {e}")
+        logger.error(f"SMTP authentication failed: {e}")
         return False
     except smtplib.SMTPException as e:
-        print(f"[EMAIL] SMTP Error: {e}")
+        logger.error(f"SMTP error: {e}")
         return False
     except Exception as e:
-        print(f"[EMAIL] Error sending email: {e}")
+        logger.error(f"Error sending email: {e}")
         return False
 
 
@@ -747,14 +747,13 @@ async def send_email_otp(request: SendEmailOTPRequest) -> Dict[str, Any]:
                     "error": "email_exists"
                 }
     except Exception as e:
-        print(f"[OTP] Database check error: {e}")
+        logger.error(f"OTP database check error: {e}")
         # Continue with OTP generation even if DB check fails
     
     otp = generate_otp()
     store_otp(request.email, otp)
     
-    # Log for debugging
-    print(f"[OTP] Generated OTP for {request.email}: {otp}")
+    logger.info(f"Generated OTP challenge for {request.email}")
     
     # Send email
     email_sent = send_otp_email(request.email, otp)

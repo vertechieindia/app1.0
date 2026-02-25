@@ -26,6 +26,7 @@ venv_new/
 env/
 ENV/
 .venv/
+venv_run/
 
 # IDE
 .idea/
@@ -48,6 +49,13 @@ yarn-error.log
 .env.bak
 .env.local
 .env.*.local
+
+# Secrets / keys
+*.pem
+*.key
+
+# Backups
+*.backup
 
 # Logs
 logs/

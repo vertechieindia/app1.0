@@ -367,6 +367,19 @@ export const jobService = {
 };
 
 // Helper: Map backend job format to frontend format
+const normalizeBackendTimestamp = (value: unknown): string => {
+  if (!value || typeof value !== 'string') return '';
+
+  const ts = value.trim();
+  if (!ts) return ts;
+
+  // Backend sends UTC naive timestamps (e.g. 2026-02-24T10:15:00).
+  // Treat those explicitly as UTC to avoid local-time drift in UI "x hours ago".
+  const hasTimezone = /([zZ]|[+\-]\d{2}:?\d{2})$/.test(ts);
+  if (hasTimezone || !ts.includes('T')) return ts;
+  return `${ts}Z`;
+};
+
 const mapBackendJobToFrontend = (backendJob: any): Job => {
   return {
     id: backendJob.id,
@@ -381,8 +394,8 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
     screeningQuestions: backendJob.screening_questions || backendJob.screeningQuestions || [],
     status: backendJob.status === 'published' ? 'active' : (backendJob.status || 'active'),
     createdBy: backendJob.posted_by_id || backendJob.createdBy,
-    createdAt: backendJob.created_at || backendJob.createdAt,
-    updatedAt: backendJob.updated_at || backendJob.updatedAt,
+    createdAt: normalizeBackendTimestamp(backendJob.created_at || backendJob.createdAt),
+    updatedAt: normalizeBackendTimestamp(backendJob.updated_at || backendJob.updatedAt),
     applicantCount: backendJob.applications_count || backendJob.applicantCount || 0,
     salary_min: backendJob.salary_min,
     salary_max: backendJob.salary_max,
@@ -393,6 +406,19 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
 
 // Helper: Map frontend job format to backend format
 const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
+  const explicitScreeningQuestions = (frontendJob as any).screeningQuestions;
+  const fallbackScreeningQuestions = (frontendJob.codingQuestions || []).map((q, index) => ({
+    id: q.id || String(index + 1),
+    question: q.question,
+    type: 'text',
+    required: true,
+    options: [],
+  }));
+
+  const screeningQuestions = Array.isArray(explicitScreeningQuestions) && explicitScreeningQuestions.length > 0
+    ? explicitScreeningQuestions
+    : fallbackScreeningQuestions;
+
   return {
     title: frontendJob.title,
     company_name: frontendJob.companyName || 'Company',
@@ -405,6 +431,8 @@ const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
     is_remote: frontendJob.location?.toLowerCase().includes('remote') || false,
     salary_min: frontendJob.salaryMin || null,
     salary_max: frontendJob.salaryMax || null,
+    coding_questions: frontendJob.codingQuestions || [],
+    screening_questions: screeningQuestions,
     status: 'published',
   };
 };
@@ -628,7 +656,9 @@ const mapBackendApplicationToFrontend = (backendApp: any): Application => {
     userId: backendApp.applicant_id || backendApp.user_id || backendApp.userId,
     candidateName: applicantName,
     candidateEmail: applicantEmail,
-    appliedAt: backendApp.submitted_at || backendApp.appliedAt || backendApp.created_at,
+    appliedAt: normalizeBackendTimestamp(
+      backendApp.submitted_at || backendApp.appliedAt || backendApp.created_at
+    ),
     status: backendApp.status || 'applied',
     codingAnswers: backendApp.answers || [],
     codingScore: backendApp.match_score || backendApp.rating,
@@ -729,30 +759,22 @@ export const getHRUserInfo = (): { id: string; name: string; companyName: string
 
 export const getUserInfo = (): { id: string; name: string; email: string } | null => {
   const userDataString = localStorage.getItem('userData');
-  
-  // TEMPORARY: Return demo user if no user is logged in (for testing)
   if (!userDataString) {
-    return {
-      id: 'demo-user',
-      name: 'Demo User',
-      email: 'demo@vertechie.com',
-    };
+    return null;
   }
 
   try {
     const userData = JSON.parse(userDataString);
+    if (!userData?.id || !userData?.email) {
+      return null;
+    }
     return {
-      id: userData.id?.toString() || 'demo-user',
+      id: userData.id.toString(),
       name: `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || userData.email || 'User',
-      email: userData.email || 'demo@vertechie.com',
+      email: userData.email,
     };
   } catch {
-    // TEMPORARY: Return demo user on error
-    return {
-      id: 'demo-user',
-      name: 'Demo User',
-      email: 'demo@vertechie.com',
-    };
+    return null;
   }
 };
 

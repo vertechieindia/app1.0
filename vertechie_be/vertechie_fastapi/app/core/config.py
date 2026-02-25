@@ -4,6 +4,7 @@ Application configuration using Pydantic Settings.
 
 from typing import List, Optional
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from functools import lru_cache
 
 
@@ -97,6 +98,12 @@ class Settings(BaseSettings):
     # Azure Face API (Liveness) - Set in .env file
     AZURE_FACE_ENDPOINT: str = ""
     AZURE_FACE_KEY: str = ""
+
+    @model_validator(mode="after")
+    def validate_security_settings(self):
+        if self.ENVIRONMENT.lower() == "production" and self.SECRET_KEY == "your-super-secret-key-change-in-production-please":
+            raise ValueError("SECRET_KEY must be set to a secure value in production.")
+        return self
     
     model_config = {
         "env_file": ".env",

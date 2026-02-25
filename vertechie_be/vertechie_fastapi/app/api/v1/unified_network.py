@@ -148,11 +148,15 @@ async def get_unified_network_stats(
     )
     group_count = result.scalar() or 0
     
-    # Count posts
+    # Count unread notifications
+    from app.models.notification import Notification
     result = await db.execute(
-        select(func.count(Post.id)).where(Post.author_id == current_user.id)
+        select(func.count(Notification.id)).where(
+            Notification.user_id == current_user.id,
+            Notification.is_read == False
+        )
     )
-    posts_count = result.scalar() or 0
+    unread_notifications = result.scalar() or 0
     
     return NetworkStatsResponse(
         connections_count=connections_count,
@@ -162,7 +166,7 @@ async def get_unified_network_stats(
         group_memberships=group_count,
         profile_views=profile.profile_views if profile and hasattr(profile, 'profile_views') else 0,
         posts_count=posts_count,
-        unread_notifications=0  # TODO: Implement notifications count
+        unread_notifications=unread_notifications
     )
 
 
@@ -684,15 +688,17 @@ async def search_network(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     q: str = Query(..., min_length=2, description="Search query"),
-    type: str = Query("all", description="people, groups, posts, all"),
+    type: str = Query("all", description="people, groups, posts, jobs, courses, all"),
     limit: int = Query(20, ge=1, le=100)
 ) -> Any:
-    """Search across people, groups, and posts."""
+    """Search across people, groups, posts, jobs, and courses."""
     
     results = {
         "people": [],
         "groups": [],
         "posts": [],
+        "jobs": [],
+        "courses": [],
         "query": q,
         "total": 0
     }
@@ -771,8 +777,80 @@ async def search_network(
                 "created_at": post.created_at.isoformat() if post.created_at else "",
                 "type": "post"
             })
-    
-    results["total"] = len(results["people"]) + len(results["groups"]) + len(results["posts"])
+
+    # Search jobs
+    if type in ["all", "jobs"]:
+        from app.models.job import Job
+        # Import JobStatus to check if it's published
+        from app.models.job import JobStatus
+        result = await db.execute(
+            select(Job).where(
+                Job.status == JobStatus.PUBLISHED,
+                or_(
+                    Job.title.ilike(search_term),
+                    Job.description.ilike(search_term),
+                    Job.company_name.ilike(search_term)
+                )
+            ).limit(limit if type == "jobs" else 5)
+        )
+        for job in result.scalars().all():
+            results["jobs"].append({
+                "id": str(job.id),
+                "title": job.title,
+                "company": job.company_name,
+                "location": job.location,
+                "type": "job"
+            })
+
+    # Search companies
+    if type in ["all", "companies"]:
+        from app.models.company import Company, CompanyStatus
+        result = await db.execute(
+            select(Company).where(
+                Company.status == CompanyStatus.ACTIVE,
+                or_(
+                    Company.name.ilike(search_term),
+                    Company.industry.ilike(search_term)
+                )
+            ).limit(limit if type == "companies" else 5)
+        )
+        for company in result.scalars().all():
+            results["companies"].append({
+                "id": str(company.id),
+                "name": company.name,
+                "industry": company.industry,
+                "employees": str(company.employees_count),
+                "verified": company.is_verified,
+                "type": "company"
+            })
+
+    # Search courses
+    if type in ["all", "courses"]:
+        from app.models.course import Course
+        result = await db.execute(
+            select(Course).where(
+                Course.is_published == True,
+                or_(
+                    Course.title.ilike(search_term),
+                    Course.description.ilike(search_term)
+                )
+            ).limit(limit if type == "courses" else 5)
+        )
+        for course in result.scalars().all():
+            results["courses"].append({
+                "id": str(course.id),
+                "title": course.title,
+                "instructor": "Instructor", # Placeholder
+                "type": "course"
+            })
+
+    results["total"] = (
+        len(results["people"]) + 
+        len(results["groups"]) + 
+        len(results["posts"]) + 
+        len(results["jobs"]) + 
+        len(results["courses"]) +
+        len(results["companies"])
+    )
     
     return results
-

@@ -21,6 +21,7 @@ import {
     Grid,
     Skeleton,
     IconButton,
+    CircularProgress,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 import { useSearchParams, useNavigate } from 'react-router-dom';
@@ -34,6 +35,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import { getApiUrl } from '../../config/api';
 
 const PageContainer = styled(Box)(({ theme }) => ({
     minHeight: '100%',
@@ -113,14 +115,64 @@ const SearchResults: React.FC = () => {
     const query = searchParams.get('q') || '';
     const [searchQuery, setSearchQuery] = useState(query);
     const [activeTab, setActiveTab] = useState(0);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
+
+    // API Results State
+    const [results, setResults] = useState<{
+        jobs: any[];
+        courses: any[];
+        people: any[];
+        companies: any[];
+        total: number;
+    }>({
+        jobs: [],
+        courses: [],
+        people: [],
+        companies: [],
+        total: 0
+    });
 
     useEffect(() => {
         setSearchQuery(query);
-        // Simulate loading
-        setLoading(true);
-        const timer = setTimeout(() => setLoading(false), 500);
-        return () => clearTimeout(timer);
+
+        const fetchResults = async () => {
+            if (!query.trim()) {
+                setResults({ jobs: [], courses: [], people: [], companies: [], total: 0 });
+                setLoading(false);
+                return;
+            }
+
+            setLoading(true);
+            try {
+                const token = localStorage.getItem('authToken');
+                const response = await fetch(
+                    getApiUrl(`/unified-network/search?q=${encodeURIComponent(query)}&type=all`),
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                        },
+                    }
+                );
+
+                if (response.ok) {
+                    const data = await response.json();
+                    setResults({
+                        jobs: data.jobs || [],
+                        courses: data.courses || [],
+                        people: data.people || [],
+                        companies: data.companies || [],
+                        total: data.total || 0
+                    });
+                }
+            } catch (err) {
+                console.error('Error fetching search results:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchResults();
     }, [query]);
 
     const handleSearch = (e: React.FormEvent) => {
@@ -130,7 +182,8 @@ const SearchResults: React.FC = () => {
         }
     };
 
-    const totalResults = mockJobs.length + mockCourses.length + mockPeople.length + mockCompanies.length;
+    const totalResults = results.total;
+    const { jobs, courses, people, companies } = results;
 
     return (
         <PageContainer>
@@ -198,10 +251,10 @@ const SearchResults: React.FC = () => {
                         }}
                     >
                         <StyledTab icon={<TrendingUpIcon />} iconPosition="start" label={`All (${totalResults})`} />
-                        <StyledTab icon={<WorkIcon />} iconPosition="start" label={`Jobs (${mockJobs.length})`} />
-                        <StyledTab icon={<SchoolIcon />} iconPosition="start" label={`Courses (${mockCourses.length})`} />
-                        <StyledTab icon={<PeopleIcon />} iconPosition="start" label={`People (${mockPeople.length})`} />
-                        <StyledTab icon={<BusinessIcon />} iconPosition="start" label={`Companies (${mockCompanies.length})`} />
+                        <StyledTab icon={<WorkIcon />} iconPosition="start" label={`Jobs (${jobs.length})`} />
+                        <StyledTab icon={<SchoolIcon />} iconPosition="start" label={`Courses (${courses.length})`} />
+                        <StyledTab icon={<PeopleIcon />} iconPosition="start" label={`People (${people.length})`} />
+                        <StyledTab icon={<BusinessIcon />} iconPosition="start" label={`Companies (${companies.length})`} />
                     </Tabs>
                 </Box>
 
@@ -215,8 +268,8 @@ const SearchResults: React.FC = () => {
                             </Typography>
                             {loading ? (
                                 <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 2 }} />
-                            ) : (
-                                mockJobs.slice(0, 2).map((job) => (
+                            ) : jobs.length > 0 ? (
+                                jobs.slice(0, 2).map((job) => (
                                     <ResultCard key={job.id} sx={{ mb: 2 }}>
                                         <CardContent sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
                                             <Avatar sx={{ width: 56, height: 56, bgcolor: '#e3f2fd' }}>
@@ -232,24 +285,28 @@ const SearchResults: React.FC = () => {
                                                     {job.verified && <VerifiedIcon sx={{ fontSize: 16, color: '#0d47a1' }} />}
                                                 </Box>
                                                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                                                    <Chip icon={<LocationOnIcon />} label={job.location} size="small" variant="outlined" />
-                                                    <Chip label={job.salary} size="small" sx={{ bgcolor: alpha('#4caf50', 0.1), color: '#2e7d32' }} />
-                                                    <Chip label={job.type} size="small" variant="outlined" />
+                                                    <Chip icon={<LocationOnIcon />} label={job.location || 'Remote'} size="small" variant="outlined" />
+                                                    <Chip label={job.salary || 'Competitive'} size="small" sx={{ bgcolor: alpha('#4caf50', 0.1), color: '#2e7d32' }} />
+                                                    <Chip label={job.type || 'Full-time'} size="small" variant="outlined" />
                                                 </Box>
                                             </Box>
                                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
                                                 <IconButton size="small"><BookmarkBorderIcon /></IconButton>
                                                 <Typography variant="caption" color="text.secondary">
-                                                    <AccessTimeIcon sx={{ fontSize: 12, mr: 0.5 }} />{job.posted}
+                                                    <AccessTimeIcon sx={{ fontSize: 12, mr: 0.5 }} />{job.posted || 'Recent'}
                                                 </Typography>
                                             </Box>
                                         </CardContent>
                                     </ResultCard>
                                 ))
+                            ) : (
+                                <Typography variant="body2" color="text.secondary">No jobs found matching your search.</Typography>
                             )}
-                            <Button variant="text" onClick={() => setActiveTab(1)} sx={{ mt: 1 }}>
-                                View all {mockJobs.length} jobs →
-                            </Button>
+                            {jobs.length > 2 && (
+                                <Button variant="text" onClick={() => setActiveTab(1)} sx={{ mt: 1 }}>
+                                    View all {jobs.length} jobs →
+                                </Button>
+                            )}
                         </Grid>
 
                         {/* Courses Section */}
@@ -259,9 +316,9 @@ const SearchResults: React.FC = () => {
                             </Typography>
                             {loading ? (
                                 <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 2 }} />
-                            ) : (
+                            ) : courses.length > 0 ? (
                                 <Grid container spacing={2}>
-                                    {mockCourses.slice(0, 2).map((course) => (
+                                    {courses.slice(0, 2).map((course) => (
                                         <Grid item xs={12} sm={6} key={course.id}>
                                             <ResultCard>
                                                 <CardContent>
@@ -270,22 +327,26 @@ const SearchResults: React.FC = () => {
                                                         {course.title}
                                                     </Typography>
                                                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                                                        by {course.instructor}
+                                                        by {course.instructor || 'VerTechie Academy'}
                                                     </Typography>
                                                     <Box sx={{ display: 'flex', gap: 1 }}>
-                                                        <Chip label={course.level} size="small" variant="outlined" />
-                                                        <Chip label={`⭐ ${course.rating}`} size="small" sx={{ bgcolor: alpha('#ff9800', 0.1) }} />
-                                                        <Chip label={`${course.students.toLocaleString()} students`} size="small" variant="outlined" />
+                                                        <Chip label={course.level || 'Intermediate'} size="small" variant="outlined" />
+                                                        <Chip label={`⭐ ${course.rating || '4.5'}`} size="small" sx={{ bgcolor: alpha('#ff9800', 0.1) }} />
+                                                        <Chip label={`${(course.students || 0).toLocaleString()} students`} size="small" variant="outlined" />
                                                     </Box>
                                                 </CardContent>
                                             </ResultCard>
                                         </Grid>
                                     ))}
                                 </Grid>
+                            ) : (
+                                <Typography variant="body2" color="text.secondary">No courses found matching your search.</Typography>
                             )}
-                            <Button variant="text" onClick={() => setActiveTab(2)} sx={{ mt: 2 }}>
-                                View all {mockCourses.length} courses →
-                            </Button>
+                            {courses.length > 2 && (
+                                <Button variant="text" onClick={() => setActiveTab(2)} sx={{ mt: 2 }}>
+                                    View all {courses.length} courses →
+                                </Button>
+                            )}
                         </Grid>
 
                         {/* People Section */}
@@ -295,9 +356,9 @@ const SearchResults: React.FC = () => {
                             </Typography>
                             {loading ? (
                                 <Skeleton variant="rectangular" height={80} sx={{ borderRadius: 2 }} />
-                            ) : (
+                            ) : people.length > 0 ? (
                                 <Grid container spacing={2}>
-                                    {mockPeople.slice(0, 3).map((person) => (
+                                    {people.slice(0, 3).map((person) => (
                                         <Grid item xs={12} sm={4} key={person.id}>
                                             <ResultCard>
                                                 <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -306,128 +367,165 @@ const SearchResults: React.FC = () => {
                                                     </Avatar>
                                                     <Box>
                                                         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{person.name}</Typography>
-                                                        <Typography variant="body2" color="text.secondary">{person.title}</Typography>
-                                                        <Typography variant="caption" color="text.secondary">{person.company}</Typography>
+                                                        <Typography variant="body2" color="text.secondary">{person.title || 'User'}</Typography>
+                                                        <Typography variant="caption" color="text.secondary">{person.company || ''}</Typography>
                                                     </Box>
                                                 </CardContent>
                                             </ResultCard>
                                         </Grid>
                                     ))}
                                 </Grid>
+                            ) : (
+                                <Typography variant="body2" color="text.secondary">No people found matching your search.</Typography>
                             )}
-                            <Button variant="text" onClick={() => setActiveTab(3)} sx={{ mt: 2 }}>
-                                View all {mockPeople.length} people →
-                            </Button>
+                            {people.length > 3 && (
+                                <Button variant="text" onClick={() => setActiveTab(3)} sx={{ mt: 2 }}>
+                                    View all {people.length} people →
+                                </Button>
+                            )}
                         </Grid>
                     </Grid>
                 </TabPanel>
 
                 {/* Jobs Tab */}
                 <TabPanel value={activeTab} index={1}>
-                    {mockJobs.map((job) => (
-                        <ResultCard key={job.id} sx={{ mb: 2 }}>
-                            <CardContent sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-                                <Avatar sx={{ width: 56, height: 56, bgcolor: '#e3f2fd' }}>
-                                    <WorkIcon color="primary" />
-                                </Avatar>
-                                <Box sx={{ flex: 1 }}>
-                                    <Typography variant="h6" sx={{ fontWeight: 600, cursor: 'pointer', '&:hover': { color: '#0d47a1' } }}
-                                        onClick={() => navigate(`/techie/jobs/${job.id}`)}>
-                                        {job.title}
-                                    </Typography>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                        <Typography variant="body2" color="text.secondary">{job.company}</Typography>
-                                        {job.verified && <VerifiedIcon sx={{ fontSize: 16, color: '#0d47a1' }} />}
+                    {loading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+                    ) : jobs.length > 0 ? (
+                        jobs.map((job) => (
+                            <ResultCard key={job.id} sx={{ mb: 2 }}>
+                                <CardContent sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                                    <Avatar sx={{ width: 56, height: 56, bgcolor: '#e3f2fd' }}>
+                                        <WorkIcon color="primary" />
+                                    </Avatar>
+                                    <Box sx={{ flex: 1 }}>
+                                        <Typography variant="h6" sx={{ fontWeight: 600, cursor: 'pointer', '&:hover': { color: '#0d47a1' } }}
+                                            onClick={() => navigate(`/techie/jobs/${job.id}`)}>
+                                            {job.title}
+                                        </Typography>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                            <Typography variant="body2" color="text.secondary">{job.company}</Typography>
+                                            {job.verified && <VerifiedIcon sx={{ fontSize: 16, color: '#0d47a1' }} />}
+                                        </Box>
+                                        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                                            <Chip icon={<LocationOnIcon />} label={job.location || 'Remote'} size="small" variant="outlined" />
+                                            <Chip label={job.salary || 'Competitive'} size="small" sx={{ bgcolor: alpha('#4caf50', 0.1), color: '#2e7d32' }} />
+                                            <Chip label={job.type || 'Full-time'} size="small" variant="outlined" />
+                                        </Box>
                                     </Box>
-                                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                                        <Chip icon={<LocationOnIcon />} label={job.location} size="small" variant="outlined" />
-                                        <Chip label={job.salary} size="small" sx={{ bgcolor: alpha('#4caf50', 0.1), color: '#2e7d32' }} />
-                                        <Chip label={job.type} size="small" variant="outlined" />
+                                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                                        <Button variant="contained" size="small" sx={{ bgcolor: '#0d47a1' }}
+                                            onClick={() => navigate(`/techie/jobs/${job.id}`)}>Apply</Button>
+                                        <Typography variant="caption" color="text.secondary">
+                                            <AccessTimeIcon sx={{ fontSize: 12, mr: 0.5 }} />{job.posted || 'Recent'}
+                                        </Typography>
                                     </Box>
-                                </Box>
-                                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                                    <Button variant="contained" size="small" sx={{ bgcolor: '#0d47a1' }}>Apply</Button>
-                                    <Typography variant="caption" color="text.secondary">
-                                        <AccessTimeIcon sx={{ fontSize: 12, mr: 0.5 }} />{job.posted}
-                                    </Typography>
-                                </Box>
-                            </CardContent>
-                        </ResultCard>
-                    ))}
+                                </CardContent>
+                            </ResultCard>
+                        ))
+                    ) : (
+                        <Box sx={{ textAlign: 'center', py: 4 }}>
+                            <Typography color="text.secondary">No jobs found.</Typography>
+                        </Box>
+                    )}
                 </TabPanel>
 
                 {/* Courses Tab */}
                 <TabPanel value={activeTab} index={2}>
-                    <Grid container spacing={2}>
-                        {mockCourses.map((course) => (
-                            <Grid item xs={12} sm={6} md={4} key={course.id}>
-                                <ResultCard sx={{ height: '100%' }}>
-                                    <CardContent>
-                                        <Box sx={{ height: 100, bgcolor: '#e3f2fd', borderRadius: 2, mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <SchoolIcon sx={{ fontSize: 40, color: '#0d47a1' }} />
-                                        </Box>
-                                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>{course.title}</Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>by {course.instructor}</Typography>
-                                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                                            <Chip label={course.level} size="small" variant="outlined" />
-                                            <Chip label={`⭐ ${course.rating}`} size="small" />
-                                        </Box>
-                                        <Button fullWidth variant="outlined" sx={{ mt: 2 }} onClick={() => navigate('/techie/learn')}>
-                                            Start Learning
-                                        </Button>
-                                    </CardContent>
-                                </ResultCard>
-                            </Grid>
-                        ))}
-                    </Grid>
+                    {loading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+                    ) : courses.length > 0 ? (
+                        <Grid container spacing={2}>
+                            {courses.map((course) => (
+                                <Grid item xs={12} sm={6} md={4} key={course.id}>
+                                    <ResultCard sx={{ height: '100%' }}>
+                                        <CardContent>
+                                            <Box sx={{ height: 100, bgcolor: '#e3f2fd', borderRadius: 2, mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                <SchoolIcon sx={{ fontSize: 40, color: '#0d47a1' }} />
+                                            </Box>
+                                            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>{course.title}</Typography>
+                                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>by {course.instructor || 'VerTechie Academy'}</Typography>
+                                            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                                                <Chip label={course.level || 'Intermediate'} size="small" variant="outlined" />
+                                                <Chip label={`⭐ ${course.rating || '4.5'}`} size="small" />
+                                            </Box>
+                                            <Button fullWidth variant="outlined" sx={{ mt: 2 }} onClick={() => navigate('/techie/learn')}>
+                                                Start Learning
+                                            </Button>
+                                        </CardContent>
+                                    </ResultCard>
+                                </Grid>
+                            ))}
+                        </Grid>
+                    ) : (
+                        <Box sx={{ textAlign: 'center', py: 4 }}>
+                            <Typography color="text.secondary">No courses found.</Typography>
+                        </Box>
+                    )}
                 </TabPanel>
 
                 {/* People Tab */}
                 <TabPanel value={activeTab} index={3}>
-                    <Grid container spacing={2}>
-                        {mockPeople.map((person) => (
-                            <Grid item xs={12} sm={6} md={4} key={person.id}>
-                                <ResultCard>
-                                    <CardContent sx={{ textAlign: 'center', py: 3 }}>
-                                        <Avatar sx={{ width: 72, height: 72, bgcolor: '#0d47a1', mx: 'auto', mb: 2, fontSize: '1.5rem' }}>
-                                            {person.name.charAt(0)}
-                                        </Avatar>
-                                        <Typography variant="h6" sx={{ fontWeight: 600 }}>{person.name}</Typography>
-                                        <Typography variant="body2" color="text.secondary">{person.title}</Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{person.company}</Typography>
-                                        <Chip label={`${person.connections}+ connections`} size="small" variant="outlined" sx={{ mb: 2 }} />
-                                        <Button fullWidth variant="contained" sx={{ bgcolor: '#0d47a1' }}>Connect</Button>
-                                    </CardContent>
-                                </ResultCard>
-                            </Grid>
-                        ))}
-                    </Grid>
+                    {loading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+                    ) : people.length > 0 ? (
+                        <Grid container spacing={2}>
+                            {people.map((person) => (
+                                <Grid item xs={12} sm={6} md={4} key={person.id}>
+                                    <ResultCard>
+                                        <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                                            <Avatar sx={{ width: 72, height: 72, bgcolor: '#0d47a1', mx: 'auto', mb: 2, fontSize: '1.5rem' }}>
+                                                {person.name.charAt(0)}
+                                            </Avatar>
+                                            <Typography variant="h6" sx={{ fontWeight: 600 }}>{person.name}</Typography>
+                                            <Typography variant="body2" color="text.secondary">{person.title || 'User'}</Typography>
+                                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{person.company || ''}</Typography>
+                                            {person.connections && <Chip label={`${person.connections}+ connections`} size="small" variant="outlined" sx={{ mb: 2 }} />}
+                                            <Button fullWidth variant="contained" sx={{ bgcolor: '#0d47a1' }}>Connect</Button>
+                                        </CardContent>
+                                    </ResultCard>
+                                </Grid>
+                            ))}
+                        </Grid>
+                    ) : (
+                        <Box sx={{ textAlign: 'center', py: 4 }}>
+                            <Typography color="text.secondary">No people found.</Typography>
+                        </Box>
+                    )}
                 </TabPanel>
 
                 {/* Companies Tab */}
                 <TabPanel value={activeTab} index={4}>
-                    <Grid container spacing={2}>
-                        {mockCompanies.map((company) => (
-                            <Grid item xs={12} sm={6} key={company.id}>
-                                <ResultCard>
-                                    <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                                        <Avatar sx={{ width: 64, height: 64, bgcolor: '#e3f2fd' }}>
-                                            <BusinessIcon sx={{ fontSize: 32, color: '#0d47a1' }} />
-                                        </Avatar>
-                                        <Box sx={{ flex: 1 }}>
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                <Typography variant="h6" sx={{ fontWeight: 600 }}>{company.name}</Typography>
-                                                {company.verified && <VerifiedIcon sx={{ fontSize: 18, color: '#0d47a1' }} />}
+                    {loading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+                    ) : companies.length > 0 ? (
+                        <Grid container spacing={2}>
+                            {companies.map((company) => (
+                                <Grid item xs={12} sm={6} key={company.id}>
+                                    <ResultCard>
+                                        <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                            <Avatar sx={{ width: 64, height: 64, bgcolor: '#e3f2fd' }}>
+                                                <BusinessIcon sx={{ fontSize: 32, color: '#0d47a1' }} />
+                                            </Avatar>
+                                            <Box sx={{ flex: 1 }}>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <Typography variant="h6" sx={{ fontWeight: 600 }}>{company.name}</Typography>
+                                                    {company.verified && <VerifiedIcon sx={{ fontSize: 18, color: '#0d47a1' }} />}
+                                                </Box>
+                                                <Typography variant="body2" color="text.secondary">{company.industry || 'Technology'} • {company.employees || '0-50'} employees</Typography>
+                                                {company.jobs_count !== undefined && <Chip label={`${company.jobs_count} open positions`} size="small" sx={{ mt: 1, bgcolor: alpha('#0d47a1', 0.1), color: '#0d47a1' }} />}
                                             </Box>
-                                            <Typography variant="body2" color="text.secondary">{company.industry} • {company.employees} employees</Typography>
-                                            <Chip label={`${company.jobs} open positions`} size="small" sx={{ mt: 1, bgcolor: alpha('#0d47a1', 0.1), color: '#0d47a1' }} />
-                                        </Box>
-                                        <Button variant="outlined">Follow</Button>
-                                    </CardContent>
-                                </ResultCard>
-                            </Grid>
-                        ))}
-                    </Grid>
+                                            <Button variant="outlined">Follow</Button>
+                                        </CardContent>
+                                    </ResultCard>
+                                </Grid>
+                            ))}
+                        </Grid>
+                    ) : (
+                        <Box sx={{ textAlign: 'center', py: 4 }}>
+                            <Typography color="text.secondary">No companies found.</Typography>
+                        </Box>
+                    )}
                 </TabPanel>
 
                 {/* No Results */}
