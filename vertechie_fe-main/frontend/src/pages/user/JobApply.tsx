@@ -49,6 +49,8 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import BusinessIcon from '@mui/icons-material/Business';
 import { applicationService, jobService } from '../../services/jobPortalService';
+import { getApiUrl } from '../../config/api';
+import { fetchWithAuth } from '../../utils/apiInterceptor';
 
 // Theme Colors
 const colors = {
@@ -280,9 +282,19 @@ const JobApply: React.FC = () => {
               requiredSkills: jobData.requiredSkills || [],
               experienceLevel: jobData.experienceLevel || 'Mid-Level',
             });
-            // If job has screening questions, use them
-            if (jobData.screeningQuestions && jobData.screeningQuestions.length > 0) {
-              setQuestions(jobData.screeningQuestions.map((q: any, idx: number) => ({
+            // Prefer screening questions; fallback to coding questions for backward compatibility
+            const jobQuestions = (jobData.screeningQuestions && jobData.screeningQuestions.length > 0)
+              ? jobData.screeningQuestions
+              : (jobData.codingQuestions || []).map((q: any, idx: number) => ({
+                  id: q.id || String(idx + 1),
+                  question: q.question,
+                  type: 'text',
+                  required: true,
+                  options: [],
+                }));
+
+            if (jobQuestions.length > 0) {
+              setQuestions(jobQuestions.map((q: any, idx: number) => ({
                 id: String(idx + 1),
                 question: q.question,
                 type: q.type || 'text',
@@ -294,14 +306,11 @@ const JobApply: React.FC = () => {
         }
 
         // Load user profile from backend API
-        const token = localStorage.getItem('authToken') || localStorage.getItem('access_token') || localStorage.getItem('token');
-        if (token) {
+        const hasAuthToken = !!localStorage.getItem('authToken');
+        if (hasAuthToken) {
           try {
-            // Fetch user profile from backend
-            const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
-            const profileRes = await fetch(`${apiUrl}/users/me/profile`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
+            // Fetch user profile from backend (shared auth/url pattern)
+            const profileRes = await fetchWithAuth(getApiUrl('/users/me/profile'));
             
             let userSkills: string[] = [];
             let userExperiences: any[] = [];
@@ -320,9 +329,7 @@ const JobApply: React.FC = () => {
             
             // Fetch experiences
             try {
-              const expRes = await fetch(`${apiUrl}/users/me/experiences`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-              });
+              const expRes = await fetchWithAuth(getApiUrl('/users/me/experiences'));
               if (expRes.ok) {
                 userExperiences = await expRes.json();
                 // Calculate years of experience from experiences
@@ -350,9 +357,7 @@ const JobApply: React.FC = () => {
             
             // Fetch educations
             try {
-              const eduRes = await fetch(`${apiUrl}/users/me/educations`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-              });
+              const eduRes = await fetchWithAuth(getApiUrl('/users/me/educations'));
               if (eduRes.ok) {
                 userEducations = await eduRes.json();
               }

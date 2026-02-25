@@ -117,6 +117,21 @@ interface Problem {
   is_solved: boolean;
 }
 
+const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const formatSolutionContent = (raw: string): string => {
+  const escaped = escapeHtml(raw || '');
+  return escaped
+    .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code style="color:#fff">$2</code></pre>')
+    .replace(/\n/g, '<br />');
+};
+
 // Tab Panel Component
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -882,7 +897,7 @@ public:
                           component="div"
                           sx={{ color: '#ffffff' }}
                           dangerouslySetInnerHTML={{
-                            __html: solution.content.replace(/\n/g, '<br />').replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code style="color:#fff">$2</code></pre>'),
+                            __html: formatSolutionContent(solution.content),
                           }}
                         />
                       </Box>
