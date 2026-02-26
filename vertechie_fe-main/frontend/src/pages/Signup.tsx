@@ -106,6 +106,11 @@ const Signup = () => {
   const handleCountrySelect = (country: CountryCode) => {
     setState((prev) => ({ ...prev, country }));
     setErrors((prev) => ({ ...prev, country: '' }));
+    
+    // Auto-continue to registration flow immediately after country selection
+    if (state.role === 'techie' || state.role === 'hiring_manager') {
+      setStep(2);
+    }
   };
 
   const handleBack = () => {
@@ -608,7 +613,8 @@ const Signup = () => {
           minHeight: '100vh',
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           py: 4,
-          px: 2,
+          px: { xs: 1, sm: 2 },
+          overflowX: 'hidden',
         }}
       >
         <Container maxWidth="xl">
@@ -628,7 +634,7 @@ const Signup = () => {
                 sx={{ 
                   color: primaryColor, 
                   position: 'absolute', 
-                  left: 0 
+                  left: { xs: -6, sm: 0 },
                 }}
               >
                 <ArrowBackIcon />
@@ -768,10 +774,10 @@ const Signup = () => {
                     ? `linear-gradient(90deg, ${selectedCountry.color} 0%, ${selectedCountry.color}dd 100%)`
                     : 'linear-gradient(90deg, #1976d2 0%, #42a5f5 100%)',
                   color: 'white',
-                  px: 6,
+                  px: { xs: 3, sm: 6 },
                   py: 1.5,
                   borderRadius: 2,
-                  fontSize: '1.1rem',
+                  fontSize: { xs: '0.95rem', sm: '1.1rem' },
                   fontWeight: 600,
                   '&:hover': {
                     background: selectedCountry 

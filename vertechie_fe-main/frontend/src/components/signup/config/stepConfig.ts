@@ -12,6 +12,7 @@ import SchoolDetails from '../steps/SchoolDetails';
 import ReviewSubmit from '../steps/ReviewSubmit';
 
 import { SignupLocation } from '../types';
+import { isValidPersonName } from '../../../utils/validation';
 
 // Validation functions
 const validateDocumentVerification = (data: any, location?: SignupLocation): boolean | string => {
@@ -108,6 +109,8 @@ const validateDocumentVerification = (data: any, location?: SignupLocation): boo
 const validatePersonalInformation = (data: any): boolean | string => {
   if (!data.firstName) return 'First name is required';
   if (!data.lastName) return 'Last name is required';
+  if (!isValidPersonName(data.firstName)) return 'First name can contain only letters';
+  if (!isValidPersonName(data.lastName)) return 'Last name can contain only letters';
   if (!data.email) return 'Email is required';
   // Phone is optional if skipped
   if (!data.phoneSkipped && !data.phone) return 'Phone number is required';

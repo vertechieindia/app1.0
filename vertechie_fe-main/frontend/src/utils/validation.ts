@@ -22,7 +22,19 @@ export const isValidUrl = (url: string): boolean => {
   if (!url || url.trim() === '') return false;
   try {
     const urlObj = new URL(url);
-    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+    const protocolValid = urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+    if (!protocolValid) return false;
+
+    const host = urlObj.hostname.toLowerCase();
+
+    // Disallow localhost and raw IPv4 for company/experience website fields
+    if (host === 'localhost') return false;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false;
+
+    // Require a real domain with at least one dot + valid TLD
+    // Examples valid: example.com, sub.domain.co.uk, xn--d1acpjx3f.xn--p1ai
+    const domainRegex = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})$/i;
+    return domainRegex.test(host);
   } catch {
     return false;
   }
@@ -104,4 +116,19 @@ export const isValidEducationScore = (scoreType: EducationScoreType, scoreValue:
 
   // Grade: allow A, A+, A-, A1, O, B2, etc.
   return /^[A-Za-z][A-Za-z0-9+\-]{0,4}$/.test(value);
+};
+
+/**
+ * Validates person names (no digits/special symbols except space, apostrophe, hyphen)
+ * Supports common latin accented characters.
+ */
+export const isValidPersonName = (name: string): boolean => {
+  if (!name || name.trim() === '') return false;
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return false;
+  if (trimmed.length > 60) return false;
+
+  // Allowed: letters (including accents), spaces, apostrophes, hyphens
+  const nameRegex = /^[A-Za-zÀ-ÖØ-öø-ÿ]+([ '-][A-Za-zÀ-ÖØ-öø-ÿ]+)*$/;
+  return nameRegex.test(trimmed);
 };

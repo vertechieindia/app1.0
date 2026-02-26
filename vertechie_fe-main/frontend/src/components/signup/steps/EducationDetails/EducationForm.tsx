@@ -547,9 +547,9 @@ const EducationForm: React.FC<StepComponentProps> = ({
         >
           {editingIndex !== null ? 'Edit Education' : 'Add Education'}
         </DialogTitle>
-        <DialogContent sx={{ p: 4 }}>
+        <DialogContent sx={{ p: { xs: 2, sm: 4 } }}>
           <Box sx={{ pt: 1 }}>
-            <Grid container spacing={3}>
+            <Grid container spacing={{ xs: 2, md: 3 }}>
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth

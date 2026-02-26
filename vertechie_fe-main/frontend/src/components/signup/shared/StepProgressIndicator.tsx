@@ -21,15 +21,15 @@ const StepProgressIndicator: React.FC<StepProgressIndicatorProps> = ({
   const primaryColor = getPrimaryColor(signupType, location);
 
   return (
-    <Box sx={{ mb: 6, px: { xs: 1, md: 2 } }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', gap: { xs: 0.5, md: 1 } }}>
+    <Box sx={{ mb: 6, px: { xs: 0.5, md: 2 }, overflowX: 'hidden' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', gap: { xs: 0.25, md: 1 } }}>
         {/* Connecting Line - Base */}
         <Box
           sx={{
             position: 'absolute',
-            top: 20,
-            left: '2%',
-            right: '5%',
+            top: { xs: 16, md: 20 },
+            left: '10%',
+            right: '10%',
             height: 2,
             bgcolor: '#e0e0e0',
             zIndex: 0,
@@ -39,9 +39,9 @@ const StepProgressIndicator: React.FC<StepProgressIndicatorProps> = ({
         <Box
           sx={{
             position: 'absolute',
-            top: 20,
-            left: '5%',
-            width: `${(activeStep / (steps.length - 1)) * 90}%`,
+            top: { xs: 16, md: 20 },
+            left: '10%',
+            width: `${(activeStep / (steps.length - 1)) * 80}%`,
             height: 2,
             bgcolor: primaryColor,
             zIndex: 1,
@@ -51,11 +51,11 @@ const StepProgressIndicator: React.FC<StepProgressIndicatorProps> = ({
         {steps.map((step, index) => {
           const isActive = index <= activeStep;
           return (
-            <Box key={index} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 2, flex: 1 }}>
+            <Box key={index} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 2, flex: 1, minWidth: 0 }}>
               <Box
                 sx={{
-                  width: { xs: 32, md: 40 },
-                  height: { xs: 32, md: 40 },
+                  width: { xs: 28, md: 40 },
+                  height: { xs: 28, md: 40 },
                   borderRadius: '50%',
                   bgcolor: isActive ? primaryColor : '#e0e0e0',
                   color: isActive ? 'white' : '#666',
@@ -68,7 +68,19 @@ const StepProgressIndicator: React.FC<StepProgressIndicatorProps> = ({
               >
                 {index + 1}
               </Box>
-              <Typography variant="caption" sx={{ mt: 1, textAlign: 'center', fontSize: { xs: '0.65rem', md: '0.75rem' }, color: isActive ? primaryColor : '#666', maxWidth: 80 }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  mt: 1,
+                  textAlign: 'center',
+                  fontSize: { xs: '0.58rem', md: '0.75rem' },
+                  lineHeight: 1.2,
+                  color: isActive ? primaryColor : '#666',
+                  maxWidth: { xs: 54, md: 80 },
+                  wordBreak: 'break-word',
+                  overflowWrap: 'anywhere',
+                }}
+              >
                 {step}
               </Typography>
             </Box>

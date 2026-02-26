@@ -29,7 +29,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import { StepComponentProps } from '../../types';
 import axios from 'axios';
 import { getApiUrl, API_ENDPOINTS } from '../../../../config/api';
-import { isValidEmail, isValidUrl, isValidPhone, isValidLinkedInUrl, isValidDateRange } from '../../../../utils/validation';
+import { isValidEmail, isValidUrl, isValidPhone, isValidLinkedInUrl, isValidDateRange, isValidPersonName } from '../../../../utils/validation';
 import { formatDateToMMDDYYYY } from '../../utils/formatters';
 
 interface Skill {
@@ -201,6 +201,8 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
       validationErrors.clientName = 'Name is required';
     } else if (newExperience.clientName.trim().length < 2) {
       validationErrors.clientName = 'Name must be at least 2 characters';
+    } else if (!isValidPersonName(newExperience.clientName.trim())) {
+      validationErrors.clientName = 'Name can contain only letters';
     }
 
     if (!newExperience.companyName || !newExperience.companyName.trim()) {
@@ -252,6 +254,8 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
       validationErrors.managerName = 'Manager Name is required';
     } else if (newExperience.managerName.trim().length < 2) {
       validationErrors.managerName = 'Manager Name must be at least 2 characters';
+    } else if (!isValidPersonName(newExperience.managerName.trim())) {
+      validationErrors.managerName = 'Manager Name can contain only letters';
     }
 
     // Validate manager email (required)
@@ -768,10 +772,10 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
           {editingIndex !== null ? 'Edit Work Experience' : 'Add Work Experience'}
         </DialogTitle>
 
-        <DialogContent sx={{ p: 4 }}>
+        <DialogContent sx={{ p: { xs: 2, sm: 4 } }}>
           <Box sx={{ pt: 1 }}>
             {/* --- Top Section --- */}
-            <Grid container spacing={3}>
+            <Grid container spacing={{ xs: 2, md: 3 }}>
               {/* Column 1 */}
               <Grid item xs={12} md={4}>
                 <TextField

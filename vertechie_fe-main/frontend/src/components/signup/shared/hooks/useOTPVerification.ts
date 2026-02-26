@@ -23,6 +23,7 @@ export const useOTPVerification = () => {
   const [phoneOTP, setPhoneOTP] = useState('');
   const [phoneConfirmationResult, setPhoneConfirmationResult] = useState<ConfirmationResult | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const lastSentPhoneRef = useRef<string>('');
 
   // Auto-verify email OTP when 6 digits are entered
   useEffect(() => {
@@ -192,6 +193,7 @@ export const useOTPVerification = () => {
     try {
       // Format phone number for Firebase
       const formattedPhone = formatPhoneForFirebase(phone);
+      lastSentPhoneRef.current = formattedPhone;
       
       // Clear any previous reCAPTCHA first
       clearRecaptcha();
@@ -240,7 +242,7 @@ export const useOTPVerification = () => {
   const lastVerifiedOTPRef = useRef<string>('');
 
   // Verify Phone OTP
-  const verifyPhoneOTP = useCallback(async (otp: string, email: string) => {
+  const verifyPhoneOTP = useCallback(async (otp: string, _email: string) => {
     const trimmedOTP = otp.trim();
     
     // Prevent duplicate calls
@@ -273,11 +275,16 @@ export const useOTPVerification = () => {
     try {
       const result = await phoneConfirmationResult.confirm(otp.trim());
       const idToken = await result.user.getIdToken();
-    
+
+      // Backend mobile-verification expects mobile_number; normalize to local digits
+      const sourcePhone = result.user.phoneNumber || lastSentPhoneRef.current || '';
+      const phoneDigits = sourcePhone.replace(/\D/g, '');
+      const mobileNumber = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits;
+     
       const apiUrl = getLegacyApiUrl(API_ENDPOINTS.MOBILE_VERIFICATION);
       const response = await axios.post(apiUrl, {
-        email,
-        idToken
+        mobile_number: mobileNumber,
+        idToken,
       });
       
       if (response.data.success || response.status === 200) {
