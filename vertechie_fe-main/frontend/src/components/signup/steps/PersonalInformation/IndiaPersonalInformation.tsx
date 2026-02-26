@@ -13,6 +13,8 @@ import {
   DialogContent,
   DialogActions,
   CircularProgress,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
@@ -30,6 +32,8 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
   setErrors,
   role,
 }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [phoneSkipped, setPhoneSkipped] = useState(false);
@@ -246,12 +250,12 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
   );
 
   return (
-    <Box>
+    <Box sx={{ width: '100%', overflowX: 'hidden' }}>
       <Typography variant="h5" gutterBottom sx={{ mb: 3, fontWeight: 600 }}>
         Personal Information
       </Typography>
 
-      <Grid container spacing={3}>
+      <Grid container spacing={{ xs: 2, md: 3 }}>
         {/* Row 1: First Name and Middle Name */}
         <Grid item xs={12} md={6}>
           <TextField
@@ -506,11 +510,12 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
                       sx={{
                         color: primaryColor,
                         fontWeight: 700,
-                        fontSize: '0.875rem',
+                        fontSize: { xs: '0.72rem', sm: '0.875rem' },
                         textTransform: 'none',
                         minWidth: 'auto',
-                        px: 1.5,
+                        px: { xs: 0.75, sm: 1.5 },
                         py: 0.5,
+                        whiteSpace: 'nowrap',
                         borderRadius: 1,
                         border: `1.5px solid ${borderColor}`,
                         backgroundColor: lightColor,
@@ -525,7 +530,7 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
                         },
                       }}
                     >
-                      {otpHook.emailVerifying ? 'Sending...' : 'Verify'}
+                      {otpHook.emailVerifying ? (isMobile ? '...' : 'Sending...') : 'Verify'}
                     </Button>
                   )}
                 </InputAdornment>
@@ -594,11 +599,13 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
                         sx={{
                           color: '#f57c00',
                           fontWeight: 600,
-                          fontSize: '0.75rem',
+                          fontSize: { xs: '0.7rem', sm: '0.75rem' },
                           textTransform: 'none',
                           minWidth: 'auto',
-                          px: 1,
+                          px: { xs: 0.75, sm: 1 },
                           py: 0.5,
+                          whiteSpace: 'nowrap',
+                          display: { xs: 'none', sm: 'inline-flex' },
                           borderRadius: 1,
                           border: '1px solid #f57c00',
                           backgroundColor: 'rgba(255, 152, 0, 0.08)',
@@ -624,11 +631,12 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
                         sx={{
                           color: primaryColor,
                           fontWeight: 700,
-                          fontSize: '0.875rem',
+                          fontSize: { xs: '0.72rem', sm: '0.875rem' },
                           textTransform: 'none',
                           minWidth: 'auto',
-                          px: 1.5,
+                          px: { xs: 0.75, sm: 1.5 },
                           py: 0.5,
+                          whiteSpace: 'nowrap',
                           borderRadius: 1,
                           border: `1.5px solid ${borderColor}`,
                           backgroundColor: lightColor,
@@ -643,7 +651,7 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
                           },
                         }}
                       >
-                        {otpHook.phoneVerifying ? 'Sending...' : 'Verify'}
+                        {otpHook.phoneVerifying ? (isMobile ? '...' : 'Sending...') : 'Verify'}
                       </Button>
                     </Box>
                   )}
@@ -651,6 +659,35 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
               ),
             }}
           />
+          {!otpHook.phoneVerified && !phoneSkipped && isMobile && (
+            <Box sx={{ mt: 1, display: 'flex', justifyContent: 'flex-end' }}>
+              <Button
+                size="small"
+                onClick={() => {
+                  setPhoneSkipped(true);
+                  updateFormData({ phoneVerified: false, phoneSkipped: true });
+                }}
+                disabled={!otpHook.emailVerified}
+                sx={{
+                  color: '#f57c00',
+                  fontWeight: 600,
+                  fontSize: '0.72rem',
+                  textTransform: 'none',
+                  minWidth: 'auto',
+                  px: 1,
+                  py: 0.4,
+                  borderRadius: 1,
+                  border: '1px solid #f57c00',
+                  backgroundColor: 'rgba(255, 152, 0, 0.08)',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 152, 0, 0.15)',
+                  },
+                }}
+              >
+                Skip
+              </Button>
+            </Box>
+          )}
         </Grid>
 
         {/* Row 4: Password and Confirm Password (show after phone verified or skipped) */}

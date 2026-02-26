@@ -18,6 +18,8 @@ import {
   DialogActions,
   CircularProgress,
   SelectChangeEvent,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import { StepComponentProps } from '../../types';
 import Visibility from '@mui/icons-material/Visibility';
@@ -152,6 +154,8 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
   role,
   location,
 }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const config = countryConfig[location as string] || countryConfig.UK;
   const roleType = role === 'hr' ? 'hr' : (role || 'techie');
   const primaryColor = getPrimaryColor(roleType as 'techie' | 'hr' | 'company' | 'school', location as SignupLocation);
@@ -313,12 +317,12 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
   };
 
   return (
-    <Box>
+    <Box sx={{ width: '100%', overflowX: 'hidden' }}>
       <Typography variant="h5" sx={{ fontWeight: 700, mb: 4, color: '#333' }}>
         Personal Information
       </Typography>
 
-      <Grid container spacing={3}>
+      <Grid container spacing={{ xs: 2, md: 3 }}>
         {/* Row 1: First Name and Middle Name */}
         <Grid item xs={12} md={6}>
           <TextField
@@ -424,9 +428,20 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
                       size="small"
                       onClick={handleEmailVerify}
                       disabled={otpHook.emailVerifying || !formData.email}
-                      sx={{ color: borderColor, fontWeight: 700, border: `1.5px solid ${borderColor}`, backgroundColor: lightColor }}
+                      sx={{
+                        color: borderColor,
+                        fontWeight: 700,
+                        fontSize: { xs: '0.72rem', sm: '0.875rem' },
+                        textTransform: 'none',
+                        minWidth: 'auto',
+                        px: { xs: 0.75, sm: 1.5 },
+                        py: 0.5,
+                        whiteSpace: 'nowrap',
+                        border: `1.5px solid ${borderColor}`,
+                        backgroundColor: lightColor,
+                      }}
                     >
-                      {otpHook.emailVerifying ? 'Sending...' : 'Verify'}
+                      {otpHook.emailVerifying ? (isMobile ? '...' : 'Sending...') : 'Verify'}
                     </Button>
                   )}
                 </InputAdornment>
@@ -463,9 +478,20 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
                       size="small"
                       onClick={handlePhoneVerify}
                       disabled={otpHook.phoneVerifying || !formData.phone || !otpHook.emailVerified}
-                      sx={{ color: borderColor, fontWeight: 700, border: `1.5px solid ${borderColor}`, backgroundColor: lightColor }}
+                      sx={{
+                        color: borderColor,
+                        fontWeight: 700,
+                        fontSize: { xs: '0.72rem', sm: '0.875rem' },
+                        textTransform: 'none',
+                        minWidth: 'auto',
+                        px: { xs: 0.75, sm: 1.5 },
+                        py: 0.5,
+                        whiteSpace: 'nowrap',
+                        border: `1.5px solid ${borderColor}`,
+                        backgroundColor: lightColor,
+                      }}
                     >
-                      {otpHook.phoneVerifying ? 'Sending...' : 'Verify'}
+                      {otpHook.phoneVerifying ? (isMobile ? '...' : 'Sending...') : 'Verify'}
                     </Button>
                   )}
                 </InputAdornment>

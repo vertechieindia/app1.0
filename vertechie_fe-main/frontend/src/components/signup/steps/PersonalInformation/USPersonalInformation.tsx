@@ -18,6 +18,8 @@ import {
   DialogActions,
   CircularProgress,
   SelectChangeEvent,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import { StepComponentProps } from '../../types';
 import Visibility from '@mui/icons-material/Visibility';
@@ -36,6 +38,8 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
   role,
   location,
 }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   // All types use same colors: US = light thick blue, India = peacock green
   const roleType = role === 'hr' ? 'hr' : (role || 'techie');
   const primaryColor = getPrimaryColor(roleType as 'techie' | 'hr' | 'company' | 'school', 'US');
@@ -264,7 +268,7 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
   );
 
   return (
-    <Box>
+    <Box sx={{ width: '100%', overflowX: 'hidden' }}>
       <Typography
         variant="h5"
         sx={{
@@ -277,7 +281,7 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
         Personal Information
       </Typography>
 
-      <Grid container spacing={3}>
+      <Grid container spacing={{ xs: 2, md: 3 }}>
         {/* Row 1: First Name and Middle Name */}
         <Grid item xs={12} md={6}>
           <TextField
@@ -549,11 +553,12 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
                       sx={{
                         color: borderColor,
                         fontWeight: 700,
-                        fontSize: '0.875rem',
+                        fontSize: { xs: '0.72rem', sm: '0.875rem' },
                         textTransform: 'none',
                         minWidth: 'auto',
-                        px: 1.5,
+                        px: { xs: 0.75, sm: 1.5 },
                         py: 0.5,
+                        whiteSpace: 'nowrap',
                         borderRadius: 1,
                         border: `1.5px solid ${borderColor}`,
                         backgroundColor: lightColor,
@@ -568,7 +573,7 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
                         },
                       }}
                     >
-                      {otpHook.emailVerifying ? 'Sending...' : 'Verify'}
+                      {otpHook.emailVerifying ? (isMobile ? '...' : 'Sending...') : 'Verify'}
                     </Button>
                   )}
                 </InputAdornment>
@@ -619,11 +624,12 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
                       sx={{
                         color: borderColor,
                         fontWeight: 700,
-                        fontSize: '0.875rem',
+                        fontSize: { xs: '0.72rem', sm: '0.875rem' },
                         textTransform: 'none',
                         minWidth: 'auto',
-                        px: 1.5,
+                        px: { xs: 0.75, sm: 1.5 },
                         py: 0.5,
+                        whiteSpace: 'nowrap',
                         borderRadius: 1,
                         border: `1.5px solid ${borderColor}`,
                         backgroundColor: lightColor,
@@ -638,7 +644,7 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
                         },
                       }}
                     >
-                      {otpHook.phoneVerifying ? 'Sending...' : 'Verify'}
+                      {otpHook.phoneVerifying ? (isMobile ? '...' : 'Sending...') : 'Verify'}
                     </Button>
                   )}
                 </InputAdornment>

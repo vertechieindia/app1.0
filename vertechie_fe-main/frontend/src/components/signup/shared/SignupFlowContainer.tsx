@@ -7,6 +7,7 @@ import StepProgressIndicator from './StepProgressIndicator';
 import { getPrimaryColor } from '../utils/colors';
 import { getApiUrl, API_ENDPOINTS } from '../../../config/api';
 import SuccessScreen from '../steps/ReviewSubmit/SuccessScreen';
+import { isValidPersonName } from '../../../utils/validation';
 
 interface SignupFlowContainerProps {
   config: SignupFlowConfig;
@@ -53,6 +54,24 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
 
     // Sequential validation for personal-information step
     if (currentStepConfig?.id === 'personal-information') {
+      // Validate first/last names (letters only)
+      if (!formData.firstName || formData.firstName.trim() === '') {
+        setErrors({ firstName: 'First name is required' });
+        return;
+      }
+      if (!isValidPersonName(formData.firstName)) {
+        setErrors({ firstName: 'First name can contain only letters' });
+        return;
+      }
+      if (!formData.lastName || formData.lastName.trim() === '') {
+        setErrors({ lastName: 'Last name is required' });
+        return;
+      }
+      if (!isValidPersonName(formData.lastName)) {
+        setErrors({ lastName: 'Last name can contain only letters' });
+        return;
+      }
+
       // Step 1: Check email first
       if (!formData.email || formData.email.trim() === '') {
         setErrors({ email: 'Email is required' });
@@ -750,23 +769,35 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
         minHeight: '100vh',
         background: '#f5f5f5',
         py: 6,
-        px: 2,
+        px: { xs: 1, sm: 2 },
+        overflowX: 'hidden',
       }}
     >
-      <Container maxWidth="md">
+      <Container maxWidth="lg" sx={{ px: { xs: 0.5, sm: 2 } }}>
         <Paper
           elevation={12}
           sx={{
             borderRadius: 4,
-            p: 6,
-            mx: -16,
-            mt: -2,
+            width: '100%',
+            p: { xs: 1.5, sm: 4, md: 6 },
+            mx: 0,
+            mt: { xs: 1, sm: -2 },
             background: 'white',
             boxShadow: '0 20px 60px rgba(0, 0, 0, 0.1)',
+            overflowX: 'hidden',
           }}
         >
           {/* Header with back arrow */}
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 4, position: 'relative', mt: -3 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              mb: 4,
+              position: 'relative',
+              mt: { xs: 1.5, sm: -3 },
+              pl: { xs: 0.75, sm: 0 },
+            }}
+          >
             <IconButton
               onClick={handleBack}
               sx={{ mr: 2, color: countryColor }}
@@ -800,7 +831,15 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
           </Box>
 
           {/* Navigation Buttons */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              mt: 4,
+              gap: 1,
+              flexWrap: { xs: 'wrap', sm: 'nowrap' },
+            }}
+          >
             <Button
               onClick={handleBack}
               startIcon={<ArrowBackIcon />}
@@ -808,6 +847,7 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
                 color: '#666',
                 textTransform: 'none',
                 fontSize: '1rem',
+                width: { xs: '100%', sm: 'auto' },
               }}
             >
               Back
@@ -825,6 +865,7 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
                 textTransform: 'none',
                 fontSize: '1rem',
                 fontWeight: 600,
+                width: { xs: '100%', sm: 'auto' },
                 '&:hover': {
                   bgcolor: config.type === 'hr' 
                     ? (config.location === 'US' ? '#1565c0' : '#1B5E20')

@@ -635,8 +635,8 @@ const SchoolDetailsForm: React.FC<StepComponentProps> = ({
         >
           {isEditing ? 'Edit School Details' : 'Add School Details'}
         </DialogTitle>
-        <DialogContent sx={{ p: 4 }}>
-          <Grid container spacing={3}>
+        <DialogContent sx={{ p: { xs: 2, sm: 4 } }}>
+          <Grid container spacing={{ xs: 2, md: 3 }}>
             {isIndia ? (
               // India layout: Row 1 - School Name & Established Year side by side
               <>
