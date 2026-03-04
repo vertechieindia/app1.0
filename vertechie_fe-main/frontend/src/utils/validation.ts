@@ -132,3 +132,18 @@ export const isValidPersonName = (name: string): boolean => {
   const nameRegex = /^[A-Za-zÃ€-Ã–Ã˜-Ã¶Ã¸-Ã¿]+([ '-][A-Za-zÃ€-Ã–Ã˜-Ã¶Ã¸-Ã¿]+)*$/;
   return nameRegex.test(trimmed);
 };
+
+/**
+ * Validates last names with support for initials and short forms.
+ * Examples: K, K., Li, D'Souza, Anne-Marie
+ */
+export const isValidLastName = (name: string): boolean => {
+  if (!name || name.trim() === '') return false;
+  const trimmed = name.trim();
+  if (trimmed.length < 1) return false;
+  if (trimmed.length > 60) return false;
+
+  // Allowed: letters (including accents), spaces, apostrophes, hyphens, optional trailing dot
+  const lastNameRegex = /^[A-Za-zÀ-ÖØ-öø-ÿ](?:[A-Za-zÀ-ÖØ-öø-ÿ]|[.' -](?=[A-Za-zÀ-ÖØ-öø-ÿ]))*\.?$/;
+  return lastNameRegex.test(trimmed);
+};

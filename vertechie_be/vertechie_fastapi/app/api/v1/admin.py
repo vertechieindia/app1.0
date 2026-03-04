@@ -541,6 +541,12 @@ async def unblock_blocked_profile(
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if user.verification_status not in [VerificationStatus.PENDING, VerificationStatus.RESUBMITTED]:
+        raise HTTPException(
+            status_code=400,
+            detail="Only pending users can be approved. Use block/unblock for already approved users."
+        )
     
     # If user is already unblocked, just return success
     if not user.is_blocked:
@@ -931,6 +937,12 @@ async def approve_user(
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if user.verification_status not in [VerificationStatus.PENDING, VerificationStatus.RESUBMITTED]:
+        raise HTTPException(
+            status_code=400,
+            detail="Only pending users can be approved. Use block/unblock for already approved users."
+        )
     
     # Update verification status
     user.verification_status = VerificationStatus.APPROVED
@@ -968,6 +980,12 @@ async def reject_user(
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if user.verification_status not in [VerificationStatus.PENDING, VerificationStatus.RESUBMITTED]:
+        raise HTTPException(
+            status_code=400,
+            detail="Only pending users can be rejected. Use block/unblock for already approved users."
+        )
     
     # Determine final rejection reason (support both `reason` and `rejection_reason`)
     final_reason = reject_data.reason or (reject_data.rejection_reason or "")
@@ -1348,6 +1366,7 @@ class AdminUserResponse(BaseModel):
     full_name: str
     admin_roles: List[str] = []
     is_active: bool = True
+    is_blocked: bool = False
     is_staff: bool = True
     is_superuser: bool = False
     date_joined: Optional[str] = None
@@ -1392,6 +1411,7 @@ async def list_admin_users(
                 full_name=full_name,
                 admin_roles=user.admin_roles or [],
                 is_active=user.is_active,
+                is_blocked=user.is_blocked or False,
                 is_staff=True,  # All admins are staff
                 is_superuser=user.is_superuser,
                 date_joined=user.created_at.isoformat() if user.created_at else None,

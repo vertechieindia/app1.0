@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Box, Container, Paper, IconButton, Typography, Button } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
@@ -7,7 +7,7 @@ import StepProgressIndicator from './StepProgressIndicator';
 import { getPrimaryColor } from '../utils/colors';
 import { getApiUrl, API_ENDPOINTS } from '../../../config/api';
 import SuccessScreen from '../steps/ReviewSubmit/SuccessScreen';
-import { isValidPersonName } from '../../../utils/validation';
+import { isValidLastName, isValidPersonName } from '../../../utils/validation';
 
 interface SignupFlowContainerProps {
   config: SignupFlowConfig;
@@ -31,6 +31,18 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
 
   const currentStepConfig = config.steps[activeStep];
   const CurrentStepComponent = currentStepConfig?.component;
+  // Clear stale last-name error when an auto-filled value becomes valid
+  useEffect(() => {
+    if (currentStepConfig?.id !== 'personal-information') return;
+    if (!errors.lastName) return;
+    if (!isValidLastName(formData.lastName || '')) return;
+
+    setErrors((prev) => {
+      if (!prev.lastName) return prev;
+      const { lastName, ...rest } = prev;
+      return rest;
+    });
+  }, [currentStepConfig?.id, errors.lastName, formData.lastName]);
 
   const validateCurrentStep = useCallback((): boolean => {
     if (!currentStepConfig?.validation) {
@@ -67,8 +79,8 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
         setErrors({ lastName: 'Last name is required' });
         return;
       }
-      if (!isValidPersonName(formData.lastName)) {
-        setErrors({ lastName: 'Last name can contain only letters' });
+      if (!isValidLastName(formData.lastName)) {
+        setErrors({ lastName: 'Enter valid last name (e.g. K, K., Kumar)' });
         return;
       }
 
@@ -425,6 +437,11 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
           gov_id: govId, // Last 4 digits of PAN or SSN
           country: config.location === 'US' ? 'USA' : 'India',
           address: formData.fullAddress || '',
+          phone: formData.phone || '',
+          mobile_number: formData.phone || '',
+          email_verified: !!formData.emailVerified,
+          mobile_verified: !!formData.phoneVerified,
+          face_verification: formData.livePhoto || null,
         };
 
         // Add work_authorization only for US

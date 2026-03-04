@@ -1320,10 +1320,8 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
           setErrors({});
           setCaptured(true);
 
-          // Close camera after successful extraction (with delay to show success)
-          setTimeout(() => {
-            stopCamera();
-          }, 2000);
+          // Keep camera dialog open.
+          // UI flow now requires user to review extracted details and click Confirm & Close manually.
         } else {
           // Missing required fields - show try again message
           const missingFields = [];
@@ -1495,10 +1493,7 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
           setErrors({});
           setCaptured(true);
 
-          // Close camera after successful extraction (with delay to show success)
-          setTimeout(() => {
-            stopCamera();
-          }, 2000);
+          // Keep camera dialog open for manual user verification and confirmation.
         } else {
           // SSN number not extracted - show try again message
           Logger.warn('SSN extraction failed - no number found', { response: data }, 'SSNVerification');
@@ -1652,10 +1647,7 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
           setErrors({});
           setCaptured(true);
 
-          // Close camera after successful extraction (with delay to show success)
-          setTimeout(() => {
-            stopCamera();
-          }, 2000);
+          // Keep camera dialog open for manual user verification and confirmation.
         } else {
           // PAN number not extracted - show try again message
           Logger.warn('PAN extraction failed - no number found', { response: data }, 'PANVerification');

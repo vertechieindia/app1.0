@@ -134,6 +134,15 @@ export const communityService = {
   },
 
   /**
+   * Upload a video for a post. Returns { url }.
+   */
+  uploadPostVideo: async (file: File): Promise<{ url: string }> => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post(API_ENDPOINTS.COMMUNITY.UPLOAD, form) as Promise<{ url: string }>;
+  },
+
+  /**
    * Create a new post
    */
   createPost: async (data: CreatePostData): Promise<{ id: string }> => {

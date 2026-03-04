@@ -12,6 +12,8 @@ import {
   DialogActions,
   CircularProgress,
   IconButton,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import { StepComponentProps } from '../../types';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
@@ -39,11 +41,24 @@ const IndiaDocumentVerification: React.FC<StepComponentProps> = ({
   const [aadhaarCaptured, setAadhaarCaptured] = useState(
     !!formData.aadhaar && !!formData.firstName && !!formData.lastName && !!formData.dateOfBirth
   );
+  const [documentDetailsConfirmed, setDocumentDetailsConfirmed] = useState(
+    !!formData.documentDetailsConfirmed
+  );
+  const [aadhaarUserVerified, setAadhaarUserVerified] = useState(false);
+  const [panUserVerified, setPanUserVerified] = useState(false);
   
   // HR colors: India = attractive green (#2E7D32), Techie = green (#138808)
   const primaryColor = role === 'hr' ? '#2E7D32' : '#138808';
   const lightColor = role === 'hr' ? '#e8f5e9' : '#e8f5e9';
   const darkColor = role === 'hr' ? '#1B5E20' : '#0f7005';
+  const resetDocumentConfirmation = useCallback(() => {
+    setDocumentDetailsConfirmed(false);
+    setAadhaarUserVerified(false);
+    setPanUserVerified(false);
+    if (formData.documentDetailsConfirmed) {
+      updateFormData({ documentDetailsConfirmed: false });
+    }
+  }, [formData.documentDetailsConfirmed, updateFormData]);
 
   // Pre-load face detection model when component mounts
   // This eliminates the 5-8 second delay when user opens the liveness camera
@@ -71,6 +86,7 @@ const IndiaDocumentVerification: React.FC<StepComponentProps> = ({
       // Don't set aadhaarCaptured here - wait for onDataExtracted to validate required fields
     },
     onDataExtracted: (extractedData) => {
+      resetDocumentConfirmation();
       console.log('Extracted Aadhaar/DL data:', extractedData);
       const updates: any = {};
 
@@ -95,6 +111,7 @@ const IndiaDocumentVerification: React.FC<StepComponentProps> = ({
       // Only mark as captured if all required fields are extracted
       if (extractedData.firstName && extractedData.lastName && extractedData.dateOfBirth) {
         setAadhaarCaptured(true);
+        setAadhaarUserVerified(false);
         console.log('Government ID captured successfully with all required fields');
       } else {
         setAadhaarCaptured(false);
@@ -112,6 +129,7 @@ const IndiaDocumentVerification: React.FC<StepComponentProps> = ({
       // Don't set panCaptured here - wait for onDataExtracted to validate PAN number
     },
     onDataExtracted: (extractedData) => {
+      resetDocumentConfirmation();
       console.log('Extracted PAN data:', extractedData);
       const updates: any = {};
 
@@ -128,6 +146,7 @@ const IndiaDocumentVerification: React.FC<StepComponentProps> = ({
       // Only mark as captured if PAN number is extracted
       if (extractedData.panNumber || extractedData.idNumber) {
         setPanCaptured(true);
+        setPanUserVerified(false);
         console.log('PAN card captured successfully with ID number');
       } else {
         setPanCaptured(false);
@@ -362,13 +381,13 @@ Live Verification
                   livePhotoCaptured,
                   event: e
                 });
-                if (!aadhaarCaptured && livePhotoCaptured) {
+                if (livePhotoCaptured) {
                   handleAadhaarStart();
                 } else {
                   console.warn('⚠️ Button click ignored - button is disabled or already captured');
                 }
               }}
-              disabled={aadhaarCaptured || !livePhotoCaptured}
+              disabled={!livePhotoCaptured}
               sx={{
                 borderColor: primaryColor,
                 color: primaryColor,
@@ -456,7 +475,7 @@ Live Verification
               variant="outlined"
           startIcon={<PhotoCameraIcon />}
               onClick={handlePanStart}
-              disabled={panCaptured || !aadhaarCaptured}
+              disabled={!aadhaarCaptured}
               sx={{
                 borderColor: primaryColor,
                 color: primaryColor,
@@ -1184,14 +1203,24 @@ Live Verification
       {/* PAN Card Camera Dialog */}
       <Dialog
         open={panHook.showCamera}
-        onClose={panHook.stopCamera}
+        onClose={() => {
+          if (panCaptured && !panUserVerified) {
+            return;
+          }
+          panHook.stopCamera();
+        }}
         maxWidth="md"
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           PAN Card Verification - India
           <IconButton
-            onClick={panHook.stopCamera}
+            onClick={() => {
+              if (panCaptured && !panUserVerified) {
+                return;
+              }
+              panHook.stopCamera();
+            }}
             sx={{
               position: 'absolute',
               right: 8,
@@ -1275,8 +1304,77 @@ Live Verification
                 </Box>
               </Box>
         )}
+
+            {panCaptured && !panHook.errors.capture && !panHook.processing && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 20,
+                  backgroundColor: 'rgba(0, 0, 0, 0.45)',
+                  p: 2,
+                }}
+              >
+                <Paper sx={{ width: '100%', maxWidth: 500, p: 2, borderRadius: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                    Verify PAN Details
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">PAN Number</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>{formData.panNumber || 'Not extracted'}</Typography>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={panUserVerified}
+                        onChange={(event) => setPanUserVerified(event.target.checked)}
+                      />
+                    }
+                    label="Details are correct"
+                  />
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                    <Button
+                      variant="outlined"
+                      onClick={() => {
+                        setPanCaptured(false);
+                        setPanUserVerified(false);
+                        setDocumentDetailsConfirmed(false);
+                        updateFormData({
+                          panCard: null,
+                          panNumber: null,
+                          documentDetailsConfirmed: false
+                        });
+                        panHook.setErrors({});
+                        panHook.stopCamera();
+                        setTimeout(() => {
+                          panHook.startCamera();
+                        }, 300);
+                      }}
+                    >
+                      Retake
+                    </Button>
+                    <Button
+                      variant="contained"
+                      disabled={!panUserVerified}
+                      onClick={() => {
+                        setDocumentDetailsConfirmed(true);
+                        updateFormData({ documentDetailsConfirmed: true });
+                        panHook.stopCamera();
+                      }}
+                    >
+                      Looks Correct
+                    </Button>
+                  </Box>
+                </Paper>
+              </Box>
+            )}
       </Box>
-          <Box sx={{ textAlign: 'center' }}>
+          {(!panCaptured || panHook.errors.capture) && (
+            <Box sx={{ textAlign: 'center' }}>
             <Button
               variant="contained"
               onClick={() => {
@@ -1312,53 +1410,32 @@ Live Verification
                 </>
               )}
             </Button>
-          </Box>
-          
-          {/* Action Buttons */}
-          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 3 }}>
-            {panCaptured && !panHook.errors.capture && (
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  setPanCaptured(false);
-                  updateFormData({ 
-                    panCard: null,
-                    panNumber: null
-                  });
-                  panHook.setErrors({});
-                  // Restart camera for recapture
-                  panHook.stopCamera();
-                  setTimeout(() => {
-                    panHook.startCamera();
-                  }, 300);
-                }}
-                sx={{
-                  borderColor: primaryColor,
-                  color: primaryColor,
-                  '&:hover': {
-                    borderColor: darkColor,
-                    bgcolor: lightColor,
-                  },
-                }}
-              >
-                Re-capture
-              </Button>
-            )}
-          </Box>
+            </Box>
+          )}
         </DialogContent>
       </Dialog>
 
       {/* Aadhaar/DL Camera Dialog */}
       <Dialog
         open={aadhaarHook.showCamera}
-        onClose={aadhaarHook.stopCamera}
+        onClose={() => {
+          if (aadhaarCaptured && !aadhaarUserVerified) {
+            return;
+          }
+          aadhaarHook.stopCamera();
+        }}
         maxWidth="md"
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           Aadhaar Card / Driving License Verification - India
           <IconButton
-            onClick={aadhaarHook.stopCamera}
+            onClick={() => {
+              if (aadhaarCaptured && !aadhaarUserVerified) {
+                return;
+              }
+              aadhaarHook.stopCamera();
+            }}
             sx={{
               position: 'absolute',
               right: 8,
@@ -1466,159 +1543,129 @@ Live Verification
                 </Box>
               </Box>
             )}
-          </Box>
-          {/* Capture / Retry Button */}
-          <Box sx={{ textAlign: 'center' }}>
-            <Button
-              variant="contained"
-              onClick={() => {
-                // Clear errors when retrying
-                if (aadhaarHook.errors.capture) {
-                  aadhaarHook.setErrors({});
-                }
-                aadhaarHook.capturePhoto();
-              }}
-              disabled={aadhaarHook.processing || !aadhaarHook.videoStream}
-              size="large"
-              sx={{
-                bgcolor: aadhaarHook.errors.capture ? '#f44336' : primaryColor,
-                color: 'white',
-                px: 4,
-                py: 1.5,
-                fontSize: '1rem',
-                fontWeight: 600,
-                '&:hover': {
-                  bgcolor: aadhaarHook.errors.capture ? '#d32f2f' : darkColor,
-                },
-              }}
-            >
-              {aadhaarHook.processing ? (
-                <>
-                  <CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />
-                  Processing...
-                </>
-              ) : aadhaarHook.errors.capture ? (
-                <>
-                  🔄 Retry Capture
-                </>
-              ) : (
-                <>
-                  <PhotoCameraIcon sx={{ mr: 1 }} />
-                  Capture Aadhaar/DL
-                </>
-              )}
-            </Button>
-          </Box>
 
-          {/* Extracted Information Display */}
-          {aadhaarCaptured && formData.firstName && (
-            <Box sx={{ 
-              mt: 3, 
-              p: 2, 
-              bgcolor: lightColor, 
-              borderRadius: 2,
-              border: `2px solid ${primaryColor}`
-            }}>
-              <Typography variant="h6" sx={{ 
-                color: primaryColor, 
-                fontWeight: 700, 
-                mb: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1
-              }}>
-                <CheckCircleIcon /> Extracted Information
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
-                    First Name
-                  </Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                    {formData.firstName || 'Not extracted'}
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
-                    Last Name
-                  </Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                    {formData.lastName || 'Not extracted'}
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
-                    Date of Birth
-                  </Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                    {formData.dateOfBirth || 'Not extracted'}
-                  </Typography>
-                </Grid>
-                {formData.fullAddress && (
-                  <Grid item xs={12}>
-                    <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
-                      Address
-                    </Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                      {formData.fullAddress}
-                    </Typography>
-                  </Grid>
-                )}
-              </Grid>
-            </Box>
-          )}
-          
-          {/* Action Buttons */}
-          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 3 }}>
-            {aadhaarCaptured && !aadhaarHook.errors.capture && (
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  setAadhaarCaptured(false);
-                  updateFormData({ 
-                    aadhaar: null,
-                    firstName: '',
-                    lastName: '',
-                    dateOfBirth: '',
-                    fullAddress: formData.fullAddress || ''
-                  });
-                  aadhaarHook.setErrors({});
-                  // Restart camera for recapture
-                  aadhaarHook.stopCamera();
-                  setTimeout(() => {
-                    aadhaarHook.startCamera();
-                  }, 300);
-                }}
+            {aadhaarCaptured && !aadhaarHook.errors.capture && !aadhaarHook.processing && (
+              <Box
                 sx={{
-                  borderColor: primaryColor,
-                  color: primaryColor,
-                  '&:hover': {
-                    borderColor: darkColor,
-                    bgcolor: lightColor,
-                  },
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 20,
+                  backgroundColor: 'rgba(0, 0, 0, 0.45)',
+                  p: 2,
                 }}
               >
-                Re-capture
-              </Button>
+                <Paper sx={{ width: '100%', maxWidth: 520, p: 2, borderRadius: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                    Verify ID Details
+                  </Typography>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">First Name</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{formData.firstName || 'Not extracted'}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Last Name</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{formData.lastName || 'Not extracted'}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Date of Birth</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{formData.dateOfBirth || 'Not extracted'}</Typography>
+                    </Grid>
+                  </Grid>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={aadhaarUserVerified}
+                        onChange={(event) => setAadhaarUserVerified(event.target.checked)}
+                      />
+                    }
+                    label="Details are correct"
+                  />
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                    <Button
+                      variant="outlined"
+                      onClick={() => {
+                        setAadhaarCaptured(false);
+                        setAadhaarUserVerified(false);
+                        setDocumentDetailsConfirmed(false);
+                        updateFormData({
+                          aadhaar: null,
+                          firstName: '',
+                          lastName: '',
+                          dateOfBirth: '',
+                          fullAddress: formData.fullAddress || '',
+                          documentDetailsConfirmed: false
+                        });
+                        aadhaarHook.setErrors({});
+                        aadhaarHook.stopCamera();
+                        setTimeout(() => {
+                          aadhaarHook.startCamera();
+                        }, 300);
+                      }}
+                    >
+                      Retake
+                    </Button>
+                    <Button
+                      variant="contained"
+                      disabled={!aadhaarUserVerified}
+                      onClick={() => {
+                        aadhaarHook.stopCamera();
+                      }}
+                    >
+                      Looks Correct
+                    </Button>
+                  </Box>
+                </Paper>
+              </Box>
             )}
-            {aadhaarCaptured && !aadhaarHook.errors.capture && (
+          </Box>
+          {/* Capture / Retry Button */}
+          {(!aadhaarCaptured || aadhaarHook.errors.capture) && (
+            <Box sx={{ textAlign: 'center' }}>
               <Button
                 variant="contained"
                 onClick={() => {
-                  aadhaarHook.stopCamera();
+                  if (aadhaarHook.errors.capture) {
+                    aadhaarHook.setErrors({});
+                  }
+                  aadhaarHook.capturePhoto();
                 }}
+                disabled={aadhaarHook.processing || !aadhaarHook.videoStream}
+                size="large"
                 sx={{
-                  bgcolor: primaryColor,
+                  bgcolor: aadhaarHook.errors.capture ? '#f44336' : primaryColor,
                   color: 'white',
+                  px: 4,
+                  py: 1.5,
+                  fontSize: '1rem',
+                  fontWeight: 600,
                   '&:hover': {
-                    bgcolor: darkColor,
+                    bgcolor: aadhaarHook.errors.capture ? '#d32f2f' : darkColor,
                   },
                 }}
               >
-                ✓ Confirm & Close
+                {aadhaarHook.processing ? (
+                  <>
+                    <CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />
+                    Processing...
+                  </>
+                ) : aadhaarHook.errors.capture ? (
+                  <>Retry Capture</>
+                ) : (
+                  <>
+                    <PhotoCameraIcon sx={{ mr: 1 }} />
+                    Capture Aadhaar/DL
+                  </>
+                )}
               </Button>
-            )}
-          </Box>
+            </Box>
+          )}
         </DialogContent>
       </Dialog>
     </Box>

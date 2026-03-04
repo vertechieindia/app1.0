@@ -425,6 +425,7 @@ interface Admin {
   first_name: string;
   last_name: string;
   is_active: boolean;
+  is_blocked?: boolean;
   is_staff: boolean;
   date_joined: string;
   last_login?: string;
@@ -438,6 +439,8 @@ interface User {
   email: string;
   is_active: boolean;
   is_verified: boolean;
+  is_blocked?: boolean;
+  verification_status?: string;
   date_joined: string;
   first_name?: string;
   last_name?: string;
@@ -597,6 +600,9 @@ const SuperAdmin: React.FC = () => {
   const [deleteAdminDialog, setDeleteAdminDialog] = useState(false);
   const [adminToDelete, setAdminToDelete] = useState<Admin | null>(null);
   const [deletingAdmin, setDeletingAdmin] = useState(false);
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+  const [adminToResetPassword, setAdminToResetPassword] = useState<Admin | null>(null);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   // Blocked Profiles States
   const [blockedProfiles, setBlockedProfiles] = useState<any[]>([]);
@@ -637,6 +643,7 @@ const SuperAdmin: React.FC = () => {
     schoolDetails: null,
   });
   const [loadingUserDetails, setLoadingUserDetails] = useState(false);
+  const [processingUserId, setProcessingUserId] = useState<string | null>(null);
 
   // Role Management States
   const [roles, setRoles] = useState<Role[]>([]);
@@ -680,6 +687,7 @@ const SuperAdmin: React.FC = () => {
           first_name: u.first_name || '',
           last_name: u.last_name || '',
           is_active: u.is_active,
+          is_blocked: u.is_blocked ?? false,
           is_staff: u.is_staff ?? true,
           date_joined: u.date_joined || u.created_at || '',
           last_login: u.last_login,
@@ -731,6 +739,8 @@ const SuperAdmin: React.FC = () => {
             email: user.email || '',
             is_active: user.is_active ?? false,
             is_verified: user.is_verified ?? false,
+            is_blocked: user.is_blocked ?? false,
+            verification_status: (user.verification_status || '').toLowerCase(),
             date_joined: user.date_joined || '',
             first_name: user.first_name || '',
             last_name: user.last_name || '',
@@ -747,6 +757,7 @@ const SuperAdmin: React.FC = () => {
             is_staff: user.is_staff ?? false,
             is_superuser: user.is_superuser ?? false,
             user_type: user.groups?.[0]?.name || 'Techie',
+            status: (user.verification_status || '').toLowerCase(),
           }));
 
         setUsers(applicants);
@@ -1219,27 +1230,66 @@ const SuperAdmin: React.FC = () => {
   const handleToggleAdminStatus = async (admin: Admin) => {
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${admin.id}/`), {
-        method: 'PATCH',
+      const action = admin.is_blocked ? 'unblock' : 'block';
+      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${admin.id}/${action}`), {
+        method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          is_active: !admin.is_active,
-        }),
       });
 
       if (response.ok) {
         setSnackbar({
           open: true,
-          message: `Admin ${admin.is_active ? 'deactivated' : 'activated'} successfully`,
+          message: `Admin ${admin.is_blocked ? 'unblocked' : 'blocked'} successfully`,
           severity: 'success',
         });
         fetchAdmins();
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        setSnackbar({
+          open: true,
+          message: errorData.detail || 'Failed to update admin status',
+          severity: 'error',
+        });
       }
-    } catch (error) {
+    } catch {
       setSnackbar({ open: true, message: 'Error updating admin status', severity: 'error' });
+    }
+  };
+
+  // Send reset password email for selected admin
+  const handleSendAdminResetPassword = async () => {
+    if (!adminToResetPassword?.email) return;
+
+    setResettingPassword(true);
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(getApiUrl(API_ENDPOINTS.FORGOT_PASSWORD), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: adminToResetPassword.email }),
+      });
+
+      if (response.ok) {
+        setSnackbar({ open: true, message: 'Password reset email sent', severity: 'success' });
+        setResetPasswordDialogOpen(false);
+        setAdminToResetPassword(null);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        setSnackbar({
+          open: true,
+          message: errorData.detail || 'Failed to send reset password email',
+          severity: 'error',
+        });
+      }
+    } catch {
+      setSnackbar({ open: true, message: 'Error sending reset password email', severity: 'error' });
+    } finally {
+      setResettingPassword(false);
     }
   };
 
@@ -1252,7 +1302,7 @@ const SuperAdmin: React.FC = () => {
 
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${userToDelete.id}/`), {
+      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS.LIST.replace(/\/$/, '')}/${userToDelete.id}`), {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -1293,6 +1343,105 @@ const SuperAdmin: React.FC = () => {
     }
   };
 
+  const isUserBlocked = useCallback((user: User) => {
+    return Boolean(user.is_blocked || blockedProfiles.some((profile: any) => String(profile.id) === String(user.id)));
+  }, [blockedProfiles]);
+
+  const getUserStatus = useCallback((user: User) => {
+    const rawStatus = (user.status || user.verification_status || '').toLowerCase();
+    if (isUserBlocked(user) || rawStatus === 'blocked') return 'blocked';
+    if (rawStatus === 'approved' || rawStatus === 'verified') return 'approved';
+    if (rawStatus === 'pending') return 'pending';
+    if (rawStatus === 'rejected') return 'rejected';
+    if (user.is_verified) return 'approved';
+    if (user.is_active && !user.is_verified) return 'pending';
+    return 'rejected';
+  }, [isUserBlocked]);
+
+  const updateUserInState = (userId: string, patch: Partial<User>) => {
+    setUsers(prev => prev.map(user => (
+      String(user.id) === String(userId) ? { ...user, ...patch } : user
+    )));
+    setSelectedUser(prev => (
+      prev && String(prev.id) === String(userId) ? { ...prev, ...patch } : prev
+    ));
+  };
+
+  const handleApproveUserFromDirectory = async (user: User) => {
+    if (getUserStatus(user) !== 'pending') return;
+    setProcessingUserId(user.id);
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) return;
+
+      const response = await fetch(`${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}${user.id}/approve/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        updateUserInState(user.id, {
+          is_verified: true,
+          is_active: true,
+          is_blocked: false,
+          verification_status: 'approved',
+          status: 'approved',
+        });
+        setSnackbar({ open: true, message: 'User approved successfully', severity: 'success' });
+        fetchPendingApprovals();
+      } else {
+        const error = await response.json().catch(() => ({}));
+        setSnackbar({ open: true, message: error.detail || error.error || 'Failed to approve user', severity: 'error' });
+      }
+    } catch (error) {
+      console.error('Error approving user from directory:', error);
+      setSnackbar({ open: true, message: 'Error approving user', severity: 'error' });
+    } finally {
+      setProcessingUserId(null);
+    }
+  };
+
+  const handleToggleUserBlockStatus = async (user: User) => {
+    const userBlocked = isUserBlocked(user);
+    const action = userBlocked ? 'unblock' : 'block';
+    setProcessingUserId(user.id);
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) return;
+
+      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${user.id}/${action}`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        updateUserInState(user.id, {
+          is_blocked: !userBlocked,
+          status: !userBlocked ? 'blocked' : (user.is_verified ? 'approved' : 'pending'),
+        });
+        setSnackbar({
+          open: true,
+          message: `User ${userBlocked ? 'unblocked' : 'blocked'} successfully`,
+          severity: 'success',
+        });
+        fetchBlockedProfiles();
+      } else {
+        const error = await response.json().catch(() => ({}));
+        setSnackbar({ open: true, message: error.detail || error.error || `Failed to ${action} user`, severity: 'error' });
+      }
+    } catch (error) {
+      console.error(`Error trying to ${action} user:`, error);
+      setSnackbar({ open: true, message: `Error trying to ${action} user`, severity: 'error' });
+    } finally {
+      setProcessingUserId(null);
+    }
+  };
+
   // Delete Admin completely
   const handleDeleteAdmin = async () => {
     if (!adminToDelete) return;
@@ -1303,7 +1452,7 @@ const SuperAdmin: React.FC = () => {
 
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${adminId}/`), {
+      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS.LIST.replace(/\/$/, '')}/${adminId}`), {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -1541,10 +1690,13 @@ const SuperAdmin: React.FC = () => {
 
     const matchesType = !userTypeFilter || user.user_type?.toLowerCase() === userTypeFilter.toLowerCase();
 
+    const status = getUserStatus(user);
     const matchesStatus = !userStatusFilter ||
-      (userStatusFilter === 'verified' && user.is_verified) ||
-      (userStatusFilter === 'pending' && user.is_active && !user.is_verified) ||
-      (userStatusFilter === 'rejected' && !user.is_active && !user.is_verified);
+      (userStatusFilter === 'approved' && status === 'approved') ||
+      (userStatusFilter === 'verified' && status === 'approved') ||
+      (userStatusFilter === 'pending' && status === 'pending') ||
+      (userStatusFilter === 'blocked' && status === 'blocked') ||
+      (userStatusFilter === 'rejected' && status === 'rejected');
 
     return matchesSearch && matchesType && matchesStatus;
   });
@@ -1572,13 +1724,17 @@ const SuperAdmin: React.FC = () => {
   };
 
   const getStatusChip = (user: User) => {
-    if (user.is_verified) {
-      return <Chip label="Verified" size="small" sx={{ bgcolor: '#dcfce7', color: '#16a34a', fontWeight: 600 }} />;
-    } else if (user.is_active && !user.is_verified) {
-      return <Chip label="Pending" size="small" sx={{ bgcolor: '#fef3c7', color: '#d97706', fontWeight: 600 }} />;
-    } else {
-      return <Chip label="Rejected" size="small" sx={{ bgcolor: '#fee2e2', color: '#dc2626', fontWeight: 600 }} />;
+    const status = getUserStatus(user);
+    if (status === 'approved') {
+      return <Chip label="Approved" size="small" sx={{ bgcolor: '#dcfce7', color: '#16a34a', fontWeight: 600 }} />;
     }
+    if (status === 'pending') {
+      return <Chip label="Pending" size="small" sx={{ bgcolor: '#fef3c7', color: '#d97706', fontWeight: 600 }} />;
+    }
+    if (status === 'blocked') {
+      return <Chip label="Blocked" size="small" sx={{ bgcolor: '#fee2e2', color: '#dc2626', fontWeight: 600 }} />;
+    }
+    return <Chip label="Rejected" size="small" sx={{ bgcolor: '#fecaca', color: '#b91c1c', fontWeight: 600 }} />;
   };
 
   const getRoleColor = (roleName: string) => {
@@ -2050,11 +2206,11 @@ const SuperAdmin: React.FC = () => {
                                 )}
                                 <TableCell>
                                   <AnimatedChip
-                                    label={admin.is_active ? 'Active' : 'Blocked'}
+                                    label={admin.is_blocked ? 'Blocked' : (admin.is_active ? 'Active' : 'Inactive')}
                                     size="small"
                                     sx={{
-                                      bgcolor: admin.is_active ? '#dcfce7' : '#fee2e2',
-                                      color: admin.is_active ? '#16a34a' : '#dc2626',
+                                      bgcolor: admin.is_blocked ? '#fee2e2' : (admin.is_active ? '#dcfce7' : '#fef3c7'),
+                                      color: admin.is_blocked ? '#dc2626' : (admin.is_active ? '#16a34a' : '#d97706'),
                                     }}
                                   />
                                 </TableCell>
@@ -2063,20 +2219,20 @@ const SuperAdmin: React.FC = () => {
                                 )}
                                 <TableCell>
                                   <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
-                                    <Tooltip title={admin.is_active ? 'Click to Block' : 'Click to Activate'}>
+                                    <Tooltip title={admin.is_blocked ? 'Click to Unblock' : 'Click to Block'}>
                                       <IconButton
                                         size="small"
                                         onClick={() => handleToggleAdminStatus(admin)}
                                         sx={{
-                                          color: admin.is_active ? '#16a34a' : '#dc2626',
+                                          color: admin.is_blocked ? '#dc2626' : '#16a34a',
                                           transition: 'all 0.3s ease',
                                           '&:hover': {
-                                            bgcolor: admin.is_active ? '#dcfce7' : '#fee2e2',
+                                            bgcolor: admin.is_blocked ? '#fee2e2' : '#dcfce7',
                                             transform: 'scale(1.15)',
                                           },
                                         }}
                                       >
-                                        {admin.is_active ? <CheckCircle fontSize="small" /> : <Block fontSize="small" />}
+                                        {admin.is_blocked ? <Block fontSize="small" /> : <CheckCircle fontSize="small" />}
                                       </IconButton>
                                     </Tooltip>
                                     <Tooltip title="Manage Roles">
@@ -2102,6 +2258,10 @@ const SuperAdmin: React.FC = () => {
                                     <Tooltip title="Reset Password">
                                       <IconButton
                                         size="small"
+                                        onClick={() => {
+                                          setAdminToResetPassword(admin);
+                                          setResetPasswordDialogOpen(true);
+                                        }}
                                         sx={{
                                           color: '#6b7280',
                                           transition: 'all 0.3s ease',
@@ -2405,8 +2565,9 @@ const SuperAdmin: React.FC = () => {
                         }}
                       >
                         <MenuItem value="">All Status</MenuItem>
-                        <MenuItem value="verified">Verified</MenuItem>
+                        <MenuItem value="approved">Approved</MenuItem>
                         <MenuItem value="pending">Pending</MenuItem>
+                        <MenuItem value="blocked">Blocked</MenuItem>
                         <MenuItem value="rejected">Rejected</MenuItem>
                       </Select>
                     </FormControl>
@@ -2544,6 +2705,58 @@ const SuperAdmin: React.FC = () => {
                                           }}
                                         >
                                           <Visibility fontSize="small" />
+                                        </IconButton>
+                                      </Tooltip>
+                                      {getUserStatus(user) === 'pending' ? (
+                                        <Tooltip title="Approve User">
+                                          <IconButton
+                                            size="small"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleApproveUserFromDirectory(user);
+                                            }}
+                                            disabled={processingUserId === user.id}
+                                            sx={{
+                                              color: '#16a34a',
+                                              transition: 'all 0.3s ease',
+                                              '&:hover': {
+                                                bgcolor: 'rgba(22, 163, 74, 0.1)',
+                                                transform: 'scale(1.2)',
+                                              },
+                                            }}
+                                          >
+                                            {processingUserId === user.id ? <CircularProgress size={16} /> : <CheckCircle fontSize="small" />}
+                                          </IconButton>
+                                        </Tooltip>
+                                      ) : getUserStatus(user) === 'approved' ? (
+                                        <Tooltip title="Already Approved">
+                                          <IconButton
+                                            size="small"
+                                            disabled
+                                            sx={{ color: '#16a34a' }}
+                                          >
+                                            <CheckCircle fontSize="small" />
+                                          </IconButton>
+                                        </Tooltip>
+                                      ) : null}
+                                      <Tooltip title={isUserBlocked(user) ? 'Unblock User' : 'Block User'}>
+                                        <IconButton
+                                          size="small"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleToggleUserBlockStatus(user);
+                                          }}
+                                          disabled={processingUserId === user.id}
+                                          sx={{
+                                            color: isUserBlocked(user) ? '#2563eb' : '#dc2626',
+                                            transition: 'all 0.3s ease',
+                                            '&:hover': {
+                                              bgcolor: isUserBlocked(user) ? 'rgba(37, 99, 235, 0.1)' : 'rgba(220, 38, 38, 0.1)',
+                                              transform: 'scale(1.2)',
+                                            },
+                                          }}
+                                        >
+                                          {processingUserId === user.id ? <CircularProgress size={16} /> : (isUserBlocked(user) ? <LockReset fontSize="small" /> : <Block fontSize="small" />)}
                                         </IconButton>
                                       </Tooltip>
                                       <Tooltip title="Delete User Permanently">
@@ -4220,6 +4433,46 @@ const SuperAdmin: React.FC = () => {
             </Box>
           )}
         </DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 1.5, justifyContent: 'space-between' }}>
+          <Button onClick={() => setViewUserDialog(false)} variant="outlined" sx={{ borderRadius: '10px' }}>
+            Close
+          </Button>
+          {selectedUser && (
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {getUserStatus(selectedUser) === 'pending' ? (
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={() => handleApproveUserFromDirectory(selectedUser)}
+                  disabled={processingUserId === selectedUser.id}
+                  sx={{ borderRadius: '10px', textTransform: 'none' }}
+                  startIcon={processingUserId === selectedUser.id ? <CircularProgress size={16} color="inherit" /> : <CheckCircle />}
+                >
+                  Approve
+                </Button>
+              ) : (
+                getUserStatus(selectedUser) === 'approved' && (
+                  <Chip
+                    label="Approved"
+                    color="success"
+                    variant="outlined"
+                    sx={{ fontWeight: 700 }}
+                  />
+                )
+              )}
+              <Button
+                variant="outlined"
+                color={isUserBlocked(selectedUser) ? 'primary' : 'error'}
+                onClick={() => handleToggleUserBlockStatus(selectedUser)}
+                disabled={processingUserId === selectedUser.id}
+                sx={{ borderRadius: '10px', textTransform: 'none' }}
+                startIcon={processingUserId === selectedUser.id ? <CircularProgress size={16} /> : (isUserBlocked(selectedUser) ? <LockReset /> : <Block />)}
+              >
+                {isUserBlocked(selectedUser) ? 'Unblock' : 'Block'}
+              </Button>
+            </Box>
+          )}
+        </DialogActions>
 
       </Dialog>
 
@@ -4352,6 +4605,51 @@ const SuperAdmin: React.FC = () => {
             startIcon={deletingAdmin ? <CircularProgress size={16} color="inherit" /> : <Delete />}
           >
             {deletingAdmin ? 'Deleting...' : 'Delete Permanently'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reset Admin Password Dialog */}
+      <Dialog
+        open={resetPasswordDialogOpen}
+        onClose={() => {
+          if (!resettingPassword) {
+            setResetPasswordDialogOpen(false);
+            setAdminToResetPassword(null);
+          }
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <LockReset sx={{ color: '#6b7280' }} />
+          Reset Password
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Send a password reset email to{' '}
+            <strong>
+              {adminToResetPassword?.first_name} {adminToResetPassword?.last_name}
+            </strong>{' '}
+            ({adminToResetPassword?.email})?
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            onClick={() => {
+              setResetPasswordDialogOpen(false);
+              setAdminToResetPassword(null);
+            }}
+            disabled={resettingPassword}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSendAdminResetPassword}
+            disabled={resettingPassword}
+          >
+            {resettingPassword ? 'Sending...' : 'Send reset email'}
           </Button>
         </DialogActions>
       </Dialog>

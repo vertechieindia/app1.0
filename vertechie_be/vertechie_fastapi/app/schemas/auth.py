@@ -53,6 +53,7 @@ class UserRegister(BaseModel):
     # Verification flags from frontend
     email_verified: bool = False
     mobile_verified: bool = False
+    phone_verified: Optional[bool] = None
     
     class Config:
         extra = "ignore"  # Ignore extra fields from frontend

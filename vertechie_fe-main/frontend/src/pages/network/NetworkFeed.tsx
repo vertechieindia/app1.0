@@ -17,6 +17,7 @@ import {
   ThumbUp, ThumbUpOutlined, Celebration, Lightbulb, 
   SentimentVerySatisfied, Whatshot, LocalFireDepartment,
   Refresh, ContentCopy,
+  ContentPaste,
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 import NetworkLayout from '../../components/network/NetworkLayout';
@@ -119,6 +120,12 @@ const parseApiDate = (value: string): Date => {
   return Number.isNaN(parsed.getTime()) ? new Date(value) : parsed;
 };
 
+const isVideoMedia = (media: { url: string; type?: string; thumbnail?: string }) => {
+  const type = String(media.type || '').toLowerCase();
+  if (type.startsWith('video')) return true;
+  return /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(media.url);
+};
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -148,6 +155,17 @@ const NetworkFeed: React.FC = () => {
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+
+  const resetCreatePostForm = () => {
+    setPostContent('');
+    setAttachedImages([]);
+    setAttachedVideo(null);
+    setArticleLink('');
+    setPollOptions(['', '']);
+    setShowPollCreator(false);
+    setShowArticleInput(false);
+    setShowEmojiPicker(false);
+  };
 
   // Fetch feed from API
   useEffect(() => {
@@ -387,14 +405,17 @@ const NetworkFeed: React.FC = () => {
     const hasPoll = showPollCreator && pollOptions.filter(opt => opt.trim()).length >= 2;
     const hasContent = !!postContent.trim();
     const hasImages = attachedImages.length > 0;
-    if (!hasContent && !hasPoll && !hasImages) {
-      setSnackbar({ open: true, message: 'Please add content, images, or a poll with at least 2 options', severity: 'error' });
+    const hasVideo = !!attachedVideo;
+    const hasArticle = !!articleLink.trim();
+    if (!hasContent && !hasPoll && !hasImages && !hasVideo && !hasArticle) {
+      setSnackbar({ open: true, message: 'Please add content, image/video, article link, or a poll with at least 2 options', severity: 'error' });
       return;
     }
 
     try {
-      // Upload images first if any
+      // Upload media first if any
       let mediaUrls: string[] = [];
+      let videoUrl = '';
       if (attachedImages.length > 0) {
         try {
           mediaUrls = await Promise.all(
@@ -409,6 +430,16 @@ const NetworkFeed: React.FC = () => {
           return;
         }
       }
+      if (attachedVideo) {
+        try {
+          const { url } = await communityService.uploadPostVideo(attachedVideo);
+          videoUrl = url;
+        } catch (upErr) {
+          console.error('Error uploading video:', upErr);
+          setSnackbar({ open: true, message: 'Failed to upload video. Please try again.', severity: 'error' });
+          return;
+        }
+      }
 
       // Prepare post data
       const postData: Record<string, unknown> = {
@@ -419,6 +450,11 @@ const NetworkFeed: React.FC = () => {
         postData.media = mediaUrls.map((url) => ({ url, type: 'image' }));
         if (!postData.post_type) postData.post_type = 'image';
       }
+      if (videoUrl) {
+        const existingMedia = Array.isArray(postData.media) ? postData.media as Array<{ url: string; type?: string }> : [];
+        postData.media = [...existingMedia, { url: videoUrl, type: 'video' }];
+        if (!postData.post_type) postData.post_type = 'video';
+      }
       if (hasPoll) {
         postData.post_type = 'poll';
         postData.poll_data = {
@@ -427,7 +463,7 @@ const NetworkFeed: React.FC = () => {
         };
       } else if (articleLink) {
         postData.post_type = 'link';
-        postData.link_url = articleLink;
+        postData.link_url = articleLink.trim();
       }
 
       // Call API to create post
@@ -436,13 +472,7 @@ const NetworkFeed: React.FC = () => {
       // Refresh feed to get the new post
       await fetchFeed();
       
-      setPostContent('');
-      setAttachedImages([]);
-      setAttachedVideo(null);
-      setArticleLink('');
-      setPollOptions(['', '']);
-      setShowPollCreator(false);
-      setShowArticleInput(false);
+      resetCreatePostForm();
       setCreatePostOpen(false);
       setSnackbar({ open: true, message: 'Post created successfully!', severity: 'success' });
     } catch (err) {
@@ -470,6 +500,21 @@ const NetworkFeed: React.FC = () => {
     if (file) {
       setAttachedVideo(file);
       setAttachedImages([]);
+    }
+  };
+
+  const handlePasteArticleLink = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && /^https?:\/\//i.test(text.trim())) {
+        setShowArticleInput(true);
+        setArticleLink(text.trim());
+        setSnackbar({ open: true, message: 'Article link pasted', severity: 'success' });
+      } else {
+        setSnackbar({ open: true, message: 'Clipboard does not contain a valid URL', severity: 'error' });
+      }
+    } catch {
+      setSnackbar({ open: true, message: 'Clipboard access denied. Paste manually.', severity: 'error' });
     }
   };
 
@@ -607,20 +652,36 @@ const NetworkFeed: React.FC = () => {
                 }}
               >
                 {post.media.map((m, idx) => (
-                  <Box
-                    key={idx}
-                    component="img"
-                    src={m.url}
-                    alt=""
-                    sx={{
-                      width: '100%',
-                      maxHeight: 400,
-                      objectFit: 'cover',
-                      cursor: 'pointer',
-                    }}
-                    loading="lazy"
-                    onClick={() => window.open(m.url, '_blank')}
-                  />
+                  isVideoMedia(m) ? (
+                    <Box
+                      key={idx}
+                      component="video"
+                      src={m.url}
+                      controls
+                      preload="metadata"
+                      sx={{
+                        width: '100%',
+                        maxHeight: 420,
+                        objectFit: 'cover',
+                        bgcolor: 'black',
+                      }}
+                    />
+                  ) : (
+                    <Box
+                      key={idx}
+                      component="img"
+                      src={m.url}
+                      alt=""
+                      sx={{
+                        width: '100%',
+                        maxHeight: 400,
+                        objectFit: 'cover',
+                        cursor: 'pointer',
+                      }}
+                      loading="lazy"
+                      onClick={() => window.open(m.url, '_blank')}
+                    />
+                  )
                 ))}
               </Box>
             )}
@@ -977,7 +1038,10 @@ const NetworkFeed: React.FC = () => {
       {/* Create Post Dialog */}
       <Dialog 
         open={createPostOpen} 
-        onClose={() => setCreatePostOpen(false)}
+        onClose={() => {
+          setCreatePostOpen(false);
+          resetCreatePostForm();
+        }}
         maxWidth="sm"
         fullWidth
       >
@@ -1100,6 +1164,11 @@ const NetworkFeed: React.FC = () => {
           {/* Article Link Input */}
           {showArticleInput && (
             <Box sx={{ mt: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                <Button size="small" startIcon={<ContentPaste />} onClick={handlePasteArticleLink}>
+                  Paste
+                </Button>
+              </Box>
               <TextField
                 fullWidth
                 size="small"
@@ -1222,11 +1291,24 @@ const NetworkFeed: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreatePostOpen(false)}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setCreatePostOpen(false);
+              resetCreatePostForm();
+            }}
+          >
+            Cancel
+          </Button>
           <Button 
             variant="contained" 
             onClick={handleCreatePost}
-            disabled={!postContent.trim() && attachedImages.length === 0 && !(showPollCreator && pollOptions.filter(o => o.trim()).length >= 2)}
+            disabled={
+              !postContent.trim() &&
+              attachedImages.length === 0 &&
+              !attachedVideo &&
+              !articleLink.trim() &&
+              !(showPollCreator && pollOptions.filter(o => o.trim()).length >= 2)
+            }
             sx={{ borderRadius: 2 }}
           >
             Post

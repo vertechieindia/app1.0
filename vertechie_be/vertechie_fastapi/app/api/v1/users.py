@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_, func, update
 from pydantic import BaseModel
 
 from app.db.session import get_db
@@ -607,6 +607,13 @@ async def delete_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+
+    # Prevent self-delete in admin panel flows to avoid ownership reassignment edge cases
+    if user.id == admin_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own account from the admin panel."
+        )
     
     # Role-scoped admins (e.g. techie_admin) may only delete users of their managed type
     admin_roles = admin_user.admin_roles or []
@@ -636,6 +643,15 @@ async def delete_user(
                 detail="You can only remove users of the type you manage (e.g. Tech Professionals)."
             )
     
+    # Reassign jobs posted by this user to the acting admin before deletion.
+    # jobs.posted_by_id is NOT NULL, so deleting the user directly can fail.
+    from app.models.job import Job
+    await db.execute(
+        update(Job)
+        .where(Job.posted_by_id == user.id)
+        .values(posted_by_id=admin_user.id)
+    )
+
     await db.delete(user)
     await db.commit()
 
