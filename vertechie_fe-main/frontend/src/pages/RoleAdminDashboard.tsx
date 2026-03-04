@@ -54,6 +54,7 @@ import {
   VerifiedUser,
   Settings,
   LockReset,
+  Block as BlockIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl, API_ENDPOINTS } from '../config/api';
@@ -104,6 +105,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState(false);
+  const [suspendingId, setSuspendingId] = useState<string | null>(null);
 
   // Reject dialog
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -147,7 +149,8 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
         return;
       }
 
-      const url = `${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}?user_type=${userType}&status=${statusFilter}`;
+      const apiStatus = ['pending', 'approved', 'rejected'].includes(statusFilter) ? statusFilter : '';
+      const url = `${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}?user_type=${userType}&status=${apiStatus}`;
       const response = await fetch(url, {
         headers: {
           'Content-Type': 'application/json',
@@ -310,6 +313,43 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
     }
   };
 
+  // Toggle block/unblock for approved/suspended users
+  const handleToggleSuspend = async (approval: any) => {
+    if (!approval?.id) return;
+    setSuspendingId(String(approval.id));
+    const isSuspended = String(approval.status || '').toLowerCase() === 'suspended';
+    const action = isSuspended ? 'unblock' : 'block';
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${approval.id}/${action}`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        setPendingApprovals((prev) => prev.map((item) => (
+          String(item.id) === String(approval.id)
+            ? { ...item, status: isSuspended ? 'approved' : 'suspended' }
+            : item
+        )));
+        setSnackbar({
+          open: true,
+          message: `User ${isSuspended ? 'unblocked' : 'blocked'} successfully`,
+          severity: 'success'
+        });
+      } else {
+        const err = await response.json().catch(() => ({}));
+        setSnackbar({ open: true, message: err.detail || err.error || `Failed to ${action} user`, severity: 'error' });
+      }
+    } catch {
+      setSnackbar({ open: true, message: `Error trying to ${action} user`, severity: 'error' });
+    } finally {
+      setSuspendingId(null);
+    }
+  };
+
   // Open Profile Review modal and fetch full profile
   const handleOpenReview = useCallback(async (userId: string) => {
     setReviewUserId(userId);
@@ -412,6 +452,10 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
       }
     }
 
+    if (statusFilter && String(approval.status || '').toLowerCase() !== statusFilter.toLowerCase()) {
+      return false;
+    }
+
     // Apply search filter
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
@@ -439,7 +483,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <CheckCircle sx={{ color: '#22c55e', fontSize: 28 }} />
             <Box>
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>Pending Approvals</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>User Directory</Typography>
               <Typography variant="body2" color="text.secondary">Review and approve pending user registrations</Typography>
             </Box>
           </Box>
@@ -512,6 +556,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
               <MenuItem value="">All</MenuItem>
               <MenuItem value="pending">Pending</MenuItem>
               <MenuItem value="approved">Approved</MenuItem>
+              <MenuItem value="suspended">Suspended</MenuItem>
               <MenuItem value="rejected">Rejected</MenuItem>
             </Select>
           </FormControl>
@@ -610,6 +655,30 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                             </IconButton>
                           </Tooltip>
                         )}
+                        {(approval.status === 'approved' || approval.status === 'suspended') && (
+                          <Tooltip title={approval.status === 'suspended' ? 'Unblock user' : 'Block user'}>
+                            <IconButton
+                              size="small"
+                              onClick={() => handleToggleSuspend(approval)}
+                              disabled={suspendingId !== null}
+                              sx={{
+                                color: approval.status === 'suspended' ? '#2563eb' : '#b91c1c',
+                                transition: 'all 0.3s ease',
+                                '&:hover': {
+                                  bgcolor: approval.status === 'suspended' ? 'rgba(37, 99, 235, 0.1)' : 'rgba(185, 28, 28, 0.1)',
+                                  transform: 'scale(1.15)'
+                                },
+                                '&.Mui-disabled': { color: approval.status === 'suspended' ? '#2563eb' : '#b91c1c', opacity: 0.7 }
+                              }}
+                            >
+                              {suspendingId === String(approval.id) ? (
+                                <CircularProgress size={16} color="inherit" />
+                              ) : (
+                                approval.status === 'suspended' ? <LockReset fontSize="small" /> : <BlockIcon fontSize="small" />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         <Tooltip title="Review profile">
                           <IconButton
                             size="small"
@@ -680,11 +749,11 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
       {/* Reject Dialog */}
       <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700, color: '#dc2626' }}>
-          Reject Registration
+          Reject User
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Please provide a reason for rejecting <strong>{selectedApproval?.user_full_name}</strong>'s registration.
+            Please provide a reason for rejecting <strong>{selectedApproval?.user_full_name}</strong>.
           </Typography>
           <TextField
             fullWidth

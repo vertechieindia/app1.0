@@ -184,7 +184,7 @@ const Signup = () => {
         face_verification: data.livePhoto || '',
         visa_status: data.visaStatus || '',
         email_verified: data.emailVerified || false,
-        phone_verified: data.phoneVerified || false,
+        mobile_verified: data.phoneVerified || false,
         experiences: data.experience || [],
         educations: data.education || [],
         // Company-specific fields

@@ -12,6 +12,8 @@ import {
   DialogActions,
   CircularProgress,
   IconButton,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import { StepComponentProps } from '../../types';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
@@ -44,10 +46,23 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
   );
   const [ssnSuccess, setSSNSuccess] = useState(false);
   const [ssnFailure, setSSNFailure] = useState(false);
+  const [documentDetailsConfirmed, setDocumentDetailsConfirmed] = useState(
+    !!formData.documentDetailsConfirmed
+  );
+  const [govIdUserVerified, setGovIdUserVerified] = useState(false);
+  const [ssnUserVerified, setSsnUserVerified] = useState(false);
   
   // HR colors: US = attractive blue (#1976d2), Techie = blue (#0077B5)
   const primaryColor = role === 'hr' ? '#1976d2' : '#1976d2';
   const successColor = role === 'hr' ? '#1976d2' : '#4caf50';
+  const resetDocumentConfirmation = useCallback(() => {
+    setDocumentDetailsConfirmed(false);
+    setGovIdUserVerified(false);
+    setSsnUserVerified(false);
+    if (formData.documentDetailsConfirmed) {
+      updateFormData({ documentDetailsConfirmed: false });
+    }
+  }, [formData.documentDetailsConfirmed, updateFormData]);
 
   // Pre-load face detection model when component mounts
   // This eliminates the 5-8 second delay when user opens the liveness camera
@@ -87,6 +102,7 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
       // Don't set govIdCaptured here - wait for onDataExtracted to validate required fields
     },
     onDataExtracted: (extractedData) => {
+      resetDocumentConfirmation();
       // Store extracted firstName, lastName, dateOfBirth in formData
       // Prefer extracted values over existing values
       console.log('📥 [USDocumentVerification] Received extracted ID data from backend:', {
@@ -199,6 +215,7 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
 
       if (allFieldsPresent) {
         setGovIdCaptured(true);
+        setGovIdUserVerified(false);
         setGovIdSuccess(true);
         setGovIdFailure(false);
         console.log('✅ [USDocumentVerification] Government ID captured successfully with all required fields');
@@ -233,6 +250,7 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
       // Don't set ssnCaptured here - wait for onDataExtracted to validate SSN number
     },
     onDataExtracted: (extractedData) => {
+      resetDocumentConfirmation();
       console.log('Extracted SSN data:', extractedData);
       const updates: any = {};
 
@@ -249,6 +267,7 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
       // Only mark as captured if SSN number is extracted
       if (extractedData.idNumber || extractedData.panNumber) {
         setSSNCaptured(true);
+        setSsnUserVerified(false);
         setSSNSuccess(true);
         setSSNFailure(false);
         console.log('SSN card captured successfully with ID number');
@@ -461,7 +480,7 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
               variant="outlined"
               startIcon={<PhotoCameraIcon />}
               onClick={handleGovIdStart}
-              disabled={govIdCaptured || !livePhotoCaptured}
+              disabled={!livePhotoCaptured}
               sx={{
                 borderColor: primaryColor,
                 color: primaryColor,
@@ -542,7 +561,7 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
               variant="outlined"
               startIcon={<PhotoCameraIcon />}
               onClick={handleSSNStart}
-              disabled={ssnCaptured || !govIdCaptured}
+              disabled={!govIdCaptured}
               sx={{
                 borderColor: primaryColor,
                 color: primaryColor,
@@ -1263,14 +1282,24 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
       {/* Government ID Camera Dialog */}
       <Dialog
         open={govIdHook.showCamera}
-        onClose={govIdHook.stopCamera}
+        onClose={() => {
+          if (govIdCaptured && !govIdUserVerified) {
+            return;
+          }
+          govIdHook.stopCamera();
+        }}
         maxWidth="md"
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           Government ID Verification - US
           <IconButton
-            onClick={govIdHook.stopCamera}
+            onClick={() => {
+              if (govIdCaptured && !govIdUserVerified) {
+                return;
+              }
+              govIdHook.stopCamera();
+            }}
             sx={{
               position: 'absolute',
               right: 8,
@@ -1477,53 +1506,103 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
                 </Typography>
               </Box>
             )}
+
+            {govIdCaptured && !govIdHook.errors.capture && !govIdHook.processing && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 20,
+                  backgroundColor: 'rgba(0, 0, 0, 0.45)',
+                  p: 2,
+                }}
+              >
+                <Paper sx={{ width: '100%', maxWidth: 520, p: 2, borderRadius: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                    Verify ID Details
+                  </Typography>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">First Name</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{formData.firstName || 'Not extracted'}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Last Name</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{formData.lastName || 'Not extracted'}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Date of Birth</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{formData.dateOfBirth || 'Not extracted'}</Typography>
+                    </Grid>
+                  </Grid>
+                  <FormControlLabel
+                    sx={{ mt: 1 }}
+                    control={
+                      <Checkbox
+                        checked={govIdUserVerified}
+                        onChange={(event) => setGovIdUserVerified(event.target.checked)}
+                      />
+                    }
+                    label="Details are correct"
+                  />
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 1 }}>
+                    <Button
+                      variant="outlined"
+                      onClick={() => {
+                        setGovIdCaptured(false);
+                        setGovIdUserVerified(false);
+                        setGovIdSuccess(false);
+                        setGovIdFailure(false);
+                        setDocumentDetailsConfirmed(false);
+                        updateFormData({
+                          governmentId: null,
+                          firstName: '',
+                          lastName: '',
+                          dateOfBirth: '',
+                          fullAddress: formData.fullAddress || '',
+                          documentDetailsConfirmed: false
+                        });
+                        govIdHook.setErrors({});
+                        govIdHook.stopCamera();
+                        setTimeout(() => {
+                          govIdHook.startCamera();
+                        }, 300);
+                      }}
+                    >
+                      Retake
+                    </Button>
+                    <Button
+                      variant="contained"
+                      disabled={!govIdUserVerified}
+                      onClick={() => {
+                        govIdHook.stopCamera();
+                      }}
+                    >
+                      Looks Correct
+                    </Button>
+                  </Box>
+                </Paper>
+              </Box>
+            )}
           </Box>
           {govIdHook.errors.capture && (
             <Alert severity="error" sx={{ mt: 2 }}>
               {govIdHook.errors.capture}
             </Alert>
           )}
-          
+
           {/* Action Buttons */}
-          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 3 }}>
-            {govIdCaptured && !govIdHook.errors.capture && (
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  setGovIdCaptured(false);
-                  setGovIdSuccess(false);
-                  setGovIdFailure(false);
-                  updateFormData({ 
-                    governmentId: null,
-                    firstName: '',
-                    lastName: '',
-                    dateOfBirth: '',
-                    fullAddress: formData.fullAddress || ''
-                  });
-                  govIdHook.setErrors({});
-                  // Restart camera for recapture
-                  govIdHook.stopCamera();
-                  setTimeout(() => {
-                    govIdHook.startCamera();
-                  }, 300);
-                }}
-                sx={{
-                  borderColor: primaryColor,
-                  color: primaryColor,
-                  '&:hover': {
-                    borderColor: '#1565c0',
-                    bgcolor: '#e3f2fd',
-                  },
-                }}
-              >
-                Re-capture
-              </Button>
-            )}
-            {(!govIdCaptured || govIdHook.errors.capture) && (
+          {(!govIdCaptured || govIdHook.errors.capture) && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 3 }}>
               <Button
                 variant="contained"
                 onClick={() => {
-                  // Clear errors and failure state when retrying
                   if (govIdHook.errors.capture || govIdFailure) {
                     setGovIdFailure(false);
                     govIdHook.setErrors({});
@@ -1534,33 +1613,38 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
                 sx={{
                   bgcolor: primaryColor,
                   color: 'white',
-                  '&:hover': {
-                    bgcolor: '#1565c0',
-                  },
-                  '&:disabled': {
-                    bgcolor: '#e0e0e0',
-                    color: '#9e9e9e',
-                  },
+                  '&:hover': { bgcolor: '#1565c0' },
+                  '&:disabled': { bgcolor: '#e0e0e0', color: '#9e9e9e' },
                 }}
               >
                 {govIdHook.processing ? 'Capturing...' : 'Capture ID'}
               </Button>
-            )}
-          </Box>
+            </Box>
+          )}
         </DialogContent>
       </Dialog>
 
       {/* SSN Camera Dialog */}
       <Dialog
         open={ssnHook.showCamera}
-        onClose={ssnHook.stopCamera}
+        onClose={() => {
+          if (ssnCaptured && !ssnUserVerified) {
+            return;
+          }
+          ssnHook.stopCamera();
+        }}
         maxWidth="md"
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           SSN Card Verification - US
           <IconButton
-            onClick={ssnHook.stopCamera}
+            onClick={() => {
+              if (ssnCaptured && !ssnUserVerified) {
+                return;
+              }
+              ssnHook.stopCamera();
+            }}
             sx={{
               position: 'absolute',
               right: 8,
@@ -1763,44 +1847,88 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
                 </Typography>
               </Box>
             )}
-          </Box>
-          
-          {/* Action Buttons */}
-          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 3 }}>
-            {ssnCaptured && !ssnHook.errors.capture && (
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  setSSNCaptured(false);
-                  setSSNSuccess(false);
-                  setSSNFailure(false);
-                  updateFormData({ 
-                    ssn: null
-                  });
-                  ssnHook.setErrors({});
-                  // Restart camera for recapture
-                  ssnHook.stopCamera();
-                  setTimeout(() => {
-                    ssnHook.startCamera();
-                  }, 300);
-                }}
+
+            {ssnCaptured && !ssnHook.errors.capture && !ssnHook.processing && (
+              <Box
                 sx={{
-                  borderColor: primaryColor,
-                  color: primaryColor,
-                  '&:hover': {
-                    borderColor: '#1565c0',
-                    bgcolor: '#e3f2fd',
-                  },
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 20,
+                  backgroundColor: 'rgba(0, 0, 0, 0.45)',
+                  p: 2,
                 }}
               >
-                Re-capture
-              </Button>
+                <Paper sx={{ width: '100%', maxWidth: 520, p: 2, borderRadius: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                    Verify SSN Details
+                  </Typography>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={12}>
+                      <Typography variant="caption" color="text.secondary">SSN</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{formData.ssn || 'Not extracted'}</Typography>
+                    </Grid>
+                  </Grid>
+                  <FormControlLabel
+                    sx={{ mt: 1 }}
+                    control={
+                      <Checkbox
+                        checked={ssnUserVerified}
+                        onChange={(event) => setSsnUserVerified(event.target.checked)}
+                      />
+                    }
+                    label="Details are correct"
+                  />
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 1 }}>
+                    <Button
+                      variant="outlined"
+                      onClick={() => {
+                        setSSNCaptured(false);
+                        setSsnUserVerified(false);
+                        setSSNSuccess(false);
+                        setSSNFailure(false);
+                        setDocumentDetailsConfirmed(false);
+                        updateFormData({
+                          ssn: null,
+                          documentDetailsConfirmed: false
+                        });
+                        ssnHook.setErrors({});
+                        ssnHook.stopCamera();
+                        setTimeout(() => {
+                          ssnHook.startCamera();
+                        }, 300);
+                      }}
+                    >
+                      Retake
+                    </Button>
+                    <Button
+                      variant="contained"
+                      disabled={!ssnUserVerified}
+                      onClick={() => {
+                        setDocumentDetailsConfirmed(true);
+                        updateFormData({ documentDetailsConfirmed: true });
+                        ssnHook.stopCamera();
+                      }}
+                    >
+                      Looks Correct
+                    </Button>
+                  </Box>
+                </Paper>
+              </Box>
             )}
-            {(!ssnCaptured || ssnHook.errors.capture) && (
+          </Box>
+
+          {/* Action Buttons */}
+          {(!ssnCaptured || ssnHook.errors.capture) && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 3 }}>
               <Button
                 variant="contained"
                 onClick={() => {
-                  // Clear errors and failure state when retrying
                   if (ssnHook.errors.capture) {
                     setSSNFailure(false);
                     ssnHook.setErrors({});
@@ -1811,19 +1939,14 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
                 sx={{
                   bgcolor: primaryColor,
                   color: 'white',
-                  '&:hover': {
-                    bgcolor: '#1565c0',
-                  },
-                  '&:disabled': {
-                    bgcolor: '#e0e0e0',
-                    color: '#9e9e9e',
-                  },
+                  '&:hover': { bgcolor: '#1565c0' },
+                  '&:disabled': { bgcolor: '#e0e0e0', color: '#9e9e9e' },
                 }}
               >
                 {ssnHook.processing ? 'Capturing...' : 'Capture SSN'}
               </Button>
-            )}
-          </Box>
+            </Box>
+          )}
         </DialogContent>
       </Dialog>
     </Box>

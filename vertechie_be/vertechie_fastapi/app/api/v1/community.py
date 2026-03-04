@@ -249,7 +249,7 @@ async def leave_group(
         await db.commit()
 
 
-# ============= Upload (for post images) =============
+# ============= Upload (for post media: images/videos) =============
 
 # Upload directory: project_root/uploads (created at first upload)
 def _upload_dir() -> Path:
@@ -272,11 +272,14 @@ async def upload_post_image(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    """Upload an image for a post. Returns { url } (absolute URL to the file)."""
-    if not file.content_type or not file.content_type.startswith("image/"):
+    """Upload media for a post. Returns { url } (absolute URL to the file)."""
+    content_type = file.content_type or ""
+    is_image = content_type.startswith("image/")
+    is_video = content_type.startswith("video/")
+    if not (is_image or is_video):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only image files are allowed",
+            detail="Only image or video files are allowed",
         )
     ext = _ext(file.filename or "image.jpg")
     name = f"{uuid4().hex}{ext}"
@@ -339,7 +342,7 @@ async def create_post(
     if not has_content and not has_media:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Post content or at least one image is required",
+            detail="Post content or at least one media file is required",
         )
 
     # If posting to group, verify membership

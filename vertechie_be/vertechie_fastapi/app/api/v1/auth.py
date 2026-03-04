@@ -75,7 +75,7 @@ async def register(
         username=username,
         vertechie_id=vertechie_id,
         email_verified=user_in.email_verified,
-        mobile_verified=user_in.mobile_verified,
+        mobile_verified=user_in.mobile_verified or bool(user_in.phone_verified),
         face_verification=user_in.face_verification,
     )
     

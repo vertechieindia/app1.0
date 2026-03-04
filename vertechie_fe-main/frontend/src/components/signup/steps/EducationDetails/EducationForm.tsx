@@ -48,6 +48,17 @@ const EducationForm: React.FC<StepComponentProps> = ({
   location,
   goToStep,
 }) => {
+  const todayIso = new Date().toISOString().split('T')[0];
+  const toISODate = (value: string): string | null => {
+    if (!value) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
+      const [mm, dd, yyyy] = value.split('/');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    return null;
+  };
+
   const [showEducationForm, setShowEducationForm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -137,6 +148,15 @@ const EducationForm: React.FC<StepComponentProps> = ({
 
     if (!newEducation.endDate) {
       validationErrors.endDate = 'End Date is required';
+    }
+
+    const startIso = toISODate(newEducation.startDate);
+    const endIso = toISODate(newEducation.endDate);
+    if (startIso && startIso > todayIso) {
+      validationErrors.startDate = 'Start Date cannot be in the future';
+    }
+    if (endIso && endIso > todayIso) {
+      validationErrors.endDate = 'End Date cannot be in the future';
     }
 
     // Validate date range
@@ -698,6 +718,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
                     }
                   }}
                   InputLabelProps={{ shrink: true }}
+                  inputProps={location !== 'US' ? { max: todayIso } : undefined}
                   error={!!errors.startDate}
                   helperText={errors.startDate}
                   required
@@ -737,7 +758,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
                                 }
                               }
 
-                              // Allow future dates for education (no max restriction)
+                              tempInput.max = todayIso;
 
                               // Handle date selection
                               const handleDateChange = (event: any) => {
@@ -843,6 +864,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
                     }
                   }}
                   InputLabelProps={{ shrink: true }}
+                  inputProps={location !== 'US' ? { max: todayIso } : undefined}
                   error={!!errors.endDate}
                   helperText={errors.endDate}
                   required
@@ -892,7 +914,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
                                 }
                               }
 
-                              // Allow future dates for education (no max restriction)
+                              tempInput.max = todayIso;
 
                               // Handle date selection
                               const handleDateChange = (event: any) => {

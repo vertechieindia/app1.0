@@ -4,7 +4,6 @@ Application configuration using Pydantic Settings.
 
 from typing import List, Optional
 from pydantic_settings import BaseSettings
-from pydantic import model_validator
 from functools import lru_cache
 
 
@@ -21,7 +20,6 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     WORKERS: int = 4
-    FRONTEND_URL: str = "https://vertechie.com"
     
     # Database - PostgreSQL (default, can be overridden via .env)
     # Format: postgresql+asyncpg://user:password@host:port/database
@@ -44,7 +42,6 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
-        "https://vertechie.com",
     ]
     
     # Email - Gmail SMTP settings
@@ -55,7 +52,6 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     EMAILS_FROM_EMAIL: str = "tminnovations.manager@gmail.com"
     EMAILS_FROM_NAME: str = "VerTechie"
-    FROM_EMAIL: str = "noreply@vertechie.com"  # Alias for compatibility with some modules
     
     # AWS S3
     AWS_ACCESS_KEY_ID: Optional[str] = None
@@ -68,24 +64,10 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     LINKEDIN_CLIENT_ID: Optional[str] = None
     LINKEDIN_CLIENT_SECRET: Optional[str] = None
-    # Environment: "development" or "production" – chooses which OAuth credentials to use
-    ENVIRONMENT: str = "development"
-    # GitHub – development (local)
     GITHUB_CLIENT_ID: Optional[str] = None
     GITHUB_CLIENT_SECRET: Optional[str] = None
-    GITHUB_CALLBACK_URL: Optional[str] = None  # e.g. http://localhost:5173/github/callback
-    # GitHub – production (set when ENVIRONMENT=production)
-    GITHUB_CLIENT_ID_PRODUCTION: Optional[str] = None
-    GITHUB_CLIENT_SECRET_PRODUCTION: Optional[str] = None
-    GITHUB_CALLBACK_URL_PRODUCTION: Optional[str] = None  # e.g. https://yourdomain.com/github/callback
-    # GitLab – development
-    GITLAB_CLIENT_ID: Optional[str] = None
-    GITLAB_CLIENT_SECRET: Optional[str] = None
-    GITLAB_CALLBACK_URL: Optional[str] = None
-    # GitLab – production
-    GITLAB_CLIENT_ID_PRODUCTION: Optional[str] = None
-    GITLAB_CLIENT_SECRET_PRODUCTION: Optional[str] = None
-    GITLAB_CALLBACK_URL_PRODUCTION: Optional[str] = None
+    # Optional explicit GitHub OAuth callback URL (e.g., http://localhost:5173/github/callback)
+    GITHUB_CALLBACK_URL: Optional[str] = None
     
     # External APIs
     GIPHY_API_KEY: Optional[str] = None
@@ -98,12 +80,13 @@ class Settings(BaseSettings):
     # Azure Face API (Liveness) - Set in .env file
     AZURE_FACE_ENDPOINT: str = ""
     AZURE_FACE_KEY: str = ""
-
-    @model_validator(mode="after")
-    def validate_security_settings(self):
-        if self.ENVIRONMENT.lower() == "production" and self.SECRET_KEY == "your-super-secret-key-change-in-production-please":
-            raise ValueError("SECRET_KEY must be set to a secure value in production.")
-        return self
+    
+    # SMTP Email Settings - Set in .env file
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    FROM_EMAIL: str = "noreply@vertechie.com"
     
     model_config = {
         "env_file": ".env",

@@ -74,6 +74,17 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
   location,
   goToStep,
 }) => {
+  const todayIso = new Date().toISOString().split('T')[0];
+  const toISODate = (value: string): string | null => {
+    if (!value) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
+      const [mm, dd, yyyy] = value.split('/');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    return null;
+  };
+
   const [showExperienceWarning, setShowExperienceWarning] = useState(false);
   const [showExperienceForm, setShowExperienceForm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -229,6 +240,10 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
     if (!newExperience.startDate) {
       validationErrors.startDate = 'Start Date is required';
     }
+    const startIso = toISODate(newExperience.startDate);
+    if (startIso && startIso > todayIso) {
+      validationErrors.startDate = 'Start Date cannot be in the future';
+    }
 
     // Only validate endDate if NOT currently working
     if (!newExperience.current) {
@@ -239,6 +254,10 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
         if (!isValidDateRange(newExperience.startDate, newExperience.endDate)) {
           validationErrors.endDate = 'End Date must be after or equal to Start Date';
         }
+      }
+      const endIso = toISODate(newExperience.endDate);
+      if (endIso && endIso > todayIso) {
+        validationErrors.endDate = 'End Date cannot be in the future';
       }
     }
 
@@ -931,6 +950,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                     }
                   }}
                   InputLabelProps={{ shrink: true }}
+                  inputProps={location !== 'US' ? { max: todayIso } : undefined}
                   error={!!errors.startDate}
                   helperText={errors.startDate}
                   required
@@ -970,7 +990,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                                 }
                               }
 
-                              tempInput.max = new Date().toISOString().split('T')[0];
+                              tempInput.max = todayIso;
 
                               // Handle date selection
                               const handleDateChange = (event: any) => {
@@ -1077,6 +1097,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                   }}
                   InputLabelProps={{ shrink: true }}
                   disabled={newExperience.current}
+                  inputProps={location !== 'US' ? { max: todayIso } : undefined}
                   error={!!errors.endDate}
                   helperText={errors.endDate}
                   required={!newExperience.current}
@@ -1117,7 +1138,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                                   }
                                 }
 
-                                tempInput.max = new Date().toISOString().split('T')[0];
+                                tempInput.max = todayIso;
 
                                 // Set min date to start date
                                 if (newExperience.startDate) {

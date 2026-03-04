@@ -41,7 +41,7 @@ export const useOTPVerification = () => {
 
   // Track if email verification is in progress to prevent duplicate calls
   const emailVerifyingRef = useRef(false);
-  // Track last verified email OTP to prevent re-verifying the same wrong OTP
+  // Track last successful email OTP to avoid duplicate success submits
   const lastVerifiedEmailOTPRef = useRef<string>('');
 
   // Send Email OTP
@@ -106,7 +106,7 @@ export const useOTPVerification = () => {
       return false;
     }
 
-    // Prevent re-verifying the same OTP that was already verified (success or failure)
+    // Prevent re-verifying only if this OTP was already verified successfully
     if (trimmedOTP === lastVerifiedEmailOTPRef.current && lastVerifiedEmailOTPRef.current !== '') {
       console.log('This email OTP was already verified, skipping duplicate call');
       return false;
@@ -118,7 +118,6 @@ export const useOTPVerification = () => {
     }
     
     emailVerifyingRef.current = true;
-    lastVerifiedEmailOTPRef.current = trimmedOTP; // Mark this OTP as being verified
     setEmailVerifying(true);
     setErrors((prev) => {
       const { email, ...rest } = prev;
@@ -142,14 +141,14 @@ export const useOTPVerification = () => {
           return rest;
         });
         emailVerifyingRef.current = false;
-        // Keep lastVerifiedEmailOTPRef to prevent re-verification of this successful OTP
+        // Mark only successful OTP as already verified
+        lastVerifiedEmailOTPRef.current = trimmedOTP;
         return true;
       } else {
         const errorMessage = response.data.message || 'Wrong OTP. Please check and try again.';
         setErrors((prev) => ({ ...prev, email: 'Wrong OTP. Please check and try again.' }));
         setEmailVerifying(false);
         emailVerifyingRef.current = false;
-        // Keep lastVerifiedEmailOTPRef so same wrong OTP won't be verified again
         return false;
       }
     } catch (error: any) {
@@ -172,7 +171,6 @@ export const useOTPVerification = () => {
       }));
       setEmailVerifying(false);
       emailVerifyingRef.current = false;
-      // Keep lastVerifiedEmailOTPRef so same wrong OTP won't be verified again
       return false;
     }
   }, [emailOTP]);
@@ -238,7 +236,7 @@ export const useOTPVerification = () => {
 
   // Track if verification is in progress to prevent duplicate calls
   const verifyingRef = useRef(false);
-  // Track last verified OTP to prevent re-verifying the same wrong OTP
+  // Track last successful phone OTP to avoid duplicate success submits
   const lastVerifiedOTPRef = useRef<string>('');
 
   // Verify Phone OTP
@@ -251,7 +249,7 @@ export const useOTPVerification = () => {
       return false;
     }
 
-    // Prevent re-verifying the same OTP that was already verified (success or failure)
+    // Prevent re-verifying only if this OTP was already verified successfully
     if (trimmedOTP === lastVerifiedOTPRef.current && lastVerifiedOTPRef.current !== '') {
       console.log('This OTP was already verified, skipping duplicate call');
       return false;
@@ -268,7 +266,6 @@ export const useOTPVerification = () => {
     }
     
     verifyingRef.current = true;
-    lastVerifiedOTPRef.current = trimmedOTP; // Mark this OTP as being verified
     setPhoneVerifying(true);
     setErrors({});
 
@@ -294,13 +291,13 @@ export const useOTPVerification = () => {
         setPhoneConfirmationResult(null);
         setErrors({});
         verifyingRef.current = false;
-        // Keep lastVerifiedOTPRef to prevent re-verification of this successful OTP
+        // Mark only successful OTP as already verified
+        lastVerifiedOTPRef.current = trimmedOTP;
         return true;
       } else {
         const errorMessage = response.data.message || response.data.error || 'Wrong OTP. Please try again.';
         setErrors({ phone: 'Wrong OTP. Please check and try again.' });
         verifyingRef.current = false;
-        // Keep lastVerifiedOTPRef so same wrong OTP won't be verified again
         
         // If backend error indicates Firebase token issue, clear session
         if (errorMessage.includes('aud') || errorMessage.includes('Firebase')) {
@@ -342,7 +339,6 @@ export const useOTPVerification = () => {
       setErrors({ phone: errorMessage });
       clearRecaptcha();
       verifyingRef.current = false;
-      // Keep lastVerifiedOTPRef so same wrong OTP won't be verified again
       return false;
     } finally {
       setPhoneVerifying(false);

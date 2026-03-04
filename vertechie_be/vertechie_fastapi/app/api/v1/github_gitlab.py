@@ -1,6 +1,7 @@
 """
 GitHub and GitLab Integration API endpoints.
-Both use OAuth for authentication. GitHub uses GraphQL for contributions; GitLab uses Events API.
+GitHub uses OAuth for proper authentication and GraphQL for contribution data.
+GitLab uses username-based public API access.
 """
 
 from typing import Any, Optional, Dict
@@ -25,63 +26,23 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# GitHub OAuth
+# GitHub OAuth configuration
 GITHUB_OAUTH_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 GITHUB_USER_API = "https://api.github.com/user"
 
-# GitLab OAuth
-GITLAB_OAUTH_URL = "https://gitlab.com/oauth/authorize"
-GITLAB_TOKEN_URL = "https://gitlab.com/oauth/token"
-GITLAB_USER_API = "https://gitlab.com/api/v4/user"
-GITLAB_EVENTS_API = "https://gitlab.com/api/v4/events"
-
 # OAuth state storage (in production, use Redis with expiry)
 _oauth_states: Dict[str, str] = {}
-_gitlab_oauth_states: Dict[str, str] = {}
 
 
-def _is_production() -> bool:
-    """True when ENVIRONMENT is production (use production OAuth apps)."""
-    env = (getattr(settings, "ENVIRONMENT", None) or "development").strip().lower()
-    return env == "production"
-
-
-def _github_credentials() -> tuple:
-    """Return (client_id, client_secret, callback_url) for current environment."""
-    if _is_production():
-        cid = (getattr(settings, "GITHUB_CLIENT_ID_PRODUCTION", None) or "").strip()
-        secret = (getattr(settings, "GITHUB_CLIENT_SECRET_PRODUCTION", None) or "").strip()
-        url = (getattr(settings, "GITHUB_CALLBACK_URL_PRODUCTION", None) or "").strip()
-        return cid, secret, url or None
-    cid = (getattr(settings, "GITHUB_CLIENT_ID", None) or "").strip()
-    secret = (getattr(settings, "GITHUB_CLIENT_SECRET", None) or "").strip()
-    url = (getattr(settings, "GITHUB_CALLBACK_URL", None) or "").strip()
-    return cid, secret, url or None
-
-
-def _gitlab_credentials() -> tuple:
-    """Return (client_id, client_secret, callback_url) for current environment."""
-    if _is_production():
-        cid = (getattr(settings, "GITLAB_CLIENT_ID_PRODUCTION", None) or "").strip()
-        secret = (getattr(settings, "GITLAB_CLIENT_SECRET_PRODUCTION", None) or "").strip()
-        url = (getattr(settings, "GITLAB_CALLBACK_URL_PRODUCTION", None) or "").strip()
-        return cid, secret, url or None
-    cid = (getattr(settings, "GITLAB_CLIENT_ID", None) or "").strip()
-    secret = (getattr(settings, "GITLAB_CLIENT_SECRET", None) or "").strip()
-    url = (getattr(settings, "GITLAB_CALLBACK_URL", None) or "").strip()
-    return cid, secret, url or None
+class ConnectServiceRequest(BaseModel):
+    """Request body for connecting GitLab (username-based)."""
+    username: str
 
 
 class GitHubOAuthCallbackRequest(BaseModel):
     """Request for GitHub OAuth callback."""
-    code: str
-    state: str
-
-
-class GitLabOAuthCallbackRequest(BaseModel):
-    """Request for GitLab OAuth callback."""
     code: str
     state: str
 
@@ -116,27 +77,29 @@ async def github_auth_url(
 ) -> Dict[str, str]:
     """
     Get GitHub OAuth authorization URL.
-    Uses development or production credentials based on ENVIRONMENT.
+    Frontend should redirect user to this URL.
     """
-    cid, _, _ = _github_credentials()
-    if not cid:
+    if not settings.GITHUB_CLIENT_ID:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="GitHub OAuth is not configured. Set GITHUB_CLIENT_ID (or GITHUB_CLIENT_ID_PRODUCTION when ENVIRONMENT=production)."
+            detail="GitHub OAuth is not configured. Set GITHUB_CLIENT_ID in environment."
         )
-
+    
+    # Generate state for CSRF protection
     state = secrets.token_urlsafe(32)
     _oauth_states[state] = str(current_user.id)
-
-    _, __, callback_url = _github_credentials()
-    redirect = callback_url or "http://localhost:5173/github/callback"
+    
+    # Build OAuth URL
+    redirect = settings.GITHUB_CALLBACK_URL or (f"{settings.CORS_ORIGINS[0]}/github/callback" if settings.CORS_ORIGINS else "http://localhost:5173/github/callback")
     params = {
-        "client_id": cid,
-        "scope": "read:user",
+        "client_id": settings.GITHUB_CLIENT_ID,
+        "scope": "read:user",  # Minimal scope for contribution data
         "state": state,
         "redirect_uri": redirect,
     }
+    
     auth_url = f"{GITHUB_OAUTH_URL}?{urlencode(params)}"
+    
     return {"auth_url": auth_url, "state": state}
 
 
@@ -149,30 +112,29 @@ async def github_oauth_callback(
     """
     Handle GitHub OAuth callback.
     Exchange authorization code for access token and store it.
-    Uses development or production credentials based on ENVIRONMENT.
     """
-    cid, secret, callback_url = _github_credentials()
-    if not cid or not secret:
+    if not settings.GITHUB_CLIENT_ID or not settings.GITHUB_CLIENT_SECRET:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="GitHub OAuth is not configured"
         )
-
+    
+    # Verify state (CSRF protection)
     expected_user_id = _oauth_states.pop(body.state, None)
     if not expected_user_id or expected_user_id != str(current_user.id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid OAuth state. Please try connecting again."
         )
-
-    redirect = callback_url or "http://localhost:5173/github/callback"
+    
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
+            # Exchange code for access token
             token_response = await client.post(
                 GITHUB_TOKEN_URL,
                 data={
-                    "client_id": cid,
-                    "client_secret": secret,
+                    "client_id": settings.GITHUB_CLIENT_ID,
+                    "client_secret": settings.GITHUB_CLIENT_SECRET,
                     "code": body.code,
                 },
                 headers={"Accept": "application/json"},
@@ -279,164 +241,6 @@ async def github_connection_status(
             "connected_at": profile.github_connected_at.isoformat() if profile.github_connected_at else None,
         }
     
-    return {"connected": False}
-
-
-# ============================================
-# GITLAB OAUTH ENDPOINTS
-# ============================================
-
-@router.get("/gitlab/auth")
-async def gitlab_auth_url(
-    current_user: User = Depends(get_current_user),
-) -> Dict[str, str]:
-    """Get GitLab OAuth authorization URL. Uses dev or prod credentials based on ENVIRONMENT."""
-    cid, _, _ = _gitlab_credentials()
-    if not cid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GitLab OAuth is not configured. Add GITLAB_CLIENT_ID (or GITLAB_CLIENT_ID_PRODUCTION when ENVIRONMENT=production)."
-        )
-    state = secrets.token_urlsafe(32)
-    _gitlab_oauth_states[state] = str(current_user.id)
-    _, __, callback_url = _gitlab_credentials()
-    redirect = callback_url or "http://localhost:5173/gitlab/callback"
-    params = {
-        "client_id": cid,
-        "redirect_uri": redirect,
-        "response_type": "code",
-        "state": state,
-        "scope": "read_user read_api",
-    }
-    auth_url = f"{GITLAB_OAUTH_URL}?{urlencode(params)}"
-    return {"auth_url": auth_url, "state": state}
-
-
-@router.post("/gitlab/callback")
-async def gitlab_oauth_callback(
-    body: GitLabOAuthCallbackRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Handle GitLab OAuth callback. Uses dev or prod credentials based on ENVIRONMENT."""
-    cid, secret, callback_url = _gitlab_credentials()
-    if not cid or not secret:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GitLab OAuth is not configured. Add GITLAB_CLIENT_ID (or GITLAB_CLIENT_ID_PRODUCTION when ENVIRONMENT=production)."
-        )
-    expected_user_id = _gitlab_oauth_states.pop(body.state, None)
-    if not expected_user_id or expected_user_id != str(current_user.id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OAuth state. Please try connecting again."
-        )
-    redirect = callback_url or "http://localhost:5173/gitlab/callback"
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            token_response = await client.post(
-                GITLAB_TOKEN_URL,
-                data={
-                    "client_id": cid,
-                    "client_secret": secret,
-                    "code": body.code,
-                    "grant_type": "authorization_code",
-                    "redirect_uri": redirect,
-                },
-                headers={"Accept": "application/json"},
-            )
-            if token_response.status_code != 200:
-                error_text = token_response.text
-                logger.error(f"GitLab token exchange failed (status {token_response.status_code}): {error_text}")
-                try:
-                    error_json = token_response.json()
-                    error_detail = error_json.get("error_description", error_json.get("error", "Unknown error"))
-                except:
-                    error_detail = error_text[:200] if error_text else "Unknown error"
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"GitLab OAuth failed: {error_detail}"
-                )
-            token_data = token_response.json()
-            access_token = token_data.get("access_token")
-            if not access_token:
-                error = token_data.get("error_description", token_data.get("error", "Unknown error"))
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"GitLab OAuth error: {error}"
-                )
-            user_response = await client.get(
-                GITLAB_USER_API,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "User-Agent": "VerTechie-App/1.0",
-                },
-            )
-            if user_response.status_code != 200:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="Failed to fetch GitLab user info"
-                )
-            gitlab_user = user_response.json()
-            gitlab_username = gitlab_user.get("username")
-            gitlab_id = str(gitlab_user.get("id"))
-            profile = await _ensure_profile(db, current_user.id)
-            profile.gitlab_access_token = access_token
-            profile.gitlab_username = gitlab_username
-            profile.gitlab_user_id = gitlab_id
-            profile.gitlab_connected_at = datetime.utcnow()
-            await db.commit()
-            await db.refresh(profile)
-            return {
-                "status": "connected",
-                "service": "gitlab",
-                "username": gitlab_username,
-                "user_id": gitlab_id,
-            }
-    except httpx.TimeoutException:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="GitLab API request timed out"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"GitLab OAuth error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to complete GitLab authorization"
-        )
-
-
-@router.delete("/gitlab/disconnect")
-async def disconnect_gitlab(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> Dict[str, str]:
-    """Disconnect GitLab account."""
-    profile = await _get_profile(db, current_user.id)
-    if profile:
-        profile.gitlab_access_token = None
-        profile.gitlab_username = None
-        profile.gitlab_user_id = None
-        profile.gitlab_connected_at = None
-        await db.commit()
-    return {"status": "disconnected", "service": "gitlab"}
-
-
-@router.get("/gitlab/status")
-async def gitlab_connection_status(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Check GitLab connection status."""
-    profile = await _get_profile(db, current_user.id)
-    if profile and profile.gitlab_access_token and profile.gitlab_username:
-        return {
-            "connected": True,
-            "username": profile.gitlab_username,
-            "connected_at": profile.gitlab_connected_at.isoformat() if profile.gitlab_connected_at else None,
-        }
     return {"connected": False}
 
 
@@ -565,72 +369,118 @@ async def fetch_github_contributions_graphql(access_token: str, username: str, y
 
 
 # ============================================
-# GITLAB CONTRIBUTIONS (OAUTH TOKEN)
+# GITLAB (USERNAME-BASED)
 # ============================================
 
-async def fetch_gitlab_contributions(access_token: str, username: str, year: int) -> Dict[str, Any]:
-    """Fetch GitLab contribution data using OAuth token and Events API."""
-    start_date = datetime(year, 1, 1)
-    end_date = datetime(year, 12, 31, 23, 59, 59)
-    after = start_date.strftime("%Y-%m-%dT00:00:00Z")
-    before = end_date.strftime("%Y-%m-%dT23:59:59Z")
-    contributions: Dict[str, int] = {}
-    page = 1
-    per_page = 100
+@router.post("/gitlab/connect")
+async def connect_gitlab(
+    body: ConnectServiceRequest = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Connect GitLab account using username (public API)."""
+    username = (body.username or "").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="username is required")
+    
+    # Verify username exists on GitLab
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            while True:
-                response = await client.get(
-                    GITLAB_EVENTS_API,
-                    params={"per_page": per_page, "page": page, "after": after, "before": before},
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "User-Agent": "VerTechie-App/1.0",
-                    },
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"https://gitlab.com/api/v4/users?username={username}",
+                headers={"User-Agent": "VerTechie-App/1.0"},
+            )
+            if response.status_code != 200 or not response.json():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"GitLab user '{username}' not found"
                 )
-                if response.status_code == 401:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="GitLab token expired. Please reconnect your GitLab account."
-                    )
-                if response.status_code != 200:
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail=f"GitLab API error: {response.status_code}"
-                    )
-                events = response.json()
-                if not events:
-                    break
-                for event in events:
-                    action_name = event.get("action_name", "")
-                    if action_name in ["pushed", "opened", "closed", "commented", "created", "merged"]:
-                        created_at = datetime.fromisoformat(event["created_at"].replace("Z", "+00:00"))
-                        if start_date <= created_at <= end_date:
-                            date_key = created_at.date().isoformat()
-                            contributions[date_key] = contributions.get(date_key, 0) + 1
-                if len(events) < per_page:
-                    break
-                page += 1
-                if page > 50:
-                    break
-        contribution_data = []
-        current_date = start_date.date()
-        while current_date <= end_date.date():
-            count = contributions.get(current_date.isoformat(), 0)
-            level = min(4, (count // 3) + 1) if count > 0 else 0
-            contribution_data.append({
-                "date": current_date.isoformat(),
-                "count": count,
-                "level": level
-            })
-            current_date += timedelta(days=1)
-        return {
-            "username": username,
-            "year": year,
-            "contributions": contribution_data,
-            "total": sum(contributions.values()),
-            "source": "gitlab"
-        }
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="GitLab API timeout")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"GitLab user verification failed: {e}")
+    
+    profile = await _ensure_profile(db, current_user.id)
+    profile.activity_gitlab_username = username
+    await db.commit()
+    
+    return {"status": "connected", "service": "gitlab", "username": username}
+
+
+@router.delete("/gitlab/disconnect")
+async def disconnect_gitlab(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, str]:
+    """Disconnect GitLab account."""
+    profile = await _get_profile(db, current_user.id)
+    if profile:
+        profile.activity_gitlab_username = None
+        await db.commit()
+    
+    return {"status": "disconnected", "service": "gitlab"}
+
+
+async def fetch_gitlab_contributions(username: str, year: int) -> Dict[str, Any]:
+    """Fetch GitLab contribution data using public API."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            events_url = f"https://gitlab.com/api/v4/users/{username}/events"
+            response = await client.get(
+                events_url,
+                headers={"User-Agent": "VerTechie-App/1.0"},
+            )
+            
+            if response.status_code == 404:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"GitLab user '{username}' not found"
+                )
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"GitLab API error: {response.status_code}"
+                )
+            
+            events = response.json()
+            
+            contributions: Dict[str, int] = {}
+            start_date = datetime(year, 1, 1)
+            end_date = datetime(year, 12, 31, 23, 59, 59)
+            
+            for event in events:
+                action_name = event.get("action_name", "")
+                if action_name in ["pushed", "opened", "closed", "commented", "created"]:
+                    created_at = datetime.fromisoformat(event["created_at"].replace("Z", "+00:00"))
+                    if start_date <= created_at <= end_date:
+                        date_key = created_at.date().isoformat()
+                        contributions[date_key] = contributions.get(date_key, 0) + 1
+            
+            # Build contribution data for full year
+            contribution_data = []
+            current_date = start_date.date()
+            while current_date <= end_date.date():
+                count = contributions.get(current_date.isoformat(), 0)
+                level = 0
+                if count > 0:
+                    level = min(4, (count // 3) + 1)
+                contribution_data.append({
+                    "date": current_date.isoformat(),
+                    "count": count,
+                    "level": level
+                })
+                current_date += timedelta(days=1)
+            
+            return {
+                "username": username,
+                "year": year,
+                "contributions": contribution_data,
+                "total": sum(contributions.values()),
+                "source": "gitlab"
+            }
+            
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -685,12 +535,11 @@ async def get_user_contributions(
             github_error = str(e)
             logger.warning(f"GitHub contributions fetch failed: {e}")
 
-    # Fetch GitLab contributions using OAuth token + Events API
-    if profile and profile.gitlab_access_token and profile.gitlab_username:
+    # Fetch GitLab contributions using public API
+    if profile and profile.activity_gitlab_username:
         try:
             gitlab_data = await fetch_gitlab_contributions(
-                profile.gitlab_access_token,
-                profile.gitlab_username,
+                profile.activity_gitlab_username,
                 year
             )
         except HTTPException as e:
@@ -749,7 +598,7 @@ async def get_user_contributions(
             "gitlab": gitlab_data is not None
         },
         "github_username": profile.github_username if profile else None,
-        "gitlab_username": profile.gitlab_username if profile else None,
+        "gitlab_username": profile.activity_gitlab_username if profile else None,
         "errors": {
             "github": github_error,
             "gitlab": gitlab_error,
@@ -776,8 +625,7 @@ async def get_connection_status(
             "connected_at": profile.github_connected_at.isoformat() if profile and profile.github_connected_at else None,
         },
         "gitlab": {
-            "connected": bool(profile and profile.gitlab_access_token),
-            "username": profile.gitlab_username if profile else None,
-            "connected_at": profile.gitlab_connected_at.isoformat() if profile and profile.gitlab_connected_at else None,
+            "connected": bool(profile and profile.activity_gitlab_username),
+            "username": profile.activity_gitlab_username if profile else None,
         },
     }
