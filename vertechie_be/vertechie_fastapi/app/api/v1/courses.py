@@ -14,12 +14,14 @@ from slugify import slugify
 from app.db.session import get_db
 from app.models.course import Course, CourseCategory, CourseEnrollment, EnrollmentStatus, CourseCertificate
 from app.models.lesson import Module, Lesson, LessonProgress, LessonStatus
+from app.models.activity import ActivityType
 from app.models.user import User, UserProfile
 from app.schemas.course import (
     CourseCreate, CourseUpdate, CourseResponse, CourseListResponse,
     CourseCategoryResponse, EnrollmentResponse, ModuleResponse, LessonResponse
 )
 from app.core.security import get_current_user
+from app.services import activity_service
 
 router = APIRouter()
 
@@ -421,6 +423,7 @@ async def complete_lesson(
         )
     )
     progress = progress_result.scalar_one_or_none()
+    was_already_completed = bool(progress and progress.status == LessonStatus.COMPLETED)
     
     if not progress:
         progress = LessonProgress(
@@ -433,10 +436,23 @@ async def complete_lesson(
     progress.status = LessonStatus.COMPLETED
     progress.progress_percentage = 100
     progress.completed_at = datetime.utcnow()
-    
-    # Update enrollment progress
-    enrollment.completed_lessons += 1
     enrollment.last_accessed_at = datetime.utcnow()
+
+    # Only update counters/XP on first completion of the lesson
+    if not was_already_completed:
+        enrollment.completed_lessons += 1
+        try:
+            await activity_service.log_activity(
+                db=db,
+                user_id=current_user.id,
+                activity_type=ActivityType.LEARN,
+                data={
+                    "course_id": str(module.course_id),
+                    "lesson_id": str(lesson_id),
+                },
+            )
+        except Exception:
+            pass
     
     # Get course to calculate progress
     course_result = await db.execute(
@@ -454,6 +470,15 @@ async def complete_lesson(
     if enrollment.progress_percentage >= 100 and enrollment.status != EnrollmentStatus.COMPLETED:
         enrollment.status = EnrollmentStatus.COMPLETED
         enrollment.completed_at = datetime.utcnow()
+        try:
+            await activity_service.log_activity(
+                db=db,
+                user_id=current_user.id,
+                activity_type=ActivityType.COURSE_COMPLETION,
+                data={"course_id": str(course.id)},
+            )
+        except Exception:
+            pass
         certificate_id = await generate_certificate(db, current_user, course)
         await db.commit()
     

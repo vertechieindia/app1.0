@@ -12,14 +12,14 @@ from app.models.user import UserProfile
 
 # XP Constants
 XP_MAP = {
-    ActivityType.LOGIN: 5,
+    ActivityType.LOGIN: 0,
     ActivityType.PRACTICE: 50,
     ActivityType.LEARN: 30,
-    ActivityType.POST: 20,
-    ActivityType.COMMENT: 10,
-    ActivityType.QUIZ: 40,
-    ActivityType.PROJECT: 100,
-    ActivityType.INTERVIEW: 200,
+    ActivityType.POST: 0,
+    ActivityType.COMMENT: 0,
+    ActivityType.QUIZ: 0,
+    ActivityType.PROJECT: 0,
+    ActivityType.INTERVIEW: 0,
     ActivityType.COURSE_COMPLETION: 500
 }
 

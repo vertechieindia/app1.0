@@ -1,11 +1,11 @@
 /**
  * ContributionHeatmap - GitHub-style Contribution Heatmap
  *
- * GitHub and GitLab both use OAuth for authentication.
+ * GitHub and GitLab use OAuth for authentication.
  * Only activity from connected accounts is displayed.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -90,9 +90,12 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
   
   // Contributions data
   const [realContributions, setRealContributions] = useState<{ date: string; count: number; level: number }[] | null>(null);
+  const [githubContributions, setGithubContributions] = useState<{ date: string; count: number; level: number }[] | null>(null);
+  const [gitlabContributions, setGitlabContributions] = useState<{ date: string; count: number; level: number }[] | null>(null);
   const [loadingContributions, setLoadingContributions] = useState(false);
   const [hasRealData, setHasRealData] = useState(false);
   const [contributionError, setContributionError] = useState<string | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'github' | 'gitlab'>('all');
 
   // Fetch connection status
   const fetchConnectionStatus = useCallback(async () => {
@@ -113,8 +116,11 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
   useEffect(() => {
     if (!connectionStatus.github.connected && !connectionStatus.gitlab.connected) {
       setRealContributions(null);
+      setGithubContributions(null);
+      setGitlabContributions(null);
       setHasRealData(false);
       setContributionError(null);
+      setSourceFilter('all');
       return;
     }
     
@@ -127,12 +133,18 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
         year: number; 
         contributions: { date: string; count: number; level: number }[]; 
         total: number;
+        github_contributions?: { date: string; count: number; level: number }[];
+        github_total?: number;
+        gitlab_contributions?: { date: string; count: number; level: number }[];
+        gitlab_total?: number;
         errors?: { github?: string; gitlab?: string };
       }>(`${API_ENDPOINTS.GITHUB_GITLAB.CONTRIBUTIONS}?year=${selectedYear}`)
       .then((data) => {
         if (cancelled) return;
         if (data?.contributions?.length) {
           setRealContributions(data.contributions);
+          setGithubContributions(Array.isArray(data.github_contributions) ? data.github_contributions : null);
+          setGitlabContributions(Array.isArray(data.gitlab_contributions) ? data.gitlab_contributions : null);
           setHasRealData(true);
           
           // Check for errors
@@ -144,12 +156,16 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
           }
         } else {
           setRealContributions(null);
+          setGithubContributions(null);
+          setGitlabContributions(null);
           setHasRealData(false);
         }
       })
       .catch((err) => {
         if (!cancelled) {
           setRealContributions(null);
+          setGithubContributions(null);
+          setGitlabContributions(null);
           setHasRealData(false);
           setContributionError(err.message || 'Failed to fetch contributions');
         }
@@ -161,53 +177,32 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
     return () => { cancelled = true; };
   }, [selectedYear, connectionStatus.github.connected, connectionStatus.gitlab.connected]);
 
-  // Generate sample data when not connected
-  const generateYearData = useCallback((year: number) => {
-    const data: { date: Date; count: number; level: number; type: string }[] = [];
-    const startDate = new Date(year, 0, 1);
-    const endDate = new Date(year, 11, 31);
-    
-    const seedRandom = (seed: number) => {
-      const x = Math.sin(seed) * 10000;
-      return x - Math.floor(x);
-    };
-    
-    let dayIndex = 0;
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-      const date = new Date(d);
-      const seed = year * 1000 + dayIndex;
-      const random = seedRandom(seed);
-      
-      let count = 0;
-      let type = 'practice';
-      
-      if (random > 0.65) count = 0;
-      else if (random > 0.45) { count = Math.floor(seedRandom(seed + 1) * 3) + 1; type = 'practice'; }
-      else if (random > 0.25) { count = Math.floor(seedRandom(seed + 2) * 5) + 2; type = 'commits'; }
-      else if (random > 0.1) { count = Math.floor(seedRandom(seed + 3) * 8) + 4; type = 'mixed'; }
-      else { count = Math.floor(seedRandom(seed + 4) * 12) + 6; type = 'project'; }
-      
-      let level = 0;
-      if (count > 0) level = 1;
-      if (count >= 3) level = 2;
-      if (count >= 6) level = 3;
-      if (count >= 9) level = 4;
-      
-      data.push({ date, count, level, type });
-      dayIndex++;
+  useEffect(() => {
+    if (sourceFilter === 'github' && !connectionStatus.github.connected) {
+      setSourceFilter(connectionStatus.gitlab.connected ? 'gitlab' : 'all');
+    } else if (sourceFilter === 'gitlab' && !connectionStatus.gitlab.connected) {
+      setSourceFilter(connectionStatus.github.connected ? 'github' : 'all');
     }
-    return data;
-  }, []);
+  }, [sourceFilter, connectionStatus.github.connected, connectionStatus.gitlab.connected]);
 
-  // Use real data when available
-  const yearData = hasRealData && realContributions && realContributions.length > 0
-    ? realContributions.map((c) => ({
+  const selectedContributions = useMemo(() => {
+    if (!hasRealData) return null;
+    if (sourceFilter === 'github') return githubContributions;
+    if (sourceFilter === 'gitlab') return gitlabContributions;
+    return realContributions;
+  }, [hasRealData, sourceFilter, githubContributions, gitlabContributions, realContributions]);
+
+  const hasDisplayData = !!(selectedContributions && selectedContributions.length > 0);
+
+  // Use real data only (no mock fallback)
+  const yearData = hasDisplayData
+    ? selectedContributions!.map((c) => ({
         date: new Date(c.date),
         count: c.count,
         level: c.level,
-        type: 'commits' as string,
+        type: sourceFilter as string,
       }))
-    : generateYearData(selectedYear);
+    : [];
   
   // Get level color (GitHub's exact colors)
   const getLevelColor = (level: number) => {
@@ -242,20 +237,7 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
   // Stats
   const totalContributions = yearData.reduce((sum, d) => sum + Math.max(0, d.count), 0);
   const activeDays = yearData.filter(d => d.count > 0).length;
-  const bestDay = yearData.reduce((max, d) => d.count > max.count ? d : max, yearData[0]);
-  
-  const calculateStreak = () => {
-    let streak = 0;
-    const today = new Date();
-    for (let i = yearData.length - 1; i >= 0; i--) {
-      if (yearData[i].date > today) continue;
-      if (yearData[i].count > 0) streak++;
-      else break;
-    }
-    return streak;
-  };
-  const currentStreak = calculateStreak();
-
+  const sourceLabel = sourceFilter === 'github' ? 'GitHub' : sourceFilter === 'gitlab' ? 'GitLab' : 'GitHub + GitLab';
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   
   const getMonthPositions = () => {
@@ -310,8 +292,9 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
       sessionStorage.setItem('gitlab_oauth_state', response.state);
       window.location.href = response.auth_url;
     } catch (err) {
-      setGitlabConnecting(false);
       console.error('Failed to start GitLab OAuth:', err);
+    } finally {
+      setGitlabConnecting(false);
     }
   };
 
@@ -348,8 +331,8 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
         <Box>
           <Typography variant="h6" fontWeight={600}>{title}</Typography>
           <Typography variant="body2" color="text.secondary">
-            {hasRealData 
-              ? `${totalContributions.toLocaleString()} contributions in ${selectedYear}`
+            {hasDisplayData
+              ? `${totalContributions.toLocaleString()} ${sourceLabel} contributions in ${selectedYear}`
               : 'Connect GitHub or GitLab to see your real activity'}
           </Typography>
         </Box>
@@ -451,6 +434,37 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
           </Box>
         )}
       </Box>
+
+      {/* Source Filter */}
+      {showControls && hasRealData && (
+        <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+          <Button
+            size="small"
+            variant={sourceFilter === 'all' ? 'contained' : 'outlined'}
+            onClick={() => setSourceFilter('all')}
+          >
+            All
+          </Button>
+          <Button
+            size="small"
+            variant={sourceFilter === 'github' ? 'contained' : 'outlined'}
+            onClick={() => setSourceFilter('github')}
+            disabled={!connectionStatus.github.connected}
+            startIcon={<GitHubIcon sx={{ fontSize: 14 }} />}
+          >
+            GitHub
+          </Button>
+          <Button
+            size="small"
+            variant={sourceFilter === 'gitlab' ? 'contained' : 'outlined'}
+            onClick={() => setSourceFilter('gitlab')}
+            disabled={!connectionStatus.gitlab.connected}
+            startIcon={<GitLabIcon />}
+          >
+            GitLab
+          </Button>
+        </Box>
+      )}
       
       {/* Error Alert */}
       {contributionError && (
@@ -467,7 +481,7 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
       )}
 
       {/* Heatmap Grid */}
-      {!loadingContributions && (
+      {!loadingContributions && hasDisplayData && (
       <Box sx={{ overflowX: 'auto', pb: 1 }}>
         <Box sx={{ display: 'inline-flex', flexDirection: 'column', minWidth: 'fit-content' }}>
           {/* Month Labels Row */}
@@ -560,10 +574,20 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
       </Box>
       )}
 
+      {!loadingContributions && !hasDisplayData && (
+        <Box sx={{ py: 4, textAlign: 'center' }}>
+          <Typography variant="body2" color="text.secondary">
+            {hasRealData
+              ? `No ${sourceLabel} contributions found for ${selectedYear}.`
+              : 'Connect GitHub or GitLab to view your real contribution heatmap.'}
+          </Typography>
+        </Box>
+      )}
+
       {/* Legend and Stats */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 2 }}>
         {/* Source indicators */}
-        {!compact && hasRealData && (
+        {!compact && hasDisplayData && (
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             {connectionStatus.github.connected && (
               <Chip size="small" icon={<GitHubIcon sx={{ fontSize: 14 }} />} label="GitHub" sx={{ bgcolor: alpha('#333', 0.1) }} />
@@ -594,9 +618,9 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
       </Box>
       
       {/* Stats Row */}
-      {!compact && hasRealData && (
+      {!compact && hasDisplayData && (
         <Grid container spacing={2} sx={{ mt: 2 }}>
-          <Grid item xs={6} sm={3}>
+          <Grid item xs={6} sm={6}>
             <Box sx={{ textAlign: 'center', p: 1.5, bgcolor: alpha(colors.success, 0.05), borderRadius: 2 }}>
               <Typography variant="h5" fontWeight={700} color={colors.success}>
                 {totalContributions.toLocaleString()}
@@ -604,28 +628,12 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
               <Typography variant="caption" color="text.secondary">Total</Typography>
             </Box>
           </Grid>
-          <Grid item xs={6} sm={3}>
+          <Grid item xs={6} sm={6}>
             <Box sx={{ textAlign: 'center', p: 1.5, bgcolor: alpha(colors.primary, 0.05), borderRadius: 2 }}>
               <Typography variant="h5" fontWeight={700} color={colors.primary}>
                 {activeDays}
               </Typography>
               <Typography variant="caption" color="text.secondary">Active Days</Typography>
-            </Box>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Box sx={{ textAlign: 'center', p: 1.5, bgcolor: alpha(colors.warning, 0.05), borderRadius: 2 }}>
-              <Typography variant="h5" fontWeight={700} color={colors.warning}>
-                {currentStreak}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">Current Streak</Typography>
-            </Box>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Box sx={{ textAlign: 'center', p: 1.5, bgcolor: alpha('#8b5cf6', 0.05), borderRadius: 2 }}>
-              <Typography variant="h5" fontWeight={700} color="#8b5cf6">
-                {bestDay?.count || 0}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">Best Day</Typography>
             </Box>
           </Grid>
         </Grid>

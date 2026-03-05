@@ -19,8 +19,10 @@ from app.models.practice import (
     Contest, ContestRegistration, UserProgress, ProblemBookmark,
     Difficulty, ProblemStatus, SubmissionStatus, ContestStatus
 )
+from app.models.activity import ActivityType
 from app.models.user import User, UserProfile
 from app.core.security import get_current_user, get_current_admin_user, get_optional_user
+from app.services import activity_service
 from pydantic import BaseModel, field_validator
 from datetime import datetime, date, timedelta
 
@@ -666,7 +668,10 @@ async def get_streaks(
 ):
     """Get user's coding streak information."""
     progress_result = await db.execute(
-        select(UserProgress).where(UserProgress.user_id == current_user.id)
+        select(UserProgress)
+        .where(UserProgress.user_id == current_user.id)
+        .order_by(UserProgress.updated_at.desc(), UserProgress.id.desc())
+        .limit(1)
     )
     progress = progress_result.scalar_one_or_none()
     
@@ -816,7 +821,10 @@ async def execute_submission(
                         problem.accepted_count += 1
                         # Get or create user progress (for both first-solve counts and streak)
                         progress_result = await db.execute(
-                            select(UserProgress).where(UserProgress.user_id == submission.user_id)
+                            select(UserProgress)
+                            .where(UserProgress.user_id == submission.user_id)
+                            .order_by(UserProgress.updated_at.desc(), UserProgress.id.desc())
+                            .limit(1)
                         )
                         progress = progress_result.scalar_one_or_none()
                         if not progress:
@@ -855,6 +863,19 @@ async def execute_submission(
                             progress.current_streak = 1
                             progress.max_streak = max(progress.max_streak or 0, 1)
                         progress.last_submission_date = submission.submitted_at or datetime.utcnow()
+                        try:
+                            await activity_service.log_activity(
+                                db=db,
+                                user_id=submission.user_id,
+                                activity_type=ActivityType.PRACTICE,
+                                data={
+                                    "problem_id": str(problem.id),
+                                    "difficulty": str(problem.difficulty.value if hasattr(problem.difficulty, "value") else problem.difficulty),
+                                    "submission_id": str(submission.id),
+                                },
+                            )
+                        except Exception:
+                            pass
                     elif result.get("status") == "WRONG_ANSWER":
                         submission.status = SubmissionStatus.WRONG_ANSWER
                         submission.test_cases_passed = result.get("passed", 0)
@@ -1109,7 +1130,10 @@ async def get_my_progress(
 ):
     """Get my coding progress."""
     result = await db.execute(
-        select(UserProgress).where(UserProgress.user_id == current_user.id)
+        select(UserProgress)
+        .where(UserProgress.user_id == current_user.id)
+        .order_by(UserProgress.updated_at.desc(), UserProgress.id.desc())
+        .limit(1)
     )
     progress = result.scalar_one_or_none()
     

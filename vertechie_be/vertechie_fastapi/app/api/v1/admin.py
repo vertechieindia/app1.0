@@ -1095,6 +1095,12 @@ class ExperienceDetail(BaseModel):
     id: str
     title: str
     company_name: str
+    client_name: Optional[str] = None
+    company_website: Optional[str] = None
+    manager_name: Optional[str] = None
+    manager_email: Optional[str] = None
+    manager_phone: Optional[str] = None
+    manager_linkedin: Optional[str] = None
     employment_type: Optional[str] = None
     location: Optional[str] = None
     is_remote: bool = False
@@ -1115,6 +1121,8 @@ class EducationDetail(BaseModel):
     start_year: Optional[int] = None
     end_year: Optional[int] = None
     grade: Optional[str] = None
+    score_type: Optional[str] = None
+    score_value: Optional[str] = None
     activities: Optional[str] = None
     description: Optional[str] = None
     is_verified: bool = False
@@ -1245,6 +1253,12 @@ async def get_user_full_profile(
             id=str(exp.id),
             title=exp.title,
             company_name=exp.company_name,
+            client_name=exp.client_name,
+            company_website=exp.company_website,
+            manager_name=exp.manager_name,
+            manager_email=exp.manager_email,
+            manager_phone=exp.manager_phone,
+            manager_linkedin=exp.manager_linkedin,
             employment_type=exp.employment_type.value if exp.employment_type else None,
             location=exp.location,
             is_remote=exp.is_remote or False,
@@ -1267,6 +1281,8 @@ async def get_user_full_profile(
             start_year=edu.start_year,
             end_year=edu.end_year,
             grade=edu.grade,
+            score_type=edu.score_type,
+            score_value=edu.score_value,
             activities=edu.activities,
             description=edu.description,
             is_verified=edu.is_verified or False
