@@ -208,25 +208,22 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
     const validationErrors: Record<string, string> = {};
 
     // Validate required fields
-    if (!newExperience.clientName || !newExperience.clientName.trim()) {
-      validationErrors.clientName = 'Name is required';
-    } else if (newExperience.clientName.trim().length < 2) {
-      validationErrors.clientName = 'Name must be at least 2 characters';
-    } else if (!isValidPersonName(newExperience.clientName.trim())) {
-      validationErrors.clientName = 'Name can contain only letters';
-    }
-
     if (!newExperience.companyName || !newExperience.companyName.trim()) {
       validationErrors.companyName = 'Company Name is required';
     } else if (newExperience.companyName.trim().length < 2) {
       validationErrors.companyName = 'Company Name must be at least 2 characters';
     }
 
-    // Validate website URL
-    if (!newExperience.website || !newExperience.website.trim()) {
-      validationErrors.website = 'Website is required';
-    } else if (!isValidUrl(newExperience.website.trim())) {
+    // Website is optional, validate only when provided
+    if (newExperience.website && newExperience.website.trim() && !isValidUrl(newExperience.website.trim())) {
       validationErrors.website = 'Please enter a valid website URL (e.g., https://www.example.com)';
+    }
+
+    // Validate work location
+    if (!newExperience.workLocation || !newExperience.workLocation.trim()) {
+      validationErrors.workLocation = 'Work Location is required';
+    } else if (newExperience.workLocation.trim().length < 2) {
+      validationErrors.workLocation = 'Work Location must be at least 2 characters';
     }
 
     // Validate job title
@@ -268,6 +265,11 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
       validationErrors.description = 'Job Description must be at least 20 characters';
     }
 
+    // Validate skills
+    if (!newExperience.skills || newExperience.skills.length === 0) {
+      validationErrors.skills = 'At least one skill is required';
+    }
+
     // Validate manager name (required)
     if (!newExperience.managerName || !newExperience.managerName.trim()) {
       validationErrors.managerName = 'Manager Name is required';
@@ -291,15 +293,15 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
       const phoneDigits = newExperience.managerPhone.trim().replace(/\D/g, '');
       if (phoneDigits.length !== 10) {
         validationErrors.managerPhone = 'Phone number must be exactly 10 digits';
+      } else if (/^(\d)\1{9}$/.test(phoneDigits)) {
+        validationErrors.managerPhone = 'Please enter a valid phone number';
       } else if (!isValidPhone(newExperience.managerPhone.trim())) {
         validationErrors.managerPhone = 'Please enter a valid phone number';
       }
     }
 
-    // Validate manager LinkedIn (required)
-    if (!newExperience.managerLinkedIn || !newExperience.managerLinkedIn.trim()) {
-      validationErrors.managerLinkedIn = 'Manager LinkedIn URL is required';
-    } else if (!isValidLinkedInUrl(newExperience.managerLinkedIn.trim())) {
+    // Manager LinkedIn is optional, validate only when provided
+    if (newExperience.managerLinkedIn && newExperience.managerLinkedIn.trim() && !isValidLinkedInUrl(newExperience.managerLinkedIn.trim())) {
       validationErrors.managerLinkedIn = 'Please enter a valid LinkedIn URL (e.g., https://www.linkedin.com/in/username)';
     }
 
@@ -795,22 +797,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
           <Box sx={{ pt: 1 }}>
             {/* --- Top Section --- */}
             <Grid container spacing={{ xs: 2, md: 3 }}>
-              {/* Column 1 */}
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  label="Name *"
-                  value={newExperience.clientName}
-                  onChange={(e) =>
-                    setNewExperience({ ...newExperience, clientName: e.target.value })
-                  }
-                  error={!!errors.clientName}
-                  helperText={errors.clientName}
-                  required
-                />
-              </Grid>
-
-              {/* Column 2 - Company Name with Invite */}
+              {/* Column 1 - Company Name with Invite */}
               <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
@@ -863,7 +850,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
               <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
-                  label="Website of the Company *"
+                  label="Website of the Company"
                   type="url"
                   placeholder="https://www.example.com"
                   value={newExperience.website}
@@ -871,8 +858,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                     setNewExperience({ ...newExperience, website: e.target.value })
                   }
                   error={!!errors.website}
-                  helperText={errors.website}
-                  required
+                  helperText={errors.website || "Optional"}
                 />
               </Grid>
 
@@ -1232,6 +1218,11 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
                   Add each skill with your experience and self-rating
                 </Typography>
+                {errors.skills && (
+                  <Typography variant="caption" color="error" sx={{ mb: 1, display: 'block' }}>
+                    {errors.skills}
+                  </Typography>
+                )}
                 {newExperience.skills.length > 0 && (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mt: 2 }}>
                     {newExperience.skills.map((skill, idx) => (
@@ -1272,6 +1263,11 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                                 ...newExperience,
                                 skills: newExperience.skills.filter((_, i) => i !== idx)
                               });
+                              if (setErrors && errors.skills) {
+                                const newErrors = { ...errors };
+                                delete newErrors.skills;
+                                setErrors(newErrors);
+                              }
                             }}
                             sx={{ color: '#ef4444' }}
                           >
@@ -1350,7 +1346,11 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                   label="Manager Name*"
                   value={newExperience.managerName}
                   onChange={(e) => {
-                    setNewExperience({ ...newExperience, managerName: e.target.value });
+                    const value = e.target.value;
+                    if (!/^[A-Za-zÀ-ÖØ-öø-ÿ' -]*$/.test(value)) {
+                      return;
+                    }
+                    setNewExperience({ ...newExperience, managerName: value });
                     // Clear error when user starts typing
                     if (errors.managerName && setErrors) {
                       const newErrors = { ...errors };
@@ -1418,7 +1418,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
               <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
-                  label="Manager LinkedIn URL*"
+                  label="Manager LinkedIn URL"
                   type="url"
                   placeholder="https://www.linkedin.com/in/example"
                   value={newExperience.managerLinkedIn}
@@ -1431,9 +1431,8 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                       setErrors(newErrors);
                     }
                   }}
-                  required
                   error={!!errors.managerLinkedIn}
-                  helperText={errors.managerLinkedIn || "It should be a legitimate LinkedIn profile."}
+                  helperText={errors.managerLinkedIn || "Optional (if provided, must be a valid LinkedIn profile URL)."}
                 />
               </Grid>
             </Grid>
@@ -1643,6 +1642,11 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                     rating: currentSkill.rating
                   }]
                 }));
+                if (setErrors && errors.skills) {
+                  const newErrors = { ...errors };
+                  delete newErrors.skills;
+                  setErrors(newErrors);
+                }
                 setCurrentSkill({ name: '', experience: '', rating: 5 });
                 setShowSkillDialog(false);
               }

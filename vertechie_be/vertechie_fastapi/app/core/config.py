@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_SECRET: Optional[str] = None
     # Optional explicit GitHub OAuth callback URL (e.g., http://localhost:5173/github/callback)
     GITHUB_CALLBACK_URL: Optional[str] = None
+    GITLAB_CLIENT_ID: Optional[str] = None
+    GITLAB_CLIENT_SECRET: Optional[str] = None
+    # Optional explicit GitLab OAuth callback URL (e.g., http://localhost:5173/gitlab/callback)
+    GITLAB_CALLBACK_URL: Optional[str] = None
     
     # External APIs
     GIPHY_API_KEY: Optional[str] = None

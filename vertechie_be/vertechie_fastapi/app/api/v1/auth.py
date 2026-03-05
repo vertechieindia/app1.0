@@ -17,7 +17,6 @@ from app.db.session import get_db
 from app.models.user import User, UserRole, UserProfile, Experience, Education, RoleType, VerificationStatus, user_roles
 from app.models.company import Company, CompanyAdmin, CompanyStatus
 from app.models.school import School, SchoolAdmin, SchoolStatus, SchoolType
-from app.models.activity import ActivityType
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, TokenRefresh,
     PasswordReset, PasswordResetConfirm, PasswordChange,
@@ -29,7 +28,6 @@ from app.core.security import (
     create_access_token, create_refresh_token, verify_token,
     get_current_user, get_current_admin_user
 )
-from app.services import activity_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -149,6 +147,12 @@ async def register(
                 is_current=not end_date,
                 description=exp_data.get('job_description') if isinstance(exp_data, dict) else getattr(exp_data, 'job_description', None),
                 skills=exp_data.get('skills') if isinstance(exp_data, dict) else getattr(exp_data, 'skills', []),
+                client_name=exp_data.get('client_name') if isinstance(exp_data, dict) else getattr(exp_data, 'client_name', None),
+                company_website=exp_data.get('company_website') if isinstance(exp_data, dict) else getattr(exp_data, 'company_website', None),
+                manager_name=exp_data.get('manager_name') if isinstance(exp_data, dict) else getattr(exp_data, 'manager_name', None),
+                manager_email=exp_data.get('manager_email') if isinstance(exp_data, dict) else getattr(exp_data, 'manager_email', None),
+                manager_phone=exp_data.get('manager_phone') if isinstance(exp_data, dict) else getattr(exp_data, 'manager_phone', None),
+                manager_linkedin=exp_data.get('manager_linkedin') if isinstance(exp_data, dict) else getattr(exp_data, 'manager_linkedin', None),
             )
             db.add(experience)
 
@@ -172,6 +176,10 @@ async def register(
                 start_year=start_year,
                 end_year=end_year,
                 grade=edu_data.get('score_value') or edu_data.get('gpa_score') if isinstance(edu_data, dict) else None,
+                score_type=edu_data.get('score_type') if isinstance(edu_data, dict) else getattr(edu_data, 'score_type', None),
+                score_value=edu_data.get('score_value') if isinstance(edu_data, dict) else getattr(edu_data, 'score_value', None),
+                activities=edu_data.get('activities') if isinstance(edu_data, dict) else getattr(edu_data, 'activities', None),
+                description=edu_data.get('description') if isinstance(edu_data, dict) else getattr(edu_data, 'description', None),
             )
             db.add(education)
 
@@ -288,15 +296,6 @@ async def login(
     
     # Update last login
     user.last_login = datetime.utcnow()
-    try:
-        await activity_service.log_activity(
-            db=db,
-            user_id=user.id,
-            activity_type=ActivityType.LOGIN,
-            data={"source": "email_login"},
-        )
-    except Exception as e:
-        logger.warning(f"Failed to log login activity for user {user.id}: {e}")
     await db.commit()
     
     # Fetch user roles using SQL to avoid lazy loading issues
@@ -388,15 +387,6 @@ async def token_login(
     
     # Update last login
     user.last_login = datetime.utcnow()
-    try:
-        await activity_service.log_activity(
-            db=db,
-            user_id=user.id,
-            activity_type=ActivityType.LOGIN,
-            data={"source": "token_login"},
-        )
-    except Exception as e:
-        logger.warning(f"Failed to log token login activity for user {user.id}: {e}")
     await db.commit()
     
     # Create tokens

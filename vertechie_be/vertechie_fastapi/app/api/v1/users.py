@@ -815,7 +815,13 @@ async def get_my_company(
         .join(CompanyAdmin, Company.id == CompanyAdmin.company_id)
         .where(CompanyAdmin.user_id == current_user.id)
     )
-    company = result.scalar_one_or_none()
+    companies = result.scalars().all()
+    if len(companies) > 1:
+        logger.warning(
+            "Multiple company rows found for user_id=%s in /users/me/company. Returning first row.",
+            current_user.id,
+        )
+    company = companies[0] if companies else None
     
     if not company:
         return None

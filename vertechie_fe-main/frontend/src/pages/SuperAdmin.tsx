@@ -3369,6 +3369,28 @@ const SuperAdmin: React.FC = () => {
                       <Typography variant="caption" color="text.secondary">
                         {exp.start_date} - {exp.is_current ? 'Present' : exp.end_date} | {exp.employment_type} | {exp.location}
                       </Typography>
+                      {(exp.client_name || exp.company_website || exp.manager_name || exp.manager_email || exp.manager_phone || exp.manager_linkedin) && (
+                        <Box sx={{ mt: 1 }}>
+                          {exp.client_name && (
+                            <Typography variant="body2"><strong>Client:</strong> {exp.client_name}</Typography>
+                          )}
+                          {exp.company_website && (
+                            <Typography variant="body2"><strong>Company Website:</strong> {exp.company_website}</Typography>
+                          )}
+                          {exp.manager_name && (
+                            <Typography variant="body2"><strong>Manager:</strong> {exp.manager_name}</Typography>
+                          )}
+                          {exp.manager_email && (
+                            <Typography variant="body2"><strong>Manager Email:</strong> {exp.manager_email}</Typography>
+                          )}
+                          {exp.manager_phone && (
+                            <Typography variant="body2"><strong>Manager Phone:</strong> {exp.manager_phone}</Typography>
+                          )}
+                          {exp.manager_linkedin && (
+                            <Typography variant="body2"><strong>Manager LinkedIn:</strong> {exp.manager_linkedin}</Typography>
+                          )}
+                        </Box>
+                      )}
                       {exp.description && (
                         <Typography variant="body2" sx={{ mt: 1 }}>{exp.description}</Typography>
                       )}
@@ -3399,6 +3421,19 @@ const SuperAdmin: React.FC = () => {
                       <Typography variant="caption" color="text.secondary">
                         {edu.start_year} - {edu.end_year} {edu.grade && `| Grade: ${edu.grade}`}
                       </Typography>
+                      {(edu.score_type || edu.score_value || edu.activities) && (
+                        <Box sx={{ mt: 1 }}>
+                          {edu.score_type && (
+                            <Typography variant="body2"><strong>Score Type:</strong> {edu.score_type}</Typography>
+                          )}
+                          {edu.score_value && (
+                            <Typography variant="body2"><strong>Score Value:</strong> {edu.score_value}</Typography>
+                          )}
+                          {edu.activities && (
+                            <Typography variant="body2"><strong>Activities:</strong> {edu.activities}</Typography>
+                          )}
+                        </Box>
+                      )}
                       {edu.description && (
                         <Typography variant="body2" sx={{ mt: 1 }}>{edu.description}</Typography>
                       )}

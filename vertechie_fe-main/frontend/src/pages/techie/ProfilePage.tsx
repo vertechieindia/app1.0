@@ -63,7 +63,6 @@ import CodeIcon from '@mui/icons-material/Code';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import TerminalIcon from '@mui/icons-material/Terminal';
 import DataObjectIcon from '@mui/icons-material/DataObject';
 import BoltIcon from '@mui/icons-material/Bolt';
 import DiamondIcon from '@mui/icons-material/Diamond';
@@ -295,8 +294,10 @@ interface UserProfileData {
   gitlab_connected_at?: string;
   linkedin_url?: string;
   twitter_url?: string;
+  portfolio_url?: string;
   skills?: string[];
   profile_photo?: string;
+  avatar_url?: string;
   current_company?: string;
   current_position?: string;
 }
@@ -355,9 +356,34 @@ interface GamificationData {
   activity_count_30d?: number;
 }
 
-interface ActivityHeatmapDay {
-  date: string;
-  count: number;
+interface PracticeProgressData {
+  easy_solved: number;
+  medium_solved: number;
+  hard_solved: number;
+  total_solved: number;
+  total_submissions: number;
+  accepted_submissions: number;
+  current_streak: number;
+  max_streak: number;
+  rating: number;
+  badges: string[];
+}
+
+interface ExternalCertificate {
+  id: string;
+  title: string;
+  issuer: string;
+  issued_on: string;
+  url: string;
+  file_name?: string;
+  source: 'external';
+}
+
+interface TutorialCertificate {
+  id: string;
+  tutorialTitle: string;
+  completedAt: string;
+  totalLessons: number;
 }
 
 // Skill with rating interface
@@ -480,6 +506,41 @@ const ProfilePage: React.FC = () => {
     technologies: string[];
     image: string;
   }>>([]);
+  const [practiceProgress, setPracticeProgress] = useState<PracticeProgressData>({
+    easy_solved: 0,
+    medium_solved: 0,
+    hard_solved: 0,
+    total_solved: 0,
+    total_submissions: 0,
+    accepted_submissions: 0,
+    current_streak: 0,
+    max_streak: 0,
+    rating: 1500,
+    badges: [],
+  });
+  const [externalCertificates, setExternalCertificates] = useState<ExternalCertificate[]>([]);
+  const [addCertificateOpen, setAddCertificateOpen] = useState(false);
+  const [isUploadingCertificate, setIsUploadingCertificate] = useState(false);
+  const [newCertificate, setNewCertificate] = useState({
+    title: '',
+    issuer: '',
+    issued_on: '',
+    url: '',
+    file_name: '',
+  });
+  const [newCertificateFile, setNewCertificateFile] = useState<File | null>(null);
+  const [editProfileForm, setEditProfileForm] = useState({
+    first_name: '',
+    last_name: '',
+    headline: '',
+    bio: '',
+    github_url: '',
+    gitlab_url: '',
+    website: '',
+    portfolio_url: '',
+    avatar_url: '',
+  });
+  const [editProfileErrors, setEditProfileErrors] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [loading, setLoading] = useState(true);
@@ -558,7 +619,6 @@ const ProfilePage: React.FC = () => {
     current_level_progress: 0,
     activity_count_30d: 0,
   });
-  const [activityHeatmap, setActivityHeatmap] = useState<ActivityHeatmapDay[]>([]);
 
   // Fetch user data from API - when userId is in URL (and not 'me'), fetch that user's data; otherwise fetch current user
   const fetchUserData = useCallback(async () => {
@@ -700,11 +760,30 @@ const ProfilePage: React.FC = () => {
       // Fetch company details only for current user (HR)
       if (!targetUserId) {
         try {
-          const companyUrl = getApiUrl('/users/me/company');
-          const companyRes = await fetchWithAuth(companyUrl);
-          if (companyRes.ok) {
-            const compData = await companyRes.json();
-            if (compData) setCompanyData(compData);
+          const rawUserData = localStorage.getItem('userData');
+          const parsedUserData = rawUserData ? JSON.parse(rawUserData) : {};
+          const roleNames: string[] = Array.isArray(parsedUserData.groups)
+            ? parsedUserData.groups.map((g: any) => String(g?.name || '').toLowerCase())
+            : [];
+          const adminRoleNames: string[] = Array.isArray(parsedUserData.admin_roles)
+            ? parsedUserData.admin_roles.map((r: any) => String(r || '').toLowerCase())
+            : [];
+          const shouldFetchCompany =
+            roleNames.includes('hiring_manager') ||
+            roleNames.includes('hr') ||
+            roleNames.includes('company_admin') ||
+            adminRoleNames.includes('company_admin') ||
+            adminRoleNames.includes('hr_admin');
+
+          if (shouldFetchCompany) {
+            const companyUrl = getApiUrl('/users/me/company');
+            const companyRes = await fetchWithAuth(companyUrl);
+            if (companyRes.ok) {
+              const compData = await companyRes.json();
+              if (compData) setCompanyData(compData);
+            }
+          } else {
+            setCompanyData(null);
           }
         } catch (err: any) {
           if (err.message?.includes('Session expired')) return;
@@ -730,14 +809,25 @@ const ProfilePage: React.FC = () => {
         }
 
         try {
-          const heatmapRes = await fetchWithAuth(getApiUrl('/users/me/activity/heatmap?days=180'));
-          if (heatmapRes.ok) {
-            const heatmapData = await heatmapRes.json();
-            setActivityHeatmap(Array.isArray(heatmapData) ? heatmapData : []);
+          const progressRes = await fetchWithAuth(getApiUrl(API_ENDPOINTS.PRACTICE.PROGRESS));
+          if (progressRes.ok) {
+            const progressData = await progressRes.json();
+            setPracticeProgress({
+              easy_solved: Number(progressData.easy_solved || 0),
+              medium_solved: Number(progressData.medium_solved || 0),
+              hard_solved: Number(progressData.hard_solved || 0),
+              total_solved: Number(progressData.total_solved || 0),
+              total_submissions: Number(progressData.total_submissions || 0),
+              accepted_submissions: Number(progressData.accepted_submissions || 0),
+              current_streak: Number(progressData.current_streak || 0),
+              max_streak: Number(progressData.max_streak || 0),
+              rating: Number(progressData.rating || 1500),
+              badges: Array.isArray(progressData.badges) ? progressData.badges : [],
+            });
           }
         } catch (err: any) {
           if (err.message?.includes('Session expired')) return;
-          console.warn('Could not fetch activity heatmap:', err);
+          console.warn('Could not fetch practice progress:', err);
         }
       } else {
         setCompanyData(null);
@@ -749,7 +839,18 @@ const ProfilePage: React.FC = () => {
           current_level_progress: 0,
           activity_count_30d: 0,
         });
-        setActivityHeatmap([]);
+        setPracticeProgress({
+          easy_solved: 0,
+          medium_solved: 0,
+          hard_solved: 0,
+          total_solved: 0,
+          total_submissions: 0,
+          accepted_submissions: 0,
+          current_streak: 0,
+          max_streak: 0,
+          rating: 1500,
+          badges: [],
+        });
       }
 
     } catch (error: any) {
@@ -824,46 +925,68 @@ const ProfilePage: React.FC = () => {
     website: profile?.website || '',
     github: profile?.github_username || profile?.github_url?.replace('https://github.com/', '') || '',
     gitlab: profile?.gitlab_username || profile?.gitlab_url?.replace('https://gitlab.com/', '') || '',
+    firebaseUrl: profile?.portfolio_url || '',
+    avatarUrl: profile?.avatar_url || profile?.profile_photo || '',
     currentCompany: profile?.current_company || '',
     currentPosition: profile?.current_position || '',
     isHiringManager,
   };
 
+  const shareableProfilePath = displayUser.id ? `/techie/profile/${displayUser.id}` : '/techie/profile';
+  const shareableProfileUrl = `${window.location.origin}${shareableProfilePath}`;
+
   const stats = [
-    { label: 'Problems', value: 0, icon: '🧩', color: '#10b981' },
-    { label: 'Activity(30d)', value: gamification.activity_count_30d || 0, icon: '📦', color: '#3b82f6' },
-    { label: 'Streak', value: gamification.streak_count || 0, icon: '🔥', color: '#f59e0b' },
+    { label: 'Problems', value: practiceProgress.total_solved || 0, icon: '🧩', color: '#10b981' },
+    { label: 'Activity Streak', value: practiceProgress.current_streak || gamification.streak_count || 0, icon: '🔥', color: '#f59e0b' },
     { label: 'Rank', value: '-', icon: '🏆', color: '#a855f7' },
   ];
 
-  const activityHeatmapMap = useMemo(() => {
-    const map = new Map<string, number>();
-    activityHeatmap.forEach((row) => map.set(row.date, row.count));
-    return map;
-  }, [activityHeatmap]);
-
-  const activityHeatmapCells = useMemo(() => {
-    const days = 84;
-    const today = new Date();
-    const cells: { date: string; count: number }[] = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      cells.push({ date: key, count: activityHeatmapMap.get(key) || 0 });
+  const problemDifficultyStats = [
+    { label: 'Easy', solved: practiceProgress.easy_solved || 0, color: '#10b981' },
+    { label: 'Medium', solved: practiceProgress.medium_solved || 0, color: '#f59e0b' },
+    { label: 'Hard', solved: practiceProgress.hard_solved || 0, color: '#ef4444' },
+  ];
+  const maxSolvedByDifficulty = Math.max(1, ...problemDifficultyStats.map((item) => item.solved));
+  const tutorialCertificates = useMemo<TutorialCertificate[]>(() => {
+    try {
+      const raw = localStorage.getItem('userCertificates');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
     }
-    return cells;
-  }, [activityHeatmapMap]);
+  }, []);
 
-  const heatmapCellColor = (count: number) => {
-    if (count <= 0) return 'rgba(148, 163, 184, 0.18)';
-    if (count <= 2) return 'rgba(99, 102, 241, 0.35)';
-    if (count <= 5) return 'rgba(99, 102, 241, 0.55)';
-    return 'rgba(99, 102, 241, 0.8)';
-  };
+  const allCertificates = useMemo(() => {
+    return [...tutorialCertificates, ...externalCertificates];
+  }, [tutorialCertificates, externalCertificates]);
 
-  // Parse skills from profile
-  const skills = (profile?.skills || []).map((skillName, idx) => ({
+  // Parse skills from profile + experience fallback
+  const mergedSkillNames = useMemo(() => {
+    const fromProfile = Array.isArray(profile?.skills) ? profile!.skills : [];
+    const fromExperience = experiences.flatMap((exp) => {
+      if (!Array.isArray(exp.skills)) return [];
+      return exp.skills
+        .map((item: any) => {
+          if (typeof item === 'string') return item.trim();
+          if (item && typeof item === 'object' && typeof item.name === 'string') return item.name.trim();
+          return '';
+        })
+        .filter(Boolean);
+    });
+
+    const seen = new Set<string>();
+    return [...fromProfile, ...fromExperience]
+      .map((name) => name.trim())
+      .filter((name) => {
+        const key = name.toLowerCase();
+        if (!name || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }, [profile?.skills, experiences]);
+
+  const skills = mergedSkillNames.map((skillName, idx) => ({
     name: skillName,
     level: Math.min(4, Math.floor(idx / 2) + 1), // Assign levels based on order
     logo: getTechByName(skillName)?.logo,
@@ -901,19 +1024,307 @@ const ProfilePage: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    const savedExternalCertificates = localStorage.getItem('userExternalCertificates');
+    if (savedExternalCertificates) {
+      try {
+        setExternalCertificates(JSON.parse(savedExternalCertificates));
+      } catch (e) {
+        console.warn('Could not parse saved external certificates');
+      }
+    }
+  }, []);
+
   // User's tech stack from skills
-  const techStack = (profile?.skills || [])
+  const techStack = mergedSkillNames
     .map(skill => getTechByName(skill))
     .filter(Boolean) as TechLogo[];
 
   const handleCopyLink = () => {
-    const profileUrl = displayUser.vertechieId
-      ? `vertechie.com/${displayUser.vertechieId}`
-      : `vertechie.com/u/${displayUser.username}`;
-    navigator.clipboard.writeText(profileUrl);
+    navigator.clipboard.writeText(shareableProfileUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const openEditProfileDialog = useCallback(() => {
+    setEditProfileErrors({});
+    setEditProfileForm({
+      first_name: user?.first_name || '',
+      last_name: user?.last_name || '',
+      headline: profile?.headline || '',
+      bio: profile?.bio || '',
+      github_url: profile?.github_url || '',
+      gitlab_url: profile?.gitlab_url || '',
+      website: profile?.website || '',
+      portfolio_url: profile?.portfolio_url || '',
+      avatar_url: profile?.avatar_url || profile?.profile_photo || '',
+    });
+    setEditDialogOpen(true);
+  }, [user, profile]);
+
+  const handleProfilePhotoUpload = useCallback(async (file?: File) => {
+    if (!file) return;
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setSnackbar({ open: true, message: 'Only PNG, JPG or WEBP images are allowed', severity: 'error' });
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      setSnackbar({ open: true, message: 'Profile photo must be less than 3MB', severity: 'error' });
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        handleUnauthorized();
+        return;
+      }
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadRes = await axios.post(getApiUrl(API_ENDPOINTS.COMMUNITY.UPLOAD), formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      const imageUrl = uploadRes?.data?.url || uploadRes?.data?.file_url || uploadRes?.data?.uploaded_url || '';
+      if (!imageUrl) {
+        setSnackbar({ open: true, message: 'Image upload failed', severity: 'error' });
+        return;
+      }
+      setEditProfileForm((prev) => ({ ...prev, avatar_url: imageUrl }));
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setSnackbar({ open: true, message: 'Unable to upload profile photo', severity: 'error' });
+    }
+  }, []);
+
+  const normalizeOptionalUrl = (raw: string): string => {
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+  };
+
+  const handleSaveProfile = useCallback(async () => {
+    const firstName = editProfileForm.first_name.trim();
+    const lastName = editProfileForm.last_name.trim();
+    const normalizedGithub = normalizeOptionalUrl(editProfileForm.github_url);
+    const normalizedGitlab = normalizeOptionalUrl(editProfileForm.gitlab_url);
+    const normalizedWebsite = normalizeOptionalUrl(editProfileForm.website);
+    const normalizedPortfolio = normalizeOptionalUrl(editProfileForm.portfolio_url);
+
+    const validationErrors: Record<string, string> = {};
+    if (!firstName) validationErrors.first_name = 'First name is required';
+    if (!lastName) validationErrors.last_name = 'Last name is required';
+
+    if (normalizedGithub) {
+      if (!isValidUrl(normalizedGithub)) validationErrors.github_url = 'Enter a valid GitHub URL';
+      else if (!normalizedGithub.toLowerCase().includes('github.com')) validationErrors.github_url = 'URL must be from github.com';
+    }
+    if (normalizedGitlab) {
+      if (!isValidUrl(normalizedGitlab)) validationErrors.gitlab_url = 'Enter a valid GitLab URL';
+      else if (!normalizedGitlab.toLowerCase().includes('gitlab.com')) validationErrors.gitlab_url = 'URL must be from gitlab.com';
+    }
+    if (normalizedWebsite && !isValidUrl(normalizedWebsite)) {
+      validationErrors.website = 'Enter a valid website URL';
+    }
+    if (normalizedPortfolio && !isValidUrl(normalizedPortfolio)) {
+      validationErrors.portfolio_url = 'Enter a valid Firebase/Portfolio URL';
+    }
+
+    setEditProfileErrors(validationErrors);
+    if (Object.keys(validationErrors).length > 0) {
+      setSnackbar({ open: true, message: 'Please fix profile field errors', severity: 'error' });
+      return;
+    }
+
+    try {
+      const userRes = await fetchWithAuth(getApiUrl('/users/me'), {
+        method: 'PATCH',
+        body: JSON.stringify({
+          first_name: firstName,
+          last_name: lastName,
+        }),
+      });
+      if (!userRes.ok) {
+        setSnackbar({ open: true, message: 'Failed to update basic profile', severity: 'error' });
+        return;
+      }
+
+      const profileRes = await fetchWithAuth(getApiUrl('/users/me/profile'), {
+        method: 'PATCH',
+        body: JSON.stringify({
+          headline: editProfileForm.headline.trim(),
+          bio: editProfileForm.bio.trim(),
+          github_url: normalizedGithub,
+          gitlab_url: normalizedGitlab,
+          website: normalizedWebsite,
+          portfolio_url: normalizedPortfolio,
+          avatar_url: editProfileForm.avatar_url.trim(),
+        }),
+      });
+
+      if (!profileRes.ok) {
+        setSnackbar({ open: true, message: 'Failed to update profile details', severity: 'error' });
+        return;
+      }
+
+      const updatedUser = await userRes.json();
+      const updatedProfile = await profileRes.json();
+      setUser((prev) => (prev ? { ...prev, ...updatedUser } : prev));
+      setProfile(updatedProfile);
+
+      const stored = localStorage.getItem('userData');
+      if (stored) {
+        const merged = { ...JSON.parse(stored), ...updatedUser };
+        localStorage.setItem('userData', JSON.stringify(merged));
+      }
+
+      setEditDialogOpen(false);
+      setSnackbar({ open: true, message: 'Profile updated successfully', severity: 'success' });
+    } catch (err: any) {
+      if (err.message?.includes('Session expired')) return;
+      setSnackbar({ open: true, message: 'Failed to save profile', severity: 'error' });
+    }
+  }, [editProfileForm]);
+
+  const resetCertificateForm = useCallback(() => {
+    setNewCertificate({
+      title: '',
+      issuer: '',
+      issued_on: '',
+      url: '',
+      file_name: '',
+    });
+    setNewCertificateFile(null);
+  }, []);
+
+  const handleCertificateFileSelect = useCallback((file?: File) => {
+    if (!file) return;
+
+    const allowedTypes = [
+      'application/pdf',
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
+      'image/webp',
+    ];
+    const maxBytes = 5 * 1024 * 1024;
+
+    if (!allowedTypes.includes(file.type)) {
+      setSnackbar({ open: true, message: 'Only PDF, PNG, JPG or WEBP files are allowed', severity: 'error' });
+      return;
+    }
+
+    if (file.size > maxBytes) {
+      setSnackbar({ open: true, message: 'Certificate file must be less than 5MB', severity: 'error' });
+      return;
+    }
+
+    setNewCertificateFile(file);
+    setNewCertificate((prev) => ({
+      ...prev,
+      file_name: file.name,
+      url: prev.url || '',
+    }));
+  }, []);
+
+  const handleSaveCertificate = useCallback(async () => {
+    const title = newCertificate.title.trim();
+    const issuer = newCertificate.issuer.trim();
+    const issuedOn = newCertificate.issued_on;
+    const url = newCertificate.url.trim();
+
+    if (!title || !issuer || !issuedOn) {
+      setSnackbar({ open: true, message: 'Title, issuer and issued date are required', severity: 'error' });
+      return;
+    }
+
+    if (!url && !newCertificateFile) {
+      setSnackbar({ open: true, message: 'Add certificate URL or upload a certificate file', severity: 'error' });
+      return;
+    }
+
+    if (url && !isValidUrl(url)) {
+      setSnackbar({ open: true, message: 'Enter a valid certificate URL', severity: 'error' });
+      return;
+    }
+
+    setIsUploadingCertificate(true);
+    try {
+      let certificateUrl = url;
+
+      if (!certificateUrl && newCertificateFile) {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+          handleUnauthorized();
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', newCertificateFile);
+        const uploadRes = await axios.post(
+          getApiUrl(API_ENDPOINTS.COMMUNITY.UPLOAD),
+          formData,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'multipart/form-data',
+            },
+          },
+        );
+
+        certificateUrl =
+          uploadRes?.data?.url ||
+          uploadRes?.data?.file_url ||
+          uploadRes?.data?.uploaded_url ||
+          '';
+      }
+
+      if (!certificateUrl) {
+        setSnackbar({ open: true, message: 'Certificate upload failed. Try again', severity: 'error' });
+        return;
+      }
+
+      const newItem: ExternalCertificate = {
+        id: `ext-cert-${Date.now()}`,
+        title,
+        issuer,
+        issued_on: issuedOn,
+        url: certificateUrl,
+        file_name: newCertificate.file_name || newCertificateFile?.name || '',
+        source: 'external',
+      };
+
+      const updated = [...externalCertificates, newItem];
+      setExternalCertificates(updated);
+      localStorage.setItem('userExternalCertificates', JSON.stringify(updated));
+      setAddCertificateOpen(false);
+      resetCertificateForm();
+      setSnackbar({ open: true, message: 'Certificate added successfully', severity: 'success' });
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setSnackbar({ open: true, message: 'Unable to add certificate', severity: 'error' });
+    } finally {
+      setIsUploadingCertificate(false);
+    }
+  }, [newCertificate, newCertificateFile, externalCertificates, resetCertificateForm]);
+
+  const handleDeleteExternalCertificate = useCallback((id: string) => {
+    const updated = externalCertificates.filter((item) => item.id !== id);
+    setExternalCertificates(updated);
+    localStorage.setItem('userExternalCertificates', JSON.stringify(updated));
+    setSnackbar({ open: true, message: 'Certificate removed', severity: 'success' });
+  }, [externalCertificates]);
 
   // Handle add experience click - show warning first
   const handleAddExperienceClick = useCallback(() => {
@@ -1414,7 +1825,7 @@ const ProfilePage: React.FC = () => {
                     </Box>
                   }
                 >
-                  <ProfileAvatar>
+                  <ProfileAvatar src={displayUser.avatarUrl || undefined}>
                     {displayUser.firstName[0]}{displayUser.lastName?.[0] || ''}
                   </ProfileAvatar>
                 </Badge>
@@ -1474,14 +1885,18 @@ const ProfilePage: React.FC = () => {
                   background: 'rgba(255,255,255,0.03)',
                   border: '1px solid rgba(0, 0, 0, 0.08)',
                 }}>
-                  <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.5)', fontFamily: 'monospace' }}>
-                    {displayUser.vertechieId
-                      ? `vertechie.com/${displayUser.vertechieId}`
-                      : `vertechie.com/u/${displayUser.username}`}
-                  </Typography>
-                  <IconButton size="small" onClick={handleCopyLink} sx={{ color: copied ? '#10b981' : 'rgba(255,255,255,0.5)' }}>
-                    {copied ? <VerifiedIcon /> : <ContentCopyIcon />}
-                  </IconButton>
+                  <Button
+                    size="small"
+                    onClick={handleCopyLink}
+                    startIcon={copied ? <VerifiedIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                    sx={{
+                      textTransform: 'none',
+                      color: copied ? '#10b981' : '#1e293b',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {copied ? 'Link Copied' : 'Copy Profile Link'}
+                  </Button>
                 </Box>
 
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -1539,11 +1954,19 @@ const ProfilePage: React.FC = () => {
                       <LanguageIcon />
                     </IconButton>
                   )}
+                  {displayUser.firebaseUrl && (
+                    <IconButton
+                      onClick={() => window.open(displayUser.firebaseUrl, '_blank')}
+                      sx={{ color: 'rgba(0,0,0,0.7)', '&:hover': { color: '#1e293b' } }}
+                    >
+                      <LanguageOutlinedIcon />
+                    </IconButton>
+                  )}
                   {isOwnProfile && (
                     <Button
                       variant="outlined"
                       startIcon={<EditIcon />}
-                      onClick={() => setEditDialogOpen(true)}
+                      onClick={openEditProfileDialog}
                       sx={{
                         borderColor: 'rgba(255,255,255,0.2)',
                         color: '#1e293b',
@@ -1570,7 +1993,7 @@ const ProfilePage: React.FC = () => {
             </Box>
             <LinearProgress
               variant="determinate"
-              value={65}
+              value={gamification.current_level_progress || 0}
               sx={{
                 height: 8,
                 borderRadius: 4,
@@ -1581,16 +2004,13 @@ const ProfilePage: React.FC = () => {
                 },
               }}
             />
-            <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.4)', mt: 0.5, display: 'block' }}>
-              550 XP to next level
-            </Typography>
           </Box>
         </GlassCard>
 
         {/* Stats Grid */}
         <Grid container spacing={2} sx={{ mb: 3 }}>
           {stats.map((stat, idx) => (
-            <Grid item xs={6} sm={3} key={idx}>
+            <Grid item xs={6} sm={4} key={idx}>
               <GlassCard sx={{ p: 0 }}>
                 <StatCard>
                   <Typography variant="h4" sx={{ mb: 0.5 }}>{stat.icon}</Typography>
@@ -1609,50 +2029,19 @@ const ProfilePage: React.FC = () => {
         <Grid container spacing={3}>
           {/* Left Column */}
           <Grid item xs={12} lg={8}>
-            {/* Contribution Heatmap */}
-            <GlassCard sx={{ mb: 3, '& > *': { background: 'transparent !important' } }}>
-              <Box sx={{ p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                  <TerminalIcon sx={{ color: '#6366f1' }} />
-                  <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
-                    Activity
-                  </Typography>
+            {/* GitHub / GitLab Contributions */}
+            {isOwnProfile && (
+              <GlassCard sx={{ mb: 3, '& > *': { background: 'transparent !important' } }}>
+                <Box sx={{ p: 3 }}>
+                  <ContributionHeatmap
+                    showControls={true}
+                    compact={false}
+                    title="GitHub & GitLab Contributions"
+                    onConnectionChange={fetchUserData}
+                  />
                 </Box>
-                <ContributionHeatmap showControls={true} compact={false} onConnectionChange={fetchUserData} />
-              </Box>
-            </GlassCard>
-
-            <GlassCard sx={{ p: 3, mb: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
-                  Platform Activity Heatmap
-                </Typography>
-                <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.5)' }}>
-                  Last 12 weeks
-                </Typography>
-              </Box>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(12, 1fr)',
-                  gap: 0.6,
-                }}
-              >
-                {activityHeatmapCells.map((cell) => (
-                  <Tooltip key={cell.date} title={`${cell.date}: ${cell.count} activities`}>
-                    <Box
-                      sx={{
-                        width: 14,
-                        height: 14,
-                        borderRadius: 0.6,
-                        bgcolor: heatmapCellColor(cell.count),
-                        border: '1px solid rgba(99, 102, 241, 0.15)',
-                      }}
-                    />
-                  </Tooltip>
-                ))}
-              </Box>
-            </GlassCard>
+              </GlassCard>
+            )}
 
             {/* Skills */}
             <GlassCard sx={{ p: 3, mb: 3 }}>
@@ -2173,62 +2562,115 @@ const ProfilePage: React.FC = () => {
 
             {/* Certificates Section */}
             <GlassCard sx={{ p: 3, mb: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-                <WorkspacePremiumIcon sx={{ color: '#FFD700' }} />
-                <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
-                  Certificates
-                </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <WorkspacePremiumIcon sx={{ color: '#FFD700' }} />
+                  <Typography variant="h6" sx={{ color: '#1e293b', fontWeight: 700 }}>
+                    Certificates
+                  </Typography>
+                </Box>
+                {isOwnProfile && (
+                  <Button
+                    size="small"
+                    onClick={() => setAddCertificateOpen(true)}
+                    sx={{ color: '#f59e0b', textTransform: 'none' }}
+                    startIcon={<AddIcon />}
+                  >
+                    Add
+                  </Button>
+                )}
               </Box>
-              {(() => {
-                const certs = JSON.parse(localStorage.getItem('userCertificates') || '[]');
-                if (certs.length === 0) {
-                  return (
-                    <Box sx={{ textAlign: 'center', py: 4 }}>
-                      <WorkspacePremiumIcon sx={{ fontSize: 48, color: 'rgba(0,0,0,0.2)', mb: 1 }} />
-                      <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.5)' }}>
-                        No certificates earned yet. Complete all lessons in a tutorial to earn a certificate!
-                      </Typography>
-                    </Box>
-                  );
-                }
-                return (
-                  <Grid container spacing={2}>
-                    {certs.map((cert: any) => (
-                      <Grid item xs={12} sm={6} key={cert.id}>
+
+              {allCertificates.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <WorkspacePremiumIcon sx={{ fontSize: 48, color: 'rgba(0,0,0,0.2)', mb: 1 }} />
+                  <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.5)' }}>
+                    No certificates available yet
+                  </Typography>
+                </Box>
+              ) : (
+                <Grid container spacing={2}>
+                  {tutorialCertificates.map((cert) => (
+                    <Grid item xs={12} sm={6} key={cert.id}>
+                      <Box sx={{
+                        p: 2,
+                        borderRadius: 3,
+                        border: '2px solid #FFD700',
+                        bgcolor: alpha('#FFD700', 0.05),
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                      }}>
                         <Box sx={{
-                          p: 2,
-                          borderRadius: 3,
-                          border: '2px solid #FFD700',
-                          bgcolor: alpha('#FFD700', 0.05),
+                          width: 50,
+                          height: 50,
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 2,
+                          justifyContent: 'center',
                         }}>
-                          <Box sx={{
-                            width: 50,
-                            height: 50,
-                            borderRadius: '50%',
-                            background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}>
-                            <EmojiEventsIcon sx={{ color: '#fff', fontSize: 28 }} />
-                          </Box>
-                          <Box sx={{ flex: 1 }}>
-                            <Typography variant="subtitle1" fontWeight={600} sx={{ color: '#1e293b' }}>
-                              {cert.tutorialTitle}
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.5)' }}>
-                              Completed {new Date(cert.completedAt).toLocaleDateString()} • {cert.totalLessons} lessons
-                            </Typography>
-                          </Box>
+                          <EmojiEventsIcon sx={{ color: '#fff', fontSize: 28 }} />
                         </Box>
-                      </Grid>
-                    ))}
-                  </Grid>
-                );
-              })()}
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" fontWeight={600} sx={{ color: '#1e293b' }}>
+                            {cert.tutorialTitle}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.5)' }}>
+                            Completed {new Date(cert.completedAt).toLocaleDateString()} • {cert.totalLessons} lessons
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Grid>
+                  ))}
+
+                  {externalCertificates.map((cert) => (
+                    <Grid item xs={12} sm={6} key={cert.id}>
+                      <Box sx={{
+                        p: 2,
+                        borderRadius: 3,
+                        border: '1px solid rgba(99, 102, 241, 0.28)',
+                        bgcolor: 'rgba(99, 102, 241, 0.05)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                      }}>
+                        <Box sx={{
+                          width: 50,
+                          height: 50,
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                          <WorkspacePremiumIcon sx={{ color: '#fff', fontSize: 26 }} />
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography variant="subtitle1" fontWeight={600} sx={{ color: '#1e293b' }}>
+                            {cert.title}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.6)', display: 'block' }}>
+                            {cert.issuer} • Issued {new Date(cert.issued_on).toLocaleDateString()}
+                          </Typography>
+                          <Link href={cert.url} target="_blank" rel="noopener noreferrer" underline="hover" sx={{ fontSize: '0.75rem' }}>
+                            View certificate
+                          </Link>
+                        </Box>
+                        {isOwnProfile && (
+                          <IconButton
+                            size="small"
+                            onClick={() => handleDeleteExternalCertificate(cert.id)}
+                            sx={{ color: '#ef4444' }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                      </Box>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
             </GlassCard>
 
             {/* Projects */}
@@ -2403,23 +2845,19 @@ const ProfilePage: React.FC = () => {
                 </Typography>
               </Box>
 
-              {[
-                { label: 'Easy', solved: 120, total: 150, color: '#10b981' },
-                { label: 'Medium', solved: 95, total: 200, color: '#f59e0b' },
-                { label: 'Hard', solved: 41, total: 100, color: '#ef4444' },
-              ].map((diff) => (
+              {problemDifficultyStats.map((diff) => (
                 <Box key={diff.label} sx={{ mb: 2 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                     <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.7)' }}>
                       {diff.label}
                     </Typography>
                     <Typography variant="body2" sx={{ color: diff.color, fontWeight: 600 }}>
-                      {diff.solved}/{diff.total}
+                      {diff.solved} solved
                     </Typography>
                   </Box>
                   <LinearProgress
                     variant="determinate"
-                    value={(diff.solved / diff.total) * 100}
+                    value={(diff.solved / maxSolvedByDifficulty) * 100}
                     sx={{
                       height: 8,
                       borderRadius: 4,
@@ -2434,16 +2872,16 @@ const ProfilePage: React.FC = () => {
 
               <Box sx={{ display: 'flex', justifyContent: 'space-around' }}>
                 <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h4" sx={{ fontWeight: 800, color: '#6366f1' }}>256</Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 800, color: '#6366f1' }}>{practiceProgress.total_solved || 0}</Typography>
                   <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.5)' }}>Total</Typography>
                 </Box>
                 <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h4" sx={{ fontWeight: 800, color: '#f59e0b' }}>42</Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 800, color: '#f59e0b' }}>{practiceProgress.current_streak || 0}</Typography>
                   <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.5)' }}>Streak</Typography>
                 </Box>
                 <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h4" sx={{ fontWeight: 800, color: '#10b981' }}>A+</Typography>
-                  <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.5)' }}>Grade</Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 800, color: '#10b981' }}>{practiceProgress.accepted_submissions || 0}</Typography>
+                  <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.5)' }}>Accepted</Typography>
                 </Box>
               </Box>
             </GlassCard>
@@ -2454,7 +2892,10 @@ const ProfilePage: React.FC = () => {
       {/* Edit Profile Dialog */}
       <Dialog
         open={editDialogOpen}
-        onClose={() => setEditDialogOpen(false)}
+        onClose={() => {
+          setEditDialogOpen(false);
+          setEditProfileErrors({});
+        }}
         maxWidth="sm"
         fullWidth
         PaperProps={{ sx: { bgcolor: '#ffffff', backgroundImage: 'none' } }}
@@ -2466,14 +2907,19 @@ const ProfilePage: React.FC = () => {
               <TextField
                 fullWidth
                 label="First Name"
-                defaultValue={displayUser.firstName}
-                disabled
-                helperText="Cannot be changed"
+                value={editProfileForm.first_name}
+                onChange={(e) => {
+                  setEditProfileForm((prev) => ({ ...prev, first_name: e.target.value }));
+                  if (editProfileErrors.first_name) {
+                    setEditProfileErrors((prev) => ({ ...prev, first_name: '' }));
+                  }
+                }}
+                error={!!editProfileErrors.first_name}
+                helperText={editProfileErrors.first_name}
                 sx={{
-                  '& .MuiOutlinedInput-root': { color: 'rgba(0,0,0,0.5)' },
-                  '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.4)' },
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
-                  '& .MuiFormHelperText-root': { color: 'rgba(255,255,255,0.3)', fontSize: '0.7rem' },
+                  '& .MuiOutlinedInput-root': { color: '#1e293b' },
+                  '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' },
                 }}
               />
             </Grid>
@@ -2481,14 +2927,19 @@ const ProfilePage: React.FC = () => {
               <TextField
                 fullWidth
                 label="Last Name"
-                defaultValue={displayUser.lastName}
-                disabled
-                helperText="Cannot be changed"
+                value={editProfileForm.last_name}
+                onChange={(e) => {
+                  setEditProfileForm((prev) => ({ ...prev, last_name: e.target.value }));
+                  if (editProfileErrors.last_name) {
+                    setEditProfileErrors((prev) => ({ ...prev, last_name: '' }));
+                  }
+                }}
+                error={!!editProfileErrors.last_name}
+                helperText={editProfileErrors.last_name}
                 sx={{
-                  '& .MuiOutlinedInput-root': { color: 'rgba(0,0,0,0.5)' },
-                  '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.4)' },
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
-                  '& .MuiFormHelperText-root': { color: 'rgba(255,255,255,0.3)', fontSize: '0.7rem' },
+                  '& .MuiOutlinedInput-root': { color: '#1e293b' },
+                  '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' },
                 }}
               />
             </Grid>
@@ -2496,7 +2947,8 @@ const ProfilePage: React.FC = () => {
               <TextField
                 fullWidth
                 label="Title"
-                defaultValue={displayUser.title}
+                value={editProfileForm.headline}
+                onChange={(e) => setEditProfileForm((prev) => ({ ...prev, headline: e.target.value }))}
                 sx={{
                   '& .MuiOutlinedInput-root': { color: '#1e293b' },
                   '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
@@ -2508,7 +2960,8 @@ const ProfilePage: React.FC = () => {
               <TextField
                 fullWidth
                 label="Tagline"
-                defaultValue={displayUser.tagline}
+                value={editProfileForm.bio}
+                onChange={(e) => setEditProfileForm((prev) => ({ ...prev, bio: e.target.value }))}
                 sx={{
                   '& .MuiOutlinedInput-root': { color: '#1e293b' },
                   '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
@@ -2521,7 +2974,16 @@ const ProfilePage: React.FC = () => {
                 fullWidth
                 label="GitHub Profile URL"
                 placeholder="https://github.com/yourusername"
-                defaultValue={profile?.github_url || ''}
+                value={editProfileForm.github_url}
+                onPaste={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  setEditProfileForm((prev) => ({ ...prev, github_url: e.target.value }));
+                  if (editProfileErrors.github_url) {
+                    setEditProfileErrors((prev) => ({ ...prev, github_url: '' }));
+                  }
+                }}
+                error={!!editProfileErrors.github_url}
+                helperText={editProfileErrors.github_url}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -2541,7 +3003,16 @@ const ProfilePage: React.FC = () => {
                 fullWidth
                 label="GitLab Profile URL"
                 placeholder="https://gitlab.com/yourusername"
-                defaultValue={profile?.gitlab_url || ''}
+                value={editProfileForm.gitlab_url}
+                onPaste={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  setEditProfileForm((prev) => ({ ...prev, gitlab_url: e.target.value }));
+                  if (editProfileErrors.gitlab_url) {
+                    setEditProfileErrors((prev) => ({ ...prev, gitlab_url: '' }));
+                  }
+                }}
+                error={!!editProfileErrors.gitlab_url}
+                helperText={editProfileErrors.gitlab_url}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -2561,7 +3032,16 @@ const ProfilePage: React.FC = () => {
                 fullWidth
                 label="Personal Website"
                 placeholder="https://yourwebsite.com"
-                defaultValue={profile?.website || ''}
+                value={editProfileForm.website}
+                onPaste={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  setEditProfileForm((prev) => ({ ...prev, website: e.target.value }));
+                  if (editProfileErrors.website) {
+                    setEditProfileErrors((prev) => ({ ...prev, website: '' }));
+                  }
+                }}
+                error={!!editProfileErrors.website}
+                helperText={editProfileErrors.website}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -2575,6 +3055,48 @@ const ProfilePage: React.FC = () => {
                   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' },
                 }}
               />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Firebase / Portfolio URL"
+                placeholder="https://yourapp.web.app"
+                value={editProfileForm.portfolio_url}
+                onPaste={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  setEditProfileForm((prev) => ({ ...prev, portfolio_url: e.target.value }));
+                  if (editProfileErrors.portfolio_url) {
+                    setEditProfileErrors((prev) => ({ ...prev, portfolio_url: '' }));
+                  }
+                }}
+                error={!!editProfileErrors.portfolio_url}
+                helperText={editProfileErrors.portfolio_url}
+                sx={{
+                  '& .MuiOutlinedInput-root': { color: '#1e293b' },
+                  '& .MuiInputLabel-root': { color: 'rgba(0,0,0,0.5)' },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' },
+                }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <input
+                id="profile-photo-upload"
+                type="file"
+                accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                style={{ display: 'none' }}
+                onChange={(e) => handleProfilePhotoUpload(e.target.files?.[0])}
+              />
+              <label htmlFor="profile-photo-upload">
+                <Button
+                  component="span"
+                  variant="outlined"
+                  fullWidth
+                  startIcon={<CloudUploadIcon />}
+                  sx={{ borderStyle: 'dashed', color: 'rgba(0,0,0,0.65)', borderColor: 'rgba(0,0,0,0.25)' }}
+                >
+                  {editProfileForm.avatar_url ? 'Change Profile Photo' : 'Upload Profile Photo'}
+                </Button>
+              </label>
             </Grid>
             <Grid item xs={12}>
               <TextField
@@ -2594,12 +3116,15 @@ const ProfilePage: React.FC = () => {
           </Grid>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setEditDialogOpen(false)} sx={{ color: 'rgba(0,0,0,0.7)' }}>
+          <Button onClick={() => {
+            setEditDialogOpen(false);
+            setEditProfileErrors({});
+          }} sx={{ color: 'rgba(0,0,0,0.7)' }}>
             Cancel
           </Button>
           <Button
             variant="contained"
-            onClick={() => setEditDialogOpen(false)}
+            onClick={handleSaveProfile}
             sx={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}
           >
             Save
@@ -3956,6 +4481,110 @@ const ProfilePage: React.FC = () => {
             sx={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
           >
             Add Project
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Certificate Dialog */}
+      <Dialog
+        open={addCertificateOpen}
+        onClose={() => {
+          if (isUploadingCertificate) return;
+          setAddCertificateOpen(false);
+          resetCertificateForm();
+        }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { bgcolor: '#ffffff', backgroundImage: 'none' } }}
+      >
+        <DialogTitle sx={{ color: '#1e293b' }}>Add Certificate</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Certificate Title *"
+                value={newCertificate.title}
+                onChange={(e) => setNewCertificate((prev) => ({ ...prev, title: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Issuer *"
+                value={newCertificate.issuer}
+                onChange={(e) => setNewCertificate((prev) => ({ ...prev, issuer: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Issued Date *"
+                type="date"
+                value={newCertificate.issued_on}
+                onChange={(e) => setNewCertificate((prev) => ({ ...prev, issued_on: e.target.value }))}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Certificate URL"
+                placeholder="https://example.com/certificate"
+                value={newCertificate.url}
+                onChange={(e) => setNewCertificate((prev) => ({ ...prev, url: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.55)' }}>
+                Or upload file (PDF/JPG/PNG/WEBP, max 5MB)
+              </Typography>
+              <input
+                id="certificate-file-upload"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp"
+                style={{ display: 'none' }}
+                onChange={(e) => handleCertificateFileSelect(e.target.files?.[0])}
+              />
+              <label htmlFor="certificate-file-upload">
+                <Button
+                  component="span"
+                  variant="outlined"
+                  fullWidth
+                  startIcon={<CloudUploadIcon />}
+                  sx={{
+                    mt: 1,
+                    borderStyle: 'dashed',
+                    color: 'rgba(0,0,0,0.65)',
+                    borderColor: 'rgba(0,0,0,0.25)',
+                  }}
+                >
+                  {newCertificate.file_name ? `Selected: ${newCertificate.file_name}` : 'Upload Certificate File'}
+                </Button>
+              </label>
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            onClick={() => {
+              if (isUploadingCertificate) return;
+              setAddCertificateOpen(false);
+              resetCertificateForm();
+            }}
+            sx={{ color: 'rgba(0,0,0,0.7)' }}
+            disabled={isUploadingCertificate}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveCertificate}
+            disabled={isUploadingCertificate}
+            startIcon={isUploadingCertificate ? <CircularProgress size={18} color="inherit" /> : undefined}
+            sx={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+          >
+            {isUploadingCertificate ? 'Saving...' : 'Save Certificate'}
           </Button>
         </DialogActions>
       </Dialog>
