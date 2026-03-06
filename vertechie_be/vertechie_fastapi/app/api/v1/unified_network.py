@@ -157,6 +157,12 @@ async def get_unified_network_stats(
         )
     )
     unread_notifications = result.scalar() or 0
+
+    # Count posts created by current user
+    result = await db.execute(
+        select(func.count(Post.id)).where(Post.author_id == current_user.id)
+    )
+    posts_count = result.scalar() or 0
     
     return NetworkStatsResponse(
         connections_count=connections_count,
@@ -178,7 +184,8 @@ async def get_unified_network_stats(
 async def get_people_suggestions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    limit: int = Query(10, ge=1, le=50)
+    limit: int = Query(10, ge=1, le=50),
+    offset: int = Query(0, ge=0),
 ) -> Any:
     """Get people you may want to connect with."""
     
@@ -215,6 +222,8 @@ async def get_people_suggestions(
         query = query.where(User.id.notin_(exclude_ids))
     
     query = query.where(User.is_active == True)
+    query = query.order_by(desc(User.created_at), desc(User.id))
+    query = query.offset(offset)
     query = query.limit(limit)
     
     result = await db.execute(query)

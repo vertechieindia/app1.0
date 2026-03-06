@@ -931,6 +931,21 @@ const ProfilePage: React.FC = () => {
     currentPosition: profile?.current_position || '',
     isHiringManager,
   };
+  const userScope = useMemo(() => {
+    if (user?.id || user?.email) {
+      return String(user.id || user.email);
+    }
+    try {
+      const raw = localStorage.getItem('userData');
+      if (!raw) return 'anonymous';
+      const parsed = JSON.parse(raw);
+      return String(parsed?.id || parsed?.email || 'anonymous');
+    } catch {
+      return 'anonymous';
+    }
+  }, [user?.id, user?.email]);
+  const userCertificatesStorageKey = `userCertificates_${userScope}`;
+  const userExternalCertificatesStorageKey = `userExternalCertificates_${userScope}`;
 
   const shareableProfilePath = displayUser.id ? `/techie/profile/${displayUser.id}` : '/techie/profile';
   const shareableProfileUrl = `${window.location.origin}${shareableProfilePath}`;
@@ -949,13 +964,13 @@ const ProfilePage: React.FC = () => {
   const maxSolvedByDifficulty = Math.max(1, ...problemDifficultyStats.map((item) => item.solved));
   const tutorialCertificates = useMemo<TutorialCertificate[]>(() => {
     try {
-      const raw = localStorage.getItem('userCertificates');
+      const raw = localStorage.getItem(userCertificatesStorageKey);
       const parsed = raw ? JSON.parse(raw) : [];
       return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
-  }, []);
+  }, [userCertificatesStorageKey]);
 
   const allCertificates = useMemo(() => {
     return [...tutorialCertificates, ...externalCertificates];
@@ -1025,15 +1040,17 @@ const ProfilePage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const savedExternalCertificates = localStorage.getItem('userExternalCertificates');
+    const savedExternalCertificates = localStorage.getItem(userExternalCertificatesStorageKey);
     if (savedExternalCertificates) {
       try {
         setExternalCertificates(JSON.parse(savedExternalCertificates));
       } catch (e) {
         console.warn('Could not parse saved external certificates');
       }
+    } else {
+      setExternalCertificates([]);
     }
-  }, []);
+  }, [userExternalCertificatesStorageKey]);
 
   // User's tech stack from skills
   const techStack = mergedSkillNames
@@ -1303,7 +1320,7 @@ const ProfilePage: React.FC = () => {
 
       const updated = [...externalCertificates, newItem];
       setExternalCertificates(updated);
-      localStorage.setItem('userExternalCertificates', JSON.stringify(updated));
+      localStorage.setItem(userExternalCertificatesStorageKey, JSON.stringify(updated));
       setAddCertificateOpen(false);
       resetCertificateForm();
       setSnackbar({ open: true, message: 'Certificate added successfully', severity: 'success' });
@@ -1317,14 +1334,14 @@ const ProfilePage: React.FC = () => {
     } finally {
       setIsUploadingCertificate(false);
     }
-  }, [newCertificate, newCertificateFile, externalCertificates, resetCertificateForm]);
+  }, [newCertificate, newCertificateFile, externalCertificates, resetCertificateForm, userExternalCertificatesStorageKey]);
 
   const handleDeleteExternalCertificate = useCallback((id: string) => {
     const updated = externalCertificates.filter((item) => item.id !== id);
     setExternalCertificates(updated);
-    localStorage.setItem('userExternalCertificates', JSON.stringify(updated));
+    localStorage.setItem(userExternalCertificatesStorageKey, JSON.stringify(updated));
     setSnackbar({ open: true, message: 'Certificate removed', severity: 'success' });
-  }, [externalCertificates]);
+  }, [externalCertificates, userExternalCertificatesStorageKey]);
 
   // Handle add experience click - show warning first
   const handleAddExperienceClick = useCallback(() => {

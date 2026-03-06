@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Techie Dashboard - Main Dashboard for Tech Professionals
  * Comprehensive platform featuring:
  * - Job Search & Applications
@@ -121,11 +121,25 @@ interface SavedArticle {
   created_at?: string;
 }
 
-const MOCK_SAVED_ARTICLES: SavedArticle[] = [
-  { id: 'mock-1', title: 'The Future of AI in Software Development', excerpt: 'Explore how AI is revolutionizing the way we write code and design software.', cover_image: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800', category_name: 'AI & ML', published_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
-  { id: 'mock-2', title: 'From Junior to Senior: 10 Lessons That Changed My Career', excerpt: 'The most valuable lessons from junior developer to senior engineer.', cover_image: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800', category_name: 'Career', published_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
-  { id: 'mock-3', title: 'Building Scalable Microservices with Kubernetes and Go', excerpt: 'Designing and deploying microservices with Kubernetes and Go.', cover_image: 'https://images.unsplash.com/photo-1667372393119-3d4c48d07fc9?w=800', category_name: 'Technology', published_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
-];
+interface SavedFeedPost {
+  id: string;
+  content: string;
+  author_name: string;
+  created_at: string;
+}
+
+const getCurrentUserId = (): string => {
+  try {
+    const raw = localStorage.getItem('userData');
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    return String(parsed?.id || parsed?.user_id || '');
+  } catch {
+    return '';
+  }
+};
+
+const getSavedPostsStorageKey = (userId: string) => `vt_saved_feed_posts_${userId || 'anonymous'}`;
 
 // Tab Panel Component
 interface TabPanelProps {
@@ -180,7 +194,7 @@ const StreakCard: React.FC<{ stats: UserStats }> = ({ stats }) => {
               {stats.current_streak}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Day Streak 🔥
+              Day Streak ðŸ”¥
             </Typography>
           </Box>
         </Box>
@@ -440,7 +454,7 @@ const RecommendedJobs: React.FC<{ jobs: Job[] }> = ({ jobs }) => {
                   </ListItemAvatar>
                   <ListItemText
                     primary={job.title}
-                    secondary={`${job.company_name} • ${job.location}`}
+                    secondary={`${job.company_name} â€¢ ${job.location}`}
                     primaryTypographyProps={{ fontWeight: 600 }}
                   />
                   <ListItemSecondaryAction>
@@ -534,8 +548,9 @@ const TechieDashboard: React.FC = () => {
   const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
   const [groups, setGroups] = useState<GroupPreview[]>([]);
   const [savedArticles, setSavedArticles] = useState<SavedArticle[]>([]);
+  const [savedPosts, setSavedPosts] = useState<SavedFeedPost[]>([]);
   const [savedBlogsLoading, setSavedBlogsLoading] = useState(false);
-  const [isSavedMockData, setIsSavedMockData] = useState(false);
+  const currentUserId = getCurrentUserId();
   
   // Fetch dashboard data
   const fetchDashboardData = useCallback(async () => {
@@ -596,9 +611,9 @@ const TechieDashboard: React.FC = () => {
       });
       
       setRecommendedJobs([
-        { id: '1', title: 'Senior Frontend Developer', company_name: 'TechCorp', location: 'Remote', salary_range_display: '₹12L-₹18L', work_mode: 'remote' },
-        { id: '2', title: 'Full Stack Engineer', company_name: 'StartupXYZ', location: 'Bangalore', salary_range_display: '₹15L-₹22L', work_mode: 'hybrid' },
-        { id: '3', title: 'React Developer', company_name: 'InnovateLabs', location: 'Hyderabad', salary_range_display: '₹10L-₹16L', work_mode: 'onsite' },
+        { id: '1', title: 'Senior Frontend Developer', company_name: 'TechCorp', location: 'Remote', salary_range_display: 'â‚¹12L-â‚¹18L', work_mode: 'remote' },
+        { id: '2', title: 'Full Stack Engineer', company_name: 'StartupXYZ', location: 'Bangalore', salary_range_display: 'â‚¹15L-â‚¹22L', work_mode: 'hybrid' },
+        { id: '3', title: 'React Developer', company_name: 'InnovateLabs', location: 'Hyderabad', salary_range_display: 'â‚¹10L-â‚¹16L', work_mode: 'onsite' },
       ]);
       
       setGroups([
@@ -626,20 +641,29 @@ const TechieDashboard: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         const list = Array.isArray(data) ? data : [];
-        setSavedArticles(list.length > 0 ? list : MOCK_SAVED_ARTICLES);
-        setIsSavedMockData(list.length === 0);
+        setSavedArticles(list);
       } else {
-        setSavedArticles(MOCK_SAVED_ARTICLES);
-        setIsSavedMockData(true);
+        setSavedArticles([]);
       }
     } catch (err) {
-      console.error('Error fetching saved blogs:', err);
-      setSavedArticles(MOCK_SAVED_ARTICLES);
-      setIsSavedMockData(true);
+      console.error('Error fetching Saved Items:', err);
+      setSavedArticles([]);
     } finally {
       setSavedBlogsLoading(false);
     }
   }, []);
+
+  const fetchSavedPosts = useCallback(() => {
+    try {
+      const storageKey = getSavedPostsStorageKey(currentUserId);
+      const raw = localStorage.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setSavedPosts(Array.isArray(parsed) ? parsed : []);
+    } catch (err) {
+      console.error('Error reading saved posts:', err);
+      setSavedPosts([]);
+    }
+  }, [currentUserId]);
 
   // When navigating to Saved Items (/techie/saved or /saved), open Saved tab
   const isSavedRoute = location.pathname === '/techie/saved' || location.pathname === '/saved';
@@ -649,26 +673,42 @@ const TechieDashboard: React.FC = () => {
 
   // Whenever Saved tab is active (index 5), fetch bookmarks so the API is always called
   useEffect(() => {
-    if (tabValue === 5) fetchSavedBlogs();
-  }, [tabValue, fetchSavedBlogs]);
+    if (tabValue === 5) {
+      fetchSavedBlogs();
+      fetchSavedPosts();
+    }
+  }, [tabValue, fetchSavedBlogs, fetchSavedPosts]);
+
+  useEffect(() => {
+    const onSavedPostsUpdated = () => fetchSavedPosts();
+    window.addEventListener('vt_saved_posts_updated', onSavedPostsUpdated as EventListener);
+    return () => window.removeEventListener('vt_saved_posts_updated', onSavedPostsUpdated as EventListener);
+  }, [fetchSavedPosts]);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
-    if (newValue === 5) fetchSavedBlogs();
+    if (newValue === 5) {
+      fetchSavedBlogs();
+      fetchSavedPosts();
+    }
   };
 
   const handleRemoveSavedBlog = async (articleId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (articleId.startsWith('mock-')) {
-      setSavedArticles((prev) => prev.filter((a) => a.id !== articleId));
-      return;
-    }
     try {
       const response = await fetchWithAuth(getApiUrl(`/blog/articles/${articleId}/bookmark`), { method: 'DELETE' });
       if (response.ok) setSavedArticles((prev) => prev.filter((a) => a.id !== articleId));
     } catch (err) {
       console.error('Error removing bookmark:', err);
     }
+  };
+
+  const handleRemoveSavedPost = (postId: string) => {
+    const storageKey = getSavedPostsStorageKey(currentUserId);
+    const next = savedPosts.filter((p) => p.id !== postId);
+    localStorage.setItem(storageKey, JSON.stringify(next));
+    setSavedPosts(next);
+    window.dispatchEvent(new CustomEvent('vt_saved_posts_updated'));
   };
   
   return (
@@ -688,7 +728,7 @@ const TechieDashboard: React.FC = () => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Box>
               <Typography variant="h4" sx={{ fontWeight: 800, mb: 0.5 }}>
-                Welcome back! 👋
+                Welcome back! ðŸ‘‹
               </Typography>
               <Typography color="text.secondary">
                 Keep up the great work. You're on a roll!
@@ -1001,24 +1041,60 @@ const TechieDashboard: React.FC = () => {
               <Grid container spacing={3}>
                 <Grid item xs={12}>
                   <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
-                    Saved Blogs
+                    Saved Items
                   </Typography>
                   <Typography color="text.secondary" sx={{ mb: 2 }}>
-                    Your bookmarked articles — listed here
+                    Saved blogs and saved feed posts for your account
                   </Typography>
                 </Grid>
+                {!savedBlogsLoading && savedPosts.length > 0 && (
+                  <>
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>Saved Feed Posts</Typography>
+                    </Grid>
+                    {savedPosts.map((post) => (
+                      <Grid item xs={12} sm={6} md={4} key={`post-${post.id}`}>
+                        <Card sx={{ borderRadius: 3, cursor: 'pointer', '&:hover': { boxShadow: 4 } }} onClick={() => navigate(`/techie/home/feed#post-${post.id}`)}>
+                          <CardContent>
+                            <Typography variant="caption" color="text.secondary">
+                              Feed Post • {post.author_name}
+                            </Typography>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }} noWrap>
+                              {post.content?.trim() ? post.content : 'Saved post'}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {new Date(post.created_at).toLocaleString()}
+                            </Typography>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1.5 }}>
+                              <Button size="small" onClick={(e) => { e.stopPropagation(); navigate(`/techie/home/feed#post-${post.id}`); }} sx={{ textTransform: 'none' }}>Open</Button>
+                              <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleRemoveSavedPost(post.id); }} sx={{ color: 'primary.main' }} title="Remove from saved">
+                                <BookmarkIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1, mt: 1 }}>Saved Blogs</Typography>
+                    </Grid>
+                  </>
+                )}
                 {savedBlogsLoading ? (
                   <Grid item xs={12}>
                     <LinearProgress sx={{ borderRadius: 2, height: 6 }} />
-                    <Typography color="text.secondary" sx={{ mt: 2 }}>Loading saved blogs...</Typography>
+                    <Typography color="text.secondary" sx={{ mt: 2 }}>Loading saved items...</Typography>
                   </Grid>
-                ) : savedArticles.length === 0 ? (
+                ) : (savedArticles.length === 0 && savedPosts.length === 0) ? (
                   <Grid item xs={12}>
                     <Card sx={{ borderRadius: 3, p: 4, textAlign: 'center' }}>
                       <BookmarkIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
-                      <Typography color="text.secondary" gutterBottom>No saved blogs yet</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Bookmark articles on the blog to see them here.</Typography>
-                      <Button variant="contained" onClick={() => navigate('/techie/blogs')} sx={{ textTransform: 'none' }}>Explore Blogs</Button>
+                      <Typography color="text.secondary" gutterBottom>No saved items yet</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Save posts from Feed or save blogs to see them here.</Typography>
+                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+                        <Button variant="contained" onClick={() => navigate('/techie/home/feed')} sx={{ textTransform: 'none' }}>Explore Feed</Button>
+                        <Button variant="outlined" onClick={() => navigate('/techie/blogs')} sx={{ textTransform: 'none' }}>Explore Blogs</Button>
+                      </Box>
                     </Card>
                   </Grid>
                 ) : (
@@ -1043,7 +1119,7 @@ const TechieDashboard: React.FC = () => {
                         <CardContent sx={{ pb: 1 }}>
                           <Typography variant="caption" color="text.secondary">
                             {(article as any).category_name || 'Blog'}
-                            {article.published_at && ` • ${new Date(article.published_at).toLocaleDateString()}`}
+                            {article.published_at && ` â€¢ ${new Date(article.published_at).toLocaleDateString()}`}
                           </Typography>
                           <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }} noWrap>{article.title || 'Untitled'}</Typography>
                           <Typography variant="body2" color="text.secondary" sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
@@ -1086,7 +1162,7 @@ const TechieDashboard: React.FC = () => {
                     </Button>
                   </Box>
                   <Box sx={{ display: 'flex', gap: 1 }}>
-                    {['🏆', '⚡', '🎯', '🔥'].map((emoji, i) => (
+                    {['ðŸ†', 'âš¡', 'ðŸŽ¯', 'ðŸ”¥'].map((emoji, i) => (
                       <Tooltip key={i} title={`Achievement ${i + 1}`}>
                         <Avatar
                           sx={{
@@ -1113,4 +1189,6 @@ const TechieDashboard: React.FC = () => {
 };
 
 export default TechieDashboard;
+
+
 

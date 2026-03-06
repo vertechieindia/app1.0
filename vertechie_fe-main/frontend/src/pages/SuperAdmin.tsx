@@ -1157,7 +1157,11 @@ const SuperAdmin: React.FC = () => {
   // Create Admin
   const handleCreateAdmin = async () => {
     if (!adminForm.email || !adminForm.password || adminForm.admin_roles.length === 0) {
-      setSnackbar({ open: true, message: 'Email, password, and at least one admin role are required', severity: 'error' });
+      setSnackbar({ open: true, message: 'Email, password, and one admin role are required', severity: 'error' });
+      return;
+    }
+    if (adminForm.admin_roles.length > 1) {
+      setSnackbar({ open: true, message: 'Only one admin role can be assigned', severity: 'error' });
       return;
     }
 
@@ -1196,6 +1200,10 @@ const SuperAdmin: React.FC = () => {
   // Update Admin Roles
   const handleUpdateAdminRoles = async () => {
     if (!editingAdmin) return;
+    if (editingAdminRoles.length > 1) {
+      setSnackbar({ open: true, message: 'Only one admin role can be assigned', severity: 'error' });
+      return;
+    }
 
     try {
       const token = localStorage.getItem('authToken');
@@ -2240,7 +2248,8 @@ const SuperAdmin: React.FC = () => {
                                         size="small"
                                         onClick={() => {
                                           setEditingAdmin(admin);
-                                          setEditingAdminRoles((admin as any).admin_roles || []);
+                                          const existingRoles = ((admin as any).admin_roles || []) as string[];
+                                          setEditingAdminRoles(existingRoles.length > 0 ? [existingRoles[0]] : []);
                                           setEditRolesDialogOpen(true);
                                         }}
                                         sx={{
@@ -3536,65 +3545,50 @@ const SuperAdmin: React.FC = () => {
               sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
             />
             <FormControl fullWidth required>
-              <InputLabel>Admin Roles *</InputLabel>
+              <InputLabel>Admin Role *</InputLabel>
               <Select
-                multiple
-                value={adminForm.admin_roles}
-                label="Admin Roles *"
-                onChange={(e) => setAdminForm({ ...adminForm, admin_roles: e.target.value as string[] })}
+                value={adminForm.admin_roles[0] || ''}
+                label="Admin Role *"
+                onChange={(e) => setAdminForm({ ...adminForm, admin_roles: e.target.value ? [e.target.value as string] : [] })}
                 sx={{ borderRadius: '12px' }}
-                renderValue={(selected) => (
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {(selected as string[]).map((value) => (
-                      <Chip key={value} label={value.replace('_', ' ').toUpperCase()} size="small" />
-                    ))}
-                  </Box>
-                )}
               >
                 <MenuItem value="superadmin">
-                  <Checkbox checked={adminForm.admin_roles.includes('superadmin')} />
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <SupervisorAccount sx={{ color: '#6366f1' }} />
                     Super Admin - Full system access
                   </Box>
                 </MenuItem>
                 <MenuItem value="company_admin">
-                  <Checkbox checked={adminForm.admin_roles.includes('company_admin')} />
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Business sx={{ color: '#059669' }} />
                     Company Admin - Manage company registrations
                   </Box>
                 </MenuItem>
                 <MenuItem value="hm_admin">
-                  <Checkbox checked={adminForm.admin_roles.includes('hm_admin')} />
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <People sx={{ color: '#0ea5e9' }} />
                     Hiring Manager Admin - Manage HR registrations
                   </Box>
                 </MenuItem>
                 <MenuItem value="techie_admin">
-                  <Checkbox checked={adminForm.admin_roles.includes('techie_admin')} />
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Engineering sx={{ color: '#f59e0b' }} />
                     Techie Admin - Manage tech professional registrations
                   </Box>
                 </MenuItem>
                 <MenuItem value="school_admin">
-                  <Checkbox checked={adminForm.admin_roles.includes('school_admin')} />
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <School sx={{ color: '#dc2626' }} />
                     School Admin - Manage educational institution registrations
                   </Box>
                 </MenuItem>
                 <MenuItem value="bdm_admin">
-                  <Checkbox checked={adminForm.admin_roles.includes('bdm_admin')} />
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Business sx={{ color: '#7c3aed' }} />
                     BDM Admin - Manage company invitations and outreach
                   </Box>
                 </MenuItem>
                 <MenuItem value="learn_admin">
-                  <Checkbox checked={adminForm.admin_roles.includes('learn_admin')} />
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <School sx={{ color: '#0891b2' }} />
                     Learn Admin - Manage courses, tutorials, and learning content
@@ -3687,68 +3681,53 @@ const SuperAdmin: React.FC = () => {
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2, color: '#64748b' }}>
-            Select the roles you want to assign to this admin. You can assign multiple roles.
+            Select the role you want to assign to this admin. Only one role is allowed.
           </Typography>
           <FormControl fullWidth>
-            <InputLabel>Admin Roles</InputLabel>
+            <InputLabel>Admin Role</InputLabel>
             <Select
-              multiple
-              value={editingAdminRoles}
-              label="Admin Roles"
-              onChange={(e) => setEditingAdminRoles(e.target.value as string[])}
+              value={editingAdminRoles[0] || ''}
+              label="Admin Role"
+              onChange={(e) => setEditingAdminRoles(e.target.value ? [e.target.value as string] : [])}
               sx={{ borderRadius: '12px' }}
-              renderValue={(selected) => (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {(selected as string[]).map((value) => (
-                    <Chip key={value} label={value.replace('_', ' ').toUpperCase()} size="small" color="primary" />
-                  ))}
-                </Box>
-              )}
             >
               <MenuItem value="superadmin">
-                <Checkbox checked={editingAdminRoles.includes('superadmin')} />
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <SupervisorAccount sx={{ color: '#6366f1' }} />
                   Super Admin
                 </Box>
               </MenuItem>
               <MenuItem value="company_admin">
-                <Checkbox checked={editingAdminRoles.includes('company_admin')} />
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Business sx={{ color: '#059669' }} />
                   Company Admin
                 </Box>
               </MenuItem>
               <MenuItem value="hm_admin">
-                <Checkbox checked={editingAdminRoles.includes('hm_admin')} />
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <People sx={{ color: '#0ea5e9' }} />
                   Hiring Manager Admin
                 </Box>
               </MenuItem>
               <MenuItem value="techie_admin">
-                <Checkbox checked={editingAdminRoles.includes('techie_admin')} />
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Engineering sx={{ color: '#f59e0b' }} />
                   Techie Admin
                 </Box>
               </MenuItem>
               <MenuItem value="school_admin">
-                <Checkbox checked={editingAdminRoles.includes('school_admin')} />
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <School sx={{ color: '#dc2626' }} />
                   School Admin
                 </Box>
               </MenuItem>
               <MenuItem value="bdm_admin">
-                <Checkbox checked={editingAdminRoles.includes('bdm_admin')} />
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Business sx={{ color: '#7c3aed' }} />
                   BDM Admin
                 </Box>
               </MenuItem>
               <MenuItem value="learn_admin">
-                <Checkbox checked={editingAdminRoles.includes('learn_admin')} />
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <School sx={{ color: '#0891b2' }} />
                   Learn Admin
@@ -3861,7 +3840,6 @@ const SuperAdmin: React.FC = () => {
               onChange={(e) => setRoleForm({ ...roleForm, name: e.target.value })}
               sx={{ mb: 3 }}
             />
-
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                 Assign Permissions ({permissions.length} total)

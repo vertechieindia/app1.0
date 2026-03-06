@@ -3,7 +3,7 @@ Blog API Routes
 Articles, Comments, and Newsletters
 """
 
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,9 +16,9 @@ from app.models.blog import (
     ArticleCategory, ArticleTag, ArticleSeries, Article,
     ArticleComment, ArticleReaction, ArticleBookmark,
     Newsletter, NewsletterSubscriber,
-    ArticleStatus, ContentType, ReactionType
+    ArticleStatus, ContentType, ReactionType, article_tags
 )
-from app.models.user import User
+from app.models.user import User, UserProfile
 from app.core.security import get_current_user, get_current_admin_user
 from pydantic import BaseModel
 from datetime import datetime
@@ -85,6 +85,15 @@ class ArticleResponse(BaseModel):
     comments_count: int
     created_at: datetime
     published_at: Optional[datetime] = None
+    # Enriched fields for frontend
+    author_name: Optional[str] = None
+    author_avatar: Optional[str] = None
+    author_title: Optional[str] = None
+    author_verified: Optional[bool] = None
+    category_name: Optional[str] = None
+    category_slug: Optional[str] = None
+    tags: List[str] = []
+    likes_count: int = 0
     
     class Config:
         from_attributes = True
@@ -125,6 +134,71 @@ class SeriesResponse(BaseModel):
         from_attributes = True
 
 
+class TopAuthorResponse(BaseModel):
+    id: UUID
+    name: str
+    avatar: Optional[str] = None
+    title: Optional[str] = None
+    is_verified: bool = False
+    followers: int = 0
+    articles_count: int = 0
+    total_views: int = 0
+
+
+class TopAuthorsPayload(BaseModel):
+    total_authors: int
+    items: List[TopAuthorResponse]
+
+
+class TrendingTagResponse(BaseModel):
+    name: str
+    slug: str
+    articles_count: int
+
+
+class BlogMyStatsResponse(BaseModel):
+    articles_published: int
+    total_views: int
+    comments_received: int
+    reactions_received: int
+
+
+def _serialize_article_for_response(
+    article: Article,
+    user: Optional[User] = None,
+    profile: Optional[UserProfile] = None,
+) -> Dict[str, Any]:
+    return {
+        "id": article.id,
+        "title": article.title,
+        "slug": article.slug,
+        "subtitle": article.subtitle,
+        "excerpt": article.excerpt,
+        "content_type": article.content_type,
+        "cover_image": article.cover_image,
+        "author_id": article.author_id,
+        "category_id": article.category_id,
+        "reading_time_minutes": article.reading_time_minutes,
+        "status": article.status,
+        "is_featured": article.is_featured,
+        "is_pinned": article.is_pinned,
+        "is_premium": article.is_premium,
+        "views_count": article.views_count,
+        "reactions_count": article.reactions_count,
+        "comments_count": article.comments_count,
+        "created_at": article.created_at,
+        "published_at": article.published_at,
+        "author_name": user.full_name if user else None,
+        "author_avatar": profile.avatar_url if profile else None,
+        "author_title": profile.headline if profile else None,
+        "author_verified": bool(user.is_verified) if user else False,
+        "category_name": article.category.name if article.category else None,
+        "category_slug": article.category.slug if article.category else None,
+        "tags": [t.name for t in (article.tags or [])],
+        "likes_count": article.reactions_count or 0,
+    }
+
+
 # ============= Categories =============
 
 @router.get("/categories", response_model=List[CategoryResponse])
@@ -136,6 +210,118 @@ async def list_categories(
         select(ArticleCategory).where(ArticleCategory.is_active == True)
     )
     return result.scalars().all()
+
+
+@router.get("/top-authors", response_model=TopAuthorsPayload)
+async def list_top_authors(
+    limit: int = Query(5, ge=1, le=20),
+    db: AsyncSession = Depends(get_db)
+):
+    """List top blog authors ranked by published article count."""
+    totals_result = await db.execute(
+        select(func.count(func.distinct(Article.author_id))).where(
+            Article.status == ArticleStatus.PUBLISHED
+        )
+    )
+    total_authors = int(totals_result.scalar() or 0)
+
+    ranked_result = await db.execute(
+        select(
+            Article.author_id,
+            func.count(Article.id).label("articles_count"),
+            func.coalesce(func.sum(Article.views_count), 0).label("total_views"),
+        )
+        .where(Article.status == ArticleStatus.PUBLISHED)
+        .group_by(Article.author_id)
+        .order_by(func.count(Article.id).desc(), func.coalesce(func.sum(Article.views_count), 0).desc())
+        .limit(limit)
+    )
+    ranked_rows = ranked_result.all()
+    if not ranked_rows:
+        return TopAuthorsPayload(total_authors=0, items=[])
+
+    author_ids = [row[0] for row in ranked_rows if row[0]]
+    users_result = await db.execute(select(User).where(User.id.in_(author_ids)))
+    profiles_result = await db.execute(select(UserProfile).where(UserProfile.user_id.in_(author_ids)))
+    users_by_id = {u.id: u for u in users_result.scalars().all()}
+    profiles_by_user_id = {p.user_id: p for p in profiles_result.scalars().all()}
+
+    items: List[TopAuthorResponse] = []
+    for author_id, articles_count, total_views in ranked_rows:
+        user = users_by_id.get(author_id)
+        profile = profiles_by_user_id.get(author_id)
+        name = user.full_name if user else "Anonymous"
+        items.append(
+            TopAuthorResponse(
+                id=author_id,
+                name=name,
+                avatar=profile.avatar_url if profile else None,
+                title=profile.headline if profile else None,
+                is_verified=bool(user.is_verified) if user else False,
+                followers=int(profile.followers_count) if profile and profile.followers_count else 0,
+                articles_count=int(articles_count or 0),
+                total_views=int(total_views or 0),
+            )
+        )
+
+    return TopAuthorsPayload(total_authors=total_authors, items=items)
+
+
+@router.get("/tags/trending", response_model=List[TrendingTagResponse])
+async def list_trending_tags(
+    limit: int = Query(10, ge=1, le=30),
+    db: AsyncSession = Depends(get_db)
+):
+    """List trending tags based on published article usage."""
+    result = await db.execute(
+        select(
+            ArticleTag.name,
+            ArticleTag.slug,
+            func.count(Article.id).label("articles_count"),
+        )
+        .select_from(ArticleTag)
+        .join(article_tags, ArticleTag.id == article_tags.c.tag_id)
+        .join(Article, Article.id == article_tags.c.article_id)
+        .where(Article.status == ArticleStatus.PUBLISHED)
+        .group_by(ArticleTag.id, ArticleTag.name, ArticleTag.slug)
+        .order_by(func.count(Article.id).desc(), ArticleTag.name.asc())
+        .limit(limit)
+    )
+    rows = result.all()
+    return [
+        TrendingTagResponse(
+            name=row[0],
+            slug=row[1],
+            articles_count=int(row[2] or 0),
+        )
+        for row in rows
+    ]
+
+
+@router.get("/me/stats", response_model=BlogMyStatsResponse)
+async def get_my_blog_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get current user's blog statistics."""
+    authored_result = await db.execute(
+        select(
+            func.count(Article.id),
+            func.coalesce(func.sum(Article.views_count), 0),
+            func.coalesce(func.sum(Article.comments_count), 0),
+            func.coalesce(func.sum(Article.reactions_count), 0),
+        ).where(
+            Article.author_id == current_user.id,
+            Article.status == ArticleStatus.PUBLISHED
+        )
+    )
+    articles_published, total_views, comments_received, reactions_received = authored_result.one()
+    return BlogMyStatsResponse(
+        articles_published=int(articles_published or 0),
+        total_views=int(total_views or 0),
+        comments_received=int(comments_received or 0),
+        reactions_received=int(reactions_received or 0),
+    )
 
 
 # ============= Articles =============
@@ -151,7 +337,11 @@ async def list_articles(
     db: AsyncSession = Depends(get_db)
 ):
     """List published articles."""
-    query = select(Article).where(Article.status == ArticleStatus.PUBLISHED)
+    query = (
+        select(Article)
+        .options(selectinload(Article.category), selectinload(Article.tags))
+        .where(Article.status == ArticleStatus.PUBLISHED)
+    )
     
     if category:
         query = query.join(ArticleCategory).where(ArticleCategory.slug == category)
@@ -165,7 +355,33 @@ async def list_articles(
     
     query = query.order_by(Article.published_at.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
-    return result.scalars().all()
+    articles = result.scalars().all()
+    if not articles:
+        return []
+
+    author_ids = list({a.author_id for a in articles if a.author_id})
+    users_by_id: Dict[UUID, User] = {}
+    profiles_by_user_id: Dict[UUID, UserProfile] = {}
+    if author_ids:
+        users_result = await db.execute(
+            select(User).where(User.id.in_(author_ids))
+        )
+        users = users_result.scalars().all()
+        users_by_id = {u.id: u for u in users}
+
+        profiles_result = await db.execute(
+            select(UserProfile).where(UserProfile.user_id.in_(author_ids))
+        )
+        profiles = profiles_result.scalars().all()
+        profiles_by_user_id = {p.user_id: p for p in profiles}
+
+    payload: List[Dict[str, Any]] = []
+    for article in articles:
+        user = users_by_id.get(article.author_id)
+        profile = profiles_by_user_id.get(article.author_id)
+        payload.append(_serialize_article_for_response(article, user, profile))
+
+    return payload
 
 
 @router.get("/articles/{article_id}", response_model=ArticleDetailResponse)
@@ -531,12 +747,33 @@ async def list_my_bookmarks(
     """List my bookmarked articles."""
     result = await db.execute(
         select(Article)
+        .options(selectinload(Article.category), selectinload(Article.tags))
         .join(ArticleBookmark, Article.id == ArticleBookmark.article_id)
         .where(ArticleBookmark.user_id == current_user.id)
         .order_by(ArticleBookmark.created_at.desc())
         .offset(skip).limit(limit)
     )
-    return result.scalars().all()
+    articles = result.scalars().all()
+    if not articles:
+        return []
+
+    author_ids = list({a.author_id for a in articles if a.author_id})
+    users_by_id: Dict[UUID, User] = {}
+    profiles_by_user_id: Dict[UUID, UserProfile] = {}
+    if author_ids:
+        users_result = await db.execute(select(User).where(User.id.in_(author_ids)))
+        profiles_result = await db.execute(select(UserProfile).where(UserProfile.user_id.in_(author_ids)))
+        users_by_id = {u.id: u for u in users_result.scalars().all()}
+        profiles_by_user_id = {p.user_id: p for p in profiles_result.scalars().all()}
+
+    return [
+        _serialize_article_for_response(
+            article,
+            users_by_id.get(article.author_id),
+            profiles_by_user_id.get(article.author_id),
+        )
+        for article in articles
+    ]
 
 
 # ============= Series =============

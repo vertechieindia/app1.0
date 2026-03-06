@@ -322,6 +322,16 @@ class AdminUserCreate(BaseModel):
     
     # Admin roles - frontend sends specific admin roles like ["hm_admin", "company_admin"]
     admin_roles: Optional[List[str]] = None
+
+    @field_validator("admin_roles")
+    @classmethod
+    def validate_single_admin_role(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return value
+        cleaned = [role for role in value if role]
+        if len(cleaned) > 1:
+            raise ValueError("Only one admin role can be assigned per user")
+        return cleaned
     
     # Techie-specific fields
     work_authorization: Optional[str] = None

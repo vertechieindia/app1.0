@@ -2,7 +2,7 @@
  * MyNetwork - Connections and network management page
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Typography, Card, CardContent, Avatar, Button, Grid,
   TextField, InputAdornment, Badge, Snackbar, Alert, CircularProgress,
@@ -13,6 +13,7 @@ import NetworkLayout from '../../components/network/NetworkLayout';
 import { getApiUrl, API_ENDPOINTS } from '../../config/api';
 import { fetchWithAuth } from '../../utils/apiInterceptor';
 import { api } from '../../services/apiClient';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 // ============================================
 // STYLED COMPONENTS
@@ -74,6 +75,9 @@ interface NetworkStats {
 // COMPONENT
 // ============================================
 const MyNetwork: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pendingSectionRef = useRef<HTMLDivElement | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [pendingRequests, setPendingRequests] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -203,6 +207,12 @@ const MyNetwork: React.FC = () => {
     fetchConnections();
   }, [fetchStats, fetchConnections]);
 
+  useEffect(() => {
+    if (location.hash === '#pending-requests' && pendingSectionRef.current) {
+      pendingSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [location.hash, pendingRequests.length]);
+
   // Accept connection request
   const handleAcceptRequest = async (requestId: string) => {
     const user = pendingRequests.find(u => u.request_id === requestId);
@@ -222,6 +232,12 @@ const MyNetwork: React.FC = () => {
             status: 'connected',
           };
           setConnections(prev => [newConnection, ...prev]);
+          setStats(prev => ({
+            ...prev,
+            connections: prev.connections + 1,
+            pending_requests: Math.max(0, prev.pending_requests - 1),
+          }));
+          fetchStats();
           setSnackbar({ open: true, message: `Connected with ${user.name}!`, severity: 'success' });
         } else {
           setSnackbar({ open: true, message: 'Failed to accept request', severity: 'error' });
@@ -243,6 +259,11 @@ const MyNetwork: React.FC = () => {
       });
       if (response.ok) {
         setPendingRequests(prev => prev.filter(u => u.request_id !== requestId));
+        setStats(prev => ({
+          ...prev,
+          pending_requests: Math.max(0, prev.pending_requests - 1),
+        }));
+        fetchStats();
         setSnackbar({ open: true, message: 'Request declined', severity: 'success' });
       } else {
         setSnackbar({ open: true, message: 'Failed to decline request', severity: 'error' });
@@ -260,6 +281,17 @@ const MyNetwork: React.FC = () => {
     conn.company?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const handleMessageClick = (conn: Connection) => {
+    navigate('/techie/chat', {
+      state: {
+        startChatUser: {
+          id: conn.id,
+          name: conn.name,
+        },
+      },
+    });
+  };
+
   return (
     <NetworkLayout>
       {loadError && (
@@ -269,7 +301,7 @@ const MyNetwork: React.FC = () => {
       )}
       {/* Pending Requests */}
       {pendingRequests.length > 0 && (
-        <StyledCard sx={{ mb: 3 }}>
+        <StyledCard sx={{ mb: 3 }} id="pending-requests" ref={pendingSectionRef}>
           <CardContent>
             <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
               <Badge badgeContent={pendingRequests.length} color="error">
@@ -357,7 +389,12 @@ const MyNetwork: React.FC = () => {
                     <Typography variant="body2" color="text.secondary" noWrap>{conn.title}</Typography>
                     <Typography variant="caption" color="text.secondary">{conn.company}</Typography>
                   </Box>
-                  <Button variant="outlined" size="small" sx={{ borderRadius: 2 }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    sx={{ borderRadius: 2 }}
+                    onClick={() => handleMessageClick(conn)}
+                  >
                     Message
                   </Button>
                 </ConnectionCard>

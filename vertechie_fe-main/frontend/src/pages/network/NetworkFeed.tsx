@@ -90,6 +90,13 @@ interface Post {
   link_url?: string;
 }
 
+interface SavedFeedPostItem {
+  id: string;
+  content: string;
+  author_name: string;
+  created_at: string;
+}
+
 // Reaction types for the hover picker
 const reactionTypes = [
   { type: 'like', icon: '👍', label: 'Like', color: '#0d47a1' },
@@ -126,6 +133,19 @@ const isVideoMedia = (media: { url: string; type?: string; thumbnail?: string })
   return /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(media.url);
 };
 
+const getCurrentUserId = (): string => {
+  try {
+    const raw = localStorage.getItem('userData');
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    return String(parsed?.id || parsed?.user_id || '');
+  } catch {
+    return '';
+  }
+};
+
+const getSavedPostsStorageKey = (userId: string) => `vt_saved_feed_posts_${userId || 'anonymous'}`;
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -145,6 +165,7 @@ const NetworkFeed: React.FC = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
   const [reactionPickerPostId, setReactionPickerPostId] = useState<string | null>(null);
+  const [reactionPickerAnchor, setReactionPickerAnchor] = useState<null | HTMLElement>(null);
   const [selectedReactions, setSelectedReactions] = useState<Record<string, string>>({});
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({});
@@ -152,6 +173,11 @@ const NetworkFeed: React.FC = () => {
   const [loadingComments, setLoadingComments] = useState<Record<string, boolean>>({});
   const [shareAnchor, setShareAnchor] = useState<null | HTMLElement>(null);
   const [sharePostId, setSharePostId] = useState<string | null>(null);
+  const [postMenuAnchor, setPostMenuAnchor] = useState<null | HTMLElement>(null);
+  const [postMenuPostId, setPostMenuPostId] = useState<string | null>(null);
+  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
+  const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set());
+  const currentUserId = getCurrentUserId();
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -172,6 +198,30 @@ const NetworkFeed: React.FC = () => {
     fetchFeed();
   }, []);
 
+  useEffect(() => {
+    const loadRelationshipState = async () => {
+      try {
+        const [following, connections] = await Promise.all([
+          api.get<any[]>('/network/following'),
+          api.get<any[]>('/network/connections'),
+        ]);
+        const nextFollowing = new Set((Array.isArray(following) ? following : []).map((f: any) => String(f.following_id)));
+        const nextConnected = new Set<string>();
+        (Array.isArray(connections) ? connections : []).forEach((c: any) => {
+          const a = String(c.user_id || '');
+          const b = String(c.connected_user_id || '');
+          if (a && a !== currentUserId) nextConnected.add(a);
+          if (b && b !== currentUserId) nextConnected.add(b);
+        });
+        setFollowingIds(nextFollowing);
+        setConnectedIds(nextConnected);
+      } catch (err) {
+        console.error('Failed to load follow/connection state:', err);
+      }
+    };
+    loadRelationshipState();
+  }, [currentUserId]);
+
   // Scroll to post when opening a shared link (e.g. /techie/home/feed#post-{id})
   useEffect(() => {
     if (loading || posts.length === 0) return;
@@ -187,6 +237,9 @@ const NetworkFeed: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+      const savedKey = getSavedPostsStorageKey(currentUserId);
+      const savedRecords: SavedFeedPostItem[] = JSON.parse(localStorage.getItem(savedKey) || '[]');
+      const savedIds = new Set(savedRecords.map((p) => String(p.id)));
       
       // Fetch from unified-network/feed endpoint
       const feedItems = await api.get<any[]>(API_ENDPOINTS.UNIFIED_NETWORK.FEED, {
@@ -208,7 +261,7 @@ const NetworkFeed: React.FC = () => {
         comments_count: item.comments_count || 0,
         shares_count: item.shares_count || 0,
         is_liked: item.is_liked || false,
-        is_saved: item.is_saved || false,
+        is_saved: savedIds.has(String(item.id)) || item.is_saved || false,
         created_at: item.created_at
           ? `posted ${formatDistanceToNow(parseApiDate(item.created_at), { addSuffix: true })}`
           : 'posted just now',
@@ -246,50 +299,77 @@ const NetworkFeed: React.FC = () => {
   };
 
   // Handle reaction selection
-  const handleReaction = (postId: string, reactionType: string) => {
+  const handleReaction = async (postId: string, reactionType: string) => {
+    const targetPost = posts.find((p) => p.id === postId);
+    if (!targetPost) return;
+
+    const previousReaction = selectedReactions[postId] || '';
+    const nextReaction = previousReaction === reactionType ? '' : reactionType;
+    const hadReaction = !!previousReaction || !!targetPost.is_liked;
+    const willHaveReaction = !!nextReaction;
+    const shouldBeLikedOnServer = nextReaction === 'like';
+    const shouldToggleLikeApi = shouldBeLikedOnServer !== !!targetPost.is_liked;
+
     setSelectedReactions(prev => ({
       ...prev,
-      [postId]: prev[postId] === reactionType ? '' : reactionType,
+      [postId]: nextReaction,
     }));
     setReactionPickerPostId(null);
+    setReactionPickerAnchor(null);
     setPosts(prev => prev.map(p => 
       p.id === postId
-        ? { ...p, is_liked: true, likes_count: p.likes_count + (selectedReactions[postId] ? 0 : 1) }
+        ? {
+            ...p,
+            is_liked: shouldBeLikedOnServer,
+            likes_count: !hadReaction && willHaveReaction
+              ? p.likes_count + 1
+              : hadReaction && !willHaveReaction
+                ? Math.max(0, p.likes_count - 1)
+                : p.likes_count,
+          }
         : p
     ));
+
+    if (shouldToggleLikeApi) {
+      try {
+        await communityService.likePost(postId);
+      } catch (err) {
+        console.error('Error syncing like state:', err);
+      }
+    }
   };
 
-  // Like post
-  const handleLikePost = async (postId: string) => {
-    const post = posts.find(p => p.id === postId);
-    if (!post) return;
-    
-    // Optimistic update
-    setPosts(prev => prev.map(p => 
-      p.id === postId 
-        ? { ...p, is_liked: !p.is_liked, likes_count: p.is_liked ? p.likes_count - 1 : p.likes_count + 1 }
-        : p
-    ));
-    
-    try {
-      // Call API to like/unlike
-      await communityService.likePost(postId);
-    } catch (err) {
-      console.error('Error liking post:', err);
-      // Revert on error
-      setPosts(prev => prev.map(p => 
-        p.id === postId ? post : p
-      ));
-      setSnackbar({ open: true, message: 'Failed to like post', severity: 'error' });
-    }
+  const openReactionPicker = (postId: string, anchorEl: HTMLElement) => {
+    setReactionPickerPostId(postId);
+    setReactionPickerAnchor(anchorEl);
+  };
+
+  const closeReactionPicker = () => {
+    setReactionPickerPostId(null);
+    setReactionPickerAnchor(null);
   };
 
   // Save post
   const handleSavePost = (postId: string) => {
-    setPosts(prev => prev.map(p => 
-      p.id === postId ? { ...p, is_saved: !p.is_saved } : p
+    const target = posts.find((p) => p.id === postId);
+    if (!target) return;
+    const savedKey = getSavedPostsStorageKey(currentUserId);
+    const existing: SavedFeedPostItem[] = JSON.parse(localStorage.getItem(savedKey) || '[]');
+    const isSaved = existing.some((p) => String(p.id) === String(postId));
+    const next = isSaved
+      ? existing.filter((p) => String(p.id) !== String(postId))
+      : [{
+          id: postId,
+          content: target.content || '',
+          author_name: target.author?.name || 'User',
+          created_at: new Date().toISOString(),
+        }, ...existing];
+    localStorage.setItem(savedKey, JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent('vt_saved_posts_updated'));
+    setPosts(prev => prev.map(p =>
+      p.id === postId ? { ...p, is_saved: !isSaved } : p
     ));
-    setSnackbar({ open: true, message: 'Post saved!', severity: 'success' });
+    setSnackbar({ open: true, message: isSaved ? 'Post removed from saved' : 'Post saved!', severity: 'success' });
   };
 
   // Copy link to post (works in private/incognito; only people with the link can view)
@@ -301,6 +381,48 @@ const NetworkFeed: React.FC = () => {
     setShareAnchor(null);
     setSharePostId(null);
     setSnackbar({ open: true, message: 'Link copied. It works in private or incognito.', severity: 'success' });
+  };
+
+  const openPostMenu = (postId: string, anchorEl: HTMLElement) => {
+    setPostMenuPostId(postId);
+    setPostMenuAnchor(anchorEl);
+  };
+
+  const closePostMenu = () => {
+    setPostMenuPostId(null);
+    setPostMenuAnchor(null);
+  };
+
+  const handleFollowFromPost = async () => {
+    if (!postMenuPostId) return;
+    const post = posts.find((p) => p.id === postMenuPostId);
+    const targetUserId = String(post?.author?.id || '');
+    if (!targetUserId || targetUserId === currentUserId) return;
+    try {
+      await api.post(`/network/follow/${targetUserId}`);
+      setFollowingIds((prev) => new Set(prev).add(targetUserId));
+      setSnackbar({ open: true, message: 'Followed successfully', severity: 'success' });
+      closePostMenu();
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to follow user';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    }
+  };
+
+  const handleConnectFromPost = async () => {
+    if (!postMenuPostId) return;
+    const post = posts.find((p) => p.id === postMenuPostId);
+    const targetUserId = String(post?.author?.id || '');
+    if (!targetUserId || targetUserId === currentUserId) return;
+    try {
+      await api.post(`/unified-network/quick-connect/${targetUserId}`);
+      setConnectedIds((prev) => new Set(prev).add(targetUserId));
+      setSnackbar({ open: true, message: 'Connection request sent', severity: 'success' });
+      closePostMenu();
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to send connection request';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    }
   };
 
   // Toggle comments
@@ -629,7 +751,9 @@ const NetworkFeed: React.FC = () => {
                   {post.group && <span> • in <b>{post.group.name}</b></span>}
                 </Typography>
               </Box>
-              <IconButton size="small"><MoreVert /></IconButton>
+              <IconButton size="small" onClick={(e) => { e.stopPropagation(); openPostMenu(post.id, e.currentTarget); }}>
+                <MoreVert />
+              </IconButton>
             </Box>
 
             {/* Post Content */}
@@ -851,46 +975,6 @@ const NetworkFeed: React.FC = () => {
 
             {/* Post Actions with Reaction Picker */}
             <Box sx={{ display: 'flex', justifyContent: 'space-around', pt: 1, position: 'relative' }}>
-              {/* Reaction Picker */}
-              {reactionPickerPostId === post.id && (
-                <Box 
-                  sx={{ 
-                    position: 'absolute', 
-                    bottom: '100%', 
-                    left: 0,
-                    bgcolor: 'background.paper',
-                    borderRadius: 3,
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                    p: 1,
-                    display: 'flex',
-                    gap: 0.5,
-                    zIndex: 100,
-                    mb: 1,
-                  }}
-                >
-                  {reactionTypes.map((reaction) => (
-                    <Tooltip key={reaction.type} title={reaction.label}>
-                      <IconButton
-                        onClick={() => handleReaction(post.id, reaction.type)}
-                        sx={{
-                          fontSize: 28,
-                          transition: 'transform 0.2s',
-                          '&:hover': { 
-                            transform: 'scale(1.3)',
-                            bgcolor: alpha(reaction.color, 0.1),
-                          },
-                          ...(selectedReactions[post.id] === reaction.type && {
-                            bgcolor: alpha(reaction.color, 0.2),
-                          }),
-                        }}
-                      >
-                        {reaction.icon}
-                      </IconButton>
-                    </Tooltip>
-                  ))}
-                </Box>
-              )}
-              
               <Button 
                 color={post.is_liked || selectedReactions[post.id] ? 'primary' : 'inherit'} 
                 startIcon={
@@ -898,9 +982,7 @@ const NetworkFeed: React.FC = () => {
                     ? <span style={{ fontSize: 20 }}>{reactionTypes.find(r => r.type === selectedReactions[post.id])?.icon || '👍'}</span>
                     : post.is_liked ? <Favorite /> : <FavoriteBorder />
                 }
-                onClick={() => handleLikePost(post.id)}
-                onMouseEnter={() => setReactionPickerPostId(post.id)}
-                onMouseLeave={() => setTimeout(() => setReactionPickerPostId(null), 300)}
+                onClick={(e) => openReactionPicker(post.id, e.currentTarget)}
               >
                 {selectedReactions[post.id] 
                   ? reactionTypes.find(r => r.type === selectedReactions[post.id])?.label 
@@ -1318,6 +1400,26 @@ const NetworkFeed: React.FC = () => {
 
       {/* Share menu – copy link to post (works in private/incognito) */}
       <Menu
+        anchorEl={reactionPickerAnchor}
+        open={Boolean(reactionPickerAnchor) && Boolean(reactionPickerPostId)}
+        onClose={closeReactionPicker}
+        anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      >
+        {reactionTypes.map((reaction) => (
+          <MenuItem
+            key={reaction.type}
+            onClick={() => reactionPickerPostId && handleReaction(reactionPickerPostId, reaction.type)}
+          >
+            <ListItemIcon sx={{ minWidth: 28 }}>
+              <span style={{ fontSize: 20 }}>{reaction.icon}</span>
+            </ListItemIcon>
+            <ListItemText primary={reaction.label} />
+          </MenuItem>
+        ))}
+      </Menu>
+
+      <Menu
         anchorEl={shareAnchor}
         open={Boolean(shareAnchor)}
         onClose={() => { setShareAnchor(null); setSharePostId(null); }}
@@ -1329,6 +1431,53 @@ const NetworkFeed: React.FC = () => {
         >
           <ListItemIcon><ContentCopy fontSize="small" /></ListItemIcon>
           <ListItemText primary="Copy link to post" secondary="Works in private or incognito" />
+        </MenuItem>
+      </Menu>
+
+      <Menu
+        anchorEl={postMenuAnchor}
+        open={Boolean(postMenuAnchor) && Boolean(postMenuPostId)}
+        onClose={closePostMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <MenuItem
+          onClick={handleFollowFromPost}
+          disabled={!postMenuPostId || (() => {
+            const p = posts.find((x) => x.id === postMenuPostId);
+            const id = String(p?.author?.id || '');
+            return !id || id === currentUserId || followingIds.has(id);
+          })()}
+        >
+          <ListItemText
+            primary="Follow"
+            secondary={(() => {
+              const p = posts.find((x) => x.id === postMenuPostId);
+              const id = String(p?.author?.id || '');
+              if (!id || id === currentUserId) return 'This is your post';
+              if (followingIds.has(id)) return 'Already following';
+              return 'Follow this user';
+            })()}
+          />
+        </MenuItem>
+        <MenuItem
+          onClick={handleConnectFromPost}
+          disabled={!postMenuPostId || (() => {
+            const p = posts.find((x) => x.id === postMenuPostId);
+            const id = String(p?.author?.id || '');
+            return !id || id === currentUserId || connectedIds.has(id);
+          })()}
+        >
+          <ListItemText
+            primary="Connect"
+            secondary={(() => {
+              const p = posts.find((x) => x.id === postMenuPostId);
+              const id = String(p?.author?.id || '');
+              if (!id || id === currentUserId) return 'This is your post';
+              if (connectedIds.has(id)) return 'Already connected';
+              return 'Send connection request';
+            })()}
+          />
         </MenuItem>
       </Menu>
 

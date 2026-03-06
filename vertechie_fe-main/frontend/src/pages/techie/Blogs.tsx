@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../../config/api';
 import { fetchWithAuth } from '../../utils/apiInterceptor';
 import {
@@ -25,7 +24,6 @@ import {
   ChatBubbleOutline as CommentIcon,
   Share as ShareIcon,
   Edit as EditIcon,
-  Visibility as ViewIcon,
   AccessTime as TimeIcon,
   Person as PersonIcon,
   LocalOffer as TagIcon,
@@ -230,148 +228,39 @@ interface BlogPost {
   isLiked: boolean;
   isFeatured: boolean;
   authorId?: string;
+  categoryId?: string;
 }
 
-// ============================================
-// MOCK DATA
-// ============================================
-const categories = [
-  { id: 'all', name: 'All Posts', icon: <StarIcon fontSize="small" /> },
-  { id: 'tech', name: 'Technology', icon: <CodeIcon fontSize="small" /> },
-  { id: 'career', name: 'Career', icon: <WorkIcon fontSize="small" /> },
-  { id: 'learning', name: 'Learning', icon: <SchoolIcon fontSize="small" /> },
-  { id: 'ai', name: 'AI & ML', icon: <PsychologyIcon fontSize="small" /> },
-  { id: 'startup', name: 'Startups', icon: <LightbulbIcon fontSize="small" /> },
-  { id: 'community', name: 'Community', icon: <GroupsIcon fontSize="small" /> },
-];
+const parseApiDate = (value: string): Date => {
+  const hasTimezone = /[zZ]|[+\-]\d{2}:?\d{2}$/.test(value);
+  const normalized = hasTimezone ? value : `${value}Z`;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? new Date(value) : parsed;
+};
 
-const mockAuthors: Author[] = [
-  { id: '1', name: 'Sarah Chen', avatar: '', title: 'Senior Engineer at Google', isVerified: true, followers: 12500 },
-  { id: '2', name: 'Michael Brown', avatar: '', title: 'Product Manager at Microsoft', isVerified: true, followers: 8900 },
-  { id: '3', name: 'Emily Rodriguez', avatar: '', title: 'Tech Lead at Meta', isVerified: true, followers: 15200 },
-  { id: '4', name: 'David Kim', avatar: '', title: 'AI Researcher at OpenAI', isVerified: true, followers: 22000 },
-  { id: '5', name: 'Jessica Liu', avatar: '', title: 'CTO at StartupXYZ', isVerified: false, followers: 6700 },
-];
-
-const mockBlogs: BlogPost[] = [
-  {
-    id: '1',
-    title: 'The Future of AI in Software Development: A Comprehensive Guide',
-    excerpt: 'Explore how artificial intelligence is revolutionizing the way we write code, debug applications, and design software architecture. From AI pair programming to automated testing...',
-    coverImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
-    author: mockAuthors[3],
-    category: 'ai',
-    tags: ['AI', 'Machine Learning', 'Software Development', 'Future Tech'],
-    publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    readTime: 12,
-    views: 15420,
-    likes: 892,
-    comments: 156,
-    isBookmarked: false,
-    isLiked: false,
-    isFeatured: true,
-  },
-  {
-    id: '2',
-    title: 'From Junior to Senior: 10 Lessons That Changed My Career',
-    excerpt: 'After 8 years in tech, here are the most valuable lessons I learned on my journey from a junior developer to a senior engineer at a FAANG company...',
-    coverImage: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800',
-    author: mockAuthors[0],
-    category: 'career',
-    tags: ['Career Growth', 'Senior Engineer', 'Mentorship', 'Tech Career'],
-    publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
-    readTime: 8,
-    views: 28900,
-    likes: 2100,
-    comments: 342,
-    isBookmarked: true,
-    isLiked: true,
-    isFeatured: true,
-  },
-  {
-    id: '3',
-    title: 'Building Scalable Microservices with Kubernetes and Go',
-    excerpt: 'A deep dive into designing and deploying microservices architecture using Kubernetes orchestration and Go programming language...',
-    coverImage: 'https://images.unsplash.com/photo-1667372393119-3d4c48d07fc9?w=800',
-    author: mockAuthors[2],
-    category: 'tech',
-    tags: ['Kubernetes', 'Go', 'Microservices', 'DevOps'],
-    publishedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-    readTime: 15,
-    views: 8750,
-    likes: 645,
-    comments: 89,
-    isBookmarked: false,
-    isLiked: false,
-    isFeatured: false,
-  },
-  {
-    id: '4',
-    title: 'How I Built a $10M ARR SaaS Product in 18 Months',
-    excerpt: 'The complete story of building, launching, and scaling a B2B SaaS product from zero to $10 million in annual recurring revenue...',
-    coverImage: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800',
-    author: mockAuthors[4],
-    category: 'startup',
-    tags: ['SaaS', 'Entrepreneurship', 'Startup', 'Growth'],
-    publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    readTime: 18,
-    views: 45200,
-    likes: 3400,
-    comments: 567,
-    isBookmarked: false,
-    isLiked: false,
-    isFeatured: true,
-  },
-  {
-    id: '5',
-    title: 'Mastering System Design Interviews: Complete Preparation Guide',
-    excerpt: 'Everything you need to know to ace your system design interviews at top tech companies. From fundamentals to advanced concepts...',
-    coverImage: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800',
-    author: mockAuthors[1],
-    category: 'learning',
-    tags: ['System Design', 'Interviews', 'Tech Prep', 'Career'],
-    publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-    readTime: 25,
-    views: 67800,
-    likes: 4200,
-    comments: 890,
-    isBookmarked: true,
-    isLiked: false,
-    isFeatured: false,
-  },
-  {
-    id: '6',
-    title: 'React 19: What\'s New and How to Migrate Your Projects',
-    excerpt: 'A comprehensive overview of React 19 features including Server Components, Actions, and the new compiler. Plus a step-by-step migration guide...',
-    coverImage: 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800',
-    author: mockAuthors[0],
-    category: 'tech',
-    tags: ['React', 'JavaScript', 'Frontend', 'Web Development'],
-    publishedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    readTime: 10,
-    views: 32100,
-    likes: 1890,
-    comments: 234,
-    isBookmarked: false,
-    isLiked: true,
-    isFeatured: false,
-  },
-];
-
-const popularTags = ['JavaScript', 'React', 'Python', 'AI', 'Career', 'System Design', 'Kubernetes', 'AWS', 'Startup', 'Leadership'];
+const normalizeCategoryKey = (value?: string): string => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'technology') return 'tech';
+  if (raw === 'ai & ml' || raw === 'aiml' || raw === 'ai-ml') return 'ai';
+  if (raw === 'startups') return 'startup';
+  if (raw.includes('career')) return 'career';
+  if (raw.includes('learn')) return 'learning';
+  if (raw.includes('community')) return 'community';
+  return raw.replace(/[^a-z0-9]/g, '');
+};
 
 // ============================================
 // COMPONENT
 // ============================================
 const Blogs: React.FC = () => {
-  const navigate = useNavigate();
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
   const [writeDialogOpen, setWriteDialogOpen] = useState(false);
   const [coverImage, setCoverImage] = useState<string | null>(null);
   const [savedBlogs, setSavedBlogs] = useState<Set<string>>(new Set());
-  const [likedBlogs, setLikedBlogs] = useState<Set<string>>(new Set(['1', '3']));
+  const [likedBlogs, setLikedBlogs] = useState<Set<string>>(new Set());
   const [shareMenuAnchor, setShareMenuAnchor] = useState<null | HTMLElement>(null);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
@@ -386,10 +275,45 @@ const Blogs: React.FC = () => {
   const [editingBlogId, setEditingBlogId] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [blogToDelete, setBlogToDelete] = useState<string | null>(null);
-  const currentUserId = typeof window !== 'undefined' ? localStorage.getItem(AUTHOR_ID_STORAGE_KEY) : null;
+  const [blogDetailOpen, setBlogDetailOpen] = useState(false);
+  const [selectedBlogId, setSelectedBlogId] = useState<string | null>(null);
+  const [selectedBlogDetail, setSelectedBlogDetail] = useState<BlogPost | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [blogComments, setBlogComments] = useState<Array<{
+    id: string;
+    authorId: string;
+    content: string;
+    createdAt: string;
+  }>>([]);
+  const [newComment, setNewComment] = useState('');
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const currentUserId = (() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const rawUser = localStorage.getItem('userData');
+      if (rawUser) {
+        const parsed = JSON.parse(rawUser);
+        const id = parsed?.id || parsed?.user_id;
+        if (id) return String(id);
+      }
+    } catch (err) {
+      console.warn('Failed to parse userData:', err);
+    }
+    return localStorage.getItem(AUTHOR_ID_STORAGE_KEY) || localStorage.getItem('userId');
+  })();
 
   // API Categories
   const [apiCategories, setApiCategories] = useState<{ id: string; name: string; slug: string }[]>([]);
+  const [topAuthors, setTopAuthors] = useState<Author[]>([]);
+  const [authorsCount, setAuthorsCount] = useState(0);
+  const [trendingTags, setTrendingTags] = useState<string[]>([]);
+  const [myBlogStats, setMyBlogStats] = useState({
+    articles_published: 0,
+    total_views: 0,
+    comments_received: 0,
+    reactions_received: 0,
+  });
 
   // Fetch categories from API
   const fetchCategories = useCallback(async () => {
@@ -408,6 +332,72 @@ const Blogs: React.FC = () => {
     }
   }, []);
 
+  const fetchTopAuthors = useCallback(async () => {
+    try {
+      const response = await fetchWithAuth(getApiUrl('/blog/top-authors?limit=5'));
+      if (!response.ok) {
+        setTopAuthors([]);
+        setAuthorsCount(0);
+        return;
+      }
+      const data = await response.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setAuthorsCount(Number(data?.total_authors || items.length || 0));
+      setTopAuthors(items.map((a: any) => ({
+        id: String(a.id),
+        name: a.name || 'Anonymous',
+        avatar: a.avatar || '',
+        title: a.title || '',
+        isVerified: Boolean(a.is_verified),
+        followers: Number(a.followers || 0),
+      })));
+    } catch (err) {
+      console.error('Error fetching top authors:', err);
+      setTopAuthors([]);
+      setAuthorsCount(0);
+    }
+  }, []);
+
+  const fetchTrendingTags = useCallback(async () => {
+    try {
+      const response = await fetchWithAuth(getApiUrl('/blog/tags/trending?limit=10'));
+      if (!response.ok) {
+        setTrendingTags([]);
+        return;
+      }
+      const data = await response.json();
+      const list = Array.isArray(data) ? data : [];
+      setTrendingTags(list.map((t: any) => t?.name).filter(Boolean));
+    } catch (err) {
+      console.error('Error fetching trending tags:', err);
+      setTrendingTags([]);
+    }
+  }, []);
+
+  const fetchMyBlogStats = useCallback(async () => {
+    try {
+      const response = await fetchWithAuth(getApiUrl('/blog/me/stats'));
+      if (!response.ok) {
+        setMyBlogStats({
+          articles_published: 0,
+          total_views: 0,
+          comments_received: 0,
+          reactions_received: 0,
+        });
+        return;
+      }
+      const data = await response.json();
+      setMyBlogStats({
+        articles_published: Number(data?.articles_published || 0),
+        total_views: Number(data?.total_views || 0),
+        comments_received: Number(data?.comments_received || 0),
+        reactions_received: Number(data?.reactions_received || 0),
+      });
+    } catch (err) {
+      console.error('Error fetching my blog stats:', err);
+    }
+  }, []);
+
   // Fetch blogs from API
   const fetchBlogs = useCallback(async () => {
     try {
@@ -415,39 +405,48 @@ const Blogs: React.FC = () => {
       const response = await fetchWithAuth(getApiUrl('/blog/articles'));
       if (response.ok) {
         const data = await response.json();
-        const mappedBlogs: BlogPost[] = data.map((article: any) => ({
-          id: article.id,
-          title: article.title || 'Untitled',
-          excerpt: article.excerpt || article.short_description || '',
-          coverImage: article.cover_image || article.thumbnail || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
-          category: article.category_name || 'Technology',
-          author: {
-            name: article.author_name || 'Anonymous',
-            avatar: article.author_avatar || '',
-            isVerified: article.author_verified || false,
-          },
-          publishedAt: article.published_at || article.created_at || new Date().toISOString(),
-          readTime: article.read_time || `${Math.ceil((article.content?.length || 500) / 1000)} min read`,
-          views: article.views_count || 0,
-          likes: article.likes_count || 0,
-          comments: article.comments_count || 0,
-          tags: article.tags || [],
-          isFeatured: article.is_featured || false,
-          isTrending: article.is_trending || false,
-          authorId: article.author_id,
-        }));
-        setBlogs(mappedBlogs.length > 0 ? mappedBlogs : mockBlogs);
+        const mappedBlogs: BlogPost[] = data.map((article: any) => {
+          const categoryId = article.category_id ? String(article.category_id) : '';
+          const categoryFromApi = apiCategories.find((c) => String(c.id) === categoryId);
+          const fallbackCategory = article.category_slug || article.category_name || 'tech';
+          const categoryKey = categoryFromApi?.slug || normalizeCategoryKey(fallbackCategory) || 'tech';
+          const readingTimeMinutes = Number(article.reading_time_minutes ?? article.read_time ?? Math.ceil((article.content?.length || 500) / 1000));
+          return {
+            id: article.id,
+            title: article.title || 'Untitled',
+            excerpt: article.excerpt || article.short_description || '',
+            coverImage: article.cover_image || article.thumbnail || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
+            category: categoryKey,
+            categoryId: categoryId || undefined,
+            author: {
+              name: article.author_name || 'Anonymous',
+              avatar: article.author_avatar || '',
+              title: article.author_title || '',
+              isVerified: article.author_verified || false,
+              followers: 0,
+            },
+            publishedAt: article.published_at || article.created_at || new Date().toISOString(),
+            readTime: Number.isFinite(readingTimeMinutes) ? readingTimeMinutes : 1,
+            views: article.views_count || 0,
+            likes: article.likes_count || 0,
+            comments: article.comments_count || 0,
+            tags: article.tags || [],
+            isFeatured: article.is_featured || false,
+            isTrending: article.is_trending || false,
+            authorId: article.author_id,
+          };
+        });
+        setBlogs(mappedBlogs);
       } else {
-        // Fallback to mock data
-        setBlogs(mockBlogs);
+        setBlogs([]);
       }
     } catch (err) {
       console.error('Error fetching blogs:', err);
-      setBlogs(mockBlogs);
+      setBlogs([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [apiCategories]);
 
   // Fetch my bookmarks so saved state is correct and API is used on load
   const fetchMyBookmarks = useCallback(async () => {
@@ -464,10 +463,16 @@ const Blogs: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchBlogs();
     fetchCategories();
+    fetchTopAuthors();
+    fetchTrendingTags();
+    fetchMyBlogStats();
     fetchMyBookmarks();
-  }, [fetchBlogs, fetchCategories, fetchMyBookmarks]);
+  }, [fetchCategories, fetchTopAuthors, fetchTrendingTags, fetchMyBlogStats, fetchMyBookmarks]);
+
+  useEffect(() => {
+    fetchBlogs();
+  }, [fetchBlogs]);
   const [selectedBlogForShare, setSelectedBlogForShare] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
@@ -580,7 +585,22 @@ const Blogs: React.FC = () => {
 
   const handleCloseDialog = () => {
     setBlogContent('');
+    setBlogTitle('');
+    setBlogCategory('');
+    setBlogTags('');
+    setCoverImage(null);
     setEditingBlogId(null);
+    setWriteDialogOpen(false);
+  };
+
+  const handleOpenCreateDialog = () => {
+    setBlogContent('');
+    setBlogTitle('');
+    setBlogCategory('');
+    setBlogTags('');
+    setCoverImage(null);
+    setEditingBlogId(null);
+    setWriteDialogOpen(true);
   };
 
   const handleEditClick = async (blog: BlogPost, e: React.MouseEvent) => {
@@ -625,6 +645,88 @@ const Blogs: React.FC = () => {
       }
     } catch (err) {
       console.error('Delete blog failed:', err);
+    }
+  };
+
+  const fetchComments = useCallback(async (blogId: string) => {
+    try {
+      setCommentsLoading(true);
+      const response = await fetchWithAuth(getApiUrl(`/blog/articles/${blogId}/comments`));
+      if (response.ok) {
+        const data = await response.json();
+        const mapped = (Array.isArray(data) ? data : []).map((c: any) => ({
+          id: String(c.id),
+          authorId: String(c.author_id || ''),
+          content: c.content || '',
+          createdAt: c.created_at || new Date().toISOString(),
+        }));
+        setBlogComments(mapped);
+      } else {
+        setBlogComments([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch comments:', err);
+      setBlogComments([]);
+    } finally {
+      setCommentsLoading(false);
+    }
+  }, [apiCategories]);
+
+  const handleOpenBlogDetails = async (blog: BlogPost) => {
+    setBlogDetailOpen(true);
+    setSelectedBlogId(blog.id);
+    setSelectedBlogDetail(blog);
+    setDetailLoading(true);
+    try {
+      const response = await fetchWithAuth(getApiUrl(`/blog/articles/${blog.id}`));
+      if (response.ok) {
+        const fullBlog = await response.json();
+        const detail: BlogPost = {
+          ...blog,
+          title: fullBlog.title || blog.title,
+          excerpt: fullBlog.excerpt || blog.excerpt,
+          content: fullBlog.content || blog.content || '',
+          coverImage: fullBlog.cover_image || blog.coverImage,
+          category: fullBlog.category?.slug || normalizeCategoryKey(fullBlog.category_name) || blog.category,
+          categoryId: fullBlog.category_id || blog.categoryId,
+          publishedAt: fullBlog.published_at || fullBlog.created_at || blog.publishedAt,
+          readTime: fullBlog.reading_time_minutes || blog.readTime,
+          views: fullBlog.views_count ?? blog.views,
+          likes: fullBlog.reactions_count ?? blog.likes,
+          comments: fullBlog.comments_count ?? blog.comments,
+          authorId: String(fullBlog.author_id || blog.authorId || ''),
+          tags: Array.isArray(fullBlog.tags) ? fullBlog.tags.map((t: any) => (typeof t === 'string' ? t : t?.name)).filter(Boolean) : blog.tags,
+        };
+        setSelectedBlogDetail(detail);
+        setBlogs(prev => prev.map(b => (b.id === blog.id ? { ...b, views: detail.views, comments: detail.comments } : b)));
+      }
+      await fetchComments(blog.id);
+    } catch (err) {
+      console.error('Failed to fetch blog detail:', err);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleSubmitComment = async () => {
+    if (!selectedBlogId || !newComment.trim()) return;
+    try {
+      setCommentSubmitting(true);
+      const response = await fetchWithAuth(getApiUrl(`/blog/articles/${selectedBlogId}/comments`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: newComment.trim() }),
+      });
+      if (response.ok) {
+        setNewComment('');
+        await fetchComments(selectedBlogId);
+        setSelectedBlogDetail(prev => (prev ? { ...prev, comments: prev.comments + 1 } : prev));
+        setBlogs(prev => prev.map(b => (b.id === selectedBlogId ? { ...b, comments: b.comments + 1 } : b)));
+      }
+    } catch (err) {
+      console.error('Failed to add comment:', err);
+    } finally {
+      setCommentSubmitting(false);
     }
   };
 
@@ -698,8 +800,19 @@ const Blogs: React.FC = () => {
   };
 
   const featuredBlogs = blogs.filter(blog => blog.isFeatured);
+  const categoryChips = [{ id: 'all', name: 'All Posts', icon: <StarIcon fontSize="small" /> }].concat(
+    apiCategories.map((c) => ({ id: c.slug, name: c.name, icon: <TagIcon fontSize="small" /> }))
+  );
+  const getCategoryName = (blog: BlogPost): string => (
+    apiCategories.find((c) => c.slug === blog.category || c.id === blog.categoryId)?.name ||
+    blog.category ||
+    'General'
+  );
   const filteredBlogs = blogs.filter(blog => {
-    const matchesCategory = selectedCategory === 'all' || blog.category === selectedCategory;
+    const matchesCategory = selectedCategory === 'all'
+      || blog.category === selectedCategory
+      || blog.categoryId === selectedCategory
+      || normalizeCategoryKey(blog.category) === selectedCategory;
     const matchesSearch = blog.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       blog.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
       blog.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -750,7 +863,7 @@ const Blogs: React.FC = () => {
                   />
                   <Chip
                     icon={<PersonIcon sx={{ color: 'inherit !important' }} />}
-                    label={`${mockAuthors.length} Authors`}
+                    label={`${authorsCount} Authors`}
                     sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 600 }}
                   />
                   <Chip
@@ -763,7 +876,7 @@ const Blogs: React.FC = () => {
               <Grid item xs={12} md={4} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
                 <WriteButton
                   startIcon={<AddIcon />}
-                  onClick={() => setWriteDialogOpen(true)}
+                  onClick={handleOpenCreateDialog}
                 >
                   Write a Blog
                 </WriteButton>
@@ -781,7 +894,7 @@ const Blogs: React.FC = () => {
             <Grid container spacing={3}>
               {featuredBlogs.slice(0, 3).map((blog, index) => (
                 <Grid item xs={12} md={index === 0 ? 6 : 3} key={blog.id}>
-                  <FeaturedBlogCard>
+                  <FeaturedBlogCard onClick={() => handleOpenBlogDetails(blog)}>
                     <CardMedia
                       component="img"
                       image={blog.coverImage}
@@ -805,7 +918,7 @@ const Blogs: React.FC = () => {
                       }}
                     >
                       <Chip
-                        label={categories.find(c => c.id === blog.category)?.name}
+                        label={getCategoryName(blog)}
                         size="small"
                         sx={{
                           bgcolor: colors.accent,
@@ -862,7 +975,7 @@ const Blogs: React.FC = () => {
                 }}
               />
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {categories.map((category) => (
+                {categoryChips.map((category) => (
                   <CategoryChip
                     key={category.id}
                     icon={category.icon}
@@ -878,7 +991,7 @@ const Blogs: React.FC = () => {
             <Grid container spacing={3}>
               {filteredBlogs.map((blog, index) => (
                 <Grid item xs={12} sm={6} key={blog.id}>
-                  <BlogCard sx={{ animationDelay: `${index * 0.1}s` }}>
+                  <BlogCard sx={{ animationDelay: `${index * 0.1}s` }} onClick={() => handleOpenBlogDetails(blog)}>
                     <Box sx={{ position: 'relative', overflow: 'hidden' }}>
                       <CardMedia
                         className="blog-image"
@@ -889,7 +1002,7 @@ const Blogs: React.FC = () => {
                         sx={{ transition: 'transform 0.3s ease' }}
                       />
                       <Chip
-                        label={categories.find(c => c.id === blog.category)?.name}
+                        label={getCategoryName(blog)}
                         size="small"
                         sx={{
                           position: 'absolute',
@@ -935,7 +1048,7 @@ const Blogs: React.FC = () => {
                             )}
                           </Box>
                           <Typography variant="caption" color="text.secondary">
-                            {formatDistanceToNow(new Date(blog.publishedAt), { addSuffix: true })}
+                            {formatDistanceToNow(parseApiDate(blog.publishedAt), { addSuffix: true })}
                           </Typography>
                         </Box>
                       </Box>
@@ -985,10 +1098,6 @@ const Blogs: React.FC = () => {
                             <TimeIcon fontSize="small" />
                             <Typography variant="caption">{blog.readTime} min</Typography>
                           </Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'text.secondary' }}>
-                            <ViewIcon fontSize="small" />
-                            <Typography variant="caption">{formatNumber(blog.views)}</Typography>
-                          </Box>
                         </Box>
                         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
                           {/* Like Button */}
@@ -1011,7 +1120,7 @@ const Blogs: React.FC = () => {
                           </Typography>
 
                           {/* Comment Button */}
-                          <IconButton size="small">
+                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleOpenBlogDetails(blog); }}>
                             <CommentIcon fontSize="small" />
                           </IconButton>
                           <Typography variant="caption" sx={{ minWidth: 20 }}>
@@ -1100,13 +1209,13 @@ const Blogs: React.FC = () => {
                 ✨ Top Authors
               </Typography>
               <List sx={{ p: 0 }}>
-                {mockAuthors.slice(0, 5).map((author, index) => (
+                {topAuthors.map((author, index) => (
                   <ListItem
                     key={author.id}
                     sx={{
                       px: 0,
                       py: 1.5,
-                      borderBottom: index < 4 ? `1px solid ${alpha(colors.primary, 0.1)}` : 'none',
+                      borderBottom: index < topAuthors.length - 1 ? `1px solid ${alpha(colors.primary, 0.1)}` : 'none',
                     }}
                   >
                     <ListItemAvatar>
@@ -1143,6 +1252,9 @@ const Blogs: React.FC = () => {
                     </Button>
                   </ListItem>
                 ))}
+                {topAuthors.length === 0 && (
+                  <Typography variant="body2" color="text.secondary">No author data available.</Typography>
+                )}
               </List>
             </SidebarCard>
 
@@ -1152,7 +1264,7 @@ const Blogs: React.FC = () => {
                 🏷️ Popular Tags
               </Typography>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {popularTags.map((tag) => (
+                {trendingTags.map((tag) => (
                   <Chip
                     key={tag}
                     label={tag}
@@ -1169,6 +1281,9 @@ const Blogs: React.FC = () => {
                     }}
                   />
                 ))}
+                {trendingTags.length === 0 && (
+                  <Typography variant="body2" color="text.secondary">No tag data available.</Typography>
+                )}
               </Box>
             </SidebarCard>
 
@@ -1210,49 +1325,49 @@ const Blogs: React.FC = () => {
               </Button>
             </SidebarCard>
 
-            {/* Reading Stats */}
+            {/* Blog Stats */}
             <SidebarCard>
               <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: colors.text }}>
-                📊 Your Reading Stats
+                📊 Your Blog Stats
               </Typography>
               <Grid container spacing={2}>
                 <Grid item xs={6}>
                   <Box sx={{ textAlign: 'center', p: 2, bgcolor: alpha(colors.primary, 0.05), borderRadius: 2 }}>
                     <Typography variant="h4" sx={{ fontWeight: 700, color: colors.primary }}>
-                      12
+                      {myBlogStats.articles_published}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Articles Read
+                      Articles Published
                     </Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={6}>
                   <Box sx={{ textAlign: 'center', p: 2, bgcolor: alpha(colors.success, 0.1), borderRadius: 2 }}>
                     <Typography variant="h4" sx={{ fontWeight: 700, color: colors.success }}>
-                      2.5h
+                      {formatNumber(myBlogStats.total_views)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Time Spent
+                      Total Views
                     </Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={6}>
                   <Box sx={{ textAlign: 'center', p: 2, bgcolor: alpha(colors.warning, 0.1), borderRadius: 2 }}>
                     <Typography variant="h4" sx={{ fontWeight: 700, color: colors.warning }}>
-                      5
+                      {formatNumber(myBlogStats.comments_received)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Bookmarked
+                      Comments Received
                     </Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={6}>
                   <Box sx={{ textAlign: 'center', p: 2, bgcolor: alpha(colors.error, 0.1), borderRadius: 2 }}>
                     <Typography variant="h4" sx={{ fontWeight: 700, color: colors.error }}>
-                      24
+                      {formatNumber(myBlogStats.reactions_received)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Likes Given
+                      Reactions Received
                     </Typography>
                   </Box>
                 </Grid>
@@ -1373,24 +1488,18 @@ const Blogs: React.FC = () => {
               <MenuItem value="">
                 <em>No category</em>
               </MenuItem>
-              {apiCategories.length > 0 ? (
-                // Use API categories if available
-                apiCategories.map((cat) => (
-                  <MenuItem key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </MenuItem>
-                ))
-              ) : (
-                // Show mock categories for UI (won't be sent to API)
-                categories.filter(c => c.id !== 'all').map((cat) => (
-                  <MenuItem key={cat.id} value="" disabled>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {cat.icon}
-                      {cat.name} (Create in admin)
-                    </Box>
-                  </MenuItem>
-                ))
-              )}
+               {apiCategories.length > 0 ? (
+                 // Use API categories if available
+                 apiCategories.map((cat) => (
+                   <MenuItem key={cat.id} value={cat.id}>
+                     {cat.name}
+                   </MenuItem>
+                 ))
+               ) : (
+                 <MenuItem value="" disabled>
+                   No categories available
+                 </MenuItem>
+               )}
             </Select>
           </FormControl>
 
@@ -1434,6 +1543,96 @@ const Blogs: React.FC = () => {
           >
             {publishing ? 'Publishing...' : 'Publish Blog'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Blog Details Dialog */}
+      <Dialog
+        open={blogDetailOpen}
+        onClose={() => setBlogDetailOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          {selectedBlogDetail?.title || 'Blog Details'}
+        </DialogTitle>
+        <DialogContent dividers>
+          {detailLoading ? (
+            <Typography color="text.secondary">Loading blog details...</Typography>
+          ) : (
+            <>
+              {selectedBlogDetail?.coverImage && (
+                <Box
+                  component="img"
+                  src={selectedBlogDetail.coverImage}
+                  alt={selectedBlogDetail.title}
+                  sx={{ width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 2, mb: 2 }}
+                />
+              )}
+              <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                <Chip size="small" label={selectedBlogDetail?.category || 'General'} />
+                <Chip size="small" icon={<TimeIcon fontSize="small" />} label={`${selectedBlogDetail?.readTime || 1} min read`} />
+              </Box>
+              <Typography sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, mb: 3 }}>
+                {selectedBlogDetail?.content || selectedBlogDetail?.excerpt || 'No content available.'}
+              </Typography>
+
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
+                Comments ({blogComments.length})
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  placeholder="Write a comment..."
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                />
+                <Button
+                  variant="contained"
+                  onClick={handleSubmitComment}
+                  disabled={commentSubmitting || !newComment.trim()}
+                  sx={{ textTransform: 'none' }}
+                >
+                  {commentSubmitting ? 'Posting...' : 'Post'}
+                </Button>
+              </Box>
+              {commentsLoading ? (
+                <Typography color="text.secondary">Loading comments...</Typography>
+              ) : blogComments.length === 0 ? (
+                <Typography color="text.secondary">No comments yet.</Typography>
+              ) : (
+                <List sx={{ p: 0 }}>
+                  {blogComments.map((comment) => (
+                    <ListItem key={comment.id} sx={{ px: 0, alignItems: 'flex-start' }}>
+                      <ListItemAvatar>
+                        <Avatar sx={{ width: 32, height: 32, bgcolor: colors.primary }}>
+                          {(comment.authorId || 'U')[0]?.toUpperCase() || 'U'}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={
+                          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {String(comment.authorId) === String(currentUserId) ? 'You' : 'User'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
+                            </Typography>
+                          </Box>
+                        }
+                        secondary={comment.content}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBlogDetailOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 
@@ -1534,4 +1733,5 @@ const Blogs: React.FC = () => {
 };
 
 export default Blogs;
+
 
