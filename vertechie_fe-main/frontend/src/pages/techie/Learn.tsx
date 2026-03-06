@@ -288,7 +288,7 @@ const Learn: React.FC = () => {
           api.get<CourseEnrollment[]>(API_ENDPOINTS.COURSES.MY_ENROLLMENTS),
           api.get<LeaderboardUser[]>(API_ENDPOINTS.PRACTICE.LEADERBOARD),
           api.get<{ id: string }>(API_ENDPOINTS.AUTH.ME),
-          api.get<CourseListItem[]>(API_ENDPOINTS.COURSES.LIST, { params: { limit: 200 } }),
+          api.get<CourseListItem[]>(API_ENDPOINTS.COURSES.LIST, { params: { limit: 100 } }),
         ]);
 
         if (!isMounted) {

@@ -63,6 +63,10 @@ class GroupResponse(BaseModel):
     
     created_by_id: UUID
     created_at: datetime
+    is_joined: bool = False
+    membership_role: Optional[str] = None
+    can_edit: bool = False
+    can_delete: bool = False
     
     class Config:
         from_attributes = True
@@ -212,6 +216,24 @@ class EventCreate(BaseModel):
     max_attendees: Optional[int] = None
 
 
+class EventUpdate(BaseModel):
+    """Update event."""
+
+    title: Optional[str] = None
+    description: Optional[str] = None
+    start_date: Optional[str] = None  # ISO format datetime
+    end_date: Optional[str] = None
+    timezone: Optional[str] = None
+    event_type: Optional[str] = None
+    location: Optional[str] = None
+    is_virtual: Optional[bool] = None
+    meeting_link: Optional[str] = None
+    cover_image: Optional[str] = None
+    is_public: Optional[bool] = None
+    requires_approval: Optional[bool] = None
+    max_attendees: Optional[int] = None
+
+
 class EventResponse(BaseModel):
     """Event response."""
     
@@ -233,6 +255,10 @@ class EventResponse(BaseModel):
     attendees_count: int = 0
     views_count: int = 0
     is_registered: bool = False
+    is_host: bool = False
+    can_edit: bool = False
+    can_delete: bool = False
+    can_join_now: bool = False
     created_at: datetime
     
     class Config:
@@ -258,6 +284,25 @@ class StartupIdeaCreate(BaseModel):
     team_size: int = 0
     founder_roles: List[str] = []
     founder_skills: List[str] = []
+    founder_commitment: Optional[str] = None
+    founder_funding: Optional[str] = None
+
+
+class StartupIdeaUpdate(BaseModel):
+    """Update startup idea."""
+
+    title: Optional[str] = None
+    description: Optional[str] = None
+    problem: Optional[str] = None
+    target_market: Optional[str] = None
+    stage: Optional[str] = None
+    commitment: Optional[str] = None
+    funding_status: Optional[str] = None
+    roles_needed: Optional[List[str]] = None
+    skills_needed: Optional[List[str]] = None
+    team_size: Optional[int] = None
+    founder_roles: Optional[List[str]] = None
+    founder_skills: Optional[List[str]] = None
     founder_commitment: Optional[str] = None
     founder_funding: Optional[str] = None
 

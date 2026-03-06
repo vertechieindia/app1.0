@@ -7,10 +7,11 @@ import {
   Box, Typography, Card, CardContent, Button, Grid, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   FormControl, InputLabel, Select, MenuItem, Snackbar, Alert,
-  useTheme, alpha, CircularProgress,
+  alpha, CircularProgress,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { Groups, Lock, Add, Refresh } from '@mui/icons-material';
+import { Groups, Lock, Add, Refresh, Edit, Delete } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import NetworkLayout from '../../components/network/NetworkLayout';
 import { communityService, Group as BackendGroup } from '../../services/communityService';
 
@@ -50,24 +51,48 @@ interface Group {
   is_joined: boolean;
   is_private: boolean;
   is_featured?: boolean;
+  created_by_id?: string;
+  can_edit?: boolean;
+  can_delete?: boolean;
+  membership_role?: string | null;
 }
+
+const NAME_REGEX = /^[A-Za-z][A-Za-z0-9 &'().,-]{2,79}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const hasLetters = (value: string) => /[A-Za-z]/.test(value);
+const normalizeSpaces = (value: string) => value.replace(/\s+/g, ' ').trim();
 
 // ============================================
 // COMPONENT
 // ============================================
 const NetworkGroups: React.FC = () => {
-  const theme = useTheme();
+  const navigate = useNavigate();
+  const currentUserId = (() => {
+    try {
+      return String(JSON.parse(localStorage.getItem('userData') || '{}')?.id || '');
+    } catch {
+      return '';
+    }
+  })();
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [createGroupDialogOpen, setCreateGroupDialogOpen] = useState(false);
+  const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [newGroupData, setNewGroupData] = useState({
     name: '',
     description: '',
     privacy: 'public',
     category: 'technology',
     inviteMembers: '',
+  });
+  const [editGroupData, setEditGroupData] = useState({
+    name: '',
+    description: '',
+    privacy: 'public',
   });
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
 
@@ -94,10 +119,14 @@ const NetworkGroups: React.FC = () => {
         icon: bg.avatar_url || undefined,
         member_count: bg.member_count || 0,
         post_count: bg.post_count || 0,
-        category: bg.category || 'Technology',
-        is_joined: !!(bg as any).is_joined,
-        is_private: ((bg as any).group_type || (bg as any).type) === 'private',
+        category: bg.category || 'technology',
+        is_joined: !!bg.is_joined,
+        is_private: (bg.group_type || 'public') === 'private',
         is_featured: !!(bg as any).is_featured,
+        created_by_id: bg.created_by_id,
+        can_edit: !!bg.can_edit,
+        can_delete: !!bg.can_delete,
+        membership_role: bg.membership_role ?? null,
       }));
       
       setGroups(mappedGroups);
@@ -136,13 +165,33 @@ const NetworkGroups: React.FC = () => {
 
   // Create group
   const handleCreateGroup = async () => {
-    if (!newGroupData.name.trim() || !newGroupData.description.trim()) return;
+    const name = normalizeSpaces(newGroupData.name);
+    const description = normalizeSpaces(newGroupData.description);
+    const inviteRaw = normalizeSpaces(newGroupData.inviteMembers);
+    const inviteEmails = inviteRaw ? inviteRaw.split(',').map((e) => e.trim()).filter(Boolean) : [];
+
+    if (!name || !description) {
+      setSnackbar({ open: true, message: 'Group name and description are required.', severity: 'error' });
+      return;
+    }
+    if (!NAME_REGEX.test(name)) {
+      setSnackbar({ open: true, message: 'Group name should start with letter and avoid unwanted characters.', severity: 'error' });
+      return;
+    }
+    if (!hasLetters(description) || description.length < 10) {
+      setSnackbar({ open: true, message: 'Description must be meaningful and at least 10 characters.', severity: 'error' });
+      return;
+    }
+    if (inviteEmails.some((email) => !EMAIL_REGEX.test(email))) {
+      setSnackbar({ open: true, message: 'One or more invite emails are invalid.', severity: 'error' });
+      return;
+    }
     
     try {
-      const result = await communityService.createGroup({
-        name: newGroupData.name,
-        description: newGroupData.description,
-        type: newGroupData.privacy === 'private' ? 'private' : 'public',
+      await communityService.createGroup({
+        name,
+        description,
+        group_type: newGroupData.privacy === 'private' ? 'private' : 'public',
         category: newGroupData.category,
       });
       
@@ -158,10 +207,90 @@ const NetworkGroups: React.FC = () => {
     }
   };
 
+  const handleOpenEditGroup = (group: Group) => {
+    setEditingGroup(group);
+    setEditGroupData({
+      name: group.name,
+      description: group.description || '',
+      privacy: group.is_private ? 'private' : 'public',
+    });
+    setEditGroupDialogOpen(true);
+  };
+
+  const handleUpdateGroup = async () => {
+    if (!editingGroup) return;
+    const name = normalizeSpaces(editGroupData.name);
+    const description = normalizeSpaces(editGroupData.description);
+    if (!name || !description) {
+      setSnackbar({ open: true, message: 'Group name and description are required.', severity: 'error' });
+      return;
+    }
+    if (!NAME_REGEX.test(name)) {
+      setSnackbar({ open: true, message: 'Group name should start with letter and avoid unwanted characters.', severity: 'error' });
+      return;
+    }
+    if (!hasLetters(description) || description.length < 10) {
+      setSnackbar({ open: true, message: 'Description must be meaningful and at least 10 characters.', severity: 'error' });
+      return;
+    }
+
+    try {
+      await communityService.updateGroup(editingGroup.id, {
+        name,
+        description,
+        group_type: editGroupData.privacy === 'private' ? 'private' : 'public',
+      });
+      await fetchGroups();
+      setSnackbar({ open: true, message: 'Group updated successfully!', severity: 'success' });
+      setEditGroupDialogOpen(false);
+      setEditingGroup(null);
+    } catch (err) {
+      console.error('Error updating group:', err);
+      setSnackbar({ open: true, message: 'Failed to update group. Please try again.', severity: 'error' });
+    }
+  };
+
+  const handleDeleteGroup = async (group: Group) => {
+    const ok = window.confirm(`Delete "${group.name}"? This cannot be undone.`);
+    if (!ok) return;
+
+    try {
+      await communityService.deleteGroup(group.id);
+      setGroups(prev => prev.filter(g => g.id !== group.id));
+      setSnackbar({ open: true, message: 'Group deleted successfully!', severity: 'success' });
+    } catch (err) {
+      console.error('Error deleting group:', err);
+      setSnackbar({ open: true, message: 'Failed to delete group. Please try again.', severity: 'error' });
+    }
+  };
+
+  const handleOpenGroupChat = async (group: Group) => {
+    try {
+      if (!group.is_joined) {
+        setSnackbar({ open: true, message: 'Join this group first to start chatting.', severity: 'error' });
+        return;
+      }
+
+      const chat = await communityService.getOrCreateGroupChatConversation(group.id);
+      navigate('/techie/chat', {
+        state: {
+          startGroupChat: {
+            conversationId: chat.conversation_id,
+            groupId: group.id,
+            groupName: group.name,
+          },
+        },
+      });
+    } catch (err) {
+      console.error('Error opening group chat:', err);
+      setSnackbar({ open: true, message: 'Failed to open group chat. Please try again.', severity: 'error' });
+    }
+  };
+
   // Filter groups by category
   const filteredGroups = selectedCategory === 'All' 
     ? groups 
-    : groups.filter(g => g.category === selectedCategory);
+    : groups.filter(g => (g.category || '').toLowerCase() === selectedCategory.toLowerCase());
 
   return (
     <NetworkLayout>
@@ -227,7 +356,10 @@ const NetworkGroups: React.FC = () => {
       <Grid container spacing={3}>
         {filteredGroups.map(group => (
           <Grid item xs={12} sm={6} key={group.id}>
-            <GroupCard>
+            <GroupCard
+              onClick={() => handleOpenGroupChat(group)}
+              sx={{ cursor: group.is_joined ? 'pointer' : 'default' }}
+            >
               <Box sx={{ 
                 height: 100, 
                 background: `linear-gradient(135deg, ${alpha('#1976d2', 0.8)} 0%, ${alpha('#7c3aed', 0.8)} 100%)`,
@@ -242,6 +374,31 @@ const NetworkGroups: React.FC = () => {
                   <Typography variant="h6" sx={{ fontWeight: 600, flex: 1 }}>
                     {group.name}
                   </Typography>
+                  {group.can_edit && (
+                    <Button
+                      size="small"
+                      startIcon={<Edit />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenEditGroup(group);
+                      }}
+                    >
+                      Edit
+                    </Button>
+                  )}
+                  {group.can_delete && (
+                    <Button
+                      size="small"
+                      color="error"
+                      startIcon={<Delete />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteGroup(group);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  )}
                   {group.is_private && <Lock fontSize="small" color="action" />}
                   {group.is_featured && <Chip label="Featured" size="small" color="primary" />}
                 </Box>
@@ -252,14 +409,22 @@ const NetworkGroups: React.FC = () => {
                   <Typography variant="caption" color="text.secondary">
                     {group.member_count.toLocaleString()} members • {group.post_count} posts
                   </Typography>
-                  <Button 
-                    variant={group.is_joined ? 'outlined' : 'contained'}
-                    size="small"
-                    sx={{ borderRadius: 2 }}
-                    onClick={() => group.is_joined ? handleLeaveGroup(group.id) : handleJoinGroup(group.id)}
-                  >
-                    {group.is_joined ? 'Joined' : 'Join'}
-                  </Button>
+                  {group.membership_role === 'owner' || group.created_by_id === currentUserId ? (
+                    <Chip label="Owner" size="small" color="primary" variant="outlined" />
+                  ) : (
+                    <Button 
+                      variant={group.is_joined ? 'outlined' : 'contained'}
+                      size="small"
+                      sx={{ borderRadius: 2 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (group.is_joined) handleLeaveGroup(group.id);
+                        else handleJoinGroup(group.id);
+                      }}
+                    >
+                      {group.is_joined ? 'Joined' : 'Join'}
+                    </Button>
+                  )}
                 </Box>
               </CardContent>
             </GroupCard>
@@ -336,6 +501,58 @@ const NetworkGroups: React.FC = () => {
             sx={{ borderRadius: 2 }}
           >
             Create Group
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Group Dialog */}
+      <Dialog
+        open={editGroupDialogOpen}
+        onClose={() => setEditGroupDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>Edit Group</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            label="Group Name"
+            value={editGroupData.name}
+            onChange={(e) => setEditGroupData({ ...editGroupData, name: e.target.value })}
+            margin="normal"
+            required
+          />
+          <TextField
+            fullWidth
+            label="Description"
+            value={editGroupData.description}
+            onChange={(e) => setEditGroupData({ ...editGroupData, description: e.target.value })}
+            margin="normal"
+            multiline
+            rows={3}
+            required
+          />
+          <FormControl fullWidth margin="normal">
+            <InputLabel>Privacy</InputLabel>
+            <Select
+              value={editGroupData.privacy}
+              label="Privacy"
+              onChange={(e) => setEditGroupData({ ...editGroupData, privacy: e.target.value })}
+            >
+              <MenuItem value="public">Public - Anyone can join</MenuItem>
+              <MenuItem value="private">Private - Requires approval</MenuItem>
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditGroupDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleUpdateGroup}
+            disabled={!editGroupData.name.trim() || !editGroupData.description.trim()}
+            sx={{ borderRadius: 2 }}
+          >
+            Save Changes
           </Button>
         </DialogActions>
       </Dialog>

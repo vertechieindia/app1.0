@@ -250,6 +250,37 @@ const normalizeCategoryKey = (value?: string): string => {
   return raw.replace(/[^a-z0-9]/g, '');
 };
 
+const FALLBACK_BLOG_CATEGORIES = [
+  { id: '', name: 'Technology', slug: 'tech' },
+  { id: '', name: 'AI & ML', slug: 'ai' },
+  { id: '', name: 'Career Growth', slug: 'career' },
+  { id: '', name: 'Learning', slug: 'learning' },
+  { id: '', name: 'Startups', slug: 'startup' },
+  { id: '', name: 'Community', slug: 'community' },
+];
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CATEGORY_TAG_PREFIX = 'vt_category:';
+
+const getCategoryFromTags = (rawTags: any[]): string => {
+  if (!Array.isArray(rawTags)) return '';
+  for (const tag of rawTags) {
+    if (typeof tag !== 'string') continue;
+    const trimmed = tag.trim().toLowerCase();
+    if (trimmed.startsWith(CATEGORY_TAG_PREFIX)) {
+      return trimmed.replace(CATEGORY_TAG_PREFIX, '').trim();
+    }
+  }
+  return '';
+};
+
+const stripSystemTags = (rawTags: any[]): string[] => {
+  if (!Array.isArray(rawTags)) return [];
+  return rawTags
+    .filter((t): t is string => typeof t === 'string')
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0 && !t.toLowerCase().startsWith(CATEGORY_TAG_PREFIX));
+};
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -306,6 +337,10 @@ const Blogs: React.FC = () => {
   // API Categories
   const [apiCategories, setApiCategories] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [topAuthors, setTopAuthors] = useState<Author[]>([]);
+  const [followedAuthorIds, setFollowedAuthorIds] = useState<Set<string>>(new Set());
+  const [followLoadingAuthorId, setFollowLoadingAuthorId] = useState<string | null>(null);
+  const [newsletterEmail, setNewsletterEmail] = useState('');
+  const [newsletterSubmitting, setNewsletterSubmitting] = useState(false);
   const [authorsCount, setAuthorsCount] = useState(0);
   const [trendingTags, setTrendingTags] = useState<string[]>([]);
   const [myBlogStats, setMyBlogStats] = useState({
@@ -355,6 +390,24 @@ const Blogs: React.FC = () => {
       console.error('Error fetching top authors:', err);
       setTopAuthors([]);
       setAuthorsCount(0);
+    }
+  }, []);
+
+  const fetchFollowingAuthors = useCallback(async () => {
+    try {
+      const response = await fetchWithAuth(getApiUrl('/network/following'));
+      if (!response.ok) {
+        setFollowedAuthorIds(new Set());
+        return;
+      }
+      const data = await response.json();
+      const ids = (Array.isArray(data) ? data : [])
+        .map((item: any) => String(item?.following_id || item?.user_id || ''))
+        .filter(Boolean);
+      setFollowedAuthorIds(new Set(ids));
+    } catch (err) {
+      console.error('Error fetching following authors:', err);
+      setFollowedAuthorIds(new Set());
     }
   }, []);
 
@@ -408,7 +461,8 @@ const Blogs: React.FC = () => {
         const mappedBlogs: BlogPost[] = data.map((article: any) => {
           const categoryId = article.category_id ? String(article.category_id) : '';
           const categoryFromApi = apiCategories.find((c) => String(c.id) === categoryId);
-          const fallbackCategory = article.category_slug || article.category_name || 'tech';
+          const categoryFromTag = getCategoryFromTags(article.tags || []);
+          const fallbackCategory = article.category_slug || article.category_name || categoryFromTag || 'tech';
           const categoryKey = categoryFromApi?.slug || normalizeCategoryKey(fallbackCategory) || 'tech';
           const readingTimeMinutes = Number(article.reading_time_minutes ?? article.read_time ?? Math.ceil((article.content?.length || 500) / 1000));
           return {
@@ -430,7 +484,7 @@ const Blogs: React.FC = () => {
             views: article.views_count || 0,
             likes: article.likes_count || 0,
             comments: article.comments_count || 0,
-            tags: article.tags || [],
+            tags: stripSystemTags(article.tags || []),
             isFeatured: article.is_featured || false,
             isTrending: article.is_trending || false,
             authorId: article.author_id,
@@ -465,10 +519,11 @@ const Blogs: React.FC = () => {
   useEffect(() => {
     fetchCategories();
     fetchTopAuthors();
+    fetchFollowingAuthors();
     fetchTrendingTags();
     fetchMyBlogStats();
     fetchMyBookmarks();
-  }, [fetchCategories, fetchTopAuthors, fetchTrendingTags, fetchMyBlogStats, fetchMyBookmarks]);
+  }, [fetchCategories, fetchTopAuthors, fetchFollowingAuthors, fetchTrendingTags, fetchMyBlogStats, fetchMyBookmarks]);
 
   useEffect(() => {
     fetchBlogs();
@@ -613,7 +668,7 @@ const Blogs: React.FC = () => {
         setEditingBlogId(blog.id);
         setBlogTitle(fullBlog.title || blog.title);
         setBlogCategory(fullBlog.category_id || '');
-        setBlogTags(Array.isArray(fullBlog.tags) ? fullBlog.tags.join(', ') : '');
+        setBlogTags(stripSystemTags(fullBlog.tags || []).join(', '));
         setBlogContent(fullBlog.content || '');
         setCoverImage(fullBlog.cover_image || blog.coverImage);
         setWriteDialogOpen(true);
@@ -687,7 +742,7 @@ const Blogs: React.FC = () => {
           excerpt: fullBlog.excerpt || blog.excerpt,
           content: fullBlog.content || blog.content || '',
           coverImage: fullBlog.cover_image || blog.coverImage,
-          category: fullBlog.category?.slug || normalizeCategoryKey(fullBlog.category_name) || blog.category,
+          category: fullBlog.category?.slug || normalizeCategoryKey(fullBlog.category_name) || getCategoryFromTags(fullBlog.tags || []) || blog.category,
           categoryId: fullBlog.category_id || blog.categoryId,
           publishedAt: fullBlog.published_at || fullBlog.created_at || blog.publishedAt,
           readTime: fullBlog.reading_time_minutes || blog.readTime,
@@ -695,7 +750,9 @@ const Blogs: React.FC = () => {
           likes: fullBlog.reactions_count ?? blog.likes,
           comments: fullBlog.comments_count ?? blog.comments,
           authorId: String(fullBlog.author_id || blog.authorId || ''),
-          tags: Array.isArray(fullBlog.tags) ? fullBlog.tags.map((t: any) => (typeof t === 'string' ? t : t?.name)).filter(Boolean) : blog.tags,
+          tags: stripSystemTags(
+            Array.isArray(fullBlog.tags) ? fullBlog.tags.map((t: any) => (typeof t === 'string' ? t : t?.name)) : blog.tags
+          ),
         };
         setSelectedBlogDetail(detail);
         setBlogs(prev => prev.map(b => (b.id === blog.id ? { ...b, views: detail.views, comments: detail.comments } : b)));
@@ -748,6 +805,18 @@ const Blogs: React.FC = () => {
       setPublishing(true);
       const slug = generateSlug(blogTitle);
       const tagsArray = blogTags.split(',').map(tag => tag.trim()).filter(Boolean);
+      let effectiveCategorySlug = '';
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (blogCategory) {
+        if (uuidRegex.test(blogCategory)) {
+          const matchedById = apiCategories.find((cat) => cat.id === blogCategory);
+          effectiveCategorySlug = matchedById?.slug || '';
+        } else {
+          effectiveCategorySlug = normalizeCategoryKey(blogCategory);
+        }
+      }
+      const categoryMarkerTag = effectiveCategorySlug ? `${CATEGORY_TAG_PREFIX}${effectiveCategorySlug}` : '';
+      const finalTags = Array.from(new Set([...(tagsArray || []), ...(categoryMarkerTag ? [categoryMarkerTag] : [])]));
 
       // Build article data - set status to "published" so it's visible to all users
       const articleData: any = {
@@ -755,7 +824,7 @@ const Blogs: React.FC = () => {
         slug: slug,
         content: blogContent.trim(),
         excerpt: blogContent.substring(0, 200).trim(),
-        tags: tagsArray,
+        tags: finalTags,
         status: "published",  // Make blog visible immediately
       };
 
@@ -766,9 +835,13 @@ const Blogs: React.FC = () => {
 
       // Only add category_id if a valid API category is selected
       // Check if it's a valid UUID (from API categories)
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (blogCategory && uuidRegex.test(blogCategory)) {
         articleData.category_id = blogCategory;
+      } else if (blogCategory) {
+        const matchedApiCategory = apiCategories.find((cat) => cat.slug === blogCategory);
+        if (matchedApiCategory && uuidRegex.test(matchedApiCategory.id)) {
+          articleData.category_id = matchedApiCategory.id;
+        }
       }
 
       const response = await fetchWithAuth(
@@ -800,24 +873,95 @@ const Blogs: React.FC = () => {
   };
 
   const featuredBlogs = blogs.filter(blog => blog.isFeatured);
-  const categoryChips = [{ id: 'all', name: 'All Posts', icon: <StarIcon fontSize="small" /> }].concat(
-    apiCategories.map((c) => ({ id: c.slug, name: c.name, icon: <TagIcon fontSize="small" /> }))
-  );
+  const categoryOptions = (apiCategories.length > 0 ? apiCategories : FALLBACK_BLOG_CATEGORIES).map((cat) => ({
+    value: apiCategories.length > 0 ? cat.id : cat.slug,
+    label: cat.name,
+  }));
+  const chipMap = new Map<string, { id: string; name: string; icon: React.ReactElement }>();
+  FALLBACK_BLOG_CATEGORIES.forEach((cat) => {
+    chipMap.set(cat.slug, { id: cat.slug, name: cat.name, icon: <TagIcon fontSize="small" /> });
+  });
+  apiCategories.forEach((cat) => {
+    if (cat.slug) {
+      chipMap.set(cat.slug, { id: cat.slug, name: cat.name, icon: <TagIcon fontSize="small" /> });
+    }
+  });
+  const categoryChips = [{ id: 'all', name: 'All Posts', icon: <StarIcon fontSize="small" /> }, ...Array.from(chipMap.values())];
+  const getBlogCategoryKey = (blog: BlogPost): string => {
+    if (blog.category && blog.category.trim()) return normalizeCategoryKey(blog.category);
+    if (blog.categoryId) {
+      const fromApi = apiCategories.find((c) => c.id === blog.categoryId);
+      if (fromApi?.slug) return normalizeCategoryKey(fromApi.slug);
+    }
+    return '';
+  };
   const getCategoryName = (blog: BlogPost): string => (
+    categoryChips.find((c) => c.id === getBlogCategoryKey(blog))?.name ||
     apiCategories.find((c) => c.slug === blog.category || c.id === blog.categoryId)?.name ||
-    blog.category ||
+    blog.category?.replace(/[-_]/g, ' ') ||
     'General'
   );
   const filteredBlogs = blogs.filter(blog => {
-    const matchesCategory = selectedCategory === 'all'
-      || blog.category === selectedCategory
-      || blog.categoryId === selectedCategory
-      || normalizeCategoryKey(blog.category) === selectedCategory;
+    const blogCategoryKey = getBlogCategoryKey(blog);
+    const selectedCategoryKey = normalizeCategoryKey(selectedCategory);
+    const matchesCategory = selectedCategory === 'all' || blogCategoryKey === selectedCategoryKey;
     const matchesSearch = blog.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       blog.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
       blog.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
     return matchesCategory && matchesSearch;
   });
+
+  const handleFollowAuthor = async (author: Author) => {
+    const authorId = String(author.id || '');
+    if (!authorId || followedAuthorIds.has(authorId)) return;
+    try {
+      setFollowLoadingAuthorId(authorId);
+      const response = await fetchWithAuth(getApiUrl(`/network/follow/${authorId}`), { method: 'POST' });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        alert(errData?.detail || 'Failed to follow author.');
+        return;
+      }
+      setFollowedAuthorIds((prev) => new Set(prev).add(authorId));
+      setTopAuthors((prev) =>
+        prev.map((a) => (String(a.id) === authorId ? { ...a, followers: Number(a.followers || 0) + 1 } : a))
+      );
+      await fetchFollowingAuthors();
+      await fetchTopAuthors();
+    } catch (err) {
+      console.error('Follow author failed:', err);
+      alert('Failed to follow author.');
+    } finally {
+      setFollowLoadingAuthorId(null);
+    }
+  };
+
+  const handleNewsletterSubscribe = async () => {
+    const email = newsletterEmail.trim().toLowerCase();
+    if (!EMAIL_REGEX.test(email)) {
+      alert('Enter a valid email address.');
+      return;
+    }
+    try {
+      setNewsletterSubmitting(true);
+      const response = await fetchWithAuth(
+        getApiUrl(`/blog/newsletter/subscribe?email=${encodeURIComponent(email)}`),
+        { method: 'POST' }
+      );
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        alert(errData?.detail || 'Failed to subscribe newsletter.');
+        return;
+      }
+      setNewsletterEmail('');
+      alert('Newsletter subscribed successfully.');
+    } catch (err) {
+      console.error('Newsletter subscribe failed:', err);
+      alert('Failed to subscribe newsletter.');
+    } finally {
+      setNewsletterSubmitting(false);
+    }
+  };
 
   const handleLike = (blogId: string) => {
     setBlogs(prev => prev.map(blog =>
@@ -975,6 +1119,9 @@ const Blogs: React.FC = () => {
                 }}
               />
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ width: '100%', mb: 0.5 }}>
+                  Filter by category
+                </Typography>
                 {categoryChips.map((category) => (
                   <CategoryChip
                     key={category.id}
@@ -1234,11 +1381,13 @@ const Blogs: React.FC = () => {
                           )}
                         </Box>
                       }
-                      secondary={author.title}
+                      secondary={`${author.title || 'Author'}${author.followers ? ` • ${author.followers} followers` : ''}`}
                     />
                     <Button
                       size="small"
                       variant="outlined"
+                      disabled={followLoadingAuthorId === String(author.id) || followedAuthorIds.has(String(author.id))}
+                      onClick={() => handleFollowAuthor(author)}
                       sx={{
                         borderRadius: 2,
                         textTransform: 'none',
@@ -1248,7 +1397,7 @@ const Blogs: React.FC = () => {
                         px: 2,
                       }}
                     >
-                      Follow
+                      {followedAuthorIds.has(String(author.id)) ? 'Following' : (followLoadingAuthorId === String(author.id) ? '...' : 'Follow')}
                     </Button>
                   </ListItem>
                 ))}
@@ -1299,6 +1448,8 @@ const Blogs: React.FC = () => {
                 fullWidth
                 placeholder="Enter your email"
                 size="small"
+                value={newsletterEmail}
+                onChange={(e) => setNewsletterEmail(e.target.value)}
                 sx={{
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
@@ -1310,6 +1461,8 @@ const Blogs: React.FC = () => {
               <Button
                 fullWidth
                 variant="contained"
+                onClick={handleNewsletterSubscribe}
+                disabled={newsletterSubmitting || !newsletterEmail.trim()}
                 sx={{
                   bgcolor: 'white',
                   color: colors.primary,
@@ -1321,7 +1474,7 @@ const Blogs: React.FC = () => {
                   },
                 }}
               >
-                Subscribe
+                {newsletterSubmitting ? 'Subscribing...' : 'Subscribe'}
               </Button>
             </SidebarCard>
 
@@ -1488,18 +1641,11 @@ const Blogs: React.FC = () => {
               <MenuItem value="">
                 <em>No category</em>
               </MenuItem>
-               {apiCategories.length > 0 ? (
-                 // Use API categories if available
-                 apiCategories.map((cat) => (
-                   <MenuItem key={cat.id} value={cat.id}>
-                     {cat.name}
-                   </MenuItem>
-                 ))
-               ) : (
-                 <MenuItem value="" disabled>
-                   No categories available
-                 </MenuItem>
-               )}
+              {categoryOptions.map((cat) => (
+                <MenuItem key={`${cat.value}-${cat.label}`} value={cat.value}>
+                  {cat.label}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
 

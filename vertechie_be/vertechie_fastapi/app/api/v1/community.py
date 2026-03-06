@@ -21,15 +21,17 @@ from app.models.community import (
     Event, EventRegistration, StartupIdea, FounderMatch,
     GroupType, GroupMemberRole, PostType
 )
+from app.models.chat import Conversation, ChatMember, ConversationType, MemberRole
+from app.models.network import Connection, ConnectionRequest, ConnectionStatus
 from app.models.user import User, UserProfile
 from app.schemas.community import (
     GroupCreate, GroupUpdate, GroupResponse, GroupMemberResponse,
     PostCreate, PostUpdate, PostResponse,
     CommentCreate, CommentUpdate, CommentResponse,
-    ReactionCreate, EventCreate, EventResponse,
-    StartupIdeaCreate, StartupIdeaResponse
+    ReactionCreate, EventCreate, EventUpdate, EventResponse,
+    StartupIdeaCreate, StartupIdeaUpdate, StartupIdeaResponse
 )
-from app.core.security import get_current_user, get_optional_user
+from app.core.security import get_current_user
 
 router = APIRouter()
 
@@ -39,6 +41,7 @@ router = APIRouter()
 @router.get("/groups", response_model=List[GroupResponse])
 async def list_groups(
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None),
@@ -60,13 +63,50 @@ async def list_groups(
         )
     
     if category:
-        query = query.where(Group.category == category)
+        query = query.where(func.lower(Group.category) == category.strip().lower())
     
     query = query.order_by(Group.is_featured.desc(), Group.member_count.desc())
     query = query.offset(skip).limit(limit)
     
     result = await db.execute(query)
-    return result.scalars().all()
+    groups = result.scalars().all()
+
+    group_ids = [group.id for group in groups]
+    membership_by_group: dict[UUID, GroupMemberRole] = {}
+    if group_ids:
+        member_rows = await db.execute(
+            select(GroupMember.group_id, GroupMember.role).where(
+                GroupMember.group_id.in_(group_ids),
+                GroupMember.user_id == current_user.id,
+                GroupMember.is_approved == True,
+                GroupMember.is_banned == False,
+            )
+        )
+        for gid, role in member_rows.all():
+            membership_by_group[gid] = role
+
+    responses: List[GroupResponse] = []
+    for group in groups:
+        membership_role = membership_by_group.get(group.id)
+        role_str = membership_role.value if membership_role else None
+        is_joined = membership_role is not None
+        is_owner = group.created_by_id == current_user.id or membership_role == GroupMemberRole.OWNER
+        can_edit = is_owner or membership_role == GroupMemberRole.ADMIN
+        can_delete = is_owner
+
+        base = GroupResponse.model_validate(group)
+        responses.append(
+            base.model_copy(
+                update={
+                    "is_joined": is_joined,
+                    "membership_role": role_str,
+                    "can_edit": can_edit,
+                    "can_delete": can_delete,
+                }
+            )
+        )
+
+    return responses
 
 
 @router.post("/groups", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
@@ -160,6 +200,146 @@ async def update_group(
     await db.refresh(group)
     
     return group
+
+
+@router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_group(
+    group_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> None:
+    """Delete (deactivate) a group. Only creator/owner can delete."""
+
+    result = await db.execute(
+        select(Group).where(Group.id == group_id, Group.is_active == True)
+    )
+    group = result.scalar_one_or_none()
+
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+
+    result = await db.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == current_user.id,
+            GroupMember.role == GroupMemberRole.OWNER
+        )
+    )
+    owner_member = result.scalar_one_or_none()
+
+    if group.created_by_id != current_user.id and not owner_member:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this group"
+        )
+
+    group.is_active = False
+    await db.commit()
+
+
+@router.post("/groups/{group_id}/chat-conversation")
+async def get_or_create_group_chat_conversation(
+    group_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Return group chat conversation for a community group, creating/syncing it when needed."""
+
+    result = await db.execute(
+        select(Group).where(Group.id == group_id, Group.is_active == True)
+    )
+    group = result.scalar_one_or_none()
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+
+    result = await db.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == current_user.id,
+            GroupMember.is_approved == True,
+            GroupMember.is_banned == False,
+        )
+    )
+    my_membership = result.scalar_one_or_none()
+    if not my_membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Join this group to access group chat"
+        )
+
+    marker = f"group:{group_id}"
+    result = await db.execute(
+        select(Conversation).where(
+            Conversation.conversation_type == ConversationType.GROUP,
+            Conversation.description == marker,
+        )
+    )
+    conversation = result.scalar_one_or_none()
+
+    if not conversation:
+        conversation = Conversation(
+            conversation_type=ConversationType.GROUP,
+            name=group.name,
+            description=marker,
+        )
+        db.add(conversation)
+        await db.flush()
+    else:
+        if conversation.name != group.name:
+            conversation.name = group.name
+
+    member_rows = await db.execute(
+        select(GroupMember.user_id, GroupMember.role).where(
+            GroupMember.group_id == group_id,
+            GroupMember.is_approved == True,
+            GroupMember.is_banned == False,
+        )
+    )
+    approved_members = member_rows.all()
+    approved_member_ids = [user_id for user_id, _ in approved_members]
+
+    existing_member_rows = await db.execute(
+        select(ChatMember.user_id).where(
+            ChatMember.conversation_id == conversation.id,
+            ChatMember.user_id.in_(approved_member_ids)
+        )
+    )
+    existing_member_ids = {uid for (uid,) in existing_member_rows.all()}
+
+    for user_id, role in approved_members:
+        if user_id in existing_member_ids:
+            continue
+        chat_role = MemberRole.OWNER if role == GroupMemberRole.OWNER else MemberRole.MEMBER
+        db.add(
+            ChatMember(
+                conversation_id=conversation.id,
+                user_id=user_id,
+                role=chat_role,
+                is_active=True,
+            )
+        )
+
+    active_count_result = await db.execute(
+        select(func.count(ChatMember.id)).where(
+            ChatMember.conversation_id == conversation.id,
+            ChatMember.is_active == True
+        )
+    )
+    conversation.member_count = active_count_result.scalar_one() or 0
+
+    await db.commit()
+    await db.refresh(conversation)
+
+    return {
+        "conversation_id": conversation.id,
+        "conversation_name": conversation.name or group.name,
+    }
 
 
 @router.post("/groups/{group_id}/join")
@@ -793,10 +973,25 @@ async def delete_comment(
 
 # ============= Events =============
 
+def _parse_event_datetime(value: Optional[str], *, end_of_day: bool = False) -> Optional[datetime]:
+    """Parse incoming date/datetime string to naive UTC datetime."""
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if "T" in text:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if dt.tzinfo:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    suffix = "T23:59:59" if end_of_day else "T00:00:00"
+    return datetime.fromisoformat(f"{text}{suffix}")
+
 @router.get("/events")
 async def list_events(
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     event_type: Optional[str] = Query(None),
@@ -822,7 +1017,7 @@ async def list_events(
         rows = result.all()
         
         events_with_host = []
-        current_user_id = current_user.id if current_user else None
+        current_user_id = current_user.id
         
         for event, host in rows:
             # Check if current user is registered (if authenticated)
@@ -863,6 +1058,16 @@ async def list_events(
                 "is_active": event.is_active,
                 "is_cancelled": event.is_cancelled,
                 "is_registered": is_registered,
+                "is_host": bool(current_user_id and event.host_id == current_user_id),
+                "can_edit": bool(current_user_id and event.host_id == current_user_id),
+                "can_delete": bool(current_user_id and event.host_id == current_user_id),
+                "can_join_now": bool(
+                    event.meeting_link
+                    and event.start_date
+                    and datetime.utcnow() >= event.start_date
+                    and (event.attendees_count or 0) >= 2
+                    and (is_registered or (current_user_id and event.host_id == current_user_id))
+                ),
                 "host_avatar": getattr(host, "avatar", None),
                 "created_at": event.created_at.isoformat() if event.created_at else None,
             }
@@ -907,14 +1112,9 @@ async def create_event(
     try:
         # Parse dates - handle various formats
         try:
-            if 'T' in event_in.start_date:
-                start_date = datetime.fromisoformat(event_in.start_date.replace('Z', '+00:00'))
-                # Convert to naive UTC if it's aware, as the DB column is TIMESTAMP WITHOUT TIME ZONE
-                if start_date.tzinfo:
-                    start_date = start_date.astimezone(timezone.utc).replace(tzinfo=None)
-            else:
-                # If only date provided, assume midnight UTC
-                start_date = datetime.fromisoformat(f"{event_in.start_date}T00:00:00")
+            start_date = _parse_event_datetime(event_in.start_date)
+            if start_date is None:
+                raise ValueError("start_date is required")
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -924,12 +1124,7 @@ async def create_event(
         end_date = None
         if event_in.end_date:
             try:
-                if 'T' in event_in.end_date:
-                    end_date = datetime.fromisoformat(event_in.end_date.replace('Z', '+00:00'))
-                    if end_date.tzinfo:
-                        end_date = end_date.astimezone(timezone.utc).replace(tzinfo=None)
-                else:
-                    end_date = datetime.fromisoformat(f"{event_in.end_date}T23:59:59")
+                end_date = _parse_event_datetime(event_in.end_date, end_of_day=True)
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -982,6 +1177,10 @@ async def create_event(
             "attendees_count": 0,
             "views_count": 0,
             "is_registered": False,
+            "is_host": True,
+            "can_edit": True,
+            "can_delete": True,
+            "can_join_now": False,
             "created_at": event.created_at.isoformat() if event.created_at else None,
         }
     except HTTPException:
@@ -1013,6 +1212,85 @@ async def create_event(
         )
 
 
+@router.put("/events/{event_id}")
+async def update_event(
+    event_id: UUID,
+    event_in: EventUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Update an event (host only)."""
+
+    result = await db.execute(select(Event).where(Event.id == event_id, Event.is_active == True))
+    event = result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    if event.host_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    update_data = event_in.model_dump(exclude_unset=True)
+    if "start_date" in update_data:
+        update_data["start_date"] = _parse_event_datetime(update_data["start_date"])
+    if "end_date" in update_data:
+        update_data["end_date"] = _parse_event_datetime(update_data["end_date"], end_of_day=True)
+
+    for field, value in update_data.items():
+        setattr(event, field, value)
+
+    await db.commit()
+    await db.refresh(event)
+
+    result = await db.execute(select(User).where(User.id == event.host_id))
+    host = result.scalar_one()
+    return {
+        "id": str(event.id),
+        "title": event.title,
+        "description": event.description,
+        "host_id": str(event.host_id),
+        "host_name": f"{host.first_name} {host.last_name}".strip() or host.email.split('@')[0],
+        "start_date": event.start_date.isoformat() if event.start_date else None,
+        "end_date": event.end_date.isoformat() if event.end_date else None,
+        "timezone": event.timezone,
+        "event_type": event.event_type,
+        "location": event.location,
+        "is_virtual": event.is_virtual,
+        "meeting_link": event.meeting_link,
+        "cover_image": event.cover_image,
+        "is_public": event.is_public,
+        "max_attendees": event.max_attendees,
+        "attendees_count": event.attendees_count or 0,
+        "views_count": event.views_count or 0,
+        "is_registered": False,
+        "is_host": True,
+        "can_edit": True,
+        "can_delete": True,
+        "can_join_now": bool(event.meeting_link and event.start_date and datetime.utcnow() >= event.start_date and (event.attendees_count or 0) >= 2),
+        "created_at": event.created_at.isoformat() if event.created_at else None,
+    }
+
+
+@router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_event(
+    event_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> None:
+    """Delete/cancel an event (host only)."""
+
+    result = await db.execute(select(Event).where(Event.id == event_id, Event.is_active == True))
+    event = result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    if event.host_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    event.is_active = False
+    event.is_cancelled = True
+    await db.commit()
+
+
 @router.post("/events/{event_id}/register")
 async def register_for_event(
     event_id: UUID,
@@ -1037,6 +1315,12 @@ async def register_for_event(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Event is not available"
+        )
+
+    if event.host_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Host does not need to register for own event"
         )
     
     # Check if already registered
@@ -1241,13 +1525,95 @@ async def submit_startup_idea(
         )
 
 
+@router.put("/combinator/ideas/{idea_id}", response_model=StartupIdeaResponse)
+async def update_startup_idea(
+    idea_id: UUID,
+    idea_in: StartupIdeaUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Update own startup idea."""
+
+    result = await db.execute(
+        select(StartupIdea).where(
+            StartupIdea.id == idea_id,
+            StartupIdea.founder_id == current_user.id,
+            StartupIdea.is_active == True,
+        )
+    )
+    idea = result.scalar_one_or_none()
+    if not idea:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Startup idea not found"
+        )
+
+    update_data = idea_in.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(idea, field, value)
+
+    await db.commit()
+    await db.refresh(idea)
+
+    result = await db.execute(select(User).where(User.id == idea.founder_id))
+    founder = result.scalar_one()
+
+    return {
+        "id": str(idea.id),
+        "founder_id": str(idea.founder_id),
+        "founder_name": f"{founder.first_name} {founder.last_name}".strip() or founder.email.split('@')[0],
+        "title": idea.title,
+        "description": idea.description,
+        "problem": idea.problem,
+        "target_market": idea.target_market,
+        "stage": idea.stage,
+        "commitment": idea.commitment,
+        "funding_status": idea.funding_status,
+        "roles_needed": idea.roles_needed or [],
+        "skills_needed": idea.skills_needed or [],
+        "team_size": idea.team_size or 0,
+        "founder_roles": idea.founder_roles or [],
+        "founder_skills": idea.founder_skills or [],
+        "views_count": idea.views_count or 0,
+        "connections_count": idea.connections_count or 0,
+        "is_active": idea.is_active,
+        "created_at": idea.created_at,
+    }
+
+
+@router.delete("/combinator/ideas/{idea_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_startup_idea(
+    idea_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> None:
+    """Delete (deactivate) own startup idea."""
+
+    result = await db.execute(
+        select(StartupIdea).where(
+            StartupIdea.id == idea_id,
+            StartupIdea.founder_id == current_user.id,
+            StartupIdea.is_active == True,
+        )
+    )
+    idea = result.scalar_one_or_none()
+    if not idea:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Startup idea not found"
+        )
+
+    idea.is_active = False
+    await db.commit()
+
+
 @router.post("/combinator/ideas/{idea_id}/connect")
 async def connect_with_founder(
     idea_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
-    """Connect with a founder (send match request)."""
+    """Connect with a founder (send match + network pending request)."""
     
     # Get idea
     result = await db.execute(
@@ -1267,6 +1633,30 @@ async def connect_with_founder(
             detail="Cannot connect with your own idea"
         )
     
+    # Check if already connected in network
+    result = await db.execute(
+        select(Connection).where(
+            or_(
+                (Connection.user_id == current_user.id) & (Connection.connected_user_id == idea.founder_id),
+                (Connection.user_id == idea.founder_id) & (Connection.connected_user_id == current_user.id)
+            ),
+            Connection.status == ConnectionStatus.ACCEPTED
+        )
+    )
+    already_connected = result.scalar_one_or_none() is not None
+
+    # Check existing pending network request in either direction
+    result = await db.execute(
+        select(ConnectionRequest).where(
+            or_(
+                (ConnectionRequest.sender_id == current_user.id) & (ConnectionRequest.receiver_id == idea.founder_id),
+                (ConnectionRequest.sender_id == idea.founder_id) & (ConnectionRequest.receiver_id == current_user.id)
+            ),
+            ConnectionRequest.status == ConnectionStatus.PENDING
+        )
+    )
+    pending_network_request = result.scalar_one_or_none()
+
     # Check if already matched
     result = await db.execute(
         select(FounderMatch).where(
@@ -1276,25 +1666,48 @@ async def connect_with_founder(
     )
     existing = result.scalar_one_or_none()
     
-    if existing:
-        if existing.status == "connected":
-            return {"message": "Already connected"}
-        elif existing.status == "pending":
-            return {"message": "Connection request already sent"}
+    if existing and existing.status == "connected":
+        return {"message": "Already connected"}
+
+    if already_connected:
+        if existing:
+            existing.status = "connected"
         else:
-            # Resend request
-            existing.status = "pending"
-            await db.commit()
-            return {"message": "Connection request sent"}
-    else:
-        # Create new match
-        match = FounderMatch(
-            idea_id=idea_id,
-            founder_id=current_user.id,
-            status="pending"
-        )
-        db.add(match)
-        idea.connections_count += 1
+            db.add(
+                FounderMatch(
+                    idea_id=idea_id,
+                    founder_id=current_user.id,
+                    status="connected"
+                )
+            )
+            idea.connections_count += 1
         await db.commit()
-        return {"message": "Connection request sent"}
+        return {"message": "Already connected"}
+
+    if existing:
+        existing.status = "pending"
+    else:
+        db.add(
+            FounderMatch(
+                idea_id=idea_id,
+                founder_id=current_user.id,
+                status="pending"
+            )
+        )
+        idea.connections_count += 1
+
+    if not pending_network_request:
+        db.add(
+            ConnectionRequest(
+                sender_id=current_user.id,
+                receiver_id=idea.founder_id,
+                message=f"Hi, I am interested in your idea: {idea.title}",
+            )
+        )
+    elif pending_network_request.sender_id == idea.founder_id:
+        # Founder already sent a request to current user; keep existing pending relation.
+        pass
+
+    await db.commit()
+    return {"message": "Connection request sent"}
 

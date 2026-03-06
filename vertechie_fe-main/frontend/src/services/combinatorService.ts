@@ -46,6 +46,23 @@ export interface CreateIdeaData {
   founder_funding?: string;
 }
 
+export interface UpdateIdeaData {
+  title?: string;
+  description?: string;
+  problem?: string;
+  target_market?: string;
+  stage?: string;
+  commitment?: string;
+  funding_status?: string;
+  roles_needed?: string[];
+  skills_needed?: string[];
+  team_size?: number;
+  founder_roles?: string[];
+  founder_skills?: string[];
+  founder_commitment?: string;
+  founder_funding?: string;
+}
+
 export interface IdeaListParams {
   skip?: number;
   limit?: number;
@@ -66,6 +83,20 @@ export const combinatorService = {
    */
   submitIdea: async (data: CreateIdeaData): Promise<StartupIdea> => {
     return api.post<StartupIdea>(API_ENDPOINTS.COMMUNITY.SUBMIT_IDEA, data);
+  },
+
+  /**
+   * Update own startup idea
+   */
+  updateIdea: async (ideaId: string, data: UpdateIdeaData): Promise<StartupIdea> => {
+    return api.put<StartupIdea>(API_ENDPOINTS.COMMUNITY.UPDATE_IDEA(ideaId), data);
+  },
+
+  /**
+   * Delete own startup idea
+   */
+  deleteIdea: async (ideaId: string): Promise<void> => {
+    await api.delete(API_ENDPOINTS.COMMUNITY.DELETE_IDEA(ideaId));
   },
 
   /**

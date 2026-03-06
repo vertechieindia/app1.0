@@ -3,7 +3,7 @@
  * Features: Sidebar navigation, lesson content, Try It Yourself editor, quizzes
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box, Typography, Paper, Button, IconButton, Chip, Grid, List, ListItemText, Collapse, Drawer, useMediaQuery, useTheme,
   Tooltip, TextField, Dialog, DialogTitle, DialogContent,
@@ -20,6 +20,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
+import LockIcon from '@mui/icons-material/Lock';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import QuizIcon from '@mui/icons-material/Quiz';
 import CodeIcon from '@mui/icons-material/Code';
@@ -268,6 +269,24 @@ const TutorialPage: React.FC = () => {
   // Check if all lessons completed and generate certificate
   const totalLessons = tutorial?.chapters.reduce((sum, ch) => sum + ch.lessons.length, 0) || 0;
   const currentLessonSlug = lessonSlug || tutorial?.chapters[0]?.lessons[0]?.slug || 'home';
+  const orderedLessons = useMemo(
+    () => (tutorial ? tutorial.chapters.flatMap((chapter) => chapter.lessons) : []),
+    [tutorial]
+  );
+  const unlockedLessonSlugs = useMemo(() => {
+    const unlocked = new Set<string>();
+    orderedLessons.forEach((lesson, index) => {
+      if (index === 0) {
+        unlocked.add(lesson.slug);
+        return;
+      }
+      const previousLesson = orderedLessons[index - 1];
+      if (previousLesson && completedLessons.includes(previousLesson.slug)) {
+        unlocked.add(lesson.slug);
+      }
+    });
+    return unlocked;
+  }, [orderedLessons, completedLessons]);
 
   // Get current lesson
   const getCurrentLesson = (): { chapter: Chapter; lesson: Lesson; index: number } | null => {
@@ -308,6 +327,17 @@ const TutorialPage: React.FC = () => {
       );
     }
   }, [currentLessonData?.chapter.id]);
+
+  // Prevent opening locked lessons via direct URL.
+  useEffect(() => {
+    if (!tutorial || !orderedLessons.length) return;
+    if (unlockedLessonSlugs.has(currentLessonSlug)) return;
+
+    const fallbackLesson = orderedLessons.find((lesson) => unlockedLessonSlugs.has(lesson.slug)) || orderedLessons[0];
+    if (fallbackLesson) {
+      navigate(`/techie/learn/tutorial/${tutorialSlug}/${fallbackLesson.slug}`, { replace: true });
+    }
+  }, [tutorial, orderedLessons, unlockedLessonSlugs, currentLessonSlug, navigate, tutorialSlug]);
 
   const toggleChapter = (chapterId: string) => {
     setExpandedChapters(prev =>
@@ -350,6 +380,7 @@ const TutorialPage: React.FC = () => {
 
   const nextLesson = getNextLesson();
   const prevLesson = getPrevLesson();
+  const canNavigateNext = Boolean(nextLesson) && completedLessons.includes(currentLessonSlug);
 
   // Calculate progress
   const progress = totalLessons > 0 ? (completedLessons.length / totalLessons) * 100 : 0;
@@ -434,16 +465,24 @@ const TutorialPage: React.FC = () => {
 
             <Collapse in={expandedChapters.includes(chapter.id)}>
               <List dense disablePadding>
-                {chapter.lessons.map(lesson => (
+                {chapter.lessons.map((lesson) => {
+                  const isUnlocked = unlockedLessonSlugs.has(lesson.slug);
+                  return (
                   <LessonItem
                     key={lesson.id}
                     active={lesson.slug === currentLessonSlug}
                     completed={completedLessons.includes(lesson.slug)}
                     color={tutorial.color}
-                    onClick={() => navigateToLesson(lesson.slug)}
+                    onClick={() => isUnlocked && navigateToLesson(lesson.slug)}
+                    sx={{
+                      opacity: isUnlocked ? 1 : 0.55,
+                      cursor: isUnlocked ? 'pointer' : 'not-allowed',
+                    }}
                   >
                     {completedLessons.includes(lesson.slug) ? (
                       <CheckCircleIcon sx={{ fontSize: 18, color: '#4CAF50', mr: 1 }} />
+                    ) : !isUnlocked ? (
+                      <LockIcon sx={{ fontSize: 16, color: '#9e9e9e', mr: 1 }} />
                     ) : (
                       <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: '#ccc', mr: 1 }} />
                     )}
@@ -464,7 +503,8 @@ const TutorialPage: React.FC = () => {
                       )}
                     </Box>
                   </LessonItem>
-                ))}
+                  );
+                })}
               </List>
             </Collapse>
           </Box>
@@ -818,7 +858,7 @@ const TutorialPage: React.FC = () => {
           <Button
             variant="outlined"
             endIcon={<ArrowForwardIcon />}
-            disabled={!nextLesson}
+            disabled={!canNavigateNext}
             onClick={() => nextLesson && navigateToLesson(nextLesson.slug)}
             sx={{ textTransform: 'none' }}
           >

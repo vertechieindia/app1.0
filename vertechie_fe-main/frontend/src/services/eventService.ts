@@ -26,6 +26,10 @@ export interface Event {
   attendees_count: number;
   views_count: number;
   is_registered: boolean;
+  is_host?: boolean;
+  can_edit?: boolean;
+  can_delete?: boolean;
+  can_join_now?: boolean;
   created_at: string;
 }
 
@@ -33,6 +37,22 @@ export interface CreateEventData {
   title: string;
   description?: string;
   start_date: string;  // ISO format
+  end_date?: string;
+  timezone?: string;
+  event_type?: 'webinar' | 'workshop' | 'meetup' | 'conference';
+  location?: string;
+  is_virtual?: boolean;
+  meeting_link?: string;
+  cover_image?: string;
+  is_public?: boolean;
+  requires_approval?: boolean;
+  max_attendees?: number;
+}
+
+export interface UpdateEventData {
+  title?: string;
+  description?: string;
+  start_date?: string;
   end_date?: string;
   timezone?: string;
   event_type?: 'webinar' | 'workshop' | 'meetup' | 'conference';
@@ -65,6 +85,20 @@ export const eventService = {
    */
   createEvent: async (data: CreateEventData): Promise<Event> => {
     return api.post<Event>(API_ENDPOINTS.COMMUNITY.CREATE_EVENT, data);
+  },
+
+  /**
+   * Update event
+   */
+  updateEvent: async (eventId: string, data: UpdateEventData): Promise<Event> => {
+    return api.put<Event>(API_ENDPOINTS.COMMUNITY.UPDATE_EVENT(eventId), data);
+  },
+
+  /**
+   * Delete event
+   */
+  deleteEvent: async (eventId: string): Promise<void> => {
+    await api.delete(API_ENDPOINTS.COMMUNITY.DELETE_EVENT(eventId));
   },
 
   /**

@@ -509,7 +509,7 @@ async def seed_problems() -> None:
 
         await session.commit()
 
-        print("✅ Seeding complete.")
+        print("Seeding complete.")
         if created:
             print("Created problems:")
             for t in created:

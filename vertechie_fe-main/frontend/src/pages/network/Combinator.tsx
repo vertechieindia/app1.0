@@ -6,17 +6,17 @@ import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Card, CardContent, Avatar, Button, Grid, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem,
-  Divider, Snackbar, Alert, useTheme, alpha, CircularProgress,
+  Divider, Snackbar, Alert, alpha, CircularProgress,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { Verified, Handshake, Celebration, Lightbulb, Refresh } from '@mui/icons-material';
+import { Verified, Handshake, Celebration, Lightbulb, Refresh, Edit, Delete } from '@mui/icons-material';
 import NetworkLayout from '../../components/network/NetworkLayout';
 import { combinatorService, StartupIdea as BackendIdea } from '../../services/combinatorService';
 
 // ============================================
 // STYLED COMPONENTS
 // ============================================
-const StyledCard = styled(Card)(({ theme }) => ({
+const StyledCard = styled(Card)(() => ({
   borderRadius: 16,
   boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
   transition: 'all 0.3s ease',
@@ -26,16 +26,46 @@ const StyledCard = styled(Card)(({ theme }) => ({
   },
 }));
 
+interface IdeaFormState {
+  title: string;
+  description: string;
+  problem: string;
+  market: string;
+  stage: string;
+  commitment: string;
+  funding: string;
+  rolesNeeded: string[];
+  skillsNeeded: string;
+  teamSize: number;
+  founderRoles: string;
+  founderSkills: string;
+  founderCommitment: string;
+  founderFunding: string;
+}
+
+const IDEA_TITLE_REGEX = /^[A-Za-z][A-Za-z0-9 &'().,:-]{2,99}$/;
+const LIST_ITEM_REGEX = /^[A-Za-z][A-Za-z0-9 +#./&-]{1,39}$/;
+const normalizeSpaces = (value: string) => value.replace(/\s+/g, ' ').trim();
+const hasLetters = (value: string) => /[A-Za-z]/.test(value);
+
 // ============================================
 // COMPONENT
 // ============================================
 const Combinator: React.FC = () => {
-  const theme = useTheme();
+  const currentUserId = (() => {
+    try {
+      return String(JSON.parse(localStorage.getItem('userData') || '{}')?.id || '');
+    } catch {
+      return '';
+    }
+  })();
   const [ideas, setIdeas] = useState<BackendIdea[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitIdeaDialogOpen, setSubmitIdeaDialogOpen] = useState(false);
-  const [ideaData, setIdeaData] = useState({
+  const [editIdeaDialogOpen, setEditIdeaDialogOpen] = useState(false);
+  const [editingIdea, setEditingIdea] = useState<BackendIdea | null>(null);
+  const [ideaData, setIdeaData] = useState<IdeaFormState>({
     title: '',
     description: '',
     problem: '',
@@ -87,44 +117,82 @@ const Combinator: React.FC = () => {
     }));
   };
 
+  const parseList = (value: string) =>
+    value
+      .split(',')
+      .map((item) => normalizeSpaces(item))
+      .filter((item) => item.length > 0);
+
+  const sanitizeIdeaForm = (data: IdeaFormState) => ({
+    ...data,
+    title: normalizeSpaces(data.title),
+    description: normalizeSpaces(data.description),
+    problem: normalizeSpaces(data.problem),
+    market: normalizeSpaces(data.market),
+    stage: normalizeSpaces(data.stage),
+    commitment: normalizeSpaces(data.commitment),
+    funding: normalizeSpaces(data.funding),
+    skillsNeededArray: parseList(data.skillsNeeded),
+    founderRolesArray: parseList(data.founderRoles),
+    founderSkillsArray: parseList(data.founderSkills),
+    teamSize: Number.isFinite(Number(data.teamSize)) ? Math.max(0, Math.floor(Number(data.teamSize))) : 0,
+  });
+
+  const validateIdeaForm = (data: ReturnType<typeof sanitizeIdeaForm>): string | null => {
+    if (!data.title || !data.description || !data.problem) {
+      return 'Please fill in all required fields (Title, Description, Problem).';
+    }
+    if (!IDEA_TITLE_REGEX.test(data.title)) {
+      return 'Startup title should start with a letter and avoid unwanted characters.';
+    }
+    if (!hasLetters(data.description) || data.description.length < 20) {
+      return 'Description must be meaningful and at least 20 characters.';
+    }
+    if (!hasLetters(data.problem) || data.problem.length < 12) {
+      return 'Problem statement must be meaningful and at least 12 characters.';
+    }
+    if (data.market && !hasLetters(data.market)) {
+      return 'Target market should contain valid text.';
+    }
+    if (data.skillsNeededArray.some((item) => !LIST_ITEM_REGEX.test(item))) {
+      return 'Skills list contains invalid entries.';
+    }
+    if (data.founderRolesArray.some((item) => !LIST_ITEM_REGEX.test(item))) {
+      return 'Co-founder roles contain invalid entries.';
+    }
+    if (data.founderSkillsArray.some((item) => !LIST_ITEM_REGEX.test(item))) {
+      return 'Co-founder skills contain invalid entries.';
+    }
+    if (data.teamSize < 0 || data.teamSize > 100) {
+      return 'Team size must be between 0 and 100.';
+    }
+    return null;
+  };
+
   const handleSubmitIdea = async () => {
-    if (!ideaData.title.trim() || !ideaData.description.trim() || !ideaData.problem.trim()) {
-      setSnackbar({ open: true, message: 'Please fill in all required fields (Title, Description, Problem).', severity: 'error' });
+    const sanitized = sanitizeIdeaForm(ideaData);
+    const validationError = validateIdeaForm(sanitized);
+    if (validationError) {
+      setSnackbar({ open: true, message: validationError, severity: 'error' });
       return;
     }
     
     try {
-      // Parse skills from comma-separated string
-      const skillsNeededArray = ideaData.skillsNeeded
-        .split(',')
-        .map(s => s.trim())
-        .filter(s => s.length > 0);
-      
-      const founderRolesArray = ideaData.founderRoles
-        .split(',')
-        .map(r => r.trim())
-        .filter(r => r.length > 0);
-      
-      const founderSkillsArray = ideaData.founderSkills
-        .split(',')
-        .map(s => s.trim())
-        .filter(s => s.length > 0);
-      
       await combinatorService.submitIdea({
-        title: ideaData.title,
-        description: ideaData.description,
-        problem: ideaData.problem,
-        target_market: ideaData.market || undefined,
-        stage: ideaData.stage || undefined,
-        commitment: ideaData.commitment || undefined,
-        funding_status: ideaData.funding || undefined,
+        title: sanitized.title,
+        description: sanitized.description,
+        problem: sanitized.problem,
+        target_market: sanitized.market || undefined,
+        stage: sanitized.stage || undefined,
+        commitment: sanitized.commitment || undefined,
+        funding_status: sanitized.funding || undefined,
         roles_needed: ideaData.rolesNeeded,
-        skills_needed: skillsNeededArray,
-        team_size: ideaData.teamSize,
-        founder_roles: founderRolesArray,
-        founder_skills: founderSkillsArray,
-        founder_commitment: ideaData.founderCommitment || undefined,
-        founder_funding: ideaData.founderFunding || undefined,
+        skills_needed: sanitized.skillsNeededArray,
+        team_size: sanitized.teamSize,
+        founder_roles: sanitized.founderRolesArray,
+        founder_skills: sanitized.founderSkillsArray,
+        founder_commitment: normalizeSpaces(ideaData.founderCommitment) || undefined,
+        founder_funding: normalizeSpaces(ideaData.founderFunding) || undefined,
       });
       
       setSnackbar({ open: true, message: 'Your startup idea has been submitted successfully! We will match you with co-founders soon.', severity: 'success' });
@@ -142,6 +210,77 @@ const Combinator: React.FC = () => {
     }
   };
 
+  const handleOpenEditIdea = (idea: BackendIdea) => {
+    setEditingIdea(idea);
+    setIdeaData({
+      title: idea.title || '',
+      description: idea.description || '',
+      problem: idea.problem || '',
+      market: idea.target_market || '',
+      stage: idea.stage || '',
+      commitment: idea.commitment || '',
+      funding: idea.funding_status || '',
+      rolesNeeded: idea.roles_needed || [],
+      skillsNeeded: (idea.skills_needed || []).join(', '),
+      teamSize: idea.team_size || 0,
+      founderRoles: (idea.founder_roles || []).join(', '),
+      founderSkills: (idea.founder_skills || []).join(', '),
+      founderCommitment: '',
+      founderFunding: '',
+    });
+    setEditIdeaDialogOpen(true);
+  };
+
+  const handleUpdateIdea = async () => {
+    if (!editingIdea) return;
+    const sanitized = sanitizeIdeaForm(ideaData);
+    const validationError = validateIdeaForm(sanitized);
+    if (validationError) {
+      setSnackbar({ open: true, message: validationError, severity: 'error' });
+      return;
+    }
+
+    try {
+      await combinatorService.updateIdea(editingIdea.id, {
+        title: sanitized.title,
+        description: sanitized.description,
+        problem: sanitized.problem,
+        target_market: sanitized.market || undefined,
+        stage: sanitized.stage || undefined,
+        commitment: sanitized.commitment || undefined,
+        funding_status: sanitized.funding || undefined,
+        roles_needed: ideaData.rolesNeeded,
+        skills_needed: sanitized.skillsNeededArray,
+        team_size: sanitized.teamSize,
+        founder_roles: sanitized.founderRolesArray,
+        founder_skills: sanitized.founderSkillsArray,
+      });
+
+      setSnackbar({ open: true, message: 'Idea updated successfully!', severity: 'success' });
+      setEditIdeaDialogOpen(false);
+      setEditingIdea(null);
+      setIdeaData({
+        title: '', description: '', problem: '', market: '', stage: '', commitment: '', funding: '',
+        rolesNeeded: [], skillsNeeded: '', teamSize: 0, founderRoles: '', founderSkills: '', founderCommitment: '', founderFunding: '',
+      });
+      await fetchIdeas();
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err?.response?.data?.detail || 'Failed to update idea.', severity: 'error' });
+    }
+  };
+
+  const handleDeleteIdea = async (idea: BackendIdea) => {
+    const ok = window.confirm(`Delete idea "${idea.title}"?`);
+    if (!ok) return;
+    try {
+      await combinatorService.deleteIdea(idea.id);
+      setSnackbar({ open: true, message: 'Idea deleted successfully!', severity: 'success' });
+      setIdeas(prev => prev.filter(i => i.id !== idea.id));
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err?.response?.data?.detail || 'Failed to delete idea.', severity: 'error' });
+    }
+  };
+
   // Map backend ideas to featured founders format
   const featuredFounders = ideas.slice(0, 4).map((idea, idx) => {
     const colors = ['#4caf50', '#2196f3', '#ff9800', '#e91e63'];
@@ -151,11 +290,14 @@ const Combinator: React.FC = () => {
     
     return {
       id: idea.id,
+      founderId: idea.founder_id,
+      canManage: String(idea.founder_id) === currentUserId,
       name: idea.founder_name || 'Founder',
       title: roles,
       skills: skills,
       looking: lookingFor,
       idea: idea.title,
+      sourceIdea: idea,
       avatar: (idea.founder_name || 'F').charAt(0).toUpperCase(),
       raised: idea.funding_status || 'Exploring',
       color: colors[idx % colors.length],
@@ -417,32 +559,55 @@ const Combinator: React.FC = () => {
                   <Typography variant="body2" sx={{ color: 'primary.main', fontWeight: 600 }}>{founder.looking}</Typography>
                 </Box>
                 
-                <Button 
-                  variant="contained" 
-                  fullWidth 
-                  startIcon={<Handshake />}
-                  sx={{ borderRadius: 2, mt: 1 }}
-                  onClick={async () => {
-                    try {
-                      await combinatorService.connectFounder(founder.id);
-                      setSnackbar({ 
-                        open: true, 
-                        message: `Connection request sent to ${founder.name}!`, 
-                        severity: 'success' 
-                      });
-                      await fetchIdeas();
-                    } catch (err) {
-                      console.error('Error connecting with founder:', err);
-                      setSnackbar({ 
-                        open: true, 
-                        message: 'Failed to send connection request. Please try again.', 
-                        severity: 'error' 
-                      });
-                    }
-                  }}
-                >
-                  Connect
-                </Button>
+                {founder.canManage ? (
+                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                    <Button
+                      variant="outlined"
+                      fullWidth
+                      startIcon={<Edit />}
+                      sx={{ borderRadius: 2 }}
+                      onClick={() => handleOpenEditIdea(founder.sourceIdea)}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      fullWidth
+                      startIcon={<Delete />}
+                      sx={{ borderRadius: 2 }}
+                      onClick={() => handleDeleteIdea(founder.sourceIdea)}
+                    >
+                      Delete
+                    </Button>
+                  </Box>
+                ) : (
+                  <Button 
+                    variant="contained" 
+                    fullWidth 
+                    startIcon={<Handshake />}
+                    sx={{ borderRadius: 2, mt: 1 }}
+                    onClick={async () => {
+                      try {
+                        const res = await combinatorService.connectFounder(founder.id);
+                        setSnackbar({ 
+                          open: true, 
+                          message: res?.message || `Connection request sent to ${founder.name}!`, 
+                          severity: 'success' 
+                        });
+                        await fetchIdeas();
+                      } catch (err: any) {
+                        setSnackbar({ 
+                          open: true, 
+                          message: err?.response?.data?.detail || err?.message || 'Failed to send connection request. Please try again.', 
+                          severity: 'error' 
+                        });
+                      }
+                    }}
+                  >
+                    Connect
+                  </Button>
+                )}
               </CardContent>
             </StyledCard>
           </Grid>
@@ -675,6 +840,82 @@ const Combinator: React.FC = () => {
             }}
           >
             Submit Idea
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Idea Dialog */}
+      <Dialog
+        open={editIdeaDialogOpen}
+        onClose={() => {
+          setEditIdeaDialogOpen(false);
+          setEditingIdea(null);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          Edit Startup Idea
+        </DialogTitle>
+        <DialogContent dividers sx={{ p: 3 }}>
+          <TextField
+            label="Startup Name / Title"
+            fullWidth
+            margin="normal"
+            value={ideaData.title}
+            onChange={(e) => setIdeaData({ ...ideaData, title: e.target.value })}
+            required
+          />
+          <TextField
+            label="Describe Your Idea"
+            fullWidth
+            margin="normal"
+            multiline
+            rows={3}
+            value={ideaData.description}
+            onChange={(e) => setIdeaData({ ...ideaData, description: e.target.value })}
+            required
+          />
+          <TextField
+            label="Problem You're Solving"
+            fullWidth
+            margin="normal"
+            multiline
+            rows={2}
+            value={ideaData.problem}
+            onChange={(e) => setIdeaData({ ...ideaData, problem: e.target.value })}
+            required
+          />
+          <TextField
+            label="Target Market"
+            fullWidth
+            margin="normal"
+            value={ideaData.market}
+            onChange={(e) => setIdeaData({ ...ideaData, market: e.target.value })}
+          />
+          <TextField
+            label="Skills & Expertise Needed (comma-separated)"
+            fullWidth
+            margin="normal"
+            value={ideaData.skillsNeeded}
+            onChange={(e) => setIdeaData({ ...ideaData, skillsNeeded: e.target.value })}
+          />
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
+            {['CTO', 'Full-Stack', 'Backend', 'Frontend', 'Mobile', 'AI/ML', 'DevOps', 'Designer', 'Product', 'Marketing', 'Sales', 'Finance', 'Operations', 'Data Scientist', 'Growth Hacker'].map((role) => (
+              <Chip
+                key={role}
+                label={role}
+                onClick={() => handleRoleToggle(role)}
+                color={ideaData.rolesNeeded.includes(role) ? 'primary' : 'default'}
+                variant={ideaData.rolesNeeded.includes(role) ? 'filled' : 'outlined'}
+              />
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => { setEditIdeaDialogOpen(false); setEditingIdea(null); }}>Cancel</Button>
+          <Button variant="contained" onClick={handleUpdateIdea}>
+            Save Changes
           </Button>
         </DialogActions>
       </Dialog>

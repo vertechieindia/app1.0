@@ -35,6 +35,7 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
   applicantCount: number;
+  rating?: number;
   // Additional fields
   salary_min?: number;
   salary_max?: number;

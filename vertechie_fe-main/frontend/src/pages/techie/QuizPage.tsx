@@ -427,6 +427,9 @@ const QuizPage: React.FC = () => {
             <Typography variant="body1" sx={{ opacity: 0.9, mb: 3 }}>
               You scored {totalPoints} out of {maxPoints} points
             </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9, mb: 3 }}>
+              You answered {results.filter(r => r.isCorrect).length} out of {questions.length} questions correctly.
+            </Typography>
 
             <Box sx={{ display: 'flex', justifyContent: 'center', gap: 3, mb: 4 }}>
               <Box sx={{ textAlign: 'center' }}>

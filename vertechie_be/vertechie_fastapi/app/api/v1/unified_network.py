@@ -6,6 +6,8 @@ Provides a single API for the merged Network experience.
 from typing import Any, List, Optional
 from uuid import UUID
 from datetime import datetime, timedelta
+import re
+from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -471,23 +473,88 @@ async def get_trending_topics(
     limit: int = Query(10, ge=1, le=20)
 ) -> Any:
     """Get trending topics/hashtags in the network."""
-    
-    # In production, this would aggregate hashtags from recent posts
-    # For now, return mock data
-    trending = [
-        TrendingTopic(tag="#TechCareers", posts_count=1234, trend_direction="up"),
-        TrendingTopic(tag="#ReactJS", posts_count=987, trend_direction="up"),
-        TrendingTopic(tag="#AITools", posts_count=856, trend_direction="stable"),
-        TrendingTopic(tag="#RemoteWork", posts_count=743, trend_direction="up"),
-        TrendingTopic(tag="#StartupLife", posts_count=621, trend_direction="down"),
-        TrendingTopic(tag="#MachineLearning", posts_count=589, trend_direction="up"),
-        TrendingTopic(tag="#DevOps", posts_count=512, trend_direction="stable"),
-        TrendingTopic(tag="#Python", posts_count=478, trend_direction="up"),
-        TrendingTopic(tag="#CloudComputing", posts_count=423, trend_direction="stable"),
-        TrendingTopic(tag="#DataScience", posts_count=398, trend_direction="up"),
-    ]
-    
-    return trending[:limit]
+
+    hashtag_pattern = re.compile(r"(?<!\w)#([A-Za-z][A-Za-z0-9_]{1,49})")
+    now = datetime.utcnow()
+    lookback_days = 30
+    trend_window_days = 7
+    lookback_start = now - timedelta(days=lookback_days)
+    recent_start = now - timedelta(days=trend_window_days)
+    previous_start = now - timedelta(days=trend_window_days * 2)
+
+    result = await db.execute(
+        select(Post.content, Post.tags, Post.created_at).where(
+            Post.is_published == True,
+            Post.visibility == "public",
+            Post.created_at >= lookback_start
+        )
+    )
+    rows = result.all()
+    if not rows:
+        return []
+
+    total_counts: Counter[str] = Counter()
+    recent_counts: Counter[str] = Counter()
+    previous_counts: Counter[str] = Counter()
+    display_tags: dict[str, str] = {}
+
+    for content, tags, created_at in rows:
+        tags_in_post: set[str] = set()
+
+        if isinstance(content, str) and content:
+            for match in hashtag_pattern.findall(content):
+                norm = match.lower()
+                tags_in_post.add(norm)
+                display_tags.setdefault(norm, match)
+
+        if isinstance(tags, list):
+            for raw_tag in tags:
+                if not isinstance(raw_tag, str):
+                    continue
+                tag_value = raw_tag.strip()
+                if not tag_value:
+                    continue
+                clean = tag_value[1:] if tag_value.startswith("#") else tag_value
+                if not clean:
+                    continue
+                norm = clean.lower()
+                tags_in_post.add(norm)
+                display_tags.setdefault(norm, clean)
+
+        if not tags_in_post:
+            continue
+
+        for norm_tag in tags_in_post:
+            total_counts[norm_tag] += 1
+            if created_at and created_at >= recent_start:
+                recent_counts[norm_tag] += 1
+            elif created_at and created_at >= previous_start:
+                previous_counts[norm_tag] += 1
+
+    if not total_counts:
+        return []
+
+    trending: list[TrendingTopic] = []
+    for tag_key, total in total_counts.most_common(limit):
+        recent = recent_counts.get(tag_key, 0)
+        previous = previous_counts.get(tag_key, 0)
+        if recent > previous:
+            direction = "up"
+        elif recent < previous:
+            direction = "down"
+        else:
+            direction = "stable"
+
+        display = display_tags.get(tag_key, tag_key)
+        trending.append(
+            TrendingTopic(
+                tag=f"#{display}",
+                posts_count=int(total),
+                trend_direction=direction
+            )
+        )
+
+    return trending
 
 
 # ============================================

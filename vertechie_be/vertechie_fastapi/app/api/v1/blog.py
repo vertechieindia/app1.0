@@ -5,10 +5,11 @@ Articles, Comments, and Newsletters
 
 from typing import List, Optional, Any, Dict
 from uuid import UUID
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete, insert
 from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
@@ -64,6 +65,7 @@ class ArticleUpdate(BaseModel):
     excerpt: Optional[str] = None
     cover_image: Optional[str] = None
     is_premium: Optional[bool] = None
+    tags: Optional[List[str]] = None
 
 class ArticleResponse(BaseModel):
     id: UUID
@@ -197,6 +199,101 @@ def _serialize_article_for_response(
         "tags": [t.name for t in (article.tags or [])],
         "likes_count": article.reactions_count or 0,
     }
+
+
+async def _serialize_article_with_author_context(
+    db: AsyncSession,
+    article: Article,
+) -> Dict[str, Any]:
+    user: Optional[User] = None
+    profile: Optional[UserProfile] = None
+
+    if article.author_id:
+        user_result = await db.execute(select(User).where(User.id == article.author_id))
+        user = user_result.scalar_one_or_none()
+        profile_result = await db.execute(
+            select(UserProfile).where(UserProfile.user_id == article.author_id)
+        )
+        profile = profile_result.scalar_one_or_none()
+
+    return _serialize_article_for_response(article, user, profile)
+
+
+async def _serialize_article_detail_with_author_context(
+    db: AsyncSession,
+    article: Article,
+) -> Dict[str, Any]:
+    payload = await _serialize_article_with_author_context(db, article)
+    payload.update(
+        {
+            "content": article.content,
+            "meta_title": article.meta_title,
+            "meta_description": article.meta_description,
+        }
+    )
+    return payload
+
+
+def _slugify_tag(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
+    return slug.strip("-")
+
+
+async def _resolve_article_tags(db: AsyncSession, raw_tags: List[str]) -> List[ArticleTag]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for tag in raw_tags or []:
+        if not isinstance(tag, str):
+            continue
+        name = tag.strip()
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(name)
+
+    if not cleaned:
+        return []
+
+    slug_by_name = {name: _slugify_tag(name) for name in cleaned}
+    slugs = [slug for slug in slug_by_name.values() if slug]
+    if not slugs:
+        return []
+
+    existing_result = await db.execute(select(ArticleTag).where(ArticleTag.slug.in_(slugs)))
+    existing_tags = existing_result.scalars().all()
+    by_slug = {tag.slug: tag for tag in existing_tags}
+
+    resolved: list[ArticleTag] = []
+    for name in cleaned:
+        slug = slug_by_name.get(name, "")
+        if not slug:
+            continue
+        tag_obj = by_slug.get(slug)
+        if not tag_obj:
+            tag_obj = ArticleTag(name=name, slug=slug)
+            db.add(tag_obj)
+            await db.flush()
+            by_slug[slug] = tag_obj
+        resolved.append(tag_obj)
+
+    return resolved
+
+
+async def _set_article_tags(db: AsyncSession, article_id: UUID, raw_tags: List[str]) -> None:
+    resolved_tags = await _resolve_article_tags(db, raw_tags)
+    await db.execute(delete(article_tags).where(article_tags.c.article_id == article_id))
+    if not resolved_tags:
+        return
+    values = [
+        {"article_id": article_id, "tag_id": tag.id}
+        for tag in resolved_tags
+        if tag and tag.id
+    ]
+    if values:
+        await db.execute(insert(article_tags), values)
 
 
 # ============= Categories =============
@@ -407,8 +504,21 @@ async def get_article(
     # Increment view count
     article.views_count += 1
     await db.commit()
-    
-    return article
+
+    article_result = await db.execute(
+        select(Article)
+        .options(
+            selectinload(Article.category),
+            selectinload(Article.tags),
+            selectinload(Article.series),
+        )
+        .where(Article.id == article.id)
+    )
+    article_with_relations = article_result.scalar_one_or_none()
+    if not article_with_relations:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    return await _serialize_article_detail_with_author_context(db, article_with_relations)
 
 
 @router.get("/articles/slug/{slug}", response_model=ArticleDetailResponse)
@@ -418,7 +528,13 @@ async def get_article_by_slug(
 ):
     """Get article by slug."""
     result = await db.execute(
-        select(Article).where(Article.slug == slug)
+        select(Article)
+        .options(
+            selectinload(Article.category),
+            selectinload(Article.tags),
+            selectinload(Article.series),
+        )
+        .where(Article.slug == slug)
     )
     article = result.scalar_one_or_none()
     
@@ -427,8 +543,21 @@ async def get_article_by_slug(
     
     article.views_count += 1
     await db.commit()
-    
-    return article
+
+    article_result = await db.execute(
+        select(Article)
+        .options(
+            selectinload(Article.category),
+            selectinload(Article.tags),
+            selectinload(Article.series),
+        )
+        .where(Article.id == article.id)
+    )
+    article_with_relations = article_result.scalar_one_or_none()
+    if not article_with_relations:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    return await _serialize_article_detail_with_author_context(db, article_with_relations)
 
 
 @router.post("/articles", response_model=ArticleResponse)
@@ -462,10 +591,25 @@ async def create_article(
         **article_data
     )
     db.add(db_article)
+    await db.flush()
+
+    if article.tags:
+        await _set_article_tags(db, db_article.id, article.tags)
+
     await db.commit()
     await db.refresh(db_article)
-    
-    return db_article
+
+    # Re-query with relationships eagerly loaded so response serialization is async-safe.
+    article_result = await db.execute(
+        select(Article)
+        .options(selectinload(Article.category), selectinload(Article.tags))
+        .where(Article.id == db_article.id)
+    )
+    article_with_relations = article_result.scalar_one_or_none()
+    if not article_with_relations:
+        raise HTTPException(status_code=404, detail="Article not found after creation")
+
+    return await _serialize_article_with_author_context(db, article_with_relations)
 
 
 @router.put("/articles/{article_id}", response_model=ArticleResponse)
@@ -489,11 +633,26 @@ async def update_article(
     
     update_data = article_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
+        if key == "tags":
+            continue
         setattr(article, key, value)
+
+    if article_update.tags is not None:
+        await _set_article_tags(db, article.id, article_update.tags)
     
     await db.commit()
     await db.refresh(article)
-    return article
+
+    article_result = await db.execute(
+        select(Article)
+        .options(selectinload(Article.category), selectinload(Article.tags))
+        .where(Article.id == article.id)
+    )
+    article_with_relations = article_result.scalar_one_or_none()
+    if not article_with_relations:
+        raise HTTPException(status_code=404, detail="Article not found after update")
+
+    return await _serialize_article_with_author_context(db, article_with_relations)
 
 
 @router.put("/articles/{article_id}/publish")
