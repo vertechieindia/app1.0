@@ -4,18 +4,21 @@ Provides endpoints for admin panel functionality.
 """
 
 import logging
+import json
 import traceback
 from datetime import datetime, timedelta
 from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func, and_, or_, cast, String, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.user import User, UserRole, RoleType, VerificationStatus, UserProfile, Experience, Education
+from app.models.user import User, UserRole, RoleType, VerificationStatus, UserProfile, Experience, Education, user_roles
+from app.models.company import Company, CompanyAdmin
+from app.models.school import School, SchoolAdmin
 from app.core.security import get_current_admin_user
 from app.core.config import get_settings
 from sqlalchemy.orm import selectinload
@@ -406,6 +409,95 @@ class AdminStatsResponse(BaseModel):
 
 # ============= Endpoints =============
 
+def _available_permissions() -> List[PermissionResponse]:
+    """Static permissions list used by role-management endpoints."""
+    return [
+        PermissionResponse(id="1", name="View Users", codename="view_users", description="Can view all users"),
+        PermissionResponse(id="2", name="Edit Users", codename="edit_users", description="Can edit user details"),
+        PermissionResponse(id="3", name="Delete Users", codename="delete_users", description="Can delete users"),
+        PermissionResponse(id="4", name="Block Users", codename="block_users", description="Can block/unblock users"),
+        PermissionResponse(id="5", name="Verify Profiles", codename="verify_profiles", description="Can approve/reject profiles"),
+        PermissionResponse(id="6", name="Manage Companies", codename="manage_companies", description="Can manage companies"),
+        PermissionResponse(id="7", name="Manage Schools", codename="manage_schools", description="Can manage schools"),
+        PermissionResponse(id="8", name="Manage Jobs", codename="manage_jobs", description="Can manage job postings"),
+        PermissionResponse(id="9", name="View Reports", codename="view_reports", description="Can view analytics"),
+        PermissionResponse(id="10", name="System Settings", codename="system_settings", description="Can change system settings"),
+    ]
+
+
+def _normalize_permission_codes(permission_ids: List[Any]) -> List[str]:
+    """Accept permission ids/codenames and store normalized codenames."""
+    if not permission_ids:
+        return []
+    catalog = _available_permissions()
+    id_to_code = {str(p.id): p.codename for p in catalog}
+    valid_codes = {p.codename for p in catalog}
+    normalized: List[str] = []
+    seen = set()
+    for raw in permission_ids:
+        token = str(raw).strip()
+        if not token:
+            continue
+        code = id_to_code.get(token, token)
+        if code not in valid_codes:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid permission: {raw}"
+            )
+        if code not in seen:
+            normalized.append(code)
+            seen.add(code)
+    return normalized
+
+
+def _infer_role_type_from_name(name: str) -> Optional[RoleType]:
+    """Infer RoleType from common admin role names used in UI."""
+    key = (name or "").strip().lower().replace("-", "_").replace(" ", "_")
+    mapping = {
+        "superadmin": RoleType.SUPER_ADMIN,
+        "super_admin": RoleType.SUPER_ADMIN,
+        "company_admin": RoleType.COMPANY_ADMIN,
+        "hm_admin": RoleType.HIRING_MANAGER,
+        "hiring_manager_admin": RoleType.HIRING_MANAGER,
+        "techie_admin": RoleType.TECHIE,
+        "school_admin": RoleType.SCHOOL_ADMIN,
+        "bdm_admin": RoleType.BDM_ADMIN,
+    }
+    return mapping.get(key)
+
+
+class GroupCreateRequest(BaseModel):
+    name: str
+    role_type: Optional[str] = None
+    description: Optional[str] = None
+    permission_ids: List[Any] = []
+
+
+class GroupUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    permission_ids: Optional[List[Any]] = None
+
+
+def _serialize_permissions(codes: Optional[List[Any]]) -> List[PermissionResponse]:
+    catalog = _available_permissions()
+    by_code = {p.codename: p for p in catalog}
+    out: List[PermissionResponse] = []
+    for i, raw in enumerate(codes or []):
+        code = str(raw)
+        perm = by_code.get(code)
+        if perm:
+            out.append(perm)
+        else:
+            out.append(PermissionResponse(
+                id=str(i + 1),
+                name=code.replace("_", " ").title(),
+                codename=code,
+                description=None,
+            ))
+    return out
+
 @router.get("/groups/", response_model=List[GroupResponse])
 async def list_groups(
     db: AsyncSession = Depends(get_db),
@@ -426,25 +518,7 @@ async def list_groups(
         )
         user_count = count_result.scalar() or 0
         
-        # Get permissions from the role's JSON field or use empty list
-        role_permissions = []
-        if role.permissions:
-            # If permissions are stored as list of codenames/ids, map them to PermissionResponse
-            for i, perm in enumerate(role.permissions):
-                if isinstance(perm, str):
-                    role_permissions.append(PermissionResponse(
-                        id=str(i + 1),
-                        name=perm.replace('_', ' ').title(),
-                        codename=perm,
-                        description=None
-                    ))
-                elif isinstance(perm, dict):
-                    role_permissions.append(PermissionResponse(
-                        id=str(perm.get('id', i + 1)),
-                        name=perm.get('name', ''),
-                        codename=perm.get('codename', ''),
-                        description=perm.get('description')
-                    ))
+        role_permissions = _serialize_permissions(role.permissions)
         
         groups.append(GroupResponse(
             id=role.id,
@@ -459,27 +533,136 @@ async def list_groups(
     return groups
 
 
+@router.post("/groups/", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
+async def create_group(
+    body: GroupCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user),
+) -> Any:
+    """Create a role/group used in Access Roles tab."""
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Role name is required")
+
+    normalized_permissions = _normalize_permission_codes(body.permission_ids or [])
+    role_type: Optional[RoleType] = None
+    if body.role_type:
+        try:
+            role_type = RoleType(str(body.role_type).strip().lower())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid role_type")
+    if role_type is None:
+        role_type = _infer_role_type_from_name(name)
+    if role_type is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Role type not recognized. Use a standard admin role name (superadmin, company_admin, hm_admin, techie_admin, school_admin, bdm_admin).",
+        )
+
+    exists = await db.execute(select(UserRole).where(func.lower(UserRole.name) == name.lower()))
+    if exists.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Role already exists")
+
+    role = UserRole(
+        name=name,
+        role_type=role_type,
+        description=body.description,
+        permissions=normalized_permissions,
+        is_active=True,
+    )
+    db.add(role)
+    await db.commit()
+    await db.refresh(role)
+
+    return GroupResponse(
+        id=role.id,
+        name=role.name,
+        role_type=role.role_type.value if role.role_type else "unknown",
+        description=role.description,
+        is_active=role.is_active,
+        user_count=0,
+        permissions=_serialize_permissions(role.permissions),
+    )
+
+
+@router.put("/groups/{group_id}/", response_model=GroupResponse)
+async def update_group(
+    group_id: UUID,
+    body: GroupUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user),
+) -> Any:
+    """Update role metadata/permissions used in Access Roles tab."""
+    result = await db.execute(select(UserRole).where(UserRole.id == group_id))
+    role = result.scalar_one_or_none()
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    if body.name is not None:
+        new_name = body.name.strip()
+        if not new_name:
+            raise HTTPException(status_code=400, detail="Role name cannot be empty")
+        role.name = new_name
+    if body.description is not None:
+        role.description = body.description
+    if body.is_active is not None:
+        role.is_active = body.is_active
+    if body.permission_ids is not None:
+        role.permissions = _normalize_permission_codes(body.permission_ids)
+
+    await db.commit()
+    await db.refresh(role)
+
+    count_result = await db.execute(
+        select(func.count(user_roles.c.user_id)).where(user_roles.c.role_id == role.id)
+    )
+    user_count = count_result.scalar() or 0
+
+    return GroupResponse(
+        id=role.id,
+        name=role.name,
+        role_type=role.role_type.value if role.role_type else "unknown",
+        description=role.description,
+        is_active=role.is_active,
+        user_count=user_count,
+        permissions=_serialize_permissions(role.permissions),
+    )
+
+
+@router.delete("/groups/{group_id}/", status_code=status.HTTP_200_OK)
+async def delete_group(
+    group_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user),
+) -> Any:
+    """Delete a role if it is not assigned to any users."""
+    result = await db.execute(select(UserRole).where(UserRole.id == group_id))
+    role = result.scalar_one_or_none()
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    count_result = await db.execute(
+        select(func.count(user_roles.c.user_id)).where(user_roles.c.role_id == role.id)
+    )
+    assigned_count = count_result.scalar() or 0
+    if assigned_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete role that is assigned to users",
+        )
+
+    await db.delete(role)
+    await db.commit()
+    return {"success": True, "message": "Role deleted"}
+
+
 @router.get("/permissions/", response_model=List[PermissionResponse])
 async def list_permissions(
     current_admin: User = Depends(get_current_admin_user)
 ) -> Any:
     """List all available permissions."""
     
-    # Static permissions list based on admin roles
-    permissions = [
-        PermissionResponse(id="1", name="View Users", codename="view_users", description="Can view all users"),
-        PermissionResponse(id="2", name="Edit Users", codename="edit_users", description="Can edit user details"),
-        PermissionResponse(id="3", name="Delete Users", codename="delete_users", description="Can delete users"),
-        PermissionResponse(id="4", name="Block Users", codename="block_users", description="Can block/unblock users"),
-        PermissionResponse(id="5", name="Verify Profiles", codename="verify_profiles", description="Can approve/reject profiles"),
-        PermissionResponse(id="6", name="Manage Companies", codename="manage_companies", description="Can manage companies"),
-        PermissionResponse(id="7", name="Manage Schools", codename="manage_schools", description="Can manage schools"),
-        PermissionResponse(id="8", name="Manage Jobs", codename="manage_jobs", description="Can manage job postings"),
-        PermissionResponse(id="9", name="View Reports", codename="view_reports", description="Can view analytics"),
-        PermissionResponse(id="10", name="System Settings", codename="system_settings", description="Can change system settings"),
-    ]
-    
-    return permissions
+    return _available_permissions()
 
 
 @router.get("/blocked-profiles/", response_model=List[BlockedProfileResponse])
@@ -1170,7 +1353,7 @@ class UserFullProfile(BaseModel):
     is_superuser: bool = False
     email_verified: bool = False
     mobile_verified: bool = False
-    face_verification: Optional[bool] = None
+    face_verification: Optional[List[str]] = None
     verification_status: Optional[str] = None
     
     # Review Info
@@ -1185,9 +1368,25 @@ class UserFullProfile(BaseModel):
     
     # Related Data
     profile: Optional[ProfileDetail] = None
+    organization: Optional[dict] = None
     experiences: List[ExperienceDetail] = []
     educations: List[EducationDetail] = []
     roles: List[str] = []
+
+    @field_validator("face_verification", mode="before")
+    @classmethod
+    def normalize_face_verification(cls, value: Any) -> Optional[List[str]]:
+        """Normalize legacy face_verification JSON-string data to list[str]."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return None
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, str)]
+        return None
 
 
 @router.get("/users/{user_id}/full-profile")
@@ -1290,6 +1489,48 @@ async def get_user_full_profile(
     
     # Build roles list
     roles = [role.role_type.value for role in (user.roles or [])]
+
+    # Build organization details for HR/Company/School accounts
+    organization = None
+    role_set = set(roles)
+    if RoleType.HIRING_MANAGER.value in role_set or RoleType.COMPANY_ADMIN.value in role_set:
+        company_result = await db.execute(
+            select(CompanyAdmin, Company)
+            .join(Company, Company.id == CompanyAdmin.company_id)
+            .where(CompanyAdmin.user_id == user.id)
+            .order_by(CompanyAdmin.added_at.desc())
+            .limit(1)
+        )
+        company_link = company_result.first()
+        if company_link:
+            company_admin, company = company_link
+            organization = {
+                "type": "company",
+                "name": company.name,
+                "email": company.email,
+                "website": company.website,
+                "role": company_admin.role,
+                "description": company.description,
+            }
+    elif RoleType.SCHOOL_ADMIN.value in role_set:
+        school_result = await db.execute(
+            select(SchoolAdmin, School)
+            .join(School, School.id == SchoolAdmin.school_id)
+            .where(SchoolAdmin.user_id == user.id)
+            .order_by(SchoolAdmin.added_at.desc())
+            .limit(1)
+        )
+        school_link = school_result.first()
+        if school_link:
+            school_admin, school = school_link
+            organization = {
+                "type": "school",
+                "name": school.name,
+                "email": school.email,
+                "website": school.website,
+                "role": school_admin.role.value if hasattr(school_admin.role, "value") else str(school_admin.role),
+                "description": school.description,
+            }
     
     return UserFullProfile(
         id=str(user.id),
@@ -1319,6 +1560,7 @@ async def get_user_full_profile(
         created_at=str(user.created_at) if user.created_at else None,
         last_login=str(user.last_login) if user.last_login else None,
         profile=profile_detail,
+        organization=organization,
         experiences=experiences,
         educations=educations,
         roles=roles
@@ -1365,6 +1607,11 @@ async def update_admin_roles(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     roles = body.admin_roles or []
+    if len(roles) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only one admin role can be assigned per user"
+        )
     user.admin_roles = roles
     user.is_superuser = "superadmin" in [r.lower() for r in roles if r]
     await db.commit()

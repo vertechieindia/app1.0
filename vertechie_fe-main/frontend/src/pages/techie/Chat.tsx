@@ -92,6 +92,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import DescriptionIcon from '@mui/icons-material/Description';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import { useLocation } from 'react-router-dom';
 
 // Styled Components
 const ChatContainer = styled(Box)(({ theme }) => ({
@@ -436,6 +437,7 @@ const mockMessages: Message[] = [
 ];
 
 const Chat: React.FC = () => {
+  const location = useLocation();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -495,6 +497,7 @@ const Chat: React.FC = () => {
   const [wsConnected, setWsConnected] = useState(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const autoOpenChatUserRef = useRef<string | null>(null);
 
   // Fetch users for new chat
   const fetchUsers = useCallback(async (search?: string) => {
@@ -520,7 +523,7 @@ const Chat: React.FC = () => {
   }, []);
 
   // Create new direct message conversation
-  const handleCreateNewChat = async (userId: string, userName: string) => {
+  const handleCreateNewChat = useCallback(async (userId: string, userName: string) => {
     try {
       const data = await chatService.createConversation({
         type: 'direct',
@@ -576,7 +579,7 @@ const Chat: React.FC = () => {
         console.error('Status:', err.response.status);
       }
     }
-  };
+  }, []);
 
   // Fetch conversations from API
   const fetchConversations = useCallback(async () => {
@@ -701,6 +704,29 @@ const Chat: React.FC = () => {
   useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
+
+  // If navigated from network "Message" action, open existing DM or create one.
+  useEffect(() => {
+    const target = (location.state as any)?.startChatUser;
+    if (!target?.id || loading) return;
+
+    const targetId = String(target.id);
+    if (autoOpenChatUserRef.current === targetId) return;
+    const existing = conversations.find((c) =>
+      !c.isGroup && Array.isArray(c.members) && c.members.some((m) => String(m.id) === targetId)
+    );
+
+    if (existing) {
+      autoOpenChatUserRef.current = targetId;
+      setSelectedConversation(existing);
+      if (isMobile) setShowMobileChat(true);
+      return;
+    }
+
+    // Create DM if conversation does not exist yet.
+    autoOpenChatUserRef.current = targetId;
+    handleCreateNewChat(targetId, target.name || 'User');
+  }, [location.state, loading, conversations, isMobile, handleCreateNewChat]);
 
   // Fetch users when new chat dialog opens
   useEffect(() => {

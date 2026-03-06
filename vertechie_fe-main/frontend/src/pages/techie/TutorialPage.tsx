@@ -36,11 +36,25 @@ import { getTutorialBySlug, Tutorial, Chapter, Lesson } from '../../data/curricu
 import { PageContainer, Sidebar, SidebarToggle, MainContent, LessonContent, ChapterItem, LessonItem, CodeEditor, TryItEditor, EditorHeader, ResultFrame, NavigationBar, ProgressBar } from './TutorialPage.styles';
 import { getLessonContent } from './lessons/getLessonContent';
 
+const getCurrentUserScope = (): string => {
+  try {
+    const raw = localStorage.getItem('userData');
+    if (!raw) return 'anonymous';
+    const parsed = JSON.parse(raw);
+    return String(parsed?.id || parsed?.email || 'anonymous');
+  } catch {
+    return 'anonymous';
+  }
+};
+
 const TutorialPage: React.FC = () => {
   const { tutorialSlug, lessonSlug } = useParams<{ tutorialSlug: string; lessonSlug?: string }>();
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const userScope = getCurrentUserScope();
+  const completedLessonsStorageKey = `completedLessons_${userScope}_${tutorialSlug || 'unknown'}`;
+  const userCertificatesStorageKey = `userCertificates_${userScope}`;
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -48,7 +62,7 @@ const TutorialPage: React.FC = () => {
   const [completedLessons, setCompletedLessons] = useState<string[]>(() => {
     // Load completed lessons from localStorage on mount
     try {
-      const saved = localStorage.getItem(`completedLessons_${tutorialSlug}`);
+      const saved = localStorage.getItem(completedLessonsStorageKey);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -62,7 +76,7 @@ const TutorialPage: React.FC = () => {
   const [showCertificateDialog, setShowCertificateDialog] = useState(false);
   const [certificateGenerated, setCertificateGenerated] = useState(() => {
     try {
-      const certs = JSON.parse(localStorage.getItem('userCertificates') || '[]');
+      const certs = JSON.parse(localStorage.getItem(userCertificatesStorageKey) || '[]');
       return certs.some((c: any) => c.tutorialSlug === tutorialSlug);
     } catch {
       return false;
@@ -79,12 +93,35 @@ const TutorialPage: React.FC = () => {
 
   const tutorial = getTutorialBySlug(tutorialSlug || '');
 
+  // Reload completed lessons when user/tutorial changes.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(completedLessonsStorageKey);
+      setCompletedLessons(saved ? JSON.parse(saved) : []);
+    } catch {
+      setCompletedLessons([]);
+    }
+  }, [completedLessonsStorageKey]);
+
+  // Reload certificate flag when user/tutorial changes.
+  useEffect(() => {
+    try {
+      const certs = JSON.parse(localStorage.getItem(userCertificatesStorageKey) || '[]');
+      setCertificateGenerated(certs.some((c: any) => c.tutorialSlug === tutorialSlug));
+    } catch {
+      setCertificateGenerated(false);
+    }
+  }, [tutorialSlug, userCertificatesStorageKey]);
+
   // Save completed lessons to localStorage whenever they change
   useEffect(() => {
-    if (tutorialSlug && completedLessons.length > 0) {
-      localStorage.setItem(`completedLessons_${tutorialSlug}`, JSON.stringify(completedLessons));
+    if (!tutorialSlug) return;
+    if (completedLessons.length > 0) {
+      localStorage.setItem(completedLessonsStorageKey, JSON.stringify(completedLessons));
+    } else {
+      localStorage.removeItem(completedLessonsStorageKey);
     }
-  }, [completedLessons, tutorialSlug]);
+  }, [completedLessons, tutorialSlug, completedLessonsStorageKey]);
 
   // Tutorials that run in browser (iframe); others show code + "run in your environment"
   const isBrowserRunnableTutorial = ['html', 'css', 'javascript', 'react', 'angular', 'typescript'].includes(tutorialSlug || '');
@@ -212,15 +249,17 @@ const TutorialPage: React.FC = () => {
       tutorialSlug: tutorialSlug,
       tutorialTitle: tutorial?.title || 'Tutorial',
       userName: `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || userData.email || 'Student',
+      ownerId: userData.id || null,
+      ownerEmail: userData.email || null,
       completedAt: new Date().toISOString(),
       totalLessons: totalLessons,
     };
     
     // Save to localStorage
-    const existingCerts = JSON.parse(localStorage.getItem('userCertificates') || '[]');
+    const existingCerts = JSON.parse(localStorage.getItem(userCertificatesStorageKey) || '[]');
     if (!existingCerts.some((c: any) => c.tutorialSlug === tutorialSlug)) {
       existingCerts.push(certificate);
-      localStorage.setItem('userCertificates', JSON.stringify(existingCerts));
+      localStorage.setItem(userCertificatesStorageKey, JSON.stringify(existingCerts));
       setCertificateGenerated(true);
       setShowCertificateDialog(true);
     }

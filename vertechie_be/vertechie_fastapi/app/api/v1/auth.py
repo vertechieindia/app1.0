@@ -3,6 +3,7 @@ Authentication API endpoints.
 """
 
 import logging
+import json
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -39,6 +40,21 @@ async def register(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Register a new user."""
+    # Accept legacy stringified JSON payloads for face verification.
+    if isinstance(user_in.face_verification, str):
+        try:
+            user_in.face_verification = json.loads(user_in.face_verification)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid face_verification JSON format"
+            ) from exc
+    if user_in.face_verification is not None:
+        if not isinstance(user_in.face_verification, list) or not all(isinstance(item, str) for item in user_in.face_verification):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="face_verification must be a list of strings"
+            )
     
     # Check if email exists
     result = await db.execute(
@@ -600,7 +616,7 @@ async def admin_create_user(
         else:
             # Fallback to mapping based on role type
             admin_roles_mapping = {
-                "admin": ["superadmin", "admin"],
+                "admin": ["superadmin"],
                 "hr": ["hm_admin"],  # Hiring Manager Admin
                 "company": ["company_admin"],
                 "school": ["school_admin"],
@@ -610,6 +626,11 @@ async def admin_create_user(
         # Ensure admin_roles is always a list (not None)
         if admin_roles is None:
             admin_roles = []
+        if len(admin_roles) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Only one admin role can be assigned per user"
+            )
         
         # Determine if user is superuser - only if admin_roles includes "superadmin"
         # HM Admin, Company Admin, etc. should NOT be superusers

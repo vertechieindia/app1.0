@@ -5,6 +5,7 @@ Authentication schemas.
 from typing import Optional, List, Any
 from datetime import date
 from pydantic import BaseModel, EmailStr, Field, field_validator
+import json
 import re
 
 
@@ -44,7 +45,7 @@ class UserRegister(BaseModel):
     # Techie-specific complex fields (reuse admin schemas)
     experiences: Optional[List[Any]] = None
     educations: Optional[List[Any]] = None
-    face_verification: Optional[Any] = None
+    face_verification: Optional[List[str]] = None
     
     # Additional organization fields
     ein: Optional[str] = None
@@ -69,6 +70,23 @@ class UserRegister(BaseModel):
             raise ValueError('Password must contain at least one lowercase letter')
         if not re.search(r'\d', v):
             raise ValueError('Password must contain at least one digit')
+        return v
+
+    @field_validator('face_verification', mode='before')
+    @classmethod
+    def normalize_face_verification(cls, v):
+        """Accept legacy stringified JSON and normalize to list[str]."""
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError as exc:
+                raise ValueError('face_verification must be a valid JSON list of strings') from exc
+        if not isinstance(v, list):
+            raise ValueError('face_verification must be a list of strings')
+        if not all(isinstance(item, str) for item in v):
+            raise ValueError('face_verification must be a list of strings')
         return v
 
 

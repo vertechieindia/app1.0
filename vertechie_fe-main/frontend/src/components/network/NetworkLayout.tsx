@@ -110,6 +110,9 @@ interface NetworkLayoutProps {
   children: React.ReactNode;
 }
 
+const SUGGESTIONS_PREVIEW_COUNT = 3;
+const SUGGESTIONS_PAGE_SIZE = 10;
+
 const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -125,7 +128,10 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
   const [userName, setUserName] = useState<string>('User');
   const [userRole, setUserRole] = useState<string>('');
   const [suggestions, setSuggestions] = useState<User[]>([]);
+  const [showAllSuggestions, setShowAllSuggestions] = useState(false);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [loadingMoreSuggestions, setLoadingMoreSuggestions] = useState(false);
+  const [hasMoreSuggestions, setHasMoreSuggestions] = useState(false);
   const [sidebarError, setSidebarError] = useState<string | null>(null);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmails, setInviteEmails] = useState('');
@@ -188,10 +194,17 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
     }
   }, []);
 
-  const fetchSuggestions = useCallback(async () => {
+  const fetchSuggestions = useCallback(async (opts?: { limit?: number; offset?: number; append?: boolean }) => {
+    const limit = opts?.limit ?? SUGGESTIONS_PREVIEW_COUNT;
+    const offset = opts?.offset ?? 0;
+    const append = opts?.append ?? false;
     try {
-      setLoadingSuggestions(true);
-      const data = await api.get<any[]>(`${API_ENDPOINTS.UNIFIED_NETWORK.SUGGESTIONS_PEOPLE}?limit=3`);
+      if (append) {
+        setLoadingMoreSuggestions(true);
+      } else {
+        setLoadingSuggestions(true);
+      }
+      const data = await api.get<any[]>(`${API_ENDPOINTS.UNIFIED_NETWORK.SUGGESTIONS_PEOPLE}?limit=${limit}&offset=${offset}`);
       setSidebarError(null);
       const mapped: User[] = (Array.isArray(data) ? data : []).map((item: any) => ({
         id: item.id,
@@ -203,15 +216,41 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
         is_verified: !!item.is_verified,
         skills: item.skills || [],
       }));
-      setSuggestions(mapped);
+      if (append) {
+        setSuggestions(prev => {
+          const merged = [...prev, ...mapped];
+          const seen = new Set<string>();
+          return merged.filter(item => {
+            if (seen.has(item.id)) return false;
+            seen.add(item.id);
+            return true;
+          });
+        });
+      } else {
+        setSuggestions(mapped);
+      }
+      setHasMoreSuggestions(mapped.length === limit);
     } catch (err) {
       console.error('NetworkLayout: error fetching suggestions', err);
       setSidebarError('Some sidebar data could not be loaded.');
-      setSuggestions([]);
+      if (!append) setSuggestions([]);
     } finally {
-      setLoadingSuggestions(false);
+      if (append) {
+        setLoadingMoreSuggestions(false);
+      } else {
+        setLoadingSuggestions(false);
+      }
     }
   }, []);
+
+  const loadMoreSuggestions = useCallback(() => {
+    if (loadingMoreSuggestions || !hasMoreSuggestions) return;
+    fetchSuggestions({
+      limit: SUGGESTIONS_PAGE_SIZE,
+      offset: suggestions.length,
+      append: true,
+    });
+  }, [fetchSuggestions, hasMoreSuggestions, loadingMoreSuggestions, suggestions.length]);
 
   // Load current user's display name and a simple role label
   useEffect(() => {
@@ -263,7 +302,17 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
   };
 
   const handleConnect = (userId: string) => {
-    console.log('Connecting with user:', userId);
+    api.post(API_ENDPOINTS.NETWORK.SEND_REQUEST, {
+      receiver_id: userId,
+      message: "Hi! I'd like to connect with you on VerTechie.",
+    })
+      .then(() => {
+        setSnackbar({ open: true, message: 'Connection request sent', severity: 'success' });
+      })
+      .catch((error: any) => {
+        const msg = error?.message || 'Failed to send connection request';
+        setSnackbar({ open: true, message: msg, severity: 'error' });
+      });
   };
 
   const handleSendInvites = async () => {
@@ -377,7 +426,10 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                     <ListItemText primary="Group Memberships" />
                     <Typography variant="h6" color="primary">{stats.group_memberships}</Typography>
                   </ListItem>
-                  <ListItem sx={{ px: 0 }}>
+                  <ListItem
+                    sx={{ px: 0, cursor: 'pointer' }}
+                    onClick={() => navigate('/techie/home/network#pending-requests')}
+                  >
                     <ListItemText primary="Pending Requests" />
                     <Badge badgeContent={stats.pending_requests} color="error">
                       <PersonAdd color="action" />
@@ -394,7 +446,23 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                   <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
                     🎯 LIKE-MINDED PROFILES
                   </Typography>
-                  <Button size="small">See All</Button>
+                  {(showAllSuggestions || suggestions.length > SUGGESTIONS_PREVIEW_COUNT || hasMoreSuggestions) && (
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        if (showAllSuggestions) {
+                          setShowAllSuggestions(false);
+                          return;
+                        }
+                        setShowAllSuggestions(true);
+                        if (suggestions.length <= SUGGESTIONS_PREVIEW_COUNT && hasMoreSuggestions) {
+                          loadMoreSuggestions();
+                        }
+                      }}
+                    >
+                      {showAllSuggestions ? 'Show Less' : 'See All'}
+                    </Button>
+                  )}
                 </Box>
 
                 {loadingSuggestions && (
@@ -409,7 +477,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                   </Typography>
                 )}
 
-                {!loadingSuggestions && suggestions.slice(0, 3).map(user => (
+                {!loadingSuggestions && (showAllSuggestions ? suggestions : suggestions.slice(0, SUGGESTIONS_PREVIEW_COUNT)).map(user => (
                   <Box key={user.id} sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <Avatar sx={{ bgcolor: 'primary.main', mr: 1.5 }}>
                       {user.name.charAt(0)}
@@ -426,6 +494,17 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                     </IconButton>
                   </Box>
                 ))}
+                {showAllSuggestions && (hasMoreSuggestions || loadingMoreSuggestions) && (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', pt: 1 }}>
+                    <Button
+                      size="small"
+                      onClick={loadMoreSuggestions}
+                      disabled={loadingMoreSuggestions}
+                    >
+                      {loadingMoreSuggestions ? 'Loading...' : 'Load More'}
+                    </Button>
+                  </Box>
+                )}
                 {sidebarError && (
                   <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1 }}>
                     {sidebarError}
@@ -434,7 +513,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
               </CardContent>
             </StyledCard>
 
-            {/* Invite Friends */}
+            {false && (
             <StyledCard sx={{ mt: 2 }}>
               <CardContent>
                 <Box sx={{ textAlign: 'center', py: 1 }}>
@@ -459,8 +538,9 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                 </Box>
               </CardContent>
             </StyledCard>
+            )}
 
-            {/* Quick Actions */}
+            {false && (
             <StyledCard sx={{ mt: 2 }}>
               <CardContent>
                 <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary', mb: 2 }}>
@@ -495,6 +575,7 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                 </Button>
               </CardContent>
             </StyledCard>
+            )}
           </Grid>
 
           {/* ========== MAIN CONTENT ========== */}
@@ -566,6 +647,66 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
 
                 <Button size="small" fullWidth sx={{ mt: 1 }} onClick={() => navigate('/techie/home/events')}>
                   View All Events
+                </Button>
+              </CardContent>
+            </StyledCard>
+
+            <StyledCard sx={{ mb: 3 }}>
+              <CardContent>
+                <Box sx={{ textAlign: 'center', py: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary', mb: 1 }}>
+                    GROW YOUR NETWORK
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Invite colleagues and friends to join VerTechie
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    startIcon={<Send />}
+                    sx={{ borderRadius: 2, mb: 1 }}
+                    onClick={() => setInviteDialogOpen(true)}
+                  >
+                    Invite to VerTechie
+                  </Button>
+                  <Typography variant="caption" color="text.secondary">
+                    Earn rewards for each friend who joins!
+                  </Typography>
+                </Box>
+              </CardContent>
+            </StyledCard>
+
+            <StyledCard sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary', mb: 2 }}>
+                  QUICK ACTIONS
+                </Typography>
+                <Button
+                  variant="text"
+                  fullWidth
+                  startIcon={<GroupAdd />}
+                  sx={{ justifyContent: 'flex-start', mb: 1, borderRadius: 2 }}
+                  onClick={() => navigate('/techie/home/groups')}
+                >
+                  Create a New Group
+                </Button>
+                <Button
+                  variant="text"
+                  fullWidth
+                  startIcon={<Event />}
+                  sx={{ justifyContent: 'flex-start', mb: 1, borderRadius: 2 }}
+                  onClick={() => navigate('/techie/home/events')}
+                >
+                  Host a Networking Event
+                </Button>
+                <Button
+                  variant="text"
+                  fullWidth
+                  startIcon={<TrendingUp />}
+                  sx={{ justifyContent: 'flex-start', borderRadius: 2 }}
+                  onClick={() => navigate('/techie/home/combinator')}
+                >
+                  Join Combinator
                 </Button>
               </CardContent>
             </StyledCard>

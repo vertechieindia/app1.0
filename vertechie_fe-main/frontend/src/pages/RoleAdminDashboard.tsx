@@ -905,6 +905,70 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                 </Grid>
               </Box>
               <Divider sx={{ my: 2 }} />
+              {reviewData.organization && (
+                <>
+                  <Box sx={{ px: 2.5, pb: 2.5 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 0.5, mb: 1.5 }}>
+                      <Business sx={{ fontSize: 18 }} /> Organization Details
+                    </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" color="text.secondary">Type</Typography>
+                        <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.organization.type || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" color="text.secondary">Role</Typography>
+                        <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.organization.role || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" color="text.secondary">Organization Name</Typography>
+                        <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.organization.name || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" color="text.secondary">Organization Email</Typography>
+                        <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.organization.email || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Typography variant="caption" color="text.secondary">Website</Typography>
+                        <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.organization.website || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Typography variant="caption" color="text.secondary">About</Typography>
+                        <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.organization.description || '—'}</Typography>
+                      </Grid>
+                    </Grid>
+                  </Box>
+                  <Divider sx={{ my: 2 }} />
+                </>
+              )}
+              <Box sx={{ px: 2.5, pb: 2.5 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 0.5, mb: 1.5 }}>
+                  <Business sx={{ fontSize: 18 }} /> Work Experience ({reviewData.experiences?.length || 0})
+                </Typography>
+                {reviewData.experiences?.length > 0 ? (
+                  reviewData.experiences.map((exp: any, idx: number) => (
+                    <Paper key={idx} sx={{ p: 1.5, mb: 1.5, bgcolor: '#f8fafc', borderRadius: 2 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                        {exp.title || 'Position'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {exp.company_name || 'Company'} | {exp.start_date || 'N/A'} - {exp.is_current ? 'Present' : (exp.end_date || 'N/A')}
+                      </Typography>
+                      {(exp.manager_name || exp.manager_email || exp.manager_phone || exp.manager_linkedin) && (
+                        <Box sx={{ mt: 1 }}>
+                          {exp.manager_name && <Typography variant="body2"><strong>Manager:</strong> {exp.manager_name}</Typography>}
+                          {exp.manager_email && <Typography variant="body2"><strong>Manager Email:</strong> {exp.manager_email}</Typography>}
+                          {exp.manager_phone && <Typography variant="body2"><strong>Manager Phone:</strong> {exp.manager_phone}</Typography>}
+                          {exp.manager_linkedin && <Typography variant="body2"><strong>Manager LinkedIn:</strong> {exp.manager_linkedin}</Typography>}
+                        </Box>
+                      )}
+                    </Paper>
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary">No work experience added</Typography>
+                )}
+              </Box>
+              <Divider sx={{ my: 2 }} />
               <Box sx={{ px: 2.5, pb: 2.5 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 0.5, mb: 1.5 }}>
                   <VerifiedUser sx={{ fontSize: 18 }} /> Verification Status
@@ -924,9 +988,9 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                   />
                   <Chip
                     size="small"
-                    label={reviewData.face_verification ? 'Face Verified' : 'Face Not Verified'}
-                    icon={reviewData.face_verification ? <CheckCircle sx={{ fontSize: 16, color: '#16a34a' }} /> : <Cancel sx={{ fontSize: 16, color: '#9ca3af' }} />}
-                    sx={{ bgcolor: reviewData.face_verification ? '#f0fdf4' : '#fef2f2', color: reviewData.face_verification ? '#16a34a' : '#dc2626', fontWeight: 600 }}
+                    label={Array.isArray(reviewData.face_verification) && reviewData.face_verification.length > 0 ? 'Face Verified' : 'Face Not Verified'}
+                    icon={Array.isArray(reviewData.face_verification) && reviewData.face_verification.length > 0 ? <CheckCircle sx={{ fontSize: 16, color: '#16a34a' }} /> : <Cancel sx={{ fontSize: 16, color: '#9ca3af' }} />}
+                    sx={{ bgcolor: Array.isArray(reviewData.face_verification) && reviewData.face_verification.length > 0 ? '#f0fdf4' : '#fef2f2', color: Array.isArray(reviewData.face_verification) && reviewData.face_verification.length > 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}
                   />
                   <Chip
                     size="small"
