@@ -47,10 +47,8 @@ import {
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 import { Job, JOB_TYPES, EXPERIENCE_LEVELS, JobFilters } from '../../types/jobPortal';
-import { jobService, interestService } from '../../services/jobPortalService';
+import { jobService, applicationService, getUserInfo } from '../../services/jobPortalService';
 import { Snackbar } from '@mui/material';
-import FavoriteIcon from '@mui/icons-material/Favorite';
-import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 
 // Theme Colors - VerTechie Blue Palette (Matching App Theme)
 const colors = {
@@ -291,63 +289,30 @@ const JobListings: React.FC = () => {
     experienceLevel: '',
     location: '',
   });
-  const [interestedJobs, setInterestedJobs] = useState<Set<string>>(new Set());
+  const [appliedJobIds, setAppliedJobIds] = useState<Set<string>>(new Set());
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
     open: false,
     message: '',
     severity: 'success',
   });
 
-  // Get current user data
-  const getUserData = () => {
-    try {
-      const userData = localStorage.getItem('userData');
-      return userData ? JSON.parse(userData) : null;
-    } catch {
-      return null;
-    }
-  };
-
-  // Load user's existing interests
-  const loadUserInterests = async () => {
-    const user = getUserData();
-    if (!user?.id) return;
-    
-    try {
-      const interests = await interestService.getInterestsByUser(user.id.toString());
-      setInterestedJobs(new Set(interests.map(i => i.jobId)));
-    } catch (err) {
-      console.error('Failed to load interests:', err);
-    }
-  };
-
-  // Handle express interest
-  const handleExpressInterest = async (e: React.MouseEvent, jobId: string) => {
-    e.stopPropagation();
-    
-    const user = getUserData();
-    if (!user) {
-      setSnackbar({ open: true, message: 'Please login to express interest', severity: 'error' });
+  const loadAppliedJobs = async () => {
+    const user = getUserInfo();
+    if (!user?.id) {
+      setAppliedJobIds(new Set());
       return;
     }
-    
-    if (interestedJobs.has(jobId)) {
-      setSnackbar({ open: true, message: 'You have already expressed interest in this job', severity: 'info' });
-      return;
-    }
-    
     try {
-      await interestService.expressInterest(
-        jobId,
-        user.id.toString(),
-        `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
-        user.email
+      const apps = await applicationService.getApplicationsByUser(user.id);
+      const ids = new Set(
+        (Array.isArray(apps) ? apps : [])
+          .map((a) => String(a.jobId || ''))
+          .filter(Boolean)
       );
-      
-      setInterestedJobs(prev => new Set([...prev, jobId]));
-      setSnackbar({ open: true, message: 'Interest sent to Hiring Manager!', severity: 'success' });
-    } catch (err: any) {
-      setSnackbar({ open: true, message: err.message || 'Failed to express interest', severity: 'error' });
+      setAppliedJobIds(ids);
+    } catch (err) {
+      console.error('Failed to load applied jobs:', err);
+      setAppliedJobIds(new Set());
     }
   };
 
@@ -413,8 +378,8 @@ const JobListings: React.FC = () => {
 
   useEffect(() => {
     loadJobs();
-    loadUserInterests();
     loadSavedJobs();
+    loadAppliedJobs();
   }, []);
 
   useEffect(() => {
@@ -474,6 +439,9 @@ const JobListings: React.FC = () => {
 
   const handleApplyClick = (e: React.MouseEvent, jobId: string) => {
     e.stopPropagation();
+    if (appliedJobIds.has(jobId)) {
+      return;
+    }
     navigate(`/techie/jobs/${jobId}`);
   };
 
@@ -823,37 +791,27 @@ const JobListings: React.FC = () => {
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#FFB400' }}>
                           <StarIcon sx={{ fontSize: 14 }} />
                           <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                            {(4 + Math.random()).toFixed(1)}
+                            {typeof job.rating === 'number' ? job.rating.toFixed(1) : 'N/A'}
                           </Typography>
                         </Box>
                       </Box>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button
-                          variant={interestedJobs.has(job.id) ? "contained" : "outlined"}
-                          size="small"
-                          startIcon={interestedJobs.has(job.id) ? <FavoriteIcon /> : <FavoriteBorderIcon />}
-                          onClick={(e) => handleExpressInterest(e, job.id)}
-                          sx={{
-                            borderRadius: 3,
-                            textTransform: 'none',
-                            fontWeight: 600,
-                            color: interestedJobs.has(job.id) ? 'white' : '#e91e63',
-                            bgcolor: interestedJobs.has(job.id) ? '#e91e63' : 'transparent',
-                            borderColor: '#e91e63',
-                            '&:hover': {
-                              bgcolor: interestedJobs.has(job.id) ? '#c2185b' : 'rgba(233, 30, 99, 0.1)',
-                              borderColor: '#c2185b',
-                            },
-                          }}
-                        >
-                          {interestedJobs.has(job.id) ? 'Interested' : 'Show Interest'}
-                        </Button>
                         <ApplyButton
                           className="apply-btn"
                           endIcon={<ArrowForwardIcon />}
                           onClick={(e) => handleApplyClick(e, job.id)}
+                          disabled={appliedJobIds.has(job.id)}
+                          sx={
+                            appliedJobIds.has(job.id)
+                              ? {
+                                  bgcolor: alpha(colors.success, 0.14),
+                                  borderColor: colors.success,
+                                  color: colors.success,
+                                }
+                              : undefined
+                          }
                         >
-                          Apply Now
+                          {appliedJobIds.has(job.id) ? 'Applied' : 'Apply'}
                         </ApplyButton>
                       </Box>
                     </Box>

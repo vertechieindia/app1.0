@@ -498,6 +498,7 @@ const Chat: React.FC = () => {
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const autoOpenChatUserRef = useRef<string | null>(null);
+  const autoOpenGroupConversationRef = useRef<string | null>(null);
 
   // Fetch users for new chat
   const fetchUsers = useCallback(async (search?: string) => {
@@ -549,7 +550,10 @@ const Chat: React.FC = () => {
         avatar: (data as any).avatar_url || '',
         lastMessage: (data as any).last_message_preview || '',
         timestamp: parseUtcDate((data as any).created_at),
-        isGroup: (data as any).type === 'group' || (data as any).type === 'channel',
+        isGroup: (data as any).type === 'group'
+          || (data as any).type === 'channel'
+          || (data as any).conversation_type === 'group'
+          || (data as any).conversation_type === 'channel',
         unreadCount: (data as any).unread_count || 0,
         isOnline: false,
         members: [],
@@ -595,9 +599,10 @@ const Chat: React.FC = () => {
 
       // Map API response to local Conversation type
       const mappedConversations: Conversation[] = data.map((conv: any) => {
+        const convType = conv.type || conv.conversation_type;
         // If it's a direct message and name is null, find the other member's name
         let name = conv.name;
-        if (!name && (conv.type === 'direct' || !conv.is_group)) {
+        if (!name && (convType === 'direct' || !conv.is_group)) {
           // Try to find recipient from members or other_member field if available
           const otherMember = (conv.members || []).find((m: any) => m.id !== currentUserId) || conv.other_member || conv.participant;
           if (otherMember) {
@@ -613,13 +618,12 @@ const Chat: React.FC = () => {
           timestamp: parseUtcDate(conv.last_message_at),
           unreadCount: conv.unread_count || 0,
           isOnline: conv.is_online || false,
-          isGroup: conv.type === 'group' || conv.type === 'channel',
+          isGroup: convType === 'group' || convType === 'channel',
           members: conv.members || [],
-          groupSettings: conv.type === 'group' ? {
+          groupSettings: convType === 'group' ? {
             onlyAdminsCanMessage: false,
             onlyAdminsCanEditInfo: false,
             onlyAdminsCanAddMembers: false,
-            notifications: true,
           } : undefined,
         };
       });
@@ -727,6 +731,44 @@ const Chat: React.FC = () => {
     autoOpenChatUserRef.current = targetId;
     handleCreateNewChat(targetId, target.name || 'User');
   }, [location.state, loading, conversations, isMobile, handleCreateNewChat]);
+
+  // If navigated from groups page, auto-open that group conversation.
+  useEffect(() => {
+    const target = (location.state as any)?.startGroupChat;
+    if (!target?.conversationId || loading) return;
+
+    const conversationId = String(target.conversationId);
+    if (autoOpenGroupConversationRef.current === conversationId) return;
+
+    const existing = conversations.find((c) => String(c.id) === conversationId);
+    if (existing) {
+      autoOpenGroupConversationRef.current = conversationId;
+      setSelectedConversation(existing);
+      if (isMobile) setShowMobileChat(true);
+      return;
+    }
+
+    autoOpenGroupConversationRef.current = conversationId;
+    const fallbackConversation: Conversation = {
+      id: conversationId,
+      name: target.groupName || 'Group Chat',
+      avatar: '',
+      lastMessage: '',
+      timestamp: new Date(),
+      unreadCount: 0,
+      isOnline: false,
+      isGroup: true,
+      members: [],
+      groupSettings: {
+        onlyAdminsCanMessage: false,
+        onlyAdminsCanEditInfo: false,
+        onlyAdminsCanAddMembers: false,
+      },
+    };
+    setConversations((prev) => [fallbackConversation, ...prev.filter((c) => c.id !== conversationId)]);
+    setSelectedConversation(fallbackConversation);
+    if (isMobile) setShowMobileChat(true);
+  }, [location.state, loading, conversations, isMobile]);
 
   // Fetch users when new chat dialog opens
   useEffect(() => {

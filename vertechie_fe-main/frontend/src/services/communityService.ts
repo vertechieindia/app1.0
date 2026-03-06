@@ -17,6 +17,12 @@ export interface Group {
   member_count: number;
   post_count: number;
   category: string | null;
+  group_type?: string;
+  created_by_id?: string;
+  is_joined?: boolean;
+  membership_role?: string | null;
+  can_edit?: boolean;
+  can_delete?: boolean;
 }
 
 export interface Post {
@@ -51,9 +57,19 @@ export interface CreateGroupData {
   description?: string;
   avatar_url?: string;
   cover_url?: string;
-  type?: 'public' | 'private' | 'secret';
+  group_type?: 'public' | 'private' | 'secret';
   category?: string;
   tags?: string[];
+}
+
+export interface UpdateGroupData {
+  name?: string;
+  description?: string;
+  avatar_url?: string;
+  cover_url?: string;
+  group_type?: 'public' | 'private' | 'secret';
+  requires_approval?: boolean;
+  post_approval_required?: boolean;
 }
 
 export interface CreatePostData {
@@ -104,6 +120,20 @@ export const communityService = {
   },
 
   /**
+   * Update a group
+   */
+  updateGroup: async (groupId: string, data: UpdateGroupData): Promise<Group> => {
+    return api.put<Group>(API_ENDPOINTS.COMMUNITY.UPDATE_GROUP(groupId), data);
+  },
+
+  /**
+   * Delete a group
+   */
+  deleteGroup: async (groupId: string): Promise<void> => {
+    await api.delete(API_ENDPOINTS.COMMUNITY.DELETE_GROUP(groupId));
+  },
+
+  /**
    * Join a group
    */
   joinGroup: async (groupId: string): Promise<{ message: string }> => {
@@ -115,6 +145,13 @@ export const communityService = {
    */
   leaveGroup: async (groupId: string): Promise<void> => {
     await api.delete(API_ENDPOINTS.COMMUNITY.LEAVE_GROUP(groupId));
+  },
+
+  /**
+   * Get or create the backing group chat conversation
+   */
+  getOrCreateGroupChatConversation: async (groupId: string): Promise<{ conversation_id: string; conversation_name: string }> => {
+    return api.post(API_ENDPOINTS.COMMUNITY.GROUP_CHAT(groupId));
   },
 
   /**

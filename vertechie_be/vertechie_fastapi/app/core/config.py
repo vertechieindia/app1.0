@@ -2,8 +2,9 @@
 Application configuration using Pydantic Settings.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Any
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from functools import lru_cache
 
 
@@ -100,6 +101,19 @@ class Settings(BaseSettings):
         "case_sensitive": True,
         "extra": "ignore"
     }
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_flag(cls, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on", "debug", "dev", "development"}:
+                return True
+            if normalized in {"0", "false", "no", "off", "release", "prod", "production"}:
+                return False
+        return bool(value)
 
 
 def get_settings() -> Settings:

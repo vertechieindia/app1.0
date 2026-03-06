@@ -30,6 +30,7 @@ export interface Message {
 }
 
 export interface CreateConversationData {
+  conversation_type?: 'direct' | 'group' | 'channel';
   type?: 'direct' | 'group' | 'channel';
   member_ids: string[];
   name?: string;
@@ -68,7 +69,12 @@ export const chatService = {
    * Create a new conversation
    */
   createConversation: async (data: CreateConversationData): Promise<Conversation> => {
-    return api.post(API_ENDPOINTS.CHAT.CREATE_CONVERSATION, data);
+    return api.post(API_ENDPOINTS.CHAT.CREATE_CONVERSATION, {
+      conversation_type: data.conversation_type || data.type || 'direct',
+      member_ids: data.member_ids,
+      name: data.name,
+      description: data.description,
+    });
   },
 
   /**
@@ -115,4 +121,3 @@ export const chatService = {
 };
 
 export default chatService;
-

@@ -397,6 +397,9 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
     createdAt: normalizeBackendTimestamp(backendJob.created_at || backendJob.createdAt),
     updatedAt: normalizeBackendTimestamp(backendJob.updated_at || backendJob.updatedAt),
     applicantCount: backendJob.applications_count || backendJob.applicantCount || 0,
+    rating: typeof backendJob.rating === 'number'
+      ? backendJob.rating
+      : (typeof backendJob.company_rating === 'number' ? backendJob.company_rating : undefined),
     salary_min: backendJob.salary_min,
     salary_max: backendJob.salary_max,
     is_remote: backendJob.is_remote,

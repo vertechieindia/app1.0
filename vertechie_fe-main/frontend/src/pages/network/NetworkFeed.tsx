@@ -106,12 +106,6 @@ const reactionTypes = [
   { type: 'funny', icon: '😄', label: 'Funny', color: '#4caf50' },
 ];
 
-// Trending hashtags
-const trendingHashtags = [
-  '#TechCareers', '#ReactJS', '#AITools', '#RemoteWork', '#StartupLife',
-  '#CloudComputing', '#MachineLearning', '#WebDev', '#ProductManagement',
-];
-
 // ============================================
 // MOCK DATA
 // ============================================
@@ -145,6 +139,18 @@ const getCurrentUserId = (): string => {
 };
 
 const getSavedPostsStorageKey = (userId: string) => `vt_saved_feed_posts_${userId || 'anonymous'}`;
+const MAX_POST_LENGTH = 3000;
+const MAX_COMMENT_LENGTH = 500;
+const normalizeSpaces = (value: string) => value.replace(/\s+/g, ' ').trim();
+const hasLetters = (value: string) => /[A-Za-z]/.test(value);
+const isValidHttpUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
 
 // ============================================
 // COMPONENT
@@ -177,6 +183,7 @@ const NetworkFeed: React.FC = () => {
   const [postMenuPostId, setPostMenuPostId] = useState<string | null>(null);
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
   const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set());
+  const [trendingHashtags, setTrendingHashtags] = useState<string[]>([]);
   const currentUserId = getCurrentUserId();
 
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -193,10 +200,78 @@ const NetworkFeed: React.FC = () => {
     setShowEmojiPicker(false);
   };
 
+  const getUniquePollOptions = (options: string[]) => {
+    const uniqueMap = new Map<string, string>();
+    options
+      .map((opt) => normalizeSpaces(opt))
+      .filter(Boolean)
+      .forEach((opt) => {
+        if (!uniqueMap.has(opt.toLowerCase())) uniqueMap.set(opt.toLowerCase(), opt);
+      });
+    return Array.from(uniqueMap.values());
+  };
+
+  const validateComment = (value: string) => {
+    const normalized = normalizeSpaces(value);
+    if (!normalized) return 'Comment cannot be empty.';
+    if (!hasLetters(normalized)) return 'Comment should contain meaningful text.';
+    if (normalized.length > MAX_COMMENT_LENGTH) return `Comment should be under ${MAX_COMMENT_LENGTH} characters.`;
+    return null;
+  };
+
+  const getCreatePostValidationError = () => {
+    const normalizedContent = normalizeSpaces(postContent);
+    const normalizedArticle = normalizeSpaces(articleLink);
+    const uniquePollOptions = getUniquePollOptions(pollOptions);
+    const hasPoll = showPollCreator && uniquePollOptions.length >= 2;
+    const hasContent = !!normalizedContent;
+    const hasImages = attachedImages.length > 0;
+    const hasVideo = !!attachedVideo;
+    const hasArticle = !!normalizedArticle;
+
+    if (!hasContent && !hasPoll && !hasImages && !hasVideo && !hasArticle) {
+      return 'Please add content, image/video, article link, or a poll with at least 2 options';
+    }
+    if (hasContent && normalizedContent.length > MAX_POST_LENGTH) {
+      return `Post content should be under ${MAX_POST_LENGTH} characters.`;
+    }
+    if (hasContent && !hasLetters(normalizedContent) && !hasImages && !hasVideo && !hasArticle && !hasPoll) {
+      return 'Post content should contain meaningful text.';
+    }
+    if (hasArticle && !isValidHttpUrl(normalizedArticle)) {
+      return 'Article link must be a valid http/https URL.';
+    }
+    if (showPollCreator) {
+      if (uniquePollOptions.length < 2) return 'Poll needs at least 2 unique options.';
+      if (uniquePollOptions.some((opt) => opt.length < 2 || !hasLetters(opt))) {
+        return 'Poll options must be meaningful text.';
+      }
+    }
+    return null;
+  };
+
+  const canCreatePost = !getCreatePostValidationError();
+
   // Fetch feed from API
   useEffect(() => {
     fetchFeed();
+    fetchTrendingHashtags();
   }, []);
+
+  const fetchTrendingHashtags = async () => {
+    try {
+      const response = await api.get<Array<{ tag?: string }>>(API_ENDPOINTS.UNIFIED_NETWORK.TRENDING, {
+        params: { limit: 12 },
+      });
+      const tags = (Array.isArray(response) ? response : [])
+        .map((item) => String(item?.tag || '').trim())
+        .filter(Boolean);
+      setTrendingHashtags(tags);
+    } catch (err) {
+      console.error('Failed to load trending hashtags:', err);
+      setTrendingHashtags([]);
+    }
+  };
 
   useEffect(() => {
     const loadRelationshipState = async () => {
@@ -495,8 +570,12 @@ const NetworkFeed: React.FC = () => {
 
   // Add comment
   const handleAddComment = async (postId: string) => {
-    const commentText = commentTexts[postId]?.trim();
-    if (!commentText) return;
+    const commentText = normalizeSpaces(commentTexts[postId] || '');
+    const commentError = validateComment(commentText);
+    if (commentError) {
+      setSnackbar({ open: true, message: commentError, severity: 'error' });
+      return;
+    }
 
     try {
       await communityService.addComment(postId, { content: commentText });
@@ -524,15 +603,20 @@ const NetworkFeed: React.FC = () => {
 
   // Create post
   const handleCreatePost = async () => {
-    const hasPoll = showPollCreator && pollOptions.filter(opt => opt.trim()).length >= 2;
-    const hasContent = !!postContent.trim();
-    const hasImages = attachedImages.length > 0;
-    const hasVideo = !!attachedVideo;
-    const hasArticle = !!articleLink.trim();
-    if (!hasContent && !hasPoll && !hasImages && !hasVideo && !hasArticle) {
-      setSnackbar({ open: true, message: 'Please add content, image/video, article link, or a poll with at least 2 options', severity: 'error' });
+    const validationError = getCreatePostValidationError();
+    if (validationError) {
+      setSnackbar({ open: true, message: validationError, severity: 'error' });
       return;
     }
+
+    const normalizedContent = normalizeSpaces(postContent);
+    const normalizedArticle = normalizeSpaces(articleLink);
+    const uniquePollOptions = getUniquePollOptions(pollOptions);
+    const hasPoll = showPollCreator && uniquePollOptions.length >= 2;
+    const hasContent = !!normalizedContent;
+    const hasImages = attachedImages.length > 0;
+    const hasVideo = !!attachedVideo;
+    const hasArticle = !!normalizedArticle;
 
     try {
       // Upload media first if any
@@ -567,7 +651,7 @@ const NetworkFeed: React.FC = () => {
       const postData: Record<string, unknown> = {
         visibility: 'public',
       };
-      if (hasContent) postData.content = postContent.trim();
+      if (hasContent) postData.content = normalizedContent;
       if (mediaUrls.length > 0) {
         postData.media = mediaUrls.map((url) => ({ url, type: 'image' }));
         if (!postData.post_type) postData.post_type = 'image';
@@ -580,12 +664,12 @@ const NetworkFeed: React.FC = () => {
       if (hasPoll) {
         postData.post_type = 'poll';
         postData.poll_data = {
-          question: postContent.trim() || 'What do you think?',
-          options: pollOptions.filter(opt => opt.trim()),
+          question: normalizedContent || 'What do you think?',
+          options: uniquePollOptions,
         };
-      } else if (articleLink) {
+      } else if (hasArticle) {
         postData.post_type = 'link';
-        postData.link_url = articleLink.trim();
+        postData.link_url = normalizedArticle;
       }
 
       // Call API to create post
@@ -593,6 +677,7 @@ const NetworkFeed: React.FC = () => {
       
       // Refresh feed to get the new post
       await fetchFeed();
+      await fetchTrendingHashtags();
       
       resetCreatePostForm();
       setCreatePostOpen(false);
@@ -1032,7 +1117,7 @@ const NetworkFeed: React.FC = () => {
                     variant="contained"
                     size="small"
                     onClick={() => handleAddComment(post.id)}
-                    disabled={!commentTexts[post.id]?.trim()}
+                    disabled={!!validateComment(commentTexts[post.id] || '')}
                   >
                     Post
                   </Button>
@@ -1114,6 +1199,11 @@ const NetworkFeed: React.FC = () => {
               {tag}
             </Box>
           ))}
+          {trendingHashtags.length === 0 && (
+            <Typography variant="body2" color="text.secondary">
+              No trending hashtags yet.
+            </Typography>
+          )}
         </Box>
       </StyledCard>
 
@@ -1384,13 +1474,7 @@ const NetworkFeed: React.FC = () => {
           <Button 
             variant="contained" 
             onClick={handleCreatePost}
-            disabled={
-              !postContent.trim() &&
-              attachedImages.length === 0 &&
-              !attachedVideo &&
-              !articleLink.trim() &&
-              !(showPollCreator && pollOptions.filter(o => o.trim()).length >= 2)
-            }
+            disabled={!canCreatePost}
             sx={{ borderRadius: 2 }}
           >
             Post
