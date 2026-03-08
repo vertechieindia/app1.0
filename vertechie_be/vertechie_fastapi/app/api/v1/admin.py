@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models.user import User, UserRole, RoleType, VerificationStatus, UserProfile, Experience, Education, user_roles
 from app.models.company import Company, CompanyAdmin
-from app.models.school import School, SchoolAdmin
+from app.models.school import School, SchoolAdmin, InstitutionInviteRequest
 from app.core.security import get_current_admin_user
 from app.core.config import get_settings
 from sqlalchemy.orm import selectinload
@@ -1330,6 +1330,14 @@ class ProfileDetail(BaseModel):
     open_to_work: bool = False
 
 
+class InstitutionInviteRequestDetail(BaseModel):
+    """Institution invite request for admin review."""
+    id: str
+    institution_name: str
+    status: str
+    created_at: Optional[str] = None
+
+
 class UserFullProfile(BaseModel):
     """Complete user profile for admin review."""
     # Basic Info
@@ -1346,6 +1354,7 @@ class UserFullProfile(BaseModel):
     country: Optional[str] = None
     address: Optional[str] = None
     gov_id: Optional[str] = None
+    gov_id_last_four: Optional[str] = None  # Last 4 of PAN (India) or SSN (USA) — safe to show in UI
     
     # Status
     is_active: bool = True
@@ -1371,6 +1380,7 @@ class UserFullProfile(BaseModel):
     organization: Optional[dict] = None
     experiences: List[ExperienceDetail] = []
     educations: List[EducationDetail] = []
+    institution_invite_requests: List[InstitutionInviteRequestDetail] = []
     roles: List[str] = []
 
     @field_validator("face_verification", mode="before")
@@ -1490,6 +1500,33 @@ async def get_user_full_profile(
     # Build roles list
     roles = [role.role_type.value for role in (user.roles or [])]
 
+    # Build institution invite requests (invites requested by this user)
+    institution_invites = []
+    inv_result = await db.execute(
+        select(InstitutionInviteRequest)
+        .where(InstitutionInviteRequest.requested_by_id == user.id)
+        .order_by(InstitutionInviteRequest.created_at.desc())
+    )
+    for inv in inv_result.scalars().all():
+        status_str = getattr(inv.status, "value", inv.status) if inv.status else "pending"
+        institution_invites.append(InstitutionInviteRequestDetail(
+            id=str(inv.id),
+            institution_name=inv.institution_name or "",
+            status=status_str,
+            created_at=str(inv.created_at) if inv.created_at else None,
+        ))
+
+    # For India: do not expose full PAN; only last 4 is returned in gov_id_last_four
+    gov_id_value = user.gov_id
+    if user.country and str(user.country).lower() in ("india", "in"):
+        gov_id_value = None  # Never send full PAN to frontend
+
+    # Ensure last 4 is available for display: use gov_id_last_four, or derive from gov_id if stored
+    effective_last_four = user.gov_id_last_four
+    if not effective_last_four and user.gov_id:
+        raw = (user.gov_id or "").strip()
+        effective_last_four = raw[-4:].upper() if len(raw) >= 4 else (raw.upper().ljust(4, "0") if raw else None)
+
     # Build organization details for HR/Company/School accounts
     organization = None
     role_set = set(roles)
@@ -1511,6 +1548,7 @@ async def get_user_full_profile(
                 "website": company.website,
                 "role": company_admin.role,
                 "description": company.description,
+                "verified": user.hr_company_verified_at is not None,
             }
     elif RoleType.SCHOOL_ADMIN.value in role_set:
         school_result = await db.execute(
@@ -1530,6 +1568,7 @@ async def get_user_full_profile(
                 "website": school.website,
                 "role": school_admin.role.value if hasattr(school_admin.role, "value") else str(school_admin.role),
                 "description": school.description,
+                "verified": user.hr_company_verified_at is not None,
             }
     
     return UserFullProfile(
@@ -1545,7 +1584,8 @@ async def get_user_full_profile(
         dob=str(user.dob) if user.dob else None,
         country=user.country,
         address=user.address,
-        gov_id=user.gov_id,
+        gov_id=gov_id_value,
+        gov_id_last_four=effective_last_four or user.gov_id_last_four,
         is_active=user.is_active,
         is_verified=user.is_verified,
         is_superuser=user.is_superuser,
@@ -1563,8 +1603,102 @@ async def get_user_full_profile(
         organization=organization,
         experiences=experiences,
         educations=educations,
+        institution_invite_requests=institution_invites,
         roles=roles
     )
+
+
+class EducationVerifyRequest(BaseModel):
+    """Request body for updating education verification status."""
+    is_verified: bool = True
+
+
+@router.patch("/users/{user_id}/educations/{education_id}/verify")
+async def update_education_verify(
+    user_id: UUID,
+    education_id: UUID,
+    body: EducationVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user)
+) -> Any:
+    """Update education verification status (admin only)."""
+    edu_result = await db.execute(
+        select(Education).where(
+            Education.id == education_id,
+            Education.user_id == user_id
+        )
+    )
+    education = edu_result.scalar_one_or_none()
+    if not education:
+        raise HTTPException(status_code=404, detail="Education record not found")
+    education.is_verified = body.is_verified
+    if body.is_verified:
+        education.verified_by_id = current_admin.id
+        education.verified_at = datetime.utcnow()
+    else:
+        education.verified_by_id = None
+        education.verified_at = None
+    await db.commit()
+    return {"success": True, "message": "Education verification updated", "is_verified": education.is_verified}
+
+
+class ExperienceVerifyRequest(BaseModel):
+    """Request body for updating experience verification status."""
+    is_verified: bool = True
+
+
+@router.patch("/users/{user_id}/experiences/{experience_id}/verify")
+async def update_experience_verify(
+    user_id: UUID,
+    experience_id: UUID,
+    body: ExperienceVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user)
+) -> Any:
+    """Update work experience verification status (admin only)."""
+    exp_result = await db.execute(
+        select(Experience).where(
+            Experience.id == experience_id,
+            Experience.user_id == user_id
+        )
+    )
+    experience = exp_result.scalar_one_or_none()
+    if not experience:
+        raise HTTPException(status_code=404, detail="Experience record not found")
+    experience.is_verified = body.is_verified
+    if body.is_verified:
+        experience.verified_by_id = current_admin.id
+        experience.verified_at = datetime.utcnow()
+    else:
+        experience.verified_by_id = None
+        experience.verified_at = None
+    await db.commit()
+    return {"success": True, "message": "Experience verification updated", "is_verified": experience.is_verified}
+
+
+class VerifyOrganizationRequest(BaseModel):
+    """Request body for marking HR/company as verified by admin."""
+    verified: bool = True
+
+
+@router.patch("/users/{user_id}/verify-organization")
+async def update_verify_organization(
+    user_id: UUID,
+    body: VerifyOrganizationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user)
+) -> Any:
+    """Set or clear HR company verified flag (admin only). Once set, admin can Approve/Reject the profile."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if body.verified:
+        user.hr_company_verified_at = datetime.utcnow()
+    else:
+        user.hr_company_verified_at = None
+    await db.commit()
+    return {"success": True, "message": "Organization verification updated", "verified": body.verified}
 
 
 @router.patch("/users/{user_id}/admin-notes")

@@ -601,7 +601,7 @@ const TestCasesPanel: React.FC<TestCasesPanelProps> = ({
 const VerTechieIDE: React.FC<IDEProps> = ({
   initialLanguage = 'python',
   initialCode,
-  initialTheme = 'vs-dark',
+  initialTheme = 'light',
   problemId,
   problemTitle,
   starterCode,

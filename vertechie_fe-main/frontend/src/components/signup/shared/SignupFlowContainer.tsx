@@ -434,7 +434,8 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
           password: formData.password || '',
           confirm_password: formData.confirmPassword || '',
           role: apiRole, // Mapped role: hr or techie (or school/company)
-          gov_id: govId, // Last 4 digits of PAN or SSN
+          gov_id: govId, // Last 4 characters of PAN or SSN
+          gov_id_last_four: govId, // Same: only last 4 used for VerTechie ID
           country: config.location === 'US' ? 'USA' : 'India',
           address: formData.fullAddress || '',
           phone: formData.phone || '',

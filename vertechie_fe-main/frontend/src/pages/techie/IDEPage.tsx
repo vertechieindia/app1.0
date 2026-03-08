@@ -20,7 +20,7 @@ import {
   DialogContent, DialogActions, Menu, MenuItem, Divider, Chip, LinearProgress,
   Avatar, Tabs, Tab, Paper, List, ListItem, ListItemIcon, ListItemText, Card, CardContent,
   Switch, FormControlLabel, Select, InputLabel, FormControl, Alert, Grid, Container,
-  Snackbar, CircularProgress, Breadcrumbs, Link, alpha, InputAdornment
+  Snackbar, CircularProgress, Breadcrumbs, Link, alpha, InputAdornment, useMediaQuery
 } from '@mui/material';
 import {
   Folder as FolderIcon, InsertDriveFile as FileIcon, Add as AddIcon,
@@ -928,10 +928,11 @@ const ProblemsPanel: React.FC<{
 const IDEPage: React.FC = () => {
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId?: string }>();
+  const isMobile = useMediaQuery('(max-width:900px)');
   
   // View state
   const [view, setView] = useState<'projects' | 'ide'>(projectId ? 'ide' : 'projects');
-  const [theme, setTheme] = useState<'vs-dark' | 'vs-light'>('vs-dark');
+  const [theme, setTheme] = useState<'vs-dark' | 'vs-light'>('vs-light');
   const [activePanel, setActivePanel] = useState<'explorer' | 'search' | 'git' | 'debug' | 'extensions'>('explorer');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
@@ -1046,6 +1047,14 @@ const IDEPage: React.FC = () => {
   const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [accountMenuAnchor, setAccountMenuAnchor] = useState<null | HTMLElement>(null);
+
+  useEffect(() => {
+    if (isMobile) {
+      setSidebarOpen(false);
+      setBottomPanelOpen(false);
+      setSplitView(false);
+    }
+  }, [isMobile]);
 
   // Command Palette Commands
   const commands = [
@@ -2241,24 +2250,32 @@ const IDEPage: React.FC = () => {
         display: 'flex', 
         alignItems: 'center', 
         justifyContent: 'space-between',
+        flexWrap: isMobile ? 'wrap' : 'nowrap',
         px: 1.5, 
         py: 0.5,
         bgcolor: theme === 'vs-dark' ? '#323233' : '#f3f3f3',
         borderBottom: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}`,
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {isMobile && (
+            <Tooltip title={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}>
+              <IconButton size="small" onClick={() => setSidebarOpen(!sidebarOpen)}>
+                <FolderIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           <Box sx={{ display: 'flex', gap: 0.5 }}>
             <IconButton size="small" onClick={() => { navigate('/techie/ide'); setView('projects'); setCurrentProject(null); }} sx={{ width: 12, height: 12, bgcolor: '#ff5f56', '&:hover': { bgcolor: '#ff5f56' } }} />
             <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#ffbd2e' }} />
             <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#27ca40' }} />
           </Box>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, ml: 2 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, ml: 2, maxWidth: isMobile ? '55vw' : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             📁 {currentProject?.name || 'Project'} - VerTechie IDE
           </Typography>
         </Box>
         
         {/* Menu Bar - dropdowns with actions */}
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <Box sx={{ display: isMobile ? 'none' : 'flex', gap: 0.5 }}>
           {(['file', 'edit', 'view', 'go', 'run', 'terminal', 'help'] as const).map((kind) => (
             <Button
               key={kind}
@@ -2328,7 +2345,7 @@ const IDEPage: React.FC = () => {
           )}
         </Menu>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: isMobile ? 'auto' : 0 }}>
           {/* Command Palette */}
           <Tooltip title="Command Palette (Ctrl+Shift+P)">
             <Button 
@@ -2342,6 +2359,7 @@ const IDEPage: React.FC = () => {
                 px: 1.5,
                 bgcolor: 'rgba(255,255,255,0.05)',
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+                display: isMobile ? 'none' : 'inline-flex',
               }}
               startIcon={<SearchIcon sx={{ fontSize: 14 }} />}
             >
@@ -2395,8 +2413,9 @@ const IDEPage: React.FC = () => {
       </Box>
 
       {/* Main Content */}
-      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden', flexDirection: isMobile ? 'column' : 'row' }}>
         {/* Activity Bar */}
+        {!isMobile && (
         <Box sx={{ 
           width: 48, 
           bgcolor: theme === 'vs-dark' ? '#333333' : '#2c2c2c',
@@ -2436,15 +2455,18 @@ const IDEPage: React.FC = () => {
             </IconButton>
           </Tooltip>
         </Box>
+        )}
 
         {/* Sidebar */}
         {sidebarOpen && (
           <Box sx={{ 
-            width: 260, 
+            width: isMobile ? '100%' : 260,
+            maxHeight: isMobile ? 260 : 'none',
             bgcolor: theme === 'vs-dark' ? '#252526' : '#f3f3f3',
             borderRight: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}`,
             display: 'flex',
             flexDirection: 'column',
+            flexShrink: 0,
           }}>
             <Box sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}` }}>
               <Typography variant="caption" sx={{ fontWeight: 600, textTransform: 'uppercase', fontSize: '11px', color: '#888' }}>
@@ -2850,7 +2872,19 @@ const IDEPage: React.FC = () => {
             </Box>
             
             {/* Live Preview - flexShrink 0 so editor cannot bleed into this area */}
-            <Box sx={{ width: '40%', minWidth: 0, flexShrink: 0, overflow: 'hidden', borderLeft: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}`, display: 'flex', flexDirection: 'column' }}>
+            <Box
+              sx={{
+                width: isMobile ? '100%' : '40%',
+                minWidth: 0,
+                flexShrink: 0,
+                overflow: 'hidden',
+                borderLeft: isMobile ? 'none' : `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                borderTop: isMobile ? `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}` : 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                height: isMobile ? 260 : 'auto',
+              }}
+            >
               <Box sx={{ p: 0.5, display: 'flex', alignItems: 'center', gap: 1, bgcolor: theme === 'vs-dark' ? '#252526' : '#f3f3f3', borderBottom: `1px solid ${theme === 'vs-dark' ? '#3c3c3c' : '#e0e0e0'}` }}>
                 <Typography variant="caption" sx={{ color: '#888', display: 'flex', alignItems: 'center', gap: 0.5 }}>🌐 Code output</Typography>
                 <Box sx={{ flex: 1, bgcolor: theme === 'vs-dark' ? '#3c3c3c' : '#fff', borderRadius: 1, px: 1, py: 0.25 }}>

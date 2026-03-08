@@ -29,9 +29,22 @@ from app.core.security import (
     create_access_token, create_refresh_token, verify_token,
     get_current_user, get_current_admin_user
 )
+from app.core.vertechie_id import generate_vertechie_id
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _normalize_gov_id_last_four(gov_id: Any, gov_id_last_four: Any) -> tuple[Any, str | None]:
+    """
+    Ensure we have exactly last 4 characters for VerTechie ID.
+    Returns (gov_id_to_store, last_four). gov_id_to_store is last 4 only; last_four is always set when either input has value.
+    """
+    raw = (gov_id_last_four or gov_id or "").strip() if (gov_id_last_four is not None or gov_id is not None) else ""
+    if not raw:
+        return (gov_id, None)
+    last4 = raw[-4:].upper() if len(raw) >= 4 else raw.upper().ljust(4, "0")
+    return (last4, last4)
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -66,14 +79,21 @@ async def register(
             detail="Email already registered"
         )
     
-    # Generate vertechie_id
-    vertechie_id = f"VT{uuid4().hex[:8].upper()}"
-    
+    # Normalize gov_id to last 4 only (any length -> last 4 for VerTechie ID and storage)
+    gov_id_stored, last_four = _normalize_gov_id_last_four(user_in.gov_id, user_in.gov_id_last_four)
+
+    # Generate vertechie_id: VT + first3(first_name) + MMDD(dob) + last4 (PAN/India or SSN/USA)
+    vertechie_id = await generate_vertechie_id(
+        db, user_in.first_name, user_in.dob, last_four
+    )
+    if vertechie_id is None:
+        vertechie_id = f"VT{uuid4().hex[:8].upper()}"
+
     # Generate username
     base_username = slugify(f"{user_in.first_name}-{user_in.last_name}")
     username = f"{base_username}-{uuid4().hex[:4]}"
-    
-    # Create user
+
+    # Create user (store only last 4 in gov_id and gov_id_last_four)
     user = User(
         email=user_in.email,
         hashed_password=get_password_hash(user_in.password),
@@ -85,7 +105,8 @@ async def register(
         dob=user_in.dob,
         country=user_in.country,
         address=user_in.address,
-        gov_id=user_in.gov_id,
+        gov_id=gov_id_stored,
+        gov_id_last_four=last_four,
         username=username,
         vertechie_id=vertechie_id,
         email_verified=user_in.email_verified,
@@ -577,18 +598,6 @@ async def admin_create_user(
                 detail="Email already registered"
             )
         
-        # Generate vertechie_id
-        vertechie_id = f"VT{uuid4().hex[:8].upper()}"
-        
-        # Generate username - use email prefix if names not provided (for admin users)
-        if user_in.first_name and user_in.last_name:
-            base_username = slugify(f"{user_in.first_name}-{user_in.last_name}")
-            username = f"{base_username}-{uuid4().hex[:4]}"
-        else:
-            # For admin users created with only email/password, use email prefix
-            email_prefix = user_in.email.split('@')[0]
-            username = f"{slugify(email_prefix)}-{uuid4().hex[:4]}"
-        
         # Parse DOB if provided as string
         dob = None
         if user_in.dob:
@@ -597,6 +606,25 @@ async def admin_create_user(
                 dob = dt.strptime(user_in.dob, "%Y-%m-%d").date()
             except (ValueError, TypeError):
                 pass
+        
+        # Normalize gov_id to last 4 only for VerTechie ID and storage
+        gov_id_stored, last_four = _normalize_gov_id_last_four(user_in.gov_id, user_in.gov_id_last_four)
+
+        # Generate vertechie_id: VT + first3(first_name) + MMDD(dob) + last4 (PAN/India or SSN/USA)
+        vertechie_id = await generate_vertechie_id(
+            db, user_in.first_name, dob, last_four
+        )
+        if vertechie_id is None:
+            vertechie_id = f"VT{uuid4().hex[:8].upper()}"
+
+        # Generate username - use email prefix if names not provided (for admin users)
+        if user_in.first_name and user_in.last_name:
+            base_username = slugify(f"{user_in.first_name}-{user_in.last_name}")
+            username = f"{base_username}-{uuid4().hex[:4]}"
+        else:
+            # For admin users created with only email/password, use email prefix
+            email_prefix = user_in.email.split('@')[0]
+            username = f"{slugify(email_prefix)}-{uuid4().hex[:4]}"
         
         # Determine role type based on role field
         role_mapping = {
@@ -636,7 +664,7 @@ async def admin_create_user(
         # HM Admin, Company Admin, etc. should NOT be superusers
         is_superuser = "superadmin" in admin_roles if admin_roles else False
         
-        # Create user
+        # Create user (store only last 4 in gov_id and gov_id_last_four)
         # Admin-created users should be APPROVED (not PENDING) since admin is creating them
         user = User(
             email=user_in.email,
@@ -647,7 +675,8 @@ async def admin_create_user(
             mobile_number=user_in.mobile_number,
             dob=dob,
             country=user_in.country,
-            gov_id=user_in.gov_id,
+            gov_id=gov_id_stored,
+            gov_id_last_four=last_four,
             address=user_in.address,
             username=username,
             vertechie_id=vertechie_id,

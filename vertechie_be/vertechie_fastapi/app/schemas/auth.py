@@ -30,6 +30,7 @@ class UserRegister(BaseModel):
     confirm_password: Optional[str] = None
     role: Optional[str] = None
     gov_id: Optional[str] = None
+    gov_id_last_four: Optional[str] = None  # Last 4 of PAN (India) or SSN (USA) for VerTechie ID
     
     # Work authorization
     work_authorization: Optional[str] = None

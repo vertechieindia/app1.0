@@ -3,41 +3,28 @@
  * Enterprise-level curriculum with interactive tutorials
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Box, Typography, Paper, Button, IconButton, Chip, Grid, Card, CardContent,
+  Box, Typography, Paper, Button, Chip, Grid, Card, CardContent,
   TextField, InputAdornment, Avatar, LinearProgress, Tooltip, List, ListItem,
-  ListItemIcon, ListItemText, Collapse, Divider, Badge,
+  ListItemText, Collapse, Divider, Badge,
 } from '@mui/material';
 import { styled, alpha, keyframes } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import SearchIcon from '@mui/icons-material/Search';
-import CodeIcon from '@mui/icons-material/Code';
-import WebIcon from '@mui/icons-material/Web';
-import StorageIcon from '@mui/icons-material/Storage';
-import SmartToyIcon from '@mui/icons-material/SmartToy';
-import TerminalIcon from '@mui/icons-material/Terminal';
 import WorkspacePremiumIcon from '@mui/icons-material/WorkspacePremium';
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PeopleIcon from '@mui/icons-material/People';
-import StarIcon from '@mui/icons-material/Star';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import QuizIcon from '@mui/icons-material/Quiz';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import LeaderboardIcon from '@mui/icons-material/Leaderboard';
 import MilitaryTechIcon from '@mui/icons-material/MilitaryTech';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
-import ArticleIcon from '@mui/icons-material/Article';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import SchoolIcon from '@mui/icons-material/School';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import { categories, allTutorials, Tutorial } from '../../data/curriculum';
+import { categories, allTutorials } from '../../data/curriculum';
 import { api } from '../../services/apiClient';
 import { API_ENDPOINTS } from '../../config/api';
 
@@ -63,6 +50,9 @@ const HeroSection = styled(Box)({
   padding: '50px 40px',
   position: 'relative',
   overflow: 'hidden',
+  '@media (max-width: 900px)': {
+    padding: '32px 16px',
+  },
   '&::before': {
     content: '""',
     position: 'absolute',
@@ -197,8 +187,23 @@ type PracticeProgress = {
   badges: string[];
 };
 
+type PracticeStreaks = {
+  current_streak: number;
+  max_streak: number;
+  today_solved: number;
+  week_solved: number;
+  last_submission_date?: string | null;
+};
+
+type GamificationStats = {
+  xp: number;
+  level: number;
+  streak_count: number;
+};
+
 type CourseEnrollment = {
   course_id: string;
+  course_title?: string | null;
   status: string;
   progress_percentage: number;
   completed_lessons: number;
@@ -207,7 +212,10 @@ type CourseEnrollment = {
 
 type CourseListItem = {
   id: string;
+  slug?: string;
+  title?: string;
   estimated_hours: number;
+  enrollment_count?: number;
 };
 
 type LeaderboardUser = {
@@ -216,8 +224,21 @@ type LeaderboardUser = {
   name: string;
   avatar_url?: string | null;
   points: number;
-  streak: number;
   lessons_completed: number;
+};
+
+type CertificateApiResponse = {
+  certificate_number: string;
+  issued_at: string;
+  url: string;
+};
+
+type CertificateItem = {
+  course_id: string;
+  course_title: string;
+  certificate_number: string;
+  issued_at: string;
+  url: string;
 };
 
 type UserStats = {
@@ -247,22 +268,32 @@ const defaultUserStats: UserStats = {
 };
 
 const defaultBadges: BadgeItem[] = [
-  { icon: '🔥', name: '7-Day Streak', earned: false },
-  { icon: '📚', name: 'First Lesson', earned: false },
-  { icon: '✅', name: 'Quiz Master', earned: false },
-  { icon: '🚀', name: 'Fast Learner', earned: false },
-  { icon: '🏆', name: 'Certified', earned: false },
-  { icon: '⭐', name: 'Top 10%', earned: false },
+  { icon: '\uD83D\uDD25', name: '7-Day Streak', earned: false },
+  { icon: '\uD83D\uDCDA', name: 'First Lesson', earned: false },
+  { icon: '\u2705', name: 'Quiz Master', earned: false },
+  { icon: '\uD83D\uDE80', name: 'Fast Learner', earned: false },
+  { icon: '\uD83C\uDFC6', name: 'Certified', earned: false },
+  { icon: '\u2B50', name: 'Top 10%', earned: false },
 ];
 
 const Learn: React.FC = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['web', 'programming']);
+  const [activeSidebarSection, setActiveSidebarSection] = useState<'tutorials' | 'certificates'>('tutorials');
   const [userStats, setUserStats] = useState<UserStats>(defaultUserStats);
   const [leaderboard, setLeaderboard] = useState<LeaderboardUser[]>([]);
   const [badges, setBadges] = useState<BadgeItem[]>(defaultBadges);
+  const [certificates, setCertificates] = useState<CertificateItem[]>([]);
+  const [certificatesLoading, setCertificatesLoading] = useState(false);
+  const [tutorialLearners, setTutorialLearners] = useState<Record<string, number>>({});
   const [dashboardError, setDashboardError] = useState<string | null>(null);
+
+  const formatLearnerCount = (count: number) => {
+    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+    if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+    return `${count}`;
+  };
 
   const handleTutorialClick = (tutorialSlug: string) => {
     navigate(`/techie/learn/tutorial/${tutorialSlug}`);
@@ -282,9 +313,12 @@ const Learn: React.FC = () => {
     const loadLearnDashboard = async () => {
       try {
         setDashboardError(null);
+        setCertificatesLoading(true);
 
-        const [progress, enrollments, leaderboardData, me, courses] = await Promise.all([
+        const [progressRes, streakRes, gamificationRes, enrollmentsRes, leaderboardRes, meRes, coursesRes] = await Promise.allSettled([
           api.get<PracticeProgress>(API_ENDPOINTS.PRACTICE.PROGRESS),
+          api.get<PracticeStreaks>(API_ENDPOINTS.PRACTICE.STREAKS),
+          api.get<GamificationStats>('/users/me/gamification'),
           api.get<CourseEnrollment[]>(API_ENDPOINTS.COURSES.MY_ENROLLMENTS),
           api.get<LeaderboardUser[]>(API_ENDPOINTS.PRACTICE.LEADERBOARD),
           api.get<{ id: string }>(API_ENDPOINTS.AUTH.ME),
@@ -295,7 +329,19 @@ const Learn: React.FC = () => {
           return;
         }
 
+        const progress = progressRes.status === 'fulfilled' ? progressRes.value : null;
+        const streakData = streakRes.status === 'fulfilled' ? streakRes.value : null;
+        const gamification = gamificationRes.status === 'fulfilled' ? gamificationRes.value : null;
+        const enrollments = enrollmentsRes.status === 'fulfilled' ? enrollmentsRes.value : [];
+        const leaderboardData = leaderboardRes.status === 'fulfilled' ? leaderboardRes.value : [];
+        const me = meRes.status === 'fulfilled' ? meRes.value : null;
+        const courses = coursesRes.status === 'fulfilled' ? coursesRes.value : [];
+
         const courseHoursMap = new Map(courses.map((course) => [course.id, Number(course.estimated_hours || 0)]));
+        const courseTitleMap = new Map(courses.map((course) => [course.id, String(course.title || '')]));
+        const courseLearnerMap = new Map(
+          courses.map((course) => [String(course.slug || '').toLowerCase(), Number(course.enrollment_count || 0)])
+        );
         const certificates = enrollments.filter((enrollment) =>
           enrollment.certificate_issued || enrollment.status === 'completed'
         ).length;
@@ -303,26 +349,64 @@ const Learn: React.FC = () => {
           const estimatedHours = courseHoursMap.get(enrollment.course_id) || 0;
           return sum + (estimatedHours * Number(enrollment.progress_percentage || 0)) / 100;
         }, 0);
-        const myRank = leaderboardData.find((entry) => entry.user_id === me.id);
+        const completedLessons = enrollments.reduce(
+          (sum, enrollment) => sum + Number(enrollment.completed_lessons || 0),
+          0
+        );
+        const streakValue = Number(
+          streakData?.current_streak ?? gamification?.streak_count ?? progress?.current_streak ?? 0
+        );
+        const quizSolved = Number(progress?.accepted_submissions || 0);
+        const myRank = me ? leaderboardData.find((entry) => entry.user_id === me.id) : null;
+        const nextTutorialLearners: Record<string, number> = {};
+        allTutorials.forEach((tutorial) => {
+          nextTutorialLearners[tutorial.slug] = Number(courseLearnerMap.get(tutorial.slug.toLowerCase()) || 0);
+        });
+
+        const certificateEnrollments = enrollments.filter(
+          (enrollment) => enrollment.certificate_issued || enrollment.status === 'completed'
+        );
+        const certificateResponses = await Promise.allSettled(
+          certificateEnrollments.map(async (enrollment) => {
+            const data = await api.get<CertificateApiResponse>(`/courses/${enrollment.course_id}/certificate`);
+            return {
+              course_id: enrollment.course_id,
+              course_title:
+                String(enrollment.course_title || '').trim() ||
+                String(courseTitleMap.get(enrollment.course_id) || 'Course'),
+              certificate_number: data.certificate_number,
+              issued_at: data.issued_at,
+              url: data.url,
+            } as CertificateItem;
+          })
+        );
+        const certificateItems: CertificateItem[] = [];
+        certificateResponses.forEach((item) => {
+          if (item.status === 'fulfilled') {
+            certificateItems.push(item.value);
+          }
+        });
 
         setUserStats({
-          lessonsCompleted: Number(progress.total_solved || 0),
-          quizzesPassed: Number(progress.accepted_submissions || 0),
+          lessonsCompleted: completedLessons,
+          quizzesPassed: quizSolved,
           certificates,
-          streak: Number(progress.current_streak || 0),
-          karmaPoints: Number(progress.rating || 0),
+          streak: streakValue,
+          karmaPoints: Number(myRank?.points || 0),
           rank: myRank ? `#${myRank.rank}` : '-',
           totalHours: Math.round(learningHours),
         });
 
         setLeaderboard(leaderboardData);
+        setCertificates(certificateItems);
+        setTutorialLearners(nextTutorialLearners);
         setBadges([
-          { icon: '🔥', name: '7-Day Streak', earned: Number(progress.current_streak || 0) >= 7 },
-          { icon: '📚', name: 'First Lesson', earned: Number(progress.total_solved || 0) > 0 },
-          { icon: '✅', name: 'Quiz Master', earned: Number(progress.accepted_submissions || 0) >= 25 },
-          { icon: '🚀', name: 'Fast Learner', earned: Number(progress.total_solved || 0) >= 50 },
-          { icon: '🏆', name: 'Certified', earned: certificates > 0 },
-          { icon: '⭐', name: 'Top 10%', earned: !!myRank && myRank.rank <= 10 },
+          { icon: '\uD83D\uDD25', name: '7-Day Streak', earned: streakValue >= 7 },
+          { icon: '\uD83D\uDCDA', name: 'First Lesson', earned: completedLessons > 0 },
+          { icon: '\u2705', name: 'Quiz Master', earned: quizSolved >= 25 },
+          { icon: '\uD83D\uDE80', name: 'Fast Learner', earned: completedLessons >= 25 },
+          { icon: '\uD83C\uDFC6', name: 'Certified', earned: certificates > 0 },
+          { icon: '\u2B50', name: 'Top 10%', earned: !!myRank && myRank.rank <= 10 },
         ]);
       } catch (error) {
         if (!isMounted) {
@@ -331,7 +415,13 @@ const Learn: React.FC = () => {
         setDashboardError('Unable to load live learning stats right now.');
         setUserStats(defaultUserStats);
         setLeaderboard([]);
+        setCertificates([]);
+        setTutorialLearners({});
         setBadges(defaultBadges);
+      } finally {
+        if (isMounted) {
+          setCertificatesLoading(false);
+        }
       }
     };
 
@@ -341,16 +431,6 @@ const Learn: React.FC = () => {
       isMounted = false;
     };
   }, []);
-
-  // Filter tutorials by search
-  const filteredTutorials = useMemo(() => {
-    if (!searchQuery) return allTutorials;
-    const query = searchQuery.toLowerCase();
-    return allTutorials.filter(t =>
-      t.title.toLowerCase().includes(query) ||
-      t.tags.some(tag => tag.toLowerCase().includes(query))
-    );
-  }, [searchQuery]);
 
   // Quick start tutorials
   const quickStartTutorials = [
@@ -407,7 +487,7 @@ const Learn: React.FC = () => {
               />
 
               {/* Quick Stats */}
-              <Box sx={{ display: 'flex', gap: 4, mt: 4, flexWrap: 'wrap' }}>
+              {/* <Box sx={{ display: 'flex', gap: { xs: 2, md: 4 }, mt: 4, flexWrap: 'wrap' }}>
                 <Box sx={{ textAlign: 'center' }}>
                   <Typography variant="h4" fontWeight={700} color="white">{userStats.lessonsCompleted}</Typography>
                   <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>Lessons</Typography>
@@ -424,7 +504,7 @@ const Learn: React.FC = () => {
                   <Typography variant="h4" fontWeight={700} color="white">{userStats.totalHours}h</Typography>
                   <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>Learning</Typography>
                 </Box>
-              </Box>
+              </Box> */}
             </Grid>
 
             {/* Right Side - Quick Start */}
@@ -473,11 +553,11 @@ const Learn: React.FC = () => {
       </HeroSection>
 
       {/* Main Content */}
-      <Box sx={{ maxWidth: 1400, mx: 'auto', p: 4 }}>
-        <Grid container spacing={4}>
+      <Box sx={{ maxWidth: 1400, mx: 'auto', px: { xs: 1.5, md: 4 }, py: { xs: 2, md: 4 } }}>
+        <Grid container spacing={{ xs: 2, md: 4 }}>
           {/* Sidebar */}
           <Grid item xs={12} md={3}>
-            <Paper sx={{ p: 2, borderRadius: 3, position: 'sticky', top: 20 }}>
+            <Paper sx={{ p: 2, borderRadius: 3, position: { xs: 'static', md: 'sticky' }, top: 20 }}>
               <Typography variant="subtitle1" fontWeight={700} sx={{ px: 2, mb: 2 }}>
                 📚 All Tutorials
               </Typography>
@@ -486,6 +566,7 @@ const Learn: React.FC = () => {
                 {categories.map(category => (
                   <Box key={category.id}>
                     <SidebarItem
+                      active={activeSidebarSection === 'tutorials'}
                       onClick={() => toggleCategory(category.id)}
                       sx={{ justifyContent: 'space-between' }}
                     >
@@ -527,13 +608,19 @@ const Learn: React.FC = () => {
 
               {/* Certifications Link */}
               <List dense disablePadding>
-                <SidebarItem onClick={() => navigate('/techie/certifications')}>
+                <SidebarItem
+                  active={activeSidebarSection === 'certificates'}
+                  onClick={() => setActiveSidebarSection('certificates')}
+                >
                   <WorkspacePremiumIcon sx={{ color: '#FFD700', mr: 1 }} />
                   <ListItemText primary="Certifications" primaryTypographyProps={{ fontWeight: 600 }} />
                 </SidebarItem>
-                <SidebarItem onClick={() => navigate('/techie/exercises')}>
-                  <QuizIcon sx={{ color: '#4CAF50', mr: 1 }} />
-                  <ListItemText primary="Exercises" primaryTypographyProps={{ fontWeight: 600 }} />
+                <SidebarItem
+                  active={activeSidebarSection === 'tutorials'}
+                  onClick={() => setActiveSidebarSection('tutorials')}
+                >
+                  <MenuBookIcon sx={{ color: '#0d47a1', mr: 1 }} />
+                  <ListItemText primary="All Tutorials" primaryTypographyProps={{ fontWeight: 600 }} />
                 </SidebarItem>
               </List>
             </Paper>
@@ -541,8 +628,7 @@ const Learn: React.FC = () => {
 
           {/* Main Tutorial Grid */}
           <Grid item xs={12} md={6}>
-            {/* Categories and Tutorials */}
-            {categories.map(category => (
+            {activeSidebarSection === 'tutorials' && categories.map(category => (
               <CategorySection key={category.id} color={category.color}>
                 <Box className="category-header">
                   <Box className="category-icon">{category.icon}</Box>
@@ -597,13 +683,10 @@ const Learn: React.FC = () => {
                                   />
                                 </Box>
 
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                    <StarIcon sx={{ fontSize: 16, color: '#FFB400' }} />
-                                    <Typography variant="body2" fontWeight={600}>{tutorial.rating}</Typography>
-                                  </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                  <PeopleIcon sx={{ fontSize: 16, color: '#0d47a1' }} />
                                   <Typography variant="caption" color="text.secondary">
-                                    • {(tutorial.learners / 1000000).toFixed(1)}M learners
+                                    {formatLearnerCount(Number(tutorialLearners[tutorial.slug] || 0))} learners
                                   </Typography>
                                 </Box>
                               </Box>
@@ -631,6 +714,58 @@ const Learn: React.FC = () => {
                 </Grid>
               </CategorySection>
             ))}
+
+            {activeSidebarSection === 'certificates' && (
+              <Paper sx={{ p: { xs: 2, md: 3 }, borderRadius: 3 }}>
+                <Typography variant="h5" fontWeight={700} sx={{ mb: 1 }}>Your Certificates</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Certificates appear here after course completion and certificate issuance.
+                </Typography>
+
+                {certificatesLoading && (
+                  <Typography variant="body2" color="text.secondary">Loading certificates...</Typography>
+                )}
+
+                {!certificatesLoading && certificates.length === 0 && (
+                  <Typography variant="body2" color="text.secondary">Nothing to show.</Typography>
+                )}
+
+                <Grid container spacing={2}>
+                  {certificates.map((certificate) => (
+                    <Grid item xs={12} key={`${certificate.course_id}-${certificate.certificate_number}`}>
+                      <Paper
+                        variant="outlined"
+                        sx={{
+                          p: 2,
+                          borderRadius: 2,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 1,
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="subtitle1" fontWeight={700}>
+                            {certificate.course_title}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {certificate.certificate_number} - Issued {new Date(certificate.issued_at).toLocaleDateString()}
+                          </Typography>
+                        </Box>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => window.open(certificate.url, '_blank', 'noopener,noreferrer')}
+                        >
+                          View Certificate
+                        </Button>
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Paper>
+            )}
           </Grid>
 
           {/* Right Sidebar */}
@@ -670,12 +805,9 @@ const Learn: React.FC = () => {
                         {user.points.toLocaleString()} XP
                       </Typography>
                     </Box>
-                    <Tooltip title="Streak">
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <LocalFireDepartmentIcon sx={{ fontSize: 14 }} />
-                        <Typography variant="caption" fontWeight={600}>{user.streak}</Typography>
-                      </Box>
-                    </Tooltip>
+                    {/* <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                      {user.lessons_completed} solved
+                    </Typography> */}
                   </LeaderboardItem>
                 ))}
               </Box>

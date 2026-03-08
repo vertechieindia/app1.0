@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Box,
   Button,
@@ -19,10 +19,12 @@ import {
   CircularProgress,
   InputAdornment,
   IconButton,
+  Autocomplete,
 } from '@mui/material';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import SchoolIcon from '@mui/icons-material/School';
 import EditIcon from '@mui/icons-material/Edit';
+import AddIcon from '@mui/icons-material/Add';
 import { StepComponentProps } from '../../types';
 import axios from 'axios';
 import { getApiUrl, API_ENDPOINTS } from '../../../../config/api';
@@ -38,6 +40,21 @@ interface EducationFormData {
   scoreType: EducationScoreType;
   scoreValue: string;
   gpa?: string;
+}
+
+/** School from API (list_schools) for autocomplete */
+interface SchoolOption {
+  id: string;
+  name: string;
+}
+/** Special option to invite an institution not on the platform */
+interface InviteSchoolOption {
+  __invite: true;
+  name: string;
+}
+type InstitutionOption = SchoolOption | InviteSchoolOption;
+function isInviteOption(opt: InstitutionOption): opt is InviteSchoolOption {
+  return (opt as InviteSchoolOption).__invite === true;
 }
 
 const EducationForm: React.FC<StepComponentProps> = ({
@@ -73,18 +90,26 @@ const EducationForm: React.FC<StepComponentProps> = ({
     gpa: '',
   });
 
+  // Institution autocomplete: search registered schools, or "Invite this school"
+  const [institutionOptions, setInstitutionOptions] = useState<SchoolOption[]>([]);
+  const [institutionLoading, setInstitutionLoading] = useState(false);
+  const [institutionInputValue, setInstitutionInputValue] = useState('');
+  const institutionSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const education = formData.education || [];
 
   const handleAddEducation = useCallback(() => {
     setEditingIndex(null);
+    setInstitutionInputValue('');
     setShowEducationForm(true);
   }, []);
 
   const handleEditEducation = useCallback((index: number) => {
     const edu = education[index];
     setEditingIndex(index);
+    const inst = edu.institution || '';
     setNewEducation({
-      institution: edu.institution || '',
+      institution: inst,
       levelOfEducation: edu.levelOfEducation || '',
       fieldOfStudy: edu.fieldOfStudy || '',
       startDate: edu.startDate || '',
@@ -93,6 +118,7 @@ const EducationForm: React.FC<StepComponentProps> = ({
       scoreValue: edu.scoreValue || edu.gpa || '',
       gpa: edu.gpa || edu.scoreValue || '',
     });
+    setInstitutionInputValue(inst);
     setShowEducationForm(true);
   }, [education]);
 
@@ -101,10 +127,45 @@ const EducationForm: React.FC<StepComponentProps> = ({
     updateFormData({ education: updatedEducation });
   }, [education, updateFormData]);
 
+  // Debounced fetch of schools for institution autocomplete
+  useEffect(() => {
+    const query = (institutionInputValue || '').trim();
+    if (query.length < 2) {
+      setInstitutionOptions([]);
+      return;
+    }
+    if (institutionSearchDebounceRef.current) {
+      clearTimeout(institutionSearchDebounceRef.current);
+    }
+    institutionSearchDebounceRef.current = setTimeout(async () => {
+      setInstitutionLoading(true);
+      try {
+        const url = `${getApiUrl(API_ENDPOINTS.SCHOOLS)}?search=${encodeURIComponent(query)}&limit=10`;
+        const token = localStorage.getItem('authToken') || (formData as any)?.access_token;
+        const res = await axios.get<SchoolOption[]>(url, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const list = Array.isArray(res.data) ? res.data : [];
+        setInstitutionOptions(list.map((s: { id: string; name: string }) => ({ id: s.id, name: s.name })));
+      } catch {
+        setInstitutionOptions([]);
+      } finally {
+        setInstitutionLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (institutionSearchDebounceRef.current) {
+        clearTimeout(institutionSearchDebounceRef.current);
+        institutionSearchDebounceRef.current = null;
+      }
+    };
+  }, [institutionInputValue, formData]);
+
   const handleEducationFormClose = useCallback(() => {
     setShowEducationForm(false);
     setIsSaving(false);
     setEditingIndex(null);
+    setInstitutionInputValue('');
     if (setErrors) {
       setErrors({});
     }
@@ -571,15 +632,86 @@ const EducationForm: React.FC<StepComponentProps> = ({
           <Box sx={{ pt: 1 }}>
             <Grid container spacing={{ xs: 2, md: 3 }}>
               <Grid item xs={12} md={6}>
-                <TextField
+                <Autocomplete<InstitutionOption, boolean, boolean, boolean>
+                  freeSolo
                   fullWidth
-                  label="Institution Name *"
-                  name="institution"
-                  value={newEducation.institution}
-                  onChange={handleTextFieldChange}
-                  error={!!errors.institution}
-                  helperText={errors.institution}
-                  required
+                  loading={institutionLoading}
+                  inputValue={institutionInputValue}
+                  onInputChange={(_, value) => {
+                    setInstitutionInputValue(value || '');
+                    setNewEducation((prev) => ({ ...prev, institution: value || '' }));
+                  }}
+                  value={institutionOptions.find((s) => s.name === newEducation.institution) ?? (newEducation.institution || null)}
+                  onChange={(_, newValue) => {
+                    if (typeof newValue === 'string') {
+                      setNewEducation((prev) => ({ ...prev, institution: newValue }));
+                      return;
+                    }
+                    if (!newValue || Array.isArray(newValue)) {
+                      setNewEducation((prev) => ({ ...prev, institution: '' }));
+                      return;
+                    }
+                    const opt = newValue as InstitutionOption;
+                    if (isInviteOption(opt)) {
+                      const name = opt.name.trim();
+                      if (!name) return;
+                      (async () => {
+                        try {
+                          const token = localStorage.getItem('authToken') || (formData as any)?.access_token;
+                          await axios.post(
+                            getApiUrl(API_ENDPOINTS.SCHOOL_INVITE_REQUEST),
+                            { institution_name: name },
+                            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+                          );
+                          setNewEducation((prev) => ({ ...prev, institution: name }));
+                          setInstitutionInputValue(name);
+                        } catch (e) {
+                          console.error('Institution invite request failed:', e);
+                          setNewEducation((prev) => ({ ...prev, institution: name }));
+                          setInstitutionInputValue(name);
+                        }
+                      })();
+                      return;
+                    }
+                    setNewEducation((prev) => ({ ...prev, institution: opt.name }));
+                    setInstitutionInputValue(opt.name);
+                  }}
+                  options={(() => {
+                    const trimmed = institutionInputValue.trim();
+                    const hasExactMatch = institutionOptions.some(
+                      (s) => s.name.toLowerCase() === trimmed.toLowerCase()
+                    );
+                    const options: InstitutionOption[] = [...institutionOptions];
+                    if (trimmed.length >= 2 && !hasExactMatch) {
+                      options.push({ __invite: true, name: trimmed });
+                    }
+                    return options;
+                  })()}
+                  getOptionLabel={(opt: InstitutionOption | string) => (typeof opt === 'string' ? opt : opt.name)}
+                  renderOption={(props, opt: InstitutionOption) => {
+                    if (isInviteOption(opt)) {
+                      return (
+                        <li {...props} key="__invite">
+                          <AddIcon sx={{ mr: 1, fontSize: 20 }} />
+                          Invite this school to the platform — &quot;{opt.name}&quot;
+                        </li>
+                      );
+                    }
+                    return (
+                      <li {...props} key={opt.id}>
+                        {opt.name}
+                      </li>
+                    );
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Institution Name *"
+                      error={!!errors.institution}
+                      helperText={errors.institution}
+                      required
+                    />
+                  )}
                 />
               </Grid>
               <Grid item xs={12} md={6}>

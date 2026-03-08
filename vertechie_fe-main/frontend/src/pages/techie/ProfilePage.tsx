@@ -298,6 +298,7 @@ interface UserProfileData {
   skills?: string[];
   profile_photo?: string;
   avatar_url?: string;
+  cover_url?: string;
   current_company?: string;
   current_position?: string;
 }
@@ -412,15 +413,12 @@ interface ExperienceFormData {
   managerLinkedIn: string;
 }
 
-// Company Invite Data
+// Company Invite Data (name, address, email, phone only)
 interface CompanyInviteData {
   companyName: string;
   address: string;
-  emails: string[];
-  phoneNumbers: string[];
-  website: string;
-  contactPersonName: string;
-  contactPersonRole: string;
+  email: string;
+  phone: string;
 }
 
 // Validation utilities
@@ -539,7 +537,10 @@ const ProfilePage: React.FC = () => {
     website: '',
     portfolio_url: '',
     avatar_url: '',
+    cover_url: '',
   });
+  const [selectedProfilePhotoName, setSelectedProfilePhotoName] = useState('');
+  const [selectedProfileBannerName, setSelectedProfileBannerName] = useState('');
   const [editProfileErrors, setEditProfileErrors] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
@@ -563,12 +564,10 @@ const ProfilePage: React.FC = () => {
   const [companyInvite, setCompanyInvite] = useState<CompanyInviteData>({
     companyName: '',
     address: '',
-    emails: [''],
-    phoneNumbers: [''],
-    website: '',
-    contactPersonName: '',
-    contactPersonRole: '',
+    email: '',
+    phone: '',
   });
+  const [companyInviteErrors, setCompanyInviteErrors] = useState<Record<string, string>>({});
   const [companySearchResults] = useState<Array<{ id: string, name: string }>>([]);
 
   // New Experience Form State (Extended)
@@ -927,6 +926,7 @@ const ProfilePage: React.FC = () => {
     gitlab: profile?.gitlab_username || profile?.gitlab_url?.replace('https://gitlab.com/', '') || '',
     firebaseUrl: profile?.portfolio_url || '',
     avatarUrl: profile?.avatar_url || profile?.profile_photo || '',
+    coverUrl: profile?.cover_url || '',
     currentCompany: profile?.current_company || '',
     currentPosition: profile?.current_position || '',
     isHiringManager,
@@ -1075,7 +1075,10 @@ const ProfilePage: React.FC = () => {
       website: profile?.website || '',
       portfolio_url: profile?.portfolio_url || '',
       avatar_url: profile?.avatar_url || profile?.profile_photo || '',
+      cover_url: profile?.cover_url || '',
     });
+    setSelectedProfilePhotoName('');
+    setSelectedProfileBannerName('');
     setEditDialogOpen(true);
   }, [user, profile]);
 
@@ -1086,8 +1089,8 @@ const ProfilePage: React.FC = () => {
       setSnackbar({ open: true, message: 'Only PNG, JPG or WEBP images are allowed', severity: 'error' });
       return;
     }
-    if (file.size > 3 * 1024 * 1024) {
-      setSnackbar({ open: true, message: 'Profile photo must be less than 3MB', severity: 'error' });
+    if (file.size > 5 * 1024 * 1024) {
+      setSnackbar({ open: true, message: 'Profile photo must be 5MB or less', severity: 'error' });
       return;
     }
 
@@ -1111,6 +1114,7 @@ const ProfilePage: React.FC = () => {
         return;
       }
       setEditProfileForm((prev) => ({ ...prev, avatar_url: imageUrl }));
+      setSelectedProfilePhotoName(file.name);
     } catch (err: any) {
       if (err?.response?.status === 401) {
         handleUnauthorized();
@@ -1120,11 +1124,65 @@ const ProfilePage: React.FC = () => {
     }
   }, []);
 
+  const handleProfileBannerUpload = useCallback(async (file?: File) => {
+    if (!file) return;
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setSnackbar({ open: true, message: 'Only PNG, JPG or WEBP images are allowed', severity: 'error' });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setSnackbar({ open: true, message: 'Profile banner must be 10MB or less', severity: 'error' });
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        handleUnauthorized();
+        return;
+      }
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadRes = await axios.post(getApiUrl(API_ENDPOINTS.COMMUNITY.UPLOAD), formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      const imageUrl = uploadRes?.data?.url || uploadRes?.data?.file_url || uploadRes?.data?.uploaded_url || '';
+      if (!imageUrl) {
+        setSnackbar({ open: true, message: 'Banner upload failed', severity: 'error' });
+        return;
+      }
+      setEditProfileForm((prev) => ({ ...prev, cover_url: imageUrl }));
+      setSelectedProfileBannerName(file.name);
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setSnackbar({ open: true, message: 'Unable to upload profile banner', severity: 'error' });
+    }
+  }, []);
+
   const normalizeOptionalUrl = (raw: string): string => {
     const trimmed = raw.trim();
     if (!trimmed) return '';
     if (/^https?:\/\//i.test(trimmed)) return trimmed;
     return `https://${trimmed}`;
+  };
+
+  const getUploadedFileName = (url?: string): string => {
+    if (!url) return '';
+    try {
+      const path = new URL(url).pathname;
+      const name = path.split('/').filter(Boolean).pop() || '';
+      return decodeURIComponent(name);
+    } catch {
+      const clean = url.split('?')[0];
+      return decodeURIComponent(clean.split('/').filter(Boolean).pop() || '');
+    }
   };
 
   const handleSaveProfile = useCallback(async () => {
@@ -1183,6 +1241,7 @@ const ProfilePage: React.FC = () => {
           website: normalizedWebsite,
           portfolio_url: normalizedPortfolio,
           avatar_url: editProfileForm.avatar_url.trim(),
+          cover_url: editProfileForm.cover_url.trim(),
         }),
       });
 
@@ -1574,23 +1633,36 @@ const ProfilePage: React.FC = () => {
     }
   };
 
-  // Send company invite
+  // Send company invite (company name, address, email, phone only) with full validation
   const handleSendCompanyInvite = async () => {
+    const name = companyInvite.companyName.trim();
+    const address = companyInvite.address.trim();
+    const email = companyInvite.email.trim();
+    const phone = companyInvite.phone.trim();
+    const err: Record<string, string> = {};
+    if (!name) err.companyName = 'Company name is required';
+    else if (name.length < 2) err.companyName = 'Company name must be at least 2 characters';
+    if (!address) err.address = 'Company address is required';
+    else if (address.length < 5) err.address = 'Address must be at least 5 characters';
+    if (!email) err.email = 'Company email is required';
+    else if (!isValidEmail(email)) err.email = 'Enter a valid email address';
+    if (!phone) err.phone = 'Company phone is required';
+    else if (!isValidPhone(phone)) err.phone = 'Enter a valid phone number';
+    setCompanyInviteErrors(err);
+    if (Object.keys(err).length > 0) return;
     try {
-      const response = await fetchWithAuth(getApiUrl('/company-invites'), {
+      const response = await fetchWithAuth(getApiUrl('/companies/invites'), {
         method: 'POST',
         body: JSON.stringify({
-          company_name: companyInvite.companyName,
-          address: companyInvite.address,
-          emails: companyInvite.emails.filter(e => e.trim()),
-          phone_numbers: companyInvite.phoneNumbers.filter(p => p.trim()),
-          website: companyInvite.website,
-          contact_person_name: companyInvite.contactPersonName,
-          contact_person_role: companyInvite.contactPersonRole,
+          company_name: name,
+          address: address || undefined,
+          emails: email ? [email] : [],
+          phone_numbers: phone ? [phone] : [],
         }),
       });
       if (response.ok) {
         setShowCompanyInvite(false);
+        setCompanyInviteErrors({});
         setSnackbar({ open: true, message: 'Company invite sent successfully!', severity: 'success' });
       } else {
         setSnackbar({ open: true, message: 'Failed to send company invite', severity: 'error' });
@@ -1816,7 +1888,17 @@ const ProfilePage: React.FC = () => {
         }} />
 
         {/* Profile Header */}
-        <GlassCard sx={{ p: 4, mb: 3 }}>
+        <GlassCard
+          sx={{
+            p: 4,
+            mb: 3,
+            backgroundImage: displayUser.coverUrl
+              ? `linear-gradient(rgba(255,255,255,0.88), rgba(255,255,255,0.92)), url(${displayUser.coverUrl})`
+              : undefined,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
           <Grid container spacing={4} alignItems="center">
             {/* Avatar & Basic Info */}
             <Grid item xs={12} md={8}>
@@ -3114,6 +3196,79 @@ const ProfilePage: React.FC = () => {
                   {editProfileForm.avatar_url ? 'Change Profile Photo' : 'Upload Profile Photo'}
                 </Button>
               </label>
+              <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'rgba(0,0,0,0.6)' }}>
+                Allowed: JPG, JPEG, PNG, WEBP. Max size: 5MB (recommended 2MB-5MB).
+              </Typography>
+              <TextField
+                fullWidth
+                size="small"
+                margin="dense"
+                label="Selected Photo"
+                value={selectedProfilePhotoName || getUploadedFileName(editProfileForm.avatar_url) || 'No photo selected'}
+                InputProps={{ readOnly: true }}
+              />
+              {(editProfileForm.avatar_url || selectedProfilePhotoName) && (
+                <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Avatar
+                    src={editProfileForm.avatar_url || undefined}
+                    alt="Uploaded profile photo"
+                    sx={{ width: 44, height: 44, border: '1px solid rgba(0,0,0,0.12)' }}
+                  />
+                  <Typography variant="body2" sx={{ color: '#1e293b' }}>
+                    {selectedProfilePhotoName || getUploadedFileName(editProfileForm.avatar_url) || 'Current profile photo selected'}
+                  </Typography>
+                </Box>
+              )}
+            </Grid>
+            <Grid item xs={12}>
+              <input
+                id="profile-banner-upload"
+                type="file"
+                accept=".png,.jpg,.webp,image/png,image/jpeg,image/webp"
+                style={{ display: 'none' }}
+                onChange={(e) => handleProfileBannerUpload(e.target.files?.[0])}
+              />
+              <label htmlFor="profile-banner-upload">
+                <Button
+                  component="span"
+                  variant="outlined"
+                  fullWidth
+                  startIcon={<ImageIcon />}
+                  sx={{ borderStyle: 'dashed', color: 'rgba(0,0,0,0.65)', borderColor: 'rgba(0,0,0,0.25)' }}
+                >
+                  {editProfileForm.cover_url ? 'Change Profile Banner' : 'Upload Profile Banner'}
+                </Button>
+              </label>
+              <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'rgba(0,0,0,0.6)' }}>
+                Allowed: JPG, PNG, WEBP. Max size: 10MB (recommended 5MB-10MB).
+              </Typography>
+              <TextField
+                fullWidth
+                size="small"
+                margin="dense"
+                label="Selected Banner"
+                value={selectedProfileBannerName || getUploadedFileName(editProfileForm.cover_url) || 'No banner selected'}
+                InputProps={{ readOnly: true }}
+              />
+              {(editProfileForm.cover_url || selectedProfileBannerName) && (
+                <Box sx={{ mt: 1.5 }}>
+                  <Box
+                    component="img"
+                    src={editProfileForm.cover_url}
+                    alt="Uploaded profile banner"
+                    sx={{
+                      width: '100%',
+                      maxHeight: 140,
+                      borderRadius: 1.5,
+                      objectFit: 'cover',
+                      border: '1px solid rgba(0,0,0,0.12)',
+                    }}
+                  />
+                  <Typography variant="body2" sx={{ mt: 0.75, color: '#1e293b' }}>
+                    {selectedProfileBannerName || getUploadedFileName(editProfileForm.cover_url) || 'Current profile banner selected'}
+                  </Typography>
+                </Box>
+              )}
             </Grid>
             <Grid item xs={12}>
               <TextField
@@ -3783,20 +3938,31 @@ const ProfilePage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Company Invite Dialog */}
-      <Dialog open={showCompanyInvite} onClose={() => setShowCompanyInvite(false)} maxWidth="md" fullWidth PaperProps={{ sx: { bgcolor: '#ffffff', backgroundImage: 'none', borderRadius: 3 } }}>
+      {/* Company Invite Dialog - company name, address, email, phone only */}
+      <Dialog
+        open={showCompanyInvite}
+        onClose={() => { setShowCompanyInvite(false); setCompanyInviteErrors({}); }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { bgcolor: '#ffffff', backgroundImage: 'none', borderRadius: 3 } }}
+      >
         <DialogTitle sx={{ fontWeight: 700 }}>Invite Your Company to VerTechie</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2, color: '#64748b' }}>
-            Your company is not registered with us. You can invite them to create an account, or proceed without inviting by clicking "Skip".
+            Your company is not registered with us. You can invite them to create an account, or proceed without inviting by clicking &quot;Skip&quot;.
           </Typography>
           <Grid container spacing={2}>
             <Grid item xs={12}>
               <TextField
                 fullWidth
-                label="Company Full Name *"
+                label="Company Name *"
                 value={companyInvite.companyName}
-                onChange={(e) => setCompanyInvite(prev => ({ ...prev, companyName: e.target.value }))}
+                onChange={(e) => {
+                  setCompanyInvite(prev => ({ ...prev, companyName: e.target.value }));
+                  if (companyInviteErrors.companyName) setCompanyInviteErrors(prev => ({ ...prev, companyName: '' }));
+                }}
+                error={!!companyInviteErrors.companyName}
+                helperText={companyInviteErrors.companyName}
               />
             </Grid>
             <Grid item xs={12}>
@@ -3806,124 +3972,48 @@ const ProfilePage: React.FC = () => {
                 multiline
                 rows={2}
                 value={companyInvite.address}
-                onChange={(e) => setCompanyInvite(prev => ({ ...prev, address: e.target.value }))}
+                onChange={(e) => {
+                  setCompanyInvite(prev => ({ ...prev, address: e.target.value }));
+                  if (companyInviteErrors.address) setCompanyInviteErrors(prev => ({ ...prev, address: '' }));
+                }}
+                error={!!companyInviteErrors.address}
+                helperText={companyInviteErrors.address}
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Company Website"
-                placeholder="https://company.com"
-                value={companyInvite.website}
-                onChange={(e) => setCompanyInvite(prev => ({ ...prev, website: e.target.value }))}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Contact Person Name *"
-                value={companyInvite.contactPersonName}
-                onChange={(e) => setCompanyInvite(prev => ({ ...prev, contactPersonName: e.target.value }))}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Contact Person Role"
-                placeholder="e.g., HR Manager"
-                value={companyInvite.contactPersonRole}
-                onChange={(e) => setCompanyInvite(prev => ({ ...prev, contactPersonRole: e.target.value }))}
-              />
-            </Grid>
-
-            {/* Email Fields */}
             <Grid item xs={12}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Company Email(s)</Typography>
-              {companyInvite.emails.map((email, idx) => (
-                <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    placeholder="company@example.com"
-                    value={email}
-                    onChange={(e) => {
-                      const newEmails = [...companyInvite.emails];
-                      newEmails[idx] = e.target.value;
-                      setCompanyInvite(prev => ({ ...prev, emails: newEmails }));
-                    }}
-                  />
-                  {companyInvite.emails.length > 1 && (
-                    <Button
-                      size="small"
-                      color="error"
-                      onClick={() => {
-                        setCompanyInvite(prev => ({
-                          ...prev,
-                          emails: prev.emails.filter((_, i) => i !== idx)
-                        }));
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  )}
-                </Box>
-              ))}
-              <Button
-                size="small"
-                onClick={() => setCompanyInvite(prev => ({ ...prev, emails: [...prev.emails, ''] }))}
-              >
-                + Add Another Email
-              </Button>
+              <TextField
+                fullWidth
+                label="Company Email *"
+                type="email"
+                placeholder="company@example.com"
+                value={companyInvite.email}
+                onChange={(e) => {
+                  setCompanyInvite(prev => ({ ...prev, email: e.target.value }));
+                  if (companyInviteErrors.email) setCompanyInviteErrors(prev => ({ ...prev, email: '' }));
+                }}
+                error={!!companyInviteErrors.email}
+                helperText={companyInviteErrors.email}
+              />
             </Grid>
-
-            {/* Phone Fields */}
             <Grid item xs={12}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Company Phone(s)</Typography>
-              {companyInvite.phoneNumbers.map((phone, idx) => (
-                <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    placeholder="+1 (555) 123-4567"
-                    value={phone}
-                    onChange={(e) => {
-                      const newPhones = [...companyInvite.phoneNumbers];
-                      newPhones[idx] = e.target.value;
-                      setCompanyInvite(prev => ({ ...prev, phoneNumbers: newPhones }));
-                    }}
-                  />
-                  {companyInvite.phoneNumbers.length > 1 && (
-                    <Button
-                      size="small"
-                      color="error"
-                      onClick={() => {
-                        setCompanyInvite(prev => ({
-                          ...prev,
-                          phoneNumbers: prev.phoneNumbers.filter((_, i) => i !== idx)
-                        }));
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  )}
-                </Box>
-              ))}
-              <Button
-                size="small"
-                onClick={() => setCompanyInvite(prev => ({ ...prev, phoneNumbers: [...prev.phoneNumbers, ''] }))}
-              >
-                + Add Another Phone
-              </Button>
+              <TextField
+                fullWidth
+                label="Company Phone *"
+                placeholder="+1 (555) 123-4567"
+                value={companyInvite.phone}
+                onChange={(e) => {
+                  setCompanyInvite(prev => ({ ...prev, phone: e.target.value }));
+                  if (companyInviteErrors.phone) setCompanyInviteErrors(prev => ({ ...prev, phone: '' }));
+                }}
+                error={!!companyInviteErrors.phone}
+                helperText={companyInviteErrors.phone}
+              />
             </Grid>
           </Grid>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setShowCompanyInvite(false)}>Skip - Proceed Without Inviting</Button>
-          <Button
-            variant="contained"
-            onClick={handleSendCompanyInvite}
-            disabled={!companyInvite.companyName || !companyInvite.contactPersonName}
-          >
+          <Button onClick={() => { setShowCompanyInvite(false); setCompanyInviteErrors({}); }}>Skip - Proceed Without Inviting</Button>
+          <Button variant="contained" onClick={handleSendCompanyInvite}>
             Send Invite
           </Button>
         </DialogActions>

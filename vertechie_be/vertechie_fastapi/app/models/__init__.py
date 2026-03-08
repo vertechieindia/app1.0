@@ -22,6 +22,7 @@ from app.models.company import (
 from app.models.school import (
     School, Department, Program, StudentBatch,
     SchoolMember, SchoolAdmin, Placement, SchoolInvite,
+    InstitutionInviteRequest,
     SchoolType, SchoolStatus, ProgramType, MemberType, AdminRole as SchoolAdminRole
 )
 
@@ -98,6 +99,9 @@ from app.models.community import (
 # Notification Models
 from app.models.notification import Notification, NotificationType
 
+# Place Models (internal location autocomplete)
+from app.models.place import Place
+
 __all__ = [
     # Auth
     "User", "UserRole", "UserProfile", 
@@ -112,6 +116,7 @@ __all__ = [
     # School
     "School", "Department", "Program", "StudentBatch",
     "SchoolMember", "SchoolAdmin", "Placement", "SchoolInvite",
+    "InstitutionInviteRequest",
     "SchoolType", "SchoolStatus", "ProgramType", "MemberType", "SchoolAdminRole",
     
     # Jobs
@@ -174,4 +179,7 @@ __all__ = [
     
     # Notifications
     "Notification", "NotificationType",
+
+    # Places
+    "Place",
 ]

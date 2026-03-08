@@ -307,7 +307,10 @@ class SchoolInvite(Base):
     graduation_year = Column(Integer)
     student_id = Column(String(50))
     
-    status = Column(SQLEnum(InviteStatus, name="school_invitestatus"), default=InviteStatus.PENDING)
+    status = Column(
+        SQLEnum(InviteStatus, name="school_invitestatus", values_callable=lambda obj: [e.value for e in obj]),
+        default=InviteStatus.PENDING,
+    )
     
     invited_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
@@ -317,5 +320,22 @@ class SchoolInvite(Base):
     # Relationships
     school = relationship("School")
     invited_by = relationship("User")
+
+
+class InstitutionInviteRequest(Base):
+    """Request to invite an institution/school to the platform (when not yet registered)."""
+    __tablename__ = "institution_invite_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    institution_name = Column(String(300), nullable=False)
+    requested_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    status = Column(
+        SQLEnum(InviteStatus, name="institution_invitestatus", values_callable=lambda obj: [e.value for e in obj]),
+        default=InviteStatus.PENDING,
+    )
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    requested_by = relationship("User")
 
 

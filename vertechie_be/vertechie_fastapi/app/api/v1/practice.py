@@ -195,7 +195,6 @@ class LeaderboardEntryResponse(BaseModel):
     name: str
     avatar_url: Optional[str] = None
     points: int
-    streak: int
     lessons_completed: int
 
     class Config:
@@ -591,6 +590,7 @@ async def create_solution(
     return solution
 
 
+@router.get("/problems/random", response_model=ProblemResponse)
 @router.get("/problems/random/", response_model=ProblemResponse)
 async def get_random_problem(
     difficulty: Optional[Difficulty] = None,
@@ -1153,15 +1153,14 @@ async def get_leaderboard(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get top learners leaderboard from real user_progress data."""
+    """Get top learners leaderboard ranked by profile XP."""
     result = await db.execute(
         select(UserProgress, User, UserProfile)
         .join(User, User.id == UserProgress.user_id)
         .outerjoin(UserProfile, UserProfile.user_id == User.id)
         .order_by(
+            func.coalesce(UserProfile.xp, 0).desc(),
             UserProgress.total_solved.desc(),
-            UserProgress.current_streak.desc(),
-            UserProgress.rating.desc(),
             UserProgress.updated_at.desc(),
         )
         .limit(limit)
@@ -1179,8 +1178,7 @@ async def get_leaderboard(
                 user_id=user.id,
                 name=display_name,
                 avatar_url=profile.avatar_url if profile else None,
-                points=int(progress.rating or 0),
-                streak=int(progress.current_streak or 0),
+                points=int(profile.xp if profile and profile.xp is not None else 0),
                 lessons_completed=int(progress.total_solved or 0),
             )
         )

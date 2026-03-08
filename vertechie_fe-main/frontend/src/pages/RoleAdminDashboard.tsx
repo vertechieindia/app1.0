@@ -832,9 +832,9 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
       <Dialog
         open={reviewModalOpen}
         onClose={handleCloseReview}
-        maxWidth="sm"
+        maxWidth="lg"
         fullWidth
-        PaperProps={{ sx: { borderRadius: 2 } }}
+        PaperProps={{ sx: { borderRadius: 2, maxHeight: '90vh' } }}
       >
         <DialogTitle
           sx={{
@@ -856,7 +856,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
             <Close />
           </IconButton>
         </DialogTitle>
-        <DialogContent sx={{ p: 0 }}>
+        <DialogContent sx={{ p: 0, overflow: 'auto', maxHeight: 'calc(90vh - 120px)' }}>
           {reviewLoading ? (
             <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
               <LinearProgress sx={{ width: '60%', borderRadius: 2 }} />
@@ -868,37 +868,45 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                   <People sx={{ fontSize: 18 }} /> Personal Information
                 </Typography>
                 <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={6} md={4}>
                     <Typography variant="caption" color="text.secondary">Full Name</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e40af' }}>
                       {[reviewData.first_name, reviewData.middle_name, reviewData.last_name].filter(Boolean).join(' ') || '—'}
                     </Typography>
                   </Grid>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={6} md={4}>
                     <Typography variant="caption" color="text.secondary">Email</Typography>
                     <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.email || '—'}</Typography>
                   </Grid>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={6} md={4}>
                     <Typography variant="caption" color="text.secondary">Phone</Typography>
                     <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.mobile_number || reviewData.phone || '—'}</Typography>
                   </Grid>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={6} md={4}>
                     <Typography variant="caption" color="text.secondary">Date of Birth</Typography>
                     <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.dob || '—'}</Typography>
                   </Grid>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={6} md={4}>
                     <Typography variant="caption" color="text.secondary">Country</Typography>
                     <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.country || '—'}</Typography>
                   </Grid>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={6} md={4}>
                     <Typography variant="caption" color="text.secondary">Address</Typography>
                     <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.address || '—'}</Typography>
                   </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Typography variant="caption" color="text.secondary">Government ID</Typography>
-                    <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.gov_id || '—'}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
+                  {/* India: show only PAN (Last 4); others: show Government ID (last 4) or gov_id */}
+                  {String(reviewData.country || '').toLowerCase() === 'india' ? (
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Typography variant="caption" color="text.secondary">PAN (Last 4)</Typography>
+                      <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.gov_id_last_four || reviewData.gov_id || '—'}</Typography>
+                    </Grid>
+                  ) : (
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Typography variant="caption" color="text.secondary">Government ID (Last 4)</Typography>
+                      <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.gov_id_last_four || reviewData.gov_id || '—'}</Typography>
+                    </Grid>
+                  )}
+                  <Grid item xs={12} sm={6} md={4}>
                     <Typography variant="caption" color="text.secondary">VerTechie ID</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600, color: '#15803d' }}>{reviewData.vertechie_id || '—'}</Typography>
                   </Grid>
@@ -936,6 +944,54 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                         <Typography variant="caption" color="text.secondary">About</Typography>
                         <Typography variant="body2" sx={{ color: '#1e40af' }}>{reviewData.organization.description || '—'}</Typography>
                       </Grid>
+                      {(userType === 'hr' || userType === 'company' || userType === 'school') && (
+                        <Grid item xs={12} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                          <Chip
+                            size="small"
+                            label={reviewData.organization.verified ? 'Company verified' : 'Company not verified'}
+                            icon={reviewData.organization.verified ? <CheckCircle sx={{ fontSize: 14, color: '#16a34a' }} /> : <Cancel sx={{ fontSize: 14, color: '#d97706' }} />}
+                            sx={{
+                              bgcolor: reviewData.organization.verified ? '#f0fdf4' : '#fffbeb',
+                              color: reviewData.organization.verified ? '#16a34a' : '#d97706',
+                              fontWeight: 600,
+                            }}
+                          />
+                          {reviewUserId && !reviewData.organization.verified && (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="primary"
+                              onClick={async () => {
+                                const token = localStorage.getItem('authToken');
+                                if (!token) return;
+                                try {
+                                  const res = await fetch(
+                                    getApiUrl(`/users/${reviewUserId}/verify-organization`),
+                                    {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                      body: JSON.stringify({ verified: true }),
+                                    }
+                                  );
+                                  if (res.ok) {
+                                    const data = await fetch(getApiUrl(`/users/${reviewUserId}/full-profile`), {
+                                      headers: { 'Authorization': `Bearer ${token}` },
+                                    }).then((r) => r.ok ? r.json() : null);
+                                    if (data) setReviewData(data);
+                                    setSnackbar({ open: true, message: 'Company verified. You can now Approve or Reject the profile.', severity: 'success' });
+                                  } else {
+                                    setSnackbar({ open: true, message: 'Failed to verify company', severity: 'error' });
+                                  }
+                                } catch {
+                                  setSnackbar({ open: true, message: 'Error verifying company', severity: 'error' });
+                                }
+                              }}
+                            >
+                              Verify Company
+                            </Button>
+                          )}
+                        </Grid>
+                      )}
                     </Grid>
                   </Box>
                   <Divider sx={{ my: 2 }} />
@@ -947,25 +1003,147 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                 </Typography>
                 {reviewData.experiences?.length > 0 ? (
                   reviewData.experiences.map((exp: any, idx: number) => (
-                    <Paper key={idx} sx={{ p: 1.5, mb: 1.5, bgcolor: '#f8fafc', borderRadius: 2 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
-                        {exp.title || 'Position'}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {exp.company_name || 'Company'} | {exp.start_date || 'N/A'} - {exp.is_current ? 'Present' : (exp.end_date || 'N/A')}
-                      </Typography>
-                      {(exp.manager_name || exp.manager_email || exp.manager_phone || exp.manager_linkedin) && (
-                        <Box sx={{ mt: 1 }}>
-                          {exp.manager_name && <Typography variant="body2"><strong>Manager:</strong> {exp.manager_name}</Typography>}
-                          {exp.manager_email && <Typography variant="body2"><strong>Manager Email:</strong> {exp.manager_email}</Typography>}
-                          {exp.manager_phone && <Typography variant="body2"><strong>Manager Phone:</strong> {exp.manager_phone}</Typography>}
-                          {exp.manager_linkedin && <Typography variant="body2"><strong>Manager LinkedIn:</strong> {exp.manager_linkedin}</Typography>}
-                        </Box>
-                      )}
+                    <Paper key={exp.id || idx} sx={{ p: 1.5, mb: 1.5, bgcolor: '#f8fafc', borderRadius: 2, display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                          {exp.title || 'Position'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {exp.company_name || exp.client_name || 'Company'} | {exp.start_date || 'N/A'} - {exp.is_current ? 'Present' : (exp.end_date || 'N/A')}
+                        </Typography>
+                        {(exp.manager_name || exp.manager_email || exp.manager_phone || exp.manager_linkedin) && (
+                          <Box sx={{ mt: 1 }}>
+                            {exp.manager_name && <Typography variant="body2"><strong>Manager:</strong> {exp.manager_name}</Typography>}
+                            {exp.manager_email && <Typography variant="body2"><strong>Manager Email:</strong> {exp.manager_email}</Typography>}
+                            {exp.manager_phone && <Typography variant="body2"><strong>Manager Phone:</strong> {exp.manager_phone}</Typography>}
+                            {exp.manager_linkedin && <Typography variant="body2"><strong>Manager LinkedIn:</strong> {exp.manager_linkedin}</Typography>}
+                          </Box>
+                        )}
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip
+                          size="small"
+                          label={exp.is_verified ? 'Verified' : 'Pending'}
+                          icon={exp.is_verified ? <CheckCircle sx={{ fontSize: 14, color: '#16a34a' }} /> : <Cancel sx={{ fontSize: 14, color: '#d97706' }} />}
+                          sx={{
+                            bgcolor: exp.is_verified ? '#f0fdf4' : '#fffbeb',
+                            color: exp.is_verified ? '#16a34a' : '#d97706',
+                            fontWeight: 600,
+                          }}
+                        />
+                        {reviewUserId && exp.id && (
+                          <Button
+                            size="small"
+                            variant={exp.is_verified ? 'outlined' : 'contained'}
+                            color={exp.is_verified ? 'secondary' : 'primary'}
+                            onClick={async () => {
+                              const token = localStorage.getItem('authToken');
+                              if (!token) return;
+                              try {
+                                const res = await fetch(
+                                  getApiUrl(`/users/${reviewUserId}/experiences/${exp.id}/verify`),
+                                  {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                    body: JSON.stringify({ is_verified: !exp.is_verified }),
+                                  }
+                                );
+                                if (res.ok) {
+                                  const data = await fetch(getApiUrl(`/users/${reviewUserId}/full-profile`), {
+                                    headers: { 'Authorization': `Bearer ${token}` },
+                                  }).then((r) => r.ok ? r.json() : null);
+                                  if (data) setReviewData(data);
+                                  setSnackbar({ open: true, message: exp.is_verified ? 'Work experience marked as pending' : 'Work experience verified', severity: 'success' });
+                                } else {
+                                  setSnackbar({ open: true, message: 'Failed to update work experience status', severity: 'error' });
+                                }
+                              } catch {
+                                setSnackbar({ open: true, message: 'Error updating work experience status', severity: 'error' });
+                              }
+                            }}
+                          >
+                            {exp.is_verified ? 'Unverify' : 'Verify'}
+                          </Button>
+                        )}
+                      </Box>
                     </Paper>
                   ))
                 ) : (
                   <Typography variant="body2" color="text.secondary">No work experience added</Typography>
+                )}
+              </Box>
+              <Divider sx={{ my: 2 }} />
+              <Box sx={{ px: 2.5, pb: 2.5 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 0.5, mb: 1.5 }}>
+                  <School sx={{ fontSize: 18 }} /> Education ({reviewData.educations?.length || 0})
+                </Typography>
+                {reviewData.educations?.length > 0 ? (
+                  reviewData.educations.map((edu: any, idx: number) => (
+                    <Paper key={edu.id || idx} sx={{ p: 1.5, mb: 1.5, bgcolor: '#f8fafc', borderRadius: 2, display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                          {edu.school_name || 'Institution'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {[edu.degree, edu.field_of_study].filter(Boolean).join(' · ')}
+                          {edu.start_year || edu.end_year ? ` · ${edu.start_year || '—'} - ${edu.end_year || '—'}` : ''}
+                        </Typography>
+                        {(edu.grade || edu.score_value) && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            {edu.score_type ? `${edu.score_type}: ` : ''}{edu.grade || edu.score_value}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip
+                          size="small"
+                          label={edu.is_verified ? 'Verified' : 'Pending'}
+                          icon={edu.is_verified ? <CheckCircle sx={{ fontSize: 14, color: '#16a34a' }} /> : <Cancel sx={{ fontSize: 14, color: '#d97706' }} />}
+                          sx={{
+                            bgcolor: edu.is_verified ? '#f0fdf4' : '#fffbeb',
+                            color: edu.is_verified ? '#16a34a' : '#d97706',
+                            fontWeight: 600,
+                          }}
+                        />
+                        {reviewUserId && edu.id && (
+                          <Button
+                            size="small"
+                            variant={edu.is_verified ? 'outlined' : 'contained'}
+                            color={edu.is_verified ? 'secondary' : 'primary'}
+                            onClick={async () => {
+                              const token = localStorage.getItem('authToken');
+                              if (!token) return;
+                              try {
+                                const res = await fetch(
+                                  getApiUrl(`/users/${reviewUserId}/educations/${edu.id}/verify`),
+                                  {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                    body: JSON.stringify({ is_verified: !edu.is_verified }),
+                                  }
+                                );
+                                if (res.ok) {
+                                  const data = await fetch(getApiUrl(`/users/${reviewUserId}/full-profile`), {
+                                    headers: { 'Authorization': `Bearer ${token}` },
+                                  }).then((r) => r.ok ? r.json() : null);
+                                  if (data) setReviewData(data);
+                                  setSnackbar({ open: true, message: edu.is_verified ? 'Education marked as pending' : 'Education verified', severity: 'success' });
+                                } else {
+                                  setSnackbar({ open: true, message: 'Failed to update education status', severity: 'error' });
+                                }
+                              } catch {
+                                setSnackbar({ open: true, message: 'Error updating education status', severity: 'error' });
+                              }
+                            }}
+                          >
+                            {edu.is_verified ? 'Unverify' : 'Verify'}
+                          </Button>
+                        )}
+                      </Box>
+                    </Paper>
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary">No education added</Typography>
                 )}
               </Box>
               <Divider sx={{ my: 2 }} />
@@ -1009,6 +1187,61 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
           ) : null}
         </DialogContent>
         <DialogActions sx={{ px: 2.5, pb: 2, pt: 0 }}>
+          <Box sx={{ flex: 1 }} />
+          {reviewData && reviewUserId && ['pending', 'resubmitted'].includes(String(reviewData.verification_status || '').toLowerCase()) && (() => {
+            const educations = reviewData.educations || [];
+            const experiences = reviewData.experiences || [];
+            const allEducationVerified = educations.length === 0 || educations.every((e: any) => e.is_verified);
+            const allExperienceVerified = experiences.length === 0 || experiences.every((e: any) => e.is_verified);
+            const isTechie = userType === 'techie';
+            const isHR = userType === 'hr' || userType === 'company';
+            const techieCanApproveReject = isTechie && allEducationVerified && allExperienceVerified;
+            const hrCanApproveReject = isHR && (!reviewData.organization || reviewData.organization.verified === true);
+            const canApproveReject = techieCanApproveReject || hrCanApproveReject || (userType === 'school' && (!reviewData.organization || reviewData.organization.verified === true));
+            if (!canApproveReject) {
+              return (
+                <Typography variant="body2" color="text.secondary" sx={{ mr: 2, alignSelf: 'center' }}>
+                  {isTechie && (!allEducationVerified || !allExperienceVerified) &&
+                    'Verify all Education entries and all Work Experience entries (if any) before you can Approve or Reject.'}
+                  {(isHR || userType === 'school') && reviewData.organization && reviewData.organization.verified !== true &&
+                    'Verify the Company/Organization above before you can Approve or Reject.'}
+                </Typography>
+              );
+            }
+            return (
+              <>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={() => {
+                    const fullName = [reviewData.first_name, reviewData.middle_name, reviewData.last_name].filter(Boolean).join(' ') || reviewData.email || '';
+                    setSelectedApproval({ id: reviewUserId, user_full_name: fullName });
+                    setReviewModalOpen(false);
+                    setRejectDialogOpen(true);
+                  }}
+                  sx={{ borderRadius: 2 }}
+                  startIcon={<Cancel />}
+                >
+                  Reject
+                </Button>
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={async () => {
+                    await handleApprove(reviewUserId);
+                    setReviewModalOpen(false);
+                    setReviewUserId(null);
+                    setReviewData(null);
+                  }}
+                  disabled={approvingId !== null}
+                  sx={{ borderRadius: 2 }}
+                  startIcon={approvingId === reviewUserId ? <CircularProgress size={16} color="inherit" /> : <CheckCircle />}
+                >
+                  {approvingId === reviewUserId ? 'Approving...' : 'Approve'}
+                </Button>
+              </>
+            );
+          })()}
           <Button variant="outlined" color="primary" onClick={handleCloseReview} sx={{ borderRadius: 2 }}>
             Close
           </Button>

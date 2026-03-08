@@ -13,7 +13,9 @@
  * - Job postings
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { getApiUrl, API_ENDPOINTS } from '../../config/api';
 import {
   Box,
   Container,
@@ -170,6 +172,16 @@ const CompanyPageManagement: React.FC = () => {
     { id: 1, name: 'Alice Johnson', role: 'Page Admin', avatar: '', canPost: true, canManage: true },
     { id: 2, name: 'Bob Williams', role: 'Content Editor', avatar: '', canPost: true, canManage: false },
   ];
+
+  // Your company invite requests (from HR signup — status visible in profile review)
+  const [myCompanyInvites, setMyCompanyInvites] = useState<{ id: string; company_name: string; status: string; created_at?: string }[]>([]);
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+    axios.get(getApiUrl(API_ENDPOINTS.COMPANY_INVITES_MINE), { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => setMyCompanyInvites(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setMyCompanyInvites([]));
+  }, []);
 
   return (
     <Container maxWidth="lg" sx={{ py: 3 }}>
@@ -335,6 +347,32 @@ const CompanyPageManagement: React.FC = () => {
         {/* Employee Verification Tab */}
         <TabPanel value={activeTab} index={1}>
           <Box sx={{ p: 3 }}>
+            {/* Your company invite requests — status for profile review */}
+            {myCompanyInvites.length > 0 && (
+              <Card sx={{ mb: 3, border: '1px solid', borderColor: 'divider' }}>
+                <CardContent>
+                  <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                    Your company invite requests (profile review)
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Companies you invited during signup. Status is managed by BDM admins.
+                  </Typography>
+                  <List dense disablePadding>
+                    {myCompanyInvites.map((inv) => (
+                      <ListItem key={inv.id} sx={{ py: 0.5, px: 0 }}>
+                        <ListItemText primary={inv.company_name} />
+                        <Chip
+                          size="small"
+                          label={(inv.status || 'pending').toUpperCase()}
+                          color={inv.status === 'accepted' ? 'success' : inv.status === 'sent' ? 'info' : inv.status === 'declined' ? 'error' : 'warning'}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </CardContent>
+              </Card>
+            )}
+
             <Typography variant="h6" fontWeight={600} sx={{ mb: 3 }}>
               Employee Verification Requests
             </Typography>

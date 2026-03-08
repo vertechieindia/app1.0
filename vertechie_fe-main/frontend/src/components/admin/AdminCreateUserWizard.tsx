@@ -50,6 +50,7 @@ import {
   ArrowForward,
 } from '@mui/icons-material';
 import { getApiUrl, API_ENDPOINTS } from '../../config/api';
+import { isValidEmail, isValidPhone } from '../../utils/validation';
 import AddressAutocomplete from '../ui/AddressAutocomplete';
 
 // Animations
@@ -209,11 +210,8 @@ interface Experience {
 interface CompanyInvite {
   company_name: string;
   address: string;
-  emails: string[];
-  phone_numbers: string[];
-  website: string;
-  contact_person_name: string;
-  contact_person_role: string;
+  email: string;
+  phone: string;
 }
 
 interface ProjectTeamMember {
@@ -327,12 +325,10 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
   const [companyInvite, setCompanyInvite] = useState<CompanyInvite>({
     company_name: '',
     address: '',
-    emails: [''],
-    phone_numbers: [''],
-    website: '',
-    contact_person_name: '',
-    contact_person_role: '',
+    email: '',
+    phone: '',
   });
+  const [companyInviteErrors, setCompanyInviteErrors] = useState<Record<string, string>>({});
   
   // School search and invite state
   const [schoolSearchResults, setSchoolSearchResults] = useState<Array<{id: string, name: string}>>([]);
@@ -1596,23 +1592,33 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                 </DialogActions>
               </Dialog>
 
-              {/* Company Invite Dialog */}
-              <Dialog open={showCompanyInviteForm} onClose={() => setShowCompanyInviteForm(false)} maxWidth="md" fullWidth>
+              {/* Company Invite Dialog - company name, address, email, phone only */}
+              <Dialog
+                open={showCompanyInviteForm}
+                onClose={() => { setShowCompanyInviteForm(false); setCompanyInviteErrors({}); }}
+                maxWidth="sm"
+                fullWidth
+              >
                 <DialogTitle sx={{ fontWeight: 700 }}>
                   Invite Your Company to VerTechie
                 </DialogTitle>
                 <DialogContent>
                   <Typography variant="body2" sx={{ mb: 2, color: '#64748b' }}>
-                    Your company is not registered with us. You can invite them to create an account, 
+                    Your company is not registered with us. You can invite them to create an account,
                     or proceed without inviting.
                   </Typography>
                   <Grid container spacing={2}>
                     <Grid item xs={12}>
                       <TextField
                         fullWidth
-                        label="Company Full Name *"
+                        label="Company Name *"
                         value={companyInvite.company_name}
-                        onChange={(e) => setCompanyInvite(prev => ({...prev, company_name: e.target.value}))}
+                        onChange={(e) => {
+                          setCompanyInvite(prev => ({...prev, company_name: e.target.value}));
+                          if (companyInviteErrors.company_name) setCompanyInviteErrors(prev => ({ ...prev, company_name: '' }));
+                        }}
+                        error={!!companyInviteErrors.company_name}
+                        helperText={companyInviteErrors.company_name}
                       />
                     </Grid>
                     <Grid item xs={12}>
@@ -1622,131 +1628,67 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                         multiline
                         rows={2}
                         value={companyInvite.address}
-                        onChange={(e) => setCompanyInvite(prev => ({...prev, address: e.target.value}))}
+                        onChange={(e) => {
+                          setCompanyInvite(prev => ({...prev, address: e.target.value}));
+                          if (companyInviteErrors.address) setCompanyInviteErrors(prev => ({ ...prev, address: '' }));
+                        }}
+                        error={!!companyInviteErrors.address}
+                        helperText={companyInviteErrors.address}
                       />
                     </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        fullWidth
-                        label="Company Website"
-                        placeholder="https://company.com"
-                        value={companyInvite.website}
-                        onChange={(e) => setCompanyInvite(prev => ({...prev, website: e.target.value}))}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        fullWidth
-                        label="Contact Person Name *"
-                        value={companyInvite.contact_person_name}
-                        onChange={(e) => setCompanyInvite(prev => ({...prev, contact_person_name: e.target.value}))}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        fullWidth
-                        label="Contact Person Role"
-                        placeholder="e.g., HR Manager"
-                        value={companyInvite.contact_person_role}
-                        onChange={(e) => setCompanyInvite(prev => ({...prev, contact_person_role: e.target.value}))}
-                      />
-                    </Grid>
-                    
-                    {/* Email Fields */}
                     <Grid item xs={12}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Company Email(s)</Typography>
-                      {companyInvite.emails.map((email, idx) => (
-                        <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            placeholder="company@example.com"
-                            value={email}
-                            onChange={(e) => {
-                              const newEmails = [...companyInvite.emails];
-                              newEmails[idx] = e.target.value;
-                              setCompanyInvite(prev => ({...prev, emails: newEmails}));
-                            }}
-                          />
-                          {companyInvite.emails.length > 1 && (
-                            <Button 
-                              size="small" 
-                              color="error"
-                              onClick={() => {
-                                setCompanyInvite(prev => ({
-                                  ...prev, 
-                                  emails: prev.emails.filter((_, i) => i !== idx)
-                                }));
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          )}
-                        </Box>
-                      ))}
-                      <Button 
-                        size="small" 
-                        onClick={() => setCompanyInvite(prev => ({...prev, emails: [...prev.emails, '']}))}
-                      >
-                        + Add Another Email
-                      </Button>
+                      <TextField
+                        fullWidth
+                        label="Company Email *"
+                        type="email"
+                        placeholder="company@example.com"
+                        value={companyInvite.email}
+                        onChange={(e) => {
+                          setCompanyInvite(prev => ({...prev, email: e.target.value}));
+                          if (companyInviteErrors.email) setCompanyInviteErrors(prev => ({ ...prev, email: '' }));
+                        }}
+                        error={!!companyInviteErrors.email}
+                        helperText={companyInviteErrors.email}
+                      />
                     </Grid>
-                    
-                    {/* Phone Fields */}
                     <Grid item xs={12}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Company Phone(s)</Typography>
-                      {companyInvite.phone_numbers.map((phone, idx) => (
-                        <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            placeholder="+1 (555) 123-4567"
-                            value={phone}
-                            onChange={(e) => {
-                              const newPhones = [...companyInvite.phone_numbers];
-                              newPhones[idx] = e.target.value;
-                              setCompanyInvite(prev => ({...prev, phone_numbers: newPhones}));
-                            }}
-                          />
-                          {companyInvite.phone_numbers.length > 1 && (
-                            <Button 
-                              size="small" 
-                              color="error"
-                              onClick={() => {
-                                setCompanyInvite(prev => ({
-                                  ...prev, 
-                                  phone_numbers: prev.phone_numbers.filter((_, i) => i !== idx)
-                                }));
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          )}
-                        </Box>
-                      ))}
-                      <Button 
-                        size="small" 
-                        onClick={() => setCompanyInvite(prev => ({...prev, phone_numbers: [...prev.phone_numbers, '']}))}
-                      >
-                        + Add Another Phone
-                      </Button>
+                      <TextField
+                        fullWidth
+                        label="Company Phone *"
+                        placeholder="+1 (555) 123-4567"
+                        value={companyInvite.phone}
+                        onChange={(e) => {
+                          setCompanyInvite(prev => ({...prev, phone: e.target.value}));
+                          if (companyInviteErrors.phone) setCompanyInviteErrors(prev => ({ ...prev, phone: '' }));
+                        }}
+                        error={!!companyInviteErrors.phone}
+                        helperText={companyInviteErrors.phone}
+                      />
                     </Grid>
                   </Grid>
                 </DialogContent>
                 <DialogActions sx={{ p: 2 }}>
-                  <Button onClick={() => setShowCompanyInviteForm(false)}>
+                  <Button onClick={() => { setShowCompanyInviteForm(false); setCompanyInviteErrors({}); }}>
                     Skip - Proceed Without Inviting
                   </Button>
-                  <Button 
-                    variant="contained" 
+                  <Button
+                    variant="contained"
                     onClick={async () => {
-                      // Validate required fields
-                      const filteredEmails = companyInvite.emails.filter(e => e.trim());
-                      if (filteredEmails.length === 0) {
-                        setSnackbar({ open: true, message: 'At least one email is required', severity: 'error' });
-                        return;
-                      }
-                      
+                      const name = companyInvite.company_name.trim();
+                      const address = companyInvite.address.trim();
+                      const email = companyInvite.email.trim();
+                      const phone = companyInvite.phone.trim();
+                      const err: Record<string, string> = {};
+                      if (!name) err.company_name = 'Company name is required';
+                      else if (name.length < 2) err.company_name = 'Company name must be at least 2 characters';
+                      if (!address) err.address = 'Company address is required';
+                      else if (address.length < 5) err.address = 'Address must be at least 5 characters';
+                      if (!email) err.email = 'Company email is required';
+                      else if (!isValidEmail(email)) err.email = 'Enter a valid email address';
+                      if (!phone) err.phone = 'Company phone is required';
+                      else if (!isValidPhone(phone)) err.phone = 'Enter a valid phone number (at least 10 digits)';
+                      setCompanyInviteErrors(err);
+                      if (Object.keys(err).length > 0) return;
                       setIsSubmitting(true);
                       try {
                         const token = localStorage.getItem('authToken');
@@ -1757,45 +1699,30 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                             ...(token ? { Authorization: `Bearer ${token}` } : {}),
                           },
                           body: JSON.stringify({
-                            company_name: companyInvite.company_name,
-                            address: companyInvite.address,
-                            emails: filteredEmails,
-                            phone_numbers: companyInvite.phone_numbers.filter(p => p.trim()),
-                            website: companyInvite.website,
-                            contact_person_name: companyInvite.contact_person_name,
-                            contact_person_role: companyInvite.contact_person_role,
+                            company_name: name,
+                            address: address || undefined,
+                            emails: email ? [email] : [],
+                            phone_numbers: phone ? [phone] : [],
                           }),
                         });
                         if (response.ok) {
-                          setSnackbar({ 
-                            open: true, 
-                            message: `Invitation sent to ${companyInvite.contact_person_name} at ${companyInvite.company_name}! Our BDM team will follow up.`, 
-                            severity: 'success' 
+                          setSnackbar({
+                            open: true,
+                            message: `Invitation sent to ${name}. Our BDM team will follow up.`,
+                            severity: 'success'
                           });
                           setShowCompanyInviteForm(false);
-                          // Reset form
-                          setCompanyInvite({
-                            company_name: '',
-                            address: '',
-                            emails: [''],
-                            phone_numbers: [''],
-                            website: '',
-                            contact_person_name: '',
-                            contact_person_role: '',
-                          });
-                          // Update the experience with the company name
+                          setCompanyInviteErrors({});
+                          setCompanyInvite({ company_name: '', address: '', email: '', phone: '' });
                           if (currentExperience) {
-                            setCurrentExperience({
-                              ...currentExperience,
-                              client_name: companyInvite.company_name,
-                            });
+                            setCurrentExperience({ ...currentExperience, client_name: name });
                           }
                         } else {
                           const errorData = await response.json();
-                          setSnackbar({ 
-                            open: true, 
-                            message: errorData.error || errorData.emails?.[0] || 'Failed to send invitation. Please try again.', 
-                            severity: 'error' 
+                          setSnackbar({
+                            open: true,
+                            message: errorData.error || errorData.detail || 'Failed to send invitation. Please try again.',
+                            severity: 'error'
                           });
                         }
                       } catch (error) {
@@ -1805,7 +1732,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                         setIsSubmitting(false);
                       }
                     }}
-                    disabled={!companyInvite.company_name || !companyInvite.contact_person_name || isSubmitting}
+                    disabled={isSubmitting}
                   >
                     {isSubmitting ? 'Sending...' : 'Send Invite'}
                   </Button>

@@ -23,6 +23,7 @@ import { StepComponentProps } from '../../types';
 import { useOTPVerification } from '../../shared/hooks/useOTPVerification';
 import { getPrimaryColor, getLightColor } from '../../utils/colors';
 import { formatDateToDDMMYYYY } from '../../utils/formatters';
+import { getPasswordValidationError } from '../../../../utils/validation';
 import AddressAutocomplete from '../../../ui/AddressAutocomplete';
 
 const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
@@ -123,16 +124,19 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
     }
 
     updateFormData({ [field]: newValue });
-    // Clear error when user starts typing
-    if (errors[field]) {
-      setErrors({ ...errors, [field]: '' });
-    }
-    // Validate password match
-    if (field === 'password' || field === 'confirmPassword') {
-      // Use the new value from the event and the current formData value
-      const password = field === 'password' ? newValue : formData.password;
-      const confirmPassword = field === 'confirmPassword' ? newValue : formData.confirmPassword;
 
+    if (field === 'password') {
+      const pwdErr = getPasswordValidationError(newValue);
+      const next = { ...errors };
+      if (pwdErr) next.password = pwdErr;
+      else delete next.password;
+      const cp = formData.confirmPassword;
+      if (newValue && cp && newValue.trim() !== cp.trim()) next.confirmPassword = 'Passwords do not match';
+      else delete next.confirmPassword;
+      setErrors(next);
+    } else if (field === 'confirmPassword') {
+      const password = formData.password;
+      const confirmPassword = newValue;
       if (password && confirmPassword) {
         if (password.trim() !== confirmPassword.trim()) {
           setErrors({ ...errors, confirmPassword: 'Passwords do not match' });
@@ -140,20 +144,24 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
           const { confirmPassword: _, ...rest } = errors;
           setErrors(rest);
         }
-      } else if (!password || !confirmPassword) {
-        // Clear error if either field is empty
+      } else {
         const { confirmPassword: _, ...rest } = errors;
         setErrors(rest);
       }
+    } else {
+      if (errors[field]) setErrors({ ...errors, [field]: '' });
     }
   };
 
   const handleEmailVerify = useCallback(async () => {
-    const success = await otpHook.sendEmailOTP(formData.email || '');
+    const success = await otpHook.sendEmailOTP(
+      formData.email || '',
+      role === 'hr' ? { signupType: 'hr' } : undefined
+    );
     if (!success && otpHook.errors.email) {
       setErrors({ ...errors, email: otpHook.errors.email });
     }
-  }, [formData.email, otpHook, errors, setErrors]);
+  }, [formData.email, role, otpHook, errors, setErrors]);
 
   const handlePhoneVerify = useCallback(async () => {
     // Combine fixed dial code with digits
@@ -477,7 +485,7 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
             value={formData.email || ''}
             onChange={handleChange('email')}
             error={!!errors.email || !!otpHook.errors.email}
-            helperText={errors.email || otpHook.errors.email}
+            helperText={errors.email || otpHook.errors.email || (role === 'hr' ? 'Use an email with .com or .in domain' : '')}
             required
             disabled={otpHook.emailVerified}
             sx={{

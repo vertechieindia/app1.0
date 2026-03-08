@@ -18,7 +18,7 @@ from app.models.company import (
     CompanyInvite, InviteStatus
 )
 from app.models.user import User
-from app.core.security import get_current_user, get_current_admin_user
+from app.core.security import get_current_user, get_current_admin_user, get_optional_user
 from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime
 from typing import Any
@@ -419,7 +419,7 @@ class CompanyInviteCreate(BaseModel):
     company_name: str
     address: Optional[str] = None
     website: Optional[str] = None
-    contact_person_name: str
+    contact_person_name: Optional[str] = None
     contact_person_role: Optional[str] = None
     emails: List[str] = []
     phone_numbers: List[str] = []
@@ -528,12 +528,11 @@ async def get_optional_current_user(
 async def create_company_invite(
     invite: CompanyInviteCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
 ) -> Any:
     """Create a company invite request (no authentication required)."""
-    
-    # Try to get user from token if provided (optional)
-    user_id = None
-    
+    user_id = current_user.id if current_user else None
+
     # Create the invite record
     db_invite = CompanyInvite(
         company_name=invite.company_name,
@@ -553,11 +552,12 @@ async def create_company_invite(
     
     # Try to send emails to all provided email addresses
     emails_sent = 0
+    contact_name = invite.contact_person_name or "Contact"
     for email in invite.emails:
         if email and email.strip():
             success = await send_company_invite_email(
                 company_name=invite.company_name,
-                contact_name=invite.contact_person_name or "Hiring Manager",
+                contact_name=contact_name,
                 email=email.strip(),
                 invite_id=str(db_invite.id)
             )
@@ -572,6 +572,21 @@ async def create_company_invite(
         await db.refresh(db_invite)
     
     return db_invite
+
+
+@router.get("/invites/mine", response_model=List[CompanyInviteResponse])
+async def list_my_company_invites(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List company invite requests created by the current user (for profile review / dashboard)."""
+    query = (
+        select(CompanyInvite)
+        .where(CompanyInvite.requested_by_id == current_user.id)
+        .order_by(CompanyInvite.created_at.desc())
+    )
+    result = await db.execute(query)
+    return result.scalars().all()
 
 
 @router.get("/invites", response_model=List[CompanyInviteResponse])

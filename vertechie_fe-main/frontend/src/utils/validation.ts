@@ -14,14 +14,21 @@ export const isValidEmail: ValidateEmailFn = (email: string): boolean => {
 };
 
 /**
- * Validates a URL format
- * @param url - The URL to validate
- * @returns boolean indicating if the URL is valid
+ * Validates a website URL format for signup (company / work experience).
+ * Accepts:
+ * - With protocol: https://v.com, http://example.com
+ * - Without protocol: v.com, example.co.in, www.site.org
+ * - TLDs: .com, .in, .co.in, .org, .io, etc.
  */
 export const isValidUrl = (url: string): boolean => {
   if (!url || url.trim() === '') return false;
+  const trimmed = url.trim().toLowerCase();
   try {
-    const urlObj = new URL(url);
+    let toParse = trimmed;
+    if (!/^https?:\/\//i.test(trimmed)) {
+      toParse = `https://${trimmed}`;
+    }
+    const urlObj = new URL(toParse);
     const protocolValid = urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
     if (!protocolValid) return false;
 
@@ -31,13 +38,25 @@ export const isValidUrl = (url: string): boolean => {
     if (host === 'localhost') return false;
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false;
 
-    // Require a real domain with at least one dot + valid TLD
-    // Examples valid: example.com, sub.domain.co.uk, xn--d1acpjx3f.xn--p1ai
-    const domainRegex = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})$/i;
+    // Require a real domain: at least one dot, valid labels, and valid TLD (2â€“8 chars to reject junk like "comihkjhk")
+    // Accepts: v.com, example.com, example.co.in, sub.domain.org, xn--d1acpjx3f.xn--p1ai
+    const domainRegex = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,8}|xn--[a-z0-9-]{2,59})$/i;
     return domainRegex.test(host);
   } catch {
     return false;
   }
+};
+
+/**
+ * Returns the first password validation error for live (while-typing) display.
+ * Requirements: minimum 8 characters and at least one special character (@$!%*?&).
+ * Returns null if valid or if password is empty (no error shown until user has typed).
+ */
+export const getPasswordValidationError = (password: string): string | null => {
+  if (!password || password.trim() === '') return null;
+  if (password.length < 8) return 'Password must be at least 8 characters long';
+  if (!/[@$!%*?&]/.test(password)) return 'Password must contain at least one special character (@$!%*?&)';
+  return null;
 };
 
 /**
@@ -129,7 +148,7 @@ export const isValidPersonName = (name: string): boolean => {
   if (trimmed.length > 60) return false;
 
   // Allowed: letters (including accents), spaces, apostrophes, hyphens
-  const nameRegex = /^[A-Za-zÃ€-Ã–Ã˜-Ã¶Ã¸-Ã¿]+([ '-][A-Za-zÃ€-Ã–Ã˜-Ã¶Ã¸-Ã¿]+)*$/;
+  const nameRegex = /^[A-Za-z?-ï¿½?-ï¿½?-?]+([ '-][A-Za-z?-ï¿½?-ï¿½?-?]+)*$/;
   return nameRegex.test(trimmed);
 };
 
@@ -144,6 +163,6 @@ export const isValidLastName = (name: string): boolean => {
   if (trimmed.length > 60) return false;
 
   // Allowed: letters (including accents), spaces, apostrophes, hyphens, optional trailing dot
-  const lastNameRegex = /^[A-Za-zÀ-ÖØ-öø-ÿ](?:[A-Za-zÀ-ÖØ-öø-ÿ]|[.' -](?=[A-Za-zÀ-ÖØ-öø-ÿ]))*\.?$/;
+  const lastNameRegex = /^[A-Za-z?-??-??-?](?:[A-Za-z?-??-??-?]|[.' -](?=[A-Za-z?-??-??-?]))*\.?$/;
   return lastNameRegex.test(trimmed);
 };

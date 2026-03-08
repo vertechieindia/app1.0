@@ -27,6 +27,7 @@ import {
 } from '@mui/icons-material';
 import { getApiUrl, API_ENDPOINTS } from '../config/api';
 import Logger from '../utils/logger';
+import { getRedirectPathForUser, isUserVerified } from '../utils/authRedirect';
 
 interface TokenResponse {
   refresh: string;
@@ -71,17 +72,42 @@ const Login = () => {
     const reason = searchParams.get('reason');
     if (reason === 'idle') {
       setIdleLogoutMessage('You were logged out due to inactivity. Please login again.');
-      // Clear the URL parameter
       window.history.replaceState({}, '', '/login');
     }
-    
-    // Check for session expired flag (set by API interceptor on 401)
     const sessionExpired = localStorage.getItem('sessionExpired');
     if (sessionExpired === 'true') {
       setIdleLogoutMessage('Your session has expired. Please login again.');
       localStorage.removeItem('sessionExpired');
     }
   }, [searchParams]);
+
+  // If already logged in (e.g. clicked "Login" link from email), re-check status and redirect to dashboard
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+    let cancelled = false;
+    const checkSession = async () => {
+      try {
+        const response = await fetch(getApiUrl('/users/me'), {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (cancelled || !response.ok) return;
+        const userData = await response.json();
+        if (cancelled || !isUserVerified(userData)) return;
+        localStorage.setItem('userData', JSON.stringify(userData));
+        const path = getRedirectPathForUser(userData);
+        if (path) navigate(path, { replace: true });
+      } catch {
+        // ignore
+      }
+    };
+    checkSession();
+    return () => { cancelled = true; };
+  }, [navigate]);
 
   // Forgot Password states
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
@@ -184,73 +210,9 @@ const Login = () => {
         console.warn('Could not fetch user data from API, using token response data:', fetchError);
       }
 
-      // Check user role and redirect accordingly
-      const isHR = userData.groups?.some((g: any) => 
-        g.name?.toLowerCase() === 'hr' || g.name?.toLowerCase() === 'hiring_manager'
-      );
-      
-      // Get admin_roles for routing
-      const adminRoles = userData.admin_roles || [];
-      const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
-      const hasMultipleRoleAdmins = roleAdminTypes.filter((r) => adminRoles.includes(r)).length > 1;
-
-      // Route based on admin_roles first, then fallback to is_superuser/is_staff
-      if (userData.is_superuser || adminRoles.includes('superadmin')) {
-        navigate('/super-admin');
-      } else if (hasMultipleRoleAdmins) {
-        // Multiple role admins (e.g. techie + HR) → single screen with tabs
-        navigate('/vertechie/role-admin');
-      } else if (adminRoles.includes('hm_admin')) {
-        navigate('/vertechie/hmadmin');
-      } else if (adminRoles.includes('company_admin')) {
-        navigate('/vertechie/companyadmin');
-      } else if (adminRoles.includes('school_admin')) {
-        navigate('/vertechie/schooladmin');
-      } else if (adminRoles.includes('techie_admin')) {
-        navigate('/vertechie/techieadmin');
-      } else if (adminRoles.includes('bdm_admin')) {
-        // BDM Admin - route to BDM admin panel
-        navigate('/vertechie/bdmadmin');
-      } else if (adminRoles.includes('learnadmin') || adminRoles.includes('learn_admin')) {
-        // Learn Admin - route to learn admin panel
-        navigate('/vertechie/learnadmin');
-      } else if (userData.is_staff) {
-        // Generic staff - route to admin
-        navigate('/admin');
-      } else if (userData.verification_status === 'rejected' || 
-                 userData.verification_status === 'REJECTED' ||
-                 userData.verification_status?.toLowerCase() === 'rejected') {
-        // FIRST: Check if user is REJECTED (using verification_status field)
-        navigate('/status/rejected');
-      } else if (!userData.is_active && !userData.is_verified) {
-        // SECOND: Fallback check for rejected (not active AND not verified)
-        navigate('/status/rejected');
-      } else if (userData.is_active && !userData.is_verified) {
-        // THIRD: Check if user is pending verification (active but not verified)
-        // This applies to ALL user types including HR, Techie, etc.
-        navigate('/status/processing');
-      } else if (isHR && userData.is_verified) {
-        // FOURTH: Only redirect VERIFIED HR users to Home Feed
-        // Check if first login (profile completion not shown yet)
-        const profileCompletionShown = localStorage.getItem('profileCompletionShown');
-        if (!profileCompletionShown) {
-          navigate('/techie/profile-completion');
-        } else {
-          navigate('/techie/home/feed');
-        }
-      } else if (userData.is_active && userData.is_verified) {
-        // Redirect verified techie users
-        // Check if first login (profile completion not shown yet)
-        const profileCompletionShown = localStorage.getItem('profileCompletionShown');
-        if (!profileCompletionShown) {
-          navigate('/techie/profile-completion');
-        } else {
-          navigate('/techie/home/feed');
-        }
-      } else {
-        // Default fallback
-        navigate('/status/processing');
-      }
+      // Redirect using centralized logic (respects verification_status APPROVED and is_verified)
+      const path = getRedirectPathForUser(userData);
+      if (path) navigate(path);
     } catch (err: any) {
       Logger.error('Login failed', { error: err.message, email }, 'Login');
       console.error('Login error:', err);
@@ -699,110 +661,144 @@ const Login = () => {
           <Box component="form" onSubmit={handleSubmit} autoComplete="off">
           <TextField
             fullWidth
-              label="Email Address"
+            label="Email Address"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-              autoComplete="off"
-              inputProps={{
-                autoComplete: 'new-email',
-              }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <EmailIcon sx={{ color: '#94a3b8' }} />
-                  </InputAdornment>
-                ),
-              }}
-              sx={{
-                mb: 3,
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: '14px',
+            autoComplete="off"
+            inputProps={{
+              autoComplete: 'new-email',
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <EmailIcon sx={{ color: '#94a3b8' }} />
+                </InputAdornment>
+              ),
+            }}
+            InputLabelProps={{
+              shrink: true,
+              sx: {
+                backgroundColor: '#fff',
+                px: 0.5,
+              },
+            }}
+            sx={{
+              mb: 3,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: '14px',
+                backgroundColor: '#fff',
+                transition: 'all 0.3s ease',
+                '& input': {
+                  color: '#0f172a',
+                },
+                '&:hover': {
                   backgroundColor: '#f8fafc',
-                  transition: 'all 0.3s ease',
-                  '&:hover': {
-                    backgroundColor: '#f1f5f9',
-                  },
-                  '&.Mui-focused': {
-                    backgroundColor: '#fff',
-                    boxShadow: '0 0 0 4px rgba(94, 234, 212, 0.2)',
-                  },
-                  '& fieldset': {
-                    borderColor: '#e2e8f0',
-                    borderWidth: '2px',
-                  },
-                  '&:hover fieldset': {
-                    borderColor: '#cbd5e1',
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#14b8a6',
-                  },
                 },
-                '& .MuiInputLabel-root.Mui-focused': {
-                  color: '#14b8a6',
+                '&.Mui-focused': {
+                  backgroundColor: '#fff',
+                  boxShadow: '0 0 0 3px rgba(20, 184, 166, 0.22)',
                 },
-              }}
-            />
+                '& fieldset': {
+                  borderColor: '#94a3b8',
+                  borderWidth: '1.5px',
+                },
+                '&:hover fieldset': {
+                  borderColor: '#64748b',
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: '#14b8a6',
+                  borderWidth: '2px',
+                },
+              },
+              '& .MuiInputLabel-root': {
+                color: '#475569',
+              },
+              '& .MuiInputLabel-root.Mui-focused': {
+                color: '#0d9488',
+              },
+              '& .MuiOutlinedInput-notchedOutline legend': {
+                maxWidth: '0.01px',
+              },
+            }}
+          />
 
           <TextField
             fullWidth
             label="Password"
-              type={showPassword ? 'text' : 'password'}
+            type={showPassword ? 'text' : 'password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-              autoComplete="new-password"
-              inputProps={{
-                autoComplete: 'new-password',
-              }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <LockIcon sx={{ color: '#94a3b8' }} />
-                  </InputAdornment>
-                ),
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      onClick={() => setShowPassword(!showPassword)}
-                      edge="end"
-                      sx={{ color: '#94a3b8' }}
-                    >
-                      {showPassword ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-              sx={{
-                mb: 2,
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: '14px',
+            autoComplete="new-password"
+            inputProps={{
+              autoComplete: 'new-password',
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <LockIcon sx={{ color: '#94a3b8' }} />
+                </InputAdornment>
+              ),
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    onClick={() => setShowPassword(!showPassword)}
+                    edge="end"
+                    sx={{ color: '#94a3b8' }}
+                  >
+                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            InputLabelProps={{
+              shrink: true,
+              sx: {
+                backgroundColor: '#fff',
+                px: 0.5,
+              },
+            }}
+            sx={{
+              mb: 2,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: '14px',
+                backgroundColor: '#fff',
+                transition: 'all 0.3s ease',
+                '& input': {
+                  color: '#0f172a',
+                },
+                '&:hover': {
                   backgroundColor: '#f8fafc',
-                  transition: 'all 0.3s ease',
-                  '&:hover': {
-                    backgroundColor: '#f1f5f9',
-                  },
-                  '&.Mui-focused': {
-                    backgroundColor: '#fff',
-                    boxShadow: '0 0 0 4px rgba(94, 234, 212, 0.2)',
-                  },
-                  '& fieldset': {
-                    borderColor: '#e2e8f0',
-                    borderWidth: '2px',
-                  },
-                  '&:hover fieldset': {
-                    borderColor: '#cbd5e1',
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#14b8a6',
-                  },
                 },
-                '& .MuiInputLabel-root.Mui-focused': {
-                  color: '#14b8a6',
+                '&.Mui-focused': {
+                  backgroundColor: '#fff',
+                  boxShadow: '0 0 0 3px rgba(20, 184, 166, 0.22)',
                 },
-              }}
-            />
+                '& fieldset': {
+                  borderColor: '#94a3b8',
+                  borderWidth: '1.5px',
+                },
+                '&:hover fieldset': {
+                  borderColor: '#64748b',
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: '#14b8a6',
+                  borderWidth: '2px',
+                },
+              },
+              '& .MuiInputLabel-root': {
+                color: '#475569',
+              },
+              '& .MuiInputLabel-root.Mui-focused': {
+                color: '#0d9488',
+              },
+              '& .MuiOutlinedInput-notchedOutline legend': {
+                maxWidth: '0.01px',
+              },
+            }}
+          />
 
             {/* Forgot Password Link */}
             <Box sx={{ textAlign: 'right', mb: 3 }}>
@@ -890,7 +886,7 @@ const Login = () => {
               color: '#0f3460',
               '&:hover': {
                 borderWidth: '2px',
-                borderColor: '#14b8a6',
+                borderColor: '#116e63',
                 backgroundColor: 'rgba(20, 184, 166, 0.05)',
               },
             }}

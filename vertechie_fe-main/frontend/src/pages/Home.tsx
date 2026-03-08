@@ -13,6 +13,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import JobsSection from '../components/home/JobsSection';
 import { resolveAssetPath, resolveImagePath } from '../utils/assetResolver';
+import { getApiUrl } from '../config/api';
+import { getRedirectPathForUser } from '../utils/authRedirect';
 
 // Animation keyframes
 const fadeIn = keyframes`
@@ -97,62 +99,52 @@ const Home = () => {
   const theme = useTheme();
   const navigate = useNavigate();
 
-  // Redirect authenticated users to their respective panels
+  // Redirect authenticated users: re-fetch user from API for fresh approval status
   useEffect(() => {
     const authToken = localStorage.getItem('authToken');
-    const userDataString = localStorage.getItem('userData');
+    if (!authToken) return;
 
-    if (authToken && userDataString) {
+    let cancelled = false;
+    const run = async () => {
       try {
-        const userData = JSON.parse(userDataString);
-        const adminRoles = userData.admin_roles || [];
-        const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
-        const hasMultipleRoleAdmins = roleAdminTypes.filter((r) => adminRoles.includes(r)).length > 1;
-
-        // Route based on admin_roles first
-        if (userData.is_superuser || adminRoles.includes('superadmin')) {
-          navigate('/super-admin', { replace: true });
-        } else if (hasMultipleRoleAdmins) {
-          navigate('/vertechie/role-admin', { replace: true });
-        } else if (adminRoles.includes('hm_admin')) {
-          navigate('/vertechie/hmadmin', { replace: true });
-        } else if (adminRoles.includes('company_admin')) {
-          navigate('/vertechie/companyadmin', { replace: true });
-        } else if (adminRoles.includes('school_admin')) {
-          navigate('/vertechie/schooladmin', { replace: true });
-        } else if (adminRoles.includes('techie_admin')) {
-          navigate('/vertechie/techieadmin', { replace: true });
-        } else if (adminRoles.includes('bdm_admin')) {
-          navigate('/vertechie/bdmadmin', { replace: true });
-        } else if (adminRoles.includes('learnadmin') || adminRoles.includes('learn_admin')) {
-          navigate('/vertechie/learnadmin', { replace: true });
-        } else if (userData.is_staff) {
-          navigate('/admin', { replace: true });
-        } else if (userData.verification_status === 'rejected' || 
-                   userData.verification_status === 'REJECTED' ||
-                   userData.verification_status?.toLowerCase() === 'rejected') {
-          // FIRST: Check if user is REJECTED (using verification_status field)
-          navigate('/status/rejected', { replace: true });
-        } else if (!userData.is_active && !userData.is_verified) {
-          // SECOND: Fallback check for rejected (not active AND not verified)
-          navigate('/status/rejected', { replace: true });
-        } else if (userData.is_active && !userData.is_verified) {
-          // THIRD: Check if user is pending verification (active but not verified)
-          // This applies to ALL user types including HR, Techie, etc.
-          navigate('/status/processing', { replace: true });
-        } else if (userData.is_active && userData.is_verified) {
-          // FOURTH: Redirect VERIFIED users to appropriate dashboard based on role
-          const userRole = userData.role || userData.user_type || 'techie';
-          if (userRole === 'hr' || userRole === 'hiring_manager' || userRole === 'HIRING_MANAGER') {
-            navigate('/techie/home/feed', { replace: true });
-          } else {
-            navigate('/techie/dashboard', { replace: true });
+        const response = await fetch(getApiUrl('/users/me'), {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${authToken}`,
+            },
+          }
+        );
+        if (cancelled || !response.ok) {
+          if (response.status === 401) {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('userData');
+          }
+          return;
+        }
+        const userData = await response.json();
+        if (cancelled) return;
+        localStorage.setItem('userData', JSON.stringify(userData));
+        const path = getRedirectPathForUser(userData);
+        if (path) navigate(path, { replace: true });
+      } catch {
+        if (!cancelled) {
+          const userDataString = localStorage.getItem('userData');
+          if (userDataString) {
+            try {
+              const userData = JSON.parse(userDataString);
+              const path = getRedirectPathForUser(userData);
+              if (path) navigate(path, { replace: true });
+            } catch {
+              // stay on home
+            }
           }
         }
-      } catch {
-        // Invalid user data, let them stay on home
       }
-    }
+    };
+    run();
+    return () => { cancelled = true; };
   }, [navigate]);
 
   return (

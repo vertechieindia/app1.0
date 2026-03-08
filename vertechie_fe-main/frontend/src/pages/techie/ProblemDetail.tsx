@@ -197,17 +197,37 @@ const ProblemDetail: React.FC = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(getApiUrl(`/practice/problems/slug/${slug}`), {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug);
+      const endpoints = isUuid
+        ? [`/practice/problems/${slug}`, `/practice/problems/slug/${slug}`]
+        : [`/practice/problems/slug/${slug}`, `/practice/problems/${slug}`];
+
+      let response: Response | null = null;
+      for (const endpoint of endpoints) {
+        const candidate = await fetch(getApiUrl(endpoint), {
+          headers,
+        });
+        if (candidate.ok) {
+          response = candidate;
+          break;
+        }
+        if (candidate.status !== 404) {
+          response = candidate;
+          break;
+        }
+      }
+
+      if (!response) {
+        throw new Error('Problem not found');
+      }
 
       if (!response.ok) {
         throw new Error('Problem not found');
       }
-
       const data = await response.json();
       // Ensure problem has required fields
       if (!data.id) {
@@ -219,130 +239,7 @@ const ProblemDetail: React.FC = () => {
     } catch (err: any) {
       console.error('Error fetching problem:', err);
       setError(err.message || 'Failed to load problem');
-
-      // Mock data for development
-      setProblem({
-        id: '1',
-        problem_number: 1,
-        title: 'Two Sum',
-        slug: 'two-sum',
-        description: `Given an array of integers \`nums\` and an integer \`target\`, return indices of the two numbers such that they add up to \`target\`.
-
-You may assume that each input would have **exactly one solution**, and you may not use the same element twice.
-
-You can return the answer in any order.`,
-        constraints: `- 2 <= nums.length <= 10^4
-- -10^9 <= nums[i] <= 10^9
-- -10^9 <= target <= 10^9
-- Only one valid answer exists.`,
-        examples: [
-          { input: 'nums = [2,7,11,15], target = 9', output: '[0,1]', explanation: 'Because nums[0] + nums[1] == 9, we return [0, 1].' },
-          { input: 'nums = [3,2,4], target = 6', output: '[1,2]', explanation: '' },
-          { input: 'nums = [3,3], target = 6', output: '[0,1]', explanation: '' },
-        ],
-        hints: [
-          'A really brute force way would be to search for all possible pairs of numbers but that would be too slow.',
-          'Try to use a hash map to store the numbers you have seen so far.',
-          'What if we check if target - current_number exists in the hash map?',
-        ],
-        difficulty: 'easy',
-        categories: [{ name: 'Array', slug: 'array' }, { name: 'Hash Table', slug: 'hash-table' }],
-        tags: ['array', 'hash-table'],
-        starter_code: {
-          python: `class Solution:
-    def twoSum(self, nums: List[int], target: int) -> List[int]:
-        # Your code here
-        hash_map = {}
-        for i, num in enumerate(nums):
-            complement = target - num
-            if complement in hash_map:
-                return [hash_map[complement], i]
-            hash_map[num] = i
-        return []`,
-          javascript: `/**
- * @param {number[]} nums
- * @param {number} target
- * @return {number[]}
- */
-var twoSum = function(nums, target) {
-    const map = new Map();
-    for (let i = 0; i < nums.length; i++) {
-        const complement = target - nums[i];
-        if (map.has(complement)) {
-            return [map.get(complement), i];
-        }
-        map.set(nums[i], i);
-    }
-    return [];
-};`,
-          java: `class Solution {
-    public int[] twoSum(int[] nums, int target) {
-        Map<Integer, Integer> map = new HashMap<>();
-        for (int i = 0; i < nums.length; i++) {
-            int complement = target - nums[i];
-            if (map.containsKey(complement)) {
-                return new int[]{map.get(complement), i};
-            }
-            map.put(nums[i], i);
-        }
-        return new int[]{};
-    }
-}`,
-          cpp: `class Solution {
-public:
-    vector<int> twoSum(vector<int>& nums, int target) {
-        unordered_map<int, int> map;
-        for (int i = 0; i < nums.size(); i++) {
-            int complement = target - nums[i];
-            if (map.find(complement) != map.end()) {
-                return {map[complement], i};
-            }
-            map[nums[i]] = i;
-        }
-        return {};
-    }
-};`,
-          go: `func twoSum(nums []int, target int) []int {
-    m := make(map[int]int)
-    for i, num := range nums {
-        complement := target - num
-        if j, ok := m[complement]; ok {
-            return []int{j, i}
-        }
-        m[num] = i
-    }
-    return nil
-}`,
-          rust: `impl Solution {
-    pub fn two_sum(nums: Vec<i32>, target: i32) -> Vec<i32> {
-        use std::collections::HashMap;
-        let mut map = HashMap::new();
-        for (i, &num) in nums.iter().enumerate() {
-            let complement = target - num;
-            if let Some(&j) = map.get(&complement) {
-                return vec![j as i32, i as i32];
-            }
-            map.insert(num, i);
-        }
-        vec![]
-    }
-}`,
-        },
-        supported_languages: ['python', 'javascript', 'java', 'cpp', 'go', 'rust', 'typescript', 'c', 'csharp', 'kotlin', 'swift'],
-        time_limit_ms: 2000,
-        memory_limit_mb: 256,
-        acceptance_rate: 49.1,
-        submission_count: 15234567,
-        likes: 45678,
-        dislikes: 1234,
-        companies: ['Google', 'Amazon', 'Facebook', 'Microsoft', 'Apple'],
-        sample_test_cases: [
-          { id: '1', input_data: '[2,7,11,15]\n9', expected_output: '[0,1]', is_sample: true },
-          { id: '2', input_data: '[3,2,4]\n6', expected_output: '[1,2]', is_sample: true },
-          { id: '3', input_data: '[3,3]\n6', expected_output: '[0,1]', is_sample: true },
-        ],
-        is_solved: false,
-      });
+      setProblem(null);
     } finally {
       setLoading(false);
     }

@@ -44,8 +44,8 @@ export const useOTPVerification = () => {
   // Track last successful email OTP to avoid duplicate success submits
   const lastVerifiedEmailOTPRef = useRef<string>('');
 
-  // Send Email OTP
-  const sendEmailOTP = useCallback(async (email: string) => {
+  // Send Email OTP. options.signupType: 'hr' for HR signup (allows .com and .in domains only).
+  const sendEmailOTP = useCallback(async (email: string, options?: { signupType?: string }) => {
     if (!email || !/\S+@\S+\.\S+/.test(email)) {
       setErrors((prev) => ({ ...prev, email: 'Please enter a valid email address' }));
       return false;
@@ -62,13 +62,26 @@ export const useOTPVerification = () => {
       lastVerifiedEmailOTPRef.current = '';
       
       const apiUrl = getLegacyApiUrl(API_ENDPOINTS.SEND_EMAIL_OTP);
-      const response = await axios.post(apiUrl, { email });
+      const payload: { email: string; signup_type?: string } = { email };
+      if (options?.signupType) {
+        payload.signup_type = options.signupType;
+      }
+      const response = await axios.post(apiUrl, payload);
       
       // Check for email_exists error (duplicate email registration attempt)
       if (response.data.error === 'email_exists') {
         setErrors((prev) => ({ 
           ...prev, 
           email: response.data.message || 'This email is already registered. Please login or use a different email.' 
+        }));
+        setEmailVerifying(false);
+        return false;
+      }
+      // Check for domain_not_allowed (e.g. HR signup requires .com or .in)
+      if (response.data.error === 'domain_not_allowed') {
+        setErrors((prev) => ({ 
+          ...prev, 
+          email: response.data.message || 'Please use an email with a .com or .in domain for HR signup.' 
         }));
         setEmailVerifying(false);
         return false;

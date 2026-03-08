@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -12,14 +12,17 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Autocomplete,
 } from '@mui/material';
 import BusinessIcon from '@mui/icons-material/Business';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import AddIcon from '@mui/icons-material/Add';
 import { StepComponentProps } from '../../types';
 import { isValidUrl, isValidEmail } from '../../../../utils/validation';
 import axios from 'axios';
 import { getApiUrl, API_ENDPOINTS } from '../../../../config/api';
+import { api, getAccessToken } from '../../../../services/apiClient';
 import { getPrimaryColor, getLightColor } from '../../utils/colors';
 import { formatDateToMMDDYYYY } from '../../utils/formatters';
 
@@ -53,6 +56,17 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
   // Get location from props or formData
   const currentLocation = location || formData.country || (formData.location as string) || 'US';
   const isIndia = currentLocation === 'IN' || (currentLocation as string).toUpperCase() === 'INDIA' || (currentLocation as string).toLowerCase() === 'india';
+
+  // HR only: company name autocomplete (search + "Invite this company")
+  type CompanyOption = { id: string; name: string };
+  type InviteCompanyOption = { __invite: true; name: string };
+  type CompanyAutocompleteOption = CompanyOption | InviteCompanyOption;
+  const isInviteCompanyOption = (o: CompanyAutocompleteOption): o is InviteCompanyOption =>
+    (o as InviteCompanyOption).__invite === true;
+  const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>([]);
+  const [companyLoading, setCompanyLoading] = useState(false);
+  const [companyInputValue, setCompanyInputValue] = useState('');
+  const companySearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const rawCompanyDetails = formData.companyDetails !== null && formData.companyDetails !== undefined
     ? formData.companyDetails
@@ -301,7 +315,7 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
     (formData.tokenResponse as any)?.user_data?.id
   ]);
 
-  // Initialize form when company details exist
+  // Initialize form when company details exist (when dialog is closed)
   useEffect(() => {
     if (companyDetails && !showCompanyForm) {
       setCompanyName(companyDetails.companyName || companyDetails.company_name || companyDetails.name || '');
@@ -345,9 +359,49 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
         }
       } else {
         setCompanyEmail(companyDetails.companyEmail || companyDetails.company_email || companyDetails.email || '');
+        setCompanyInputValue(companyDetails.companyName || companyDetails.company_name || companyDetails.name || '');
       }
     }
   }, [companyDetails, showCompanyForm, isCompanySignup, isIndia]);
+
+  // When dialog opens in edit mode, ensure form is populated from companyDetails (fixes edit not showing data)
+  useEffect(() => {
+    if (showCompanyForm && isEditing && companyDetails) {
+      const name = companyDetails.companyName || companyDetails.company_name || companyDetails.name || '';
+      const website = companyDetails.companyWebsite || companyDetails.company_website || companyDetails.comapny_website || companyDetails.website || '';
+      setCompanyName(name);
+      setCompanyWebsite(website);
+      if (isCompanySignup) {
+        if (isIndia) {
+          setCin(companyDetails.cin || '');
+          setEstablishedYear(companyDetails.establishedYear || companyDetails.established_year || '');
+          setCompanyAddress(companyDetails.companyAddress || companyDetails.company_address || '');
+          setAbout(companyDetails.about || '');
+        } else {
+          const einValue = companyDetails.ein || '';
+          if (einValue && /^\d{9}$/.test(einValue.replace(/-/g, ''))) {
+            const einDigits = einValue.replace(/-/g, '');
+            setEin(`${einDigits.substring(0, 2)}-${einDigits.substring(2)}`);
+          } else {
+            setEin(einValue);
+          }
+          setAccountNumber(companyDetails.accountNumber || companyDetails.account_number || '');
+          setRegState(companyDetails.regState || companyDetails.reg_state || '');
+          const dateValue = companyDetails.startedDate || companyDetails.started_date || '';
+          if (dateValue && /^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+            const [, year, month, day] = dateValue.match(/^(\d{4})-(\d{2})-(\d{2})$/) || [];
+            if (month && day && year) setStartedDate(`${month}-${day}-${year}`);
+          } else {
+            setStartedDate(dateValue || '');
+          }
+          setAbout(companyDetails.about || '');
+        }
+      } else {
+        setCompanyEmail(companyDetails.companyEmail || companyDetails.company_email || companyDetails.email || '');
+        setCompanyInputValue(name);
+      }
+    }
+  }, [showCompanyForm, isEditing, companyDetails, isCompanySignup, isIndia]);
 
   // Get colors based on signup type and location
   const signupType = (role as 'techie' | 'hr' | 'company' | 'school') || 'techie';
@@ -359,6 +413,7 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
   const handleAddCompany = useCallback(() => {
     setIsEditing(false);
     setCompanyName('');
+    setCompanyInputValue('');
     setCompanyWebsite('');
     if (isCompanySignup) {
       if (isIndia) {
@@ -423,6 +478,7 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
         }
       } else {
         setCompanyEmail(companyDetails.companyEmail || companyDetails.company_email || companyDetails.email || '');
+        setCompanyInputValue(companyDetails.companyName || companyDetails.company_name || companyDetails.name || '');
       }
       setShowCompanyForm(true);
     }
@@ -560,6 +616,7 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
     setShowCompanyForm(false);
     setIsEditing(false);
     setIsSaving(false);
+    setCompanyInputValue('');
     if (setErrors) {
       setErrors({});
     }
@@ -596,6 +653,39 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
     }
   }, [errors, setErrors]);
 
+  // HR: debounced company search for autocomplete
+  useEffect(() => {
+    if (isCompanySignup || !showCompanyForm) return;
+    const query = (companyInputValue || '').trim();
+    if (query.length < 2) {
+      setCompanyOptions([]);
+      return;
+    }
+    if (companySearchDebounceRef.current) clearTimeout(companySearchDebounceRef.current);
+    companySearchDebounceRef.current = setTimeout(async () => {
+      setCompanyLoading(true);
+      try {
+        const url = `${getApiUrl(API_ENDPOINTS.COMPANY)}?search=${encodeURIComponent(query)}&limit=10`;
+        const token = localStorage.getItem('authToken') || formData?.access_token;
+        const res = await axios.get<{ id: string; name: string }[]>(url, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const list = Array.isArray(res.data) ? res.data : [];
+        setCompanyOptions(list.map((c) => ({ id: c.id, name: c.name })));
+      } catch {
+        setCompanyOptions([]);
+      } finally {
+        setCompanyLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (companySearchDebounceRef.current) {
+        clearTimeout(companySearchDebounceRef.current);
+        companySearchDebounceRef.current = null;
+      }
+    };
+  }, [companyInputValue, isCompanySignup, showCompanyForm, formData?.access_token]);
+
   const handleSave = useCallback(async () => {
     const validationErrors: Record<string, string> = {};
 
@@ -612,7 +702,7 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
     if (!companyWebsite || !companyWebsite.trim()) {
       validationErrors.companyWebsite = isCompanySignup ? 'Company Website is required' : 'Hiring Company Website URL is required';
     } else if (!isValidUrl(companyWebsite.trim())) {
-      validationErrors.companyWebsite = 'Please enter a valid website URL (e.g., https://www.example.com)';
+      validationErrors.companyWebsite = 'Please enter a valid website (e.g. https://example.com or example.com)';
     }
 
     if (isCompanySignup) {
@@ -809,15 +899,28 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
     }
 
     try {
-      // Get authentication token from localStorage or formData
-      const token = 
-        localStorage.getItem('authToken') ||
-        formData.token ||
-        formData.access_token ||
-        formData.access ||
-        (formData.tokenResponse as any)?.access ||
-        (formData.tokenResponse as any)?.access_token ||
-        (formData.tokenResponse as any)?.token;
+      // Prefer token from apiClient source (localStorage); sync from formData so edit/save has auth
+      let token = getAccessToken();
+      if (!token) {
+        const formToken =
+          formData.token ||
+          formData.access_token ||
+          formData.access ||
+          (formData.tokenResponse as any)?.access ||
+          (formData.tokenResponse as any)?.access_token ||
+          (formData.tokenResponse as any)?.token;
+        if (formToken) {
+          localStorage.setItem('authToken', formToken);
+          token = formToken;
+        }
+      }
+
+      if (!token) {
+        const errorMsg = 'Session expired or not logged in. Please log in again and try editing.';
+        if (setErrors) setErrors({ submit: errorMsg });
+        setIsSaving(false);
+        return;
+      }
 
       console.log('Saving company details to API...');
       console.log('Token source:', token ? 'Found' : 'Not found');
@@ -906,53 +1009,33 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
       console.log('Company operation:', isEdit ? 'PUT (Update)' : 'POST (Create)');
       console.log('Company ID:', companyId || 'Not found (will create new)');
 
-      // Use /companies/ for both HR and Company signup details.
+      // Use api client so auth token is attached and 401/refresh is handled
       const apiUrl = getApiUrl(API_ENDPOINTS.COMPANY);
-      let response;
-      
+      let responseData: { id?: string; company_id?: string };
+
       if (isEdit && companyId) {
-        // Update existing company details using PUT
         const updateUrl = `${apiUrl}${companyId}/`;
         console.log('Updating company details:', updateUrl);
-        response = await axios.put(updateUrl, payload, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token && { Authorization: `Bearer ${token}` }),
-          },
-        });
-        console.log('Company details updated successfully:', response.status, response.data);
+        responseData = await api.put<{ id?: string; company_id?: string }>(updateUrl, payload);
+        console.log('Company details updated successfully', responseData);
       } else {
-        // Create new company details using POST
         console.log('Posting new company details:', apiUrl);
-        response = await axios.post(apiUrl, payload, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token && { Authorization: `Bearer ${token}` }),
-          },
-        });
-        console.log('Company details saved successfully:', response.status, response.data);
+        responseData = await api.post<{ id?: string; company_id?: string }>(apiUrl, payload);
+        console.log('Company details saved successfully', responseData);
       }
 
-      // Store company ID if returned from API (for future edits)
-      const returnedCompanyId = response.data?.id || response.data?.company_id || companyId;
+      const returnedCompanyId = responseData?.id || responseData?.company_id || companyId;
       
-      // Also update user_profile with company name so it shows on profile page
-      if (token) {
-        try {
-          const profileUrl = getApiUrl('/users/me/profile');
-          await axios.put(profileUrl, {
-            current_company: companyName.trim(),
-            current_position: isCompanySignup ? 'Company Owner' : 'Hiring Manager',
-          }, {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
-          });
-          console.log('Updated user profile with company name');
-        } catch (profileErr) {
-          console.warn('Could not update user profile with company name:', profileErr);
-        }
+      // Also update user_profile with company name so it shows on profile page (api client adds auth)
+      try {
+        const profileUrl = getApiUrl('/users/me/profile');
+        await api.put(profileUrl, {
+          current_company: companyName.trim(),
+          current_position: isCompanySignup ? 'Company Owner' : 'Hiring Manager',
+        });
+        console.log('Updated user profile with company name');
+      } catch (profileErr) {
+        console.warn('Could not update user profile with company name:', profileErr);
       }
       
       // Save data to formData
@@ -1008,11 +1091,15 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
       handleCompanyFormClose();
     } catch (error: any) {
       console.error('Error saving company details:', error);
-      const errorMessage = 
-        error.response?.data?.message ||
-        error.response?.data?.error ||
-        error.message ||
-        'Failed to save company details. Please try again.';
+      const status = error.response?.status;
+      const errorMessage =
+        status === 401
+          ? 'Session expired or invalid. Please log in again and try saving.'
+          : error.response?.data?.detail ||
+            error.response?.data?.message ||
+            error.response?.data?.error ||
+            error.message ||
+            'Failed to save company details. Please try again.';
       
       if (setErrors) {
         setErrors({ submit: errorMessage });
@@ -1216,15 +1303,101 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
         <DialogContent sx={{ p: { xs: 2, sm: 4 }, mt: 2 }}>
           <Grid container spacing={{ xs: 2, md: 3 }}>
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label={isCompanySignup ? "Company Name *" : "Hiring Company Name *"}
-                value={companyName}
-                onChange={(e) => handleChange('companyName', e.target.value)}
-                error={!!errors.companyName}
-                helperText={errors.companyName}
-                required
-              />
+              {isCompanySignup ? (
+                <TextField
+                  fullWidth
+                  label="Company Name *"
+                  value={companyName}
+                  onChange={(e) => handleChange('companyName', e.target.value)}
+                  error={!!errors.companyName}
+                  helperText={errors.companyName}
+                  required
+                  InputLabelProps={{
+                    sx: { backgroundColor: 'background.paper', px: 0.5, borderRadius: 0.5 },
+                  }}
+                />
+              ) : (
+                <Autocomplete<CompanyAutocompleteOption, boolean, boolean, boolean>
+                  freeSolo
+                  fullWidth
+                  loading={companyLoading}
+                  inputValue={companyInputValue}
+                  onInputChange={(_, value) => {
+                    setCompanyInputValue(value || '');
+                    handleChange('companyName', value || '');
+                  }}
+                  value={companyOptions.find((c) => c.name === companyName) ?? (companyName || null)}
+                  onChange={(_, newValue) => {
+                    if (typeof newValue === 'string') {
+                      handleChange('companyName', newValue);
+                      return;
+                    }
+                    if (!newValue || Array.isArray(newValue)) {
+                      handleChange('companyName', '');
+                      return;
+                    }
+                    const opt = newValue as CompanyAutocompleteOption;
+                    if (isInviteCompanyOption(opt)) {
+                      const name = opt.name.trim();
+                      if (!name) return;
+                      (async () => {
+                        try {
+                          const token = localStorage.getItem('authToken') || formData?.access_token;
+                          const contactName = [formData?.firstName, formData?.lastName].filter(Boolean).join(' ') || 'HR Manager';
+                          await axios.post(
+                            getApiUrl(API_ENDPOINTS.COMPANY_INVITES),
+                            {
+                              company_name: name,
+                              contact_person_name: contactName,
+                              website: companyWebsite?.trim() || undefined,
+                              emails: companyEmail?.trim() ? [companyEmail.trim()] : [],
+                            },
+                            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+                          );
+                          handleChange('companyName', name);
+                          setCompanyInputValue(name);
+                        } catch (e) {
+                          console.error('Company invite request failed:', e);
+                          handleChange('companyName', name);
+                          setCompanyInputValue(name);
+                        }
+                      })();
+                      return;
+                    }
+                    handleChange('companyName', opt.name);
+                    setCompanyInputValue(opt.name);
+                  }}
+                  options={(() => {
+                    const trimmed = companyInputValue.trim();
+                    const hasExact = companyOptions.some((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+                    const options: CompanyAutocompleteOption[] = [...companyOptions];
+                    if (trimmed.length >= 2 && !hasExact) options.push({ __invite: true, name: trimmed });
+                    return options;
+                  })()}
+                  getOptionLabel={(opt: CompanyAutocompleteOption | string) => (typeof opt === 'string' ? opt : opt.name)}
+                  renderOption={(props, opt: CompanyAutocompleteOption) => {
+                    if (isInviteCompanyOption(opt)) {
+                      return (
+                        <li {...props} key="__invite">
+                          <AddIcon sx={{ mr: 1, fontSize: 20 }} />
+                          Invite this company to the platform — &quot;{opt.name}&quot;
+                        </li>
+                      );
+                    }
+                    return <li {...props} key={opt.id}>{opt.name}</li>;
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Hiring Company Name *"
+                      error={!!errors.companyName}
+                      helperText={errors.companyName}
+                      required
+                      InputLabelProps={{ sx: { backgroundColor: 'background.paper', px: 0.5, borderRadius: 0.5 } }}
+                    />
+                  )}
+                />
+              )}
             </Grid>
 
             {isCompanySignup ? (
@@ -1327,12 +1500,12 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
                     <TextField
                       fullWidth
                       label="Company Website *"
-                      type="url"
+                      type="text"
                       value={companyWebsite}
                       onChange={(e) => handleChange('companyWebsite', e.target.value)}
                       error={!!errors.companyWebsite}
-                      helperText={errors.companyWebsite || 'Enter the full website URL (e.g., https://www.example.com)'}
-                      placeholder="https://www.example.com"
+                      helperText={errors.companyWebsite || 'e.g. https://example.com or example.com'}
+                      placeholder="https://example.com or example.com"
                       required
                     />
                   </Grid>
@@ -1449,8 +1622,8 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
                     value={companyEmail}
                     onChange={(e) => handleChange('companyEmail', e.target.value)}
                     error={!!errors.companyEmail}
-                    helperText={errors.companyEmail}
-                    placeholder="company@example.com"
+                    helperText={errors.companyEmail || 'e.g. company@example.com or company@example.in (.com, .in, etc. accepted)'}
+                    placeholder="company@example.com or company@example.in"
                     required
                   />
                 </Grid>
@@ -1458,12 +1631,12 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
                   <TextField
                     fullWidth
                     label="Hiring Company Website URL *"
-                    type="url"
+                    type="text"
                     value={companyWebsite}
                     onChange={(e) => handleChange('companyWebsite', e.target.value)}
                     error={!!errors.companyWebsite}
-                    helperText={errors.companyWebsite || 'Enter the full website URL (e.g., https://www.example.com)'}
-                    placeholder="https://www.example.com"
+                    helperText={errors.companyWebsite || 'Accepts https://example.com, example.com, example.in (.com, .in, etc.)'}
+                    placeholder="https://example.com or example.com"
                     required
                   />
                 </Grid>

@@ -266,18 +266,22 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
   
   const handleConnectGitHub = async () => {
     setGithubConnecting(true);
+    setContributionError(null);
     try {
-      // Get OAuth URL from backend
       const response = await api.get<{ auth_url: string; state: string }>(API_ENDPOINTS.GITHUB_GITLAB.GITHUB_AUTH);
-      
-      // Store state in sessionStorage for callback verification
       sessionStorage.setItem('github_oauth_state', response.state);
-      
-      // Redirect to GitHub for authorization
       window.location.href = response.auth_url;
-    } catch (err) {
-      setGithubConnecting(false);
+    } catch (err: unknown) {
+      const axErr = err as { response?: { status?: number; data?: { detail?: string } } };
+      const res = axErr?.response;
+      if (res?.status === 403) {
+        setContributionError('Session expired or access denied. Please log in again and try connecting GitHub.');
+      } else {
+        setContributionError((res?.data?.detail as string) || 'Failed to start GitHub connection. Please try again.');
+      }
       console.error('Failed to start GitHub OAuth:', err);
+    } finally {
+      setGithubConnecting(false);
     }
   };
 
@@ -287,11 +291,19 @@ const ContributionHeatmap: React.FC<ContributionHeatmapProps> = ({
 
   const handleConnectGitLab = async () => {
     setGitlabConnecting(true);
+    setContributionError(null);
     try {
       const response = await api.get<{ auth_url: string; state: string }>(API_ENDPOINTS.GITHUB_GITLAB.GITLAB_AUTH);
       sessionStorage.setItem('gitlab_oauth_state', response.state);
       window.location.href = response.auth_url;
-    } catch (err) {
+    } catch (err: unknown) {
+      const axErr = err as { response?: { status?: number; data?: { detail?: string } } };
+      const res = axErr?.response;
+      if (res?.status === 403) {
+        setContributionError('Session expired or access denied. Please log in again and try connecting GitLab.');
+      } else {
+        setContributionError((res?.data?.detail as string) || 'Failed to start GitLab connection. Please try again.');
+      }
       console.error('Failed to start GitLab OAuth:', err);
     } finally {
       setGitlabConnecting(false);

@@ -85,8 +85,13 @@ export const IdleTimeoutProvider: React.FC<IdleTimeoutProviderProps> = ({ childr
     resetTimer,
   };
 
-  // Calculate progress percentage
+  // Calculate progress percentage (countdown is in seconds, max 60)
   const progressPercent = (countdown / 60) * 100;
+
+  // Display: "1 min" when 60, else "X sec"
+  const countdownLabel = countdown >= 60 ? 'min' : 'sec';
+  const countdownValue = countdown >= 60 ? 1 : countdown;
+  const messageTimeText = countdown >= 60 ? '1 minute' : `${countdown} seconds`;
 
   return (
     <IdleTimeoutContext.Provider value={contextValue}>
@@ -165,10 +170,10 @@ export const IdleTimeoutProvider: React.FC<IdleTimeoutProviderProps> = ({ childr
                     lineHeight: 1,
                   }}
                 >
-                  {countdown}
+                  {countdownValue}
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                  seconds
+                  {countdownLabel}
                 </Typography>
               </Box>
             </Box>
@@ -180,7 +185,7 @@ export const IdleTimeoutProvider: React.FC<IdleTimeoutProviderProps> = ({ childr
             <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 3 }}>
               For your security, you'll be automatically logged out in{' '}
               <Box component="span" sx={{ color: '#ffc107', fontWeight: 'bold' }}>
-                {countdown} seconds
+                {messageTimeText}
               </Box>
               . Click below to stay logged in.
             </Typography>

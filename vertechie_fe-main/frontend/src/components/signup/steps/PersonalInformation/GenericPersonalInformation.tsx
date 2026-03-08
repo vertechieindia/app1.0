@@ -27,6 +27,7 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import { useOTPVerification } from '../../shared/hooks/useOTPVerification';
 import { getPrimaryColor, getLightColor, SignupLocation } from '../../utils/colors';
+import { getPasswordValidationError } from '../../../../utils/validation';
 import AddressAutocomplete from '../../../ui/AddressAutocomplete';
 
 // Country-specific configurations
@@ -200,18 +201,27 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
         return;
       }
       updateFormData({ [name]: value });
-      if (errors[name]) {
-        setErrors({ ...errors, [name]: '' });
-      }
-      if (name === 'password' || name === 'confirmPassword') {
-        const password = name === 'password' ? value : formData.password;
-        const confirmPassword = name === 'confirmPassword' ? value : formData.confirmPassword;
+
+      if (name === 'password') {
+        const pwdErr = getPasswordValidationError(value);
+        const next = { ...errors };
+        if (pwdErr) next.password = pwdErr;
+        else delete next.password;
+        const cp = formData.confirmPassword;
+        if (value && cp && value.trim() !== cp.trim()) next.confirmPassword = 'Passwords do not match';
+        else delete next.confirmPassword;
+        setErrors(next);
+      } else if (name === 'confirmPassword') {
+        const password = formData.password;
+        const confirmPassword = value;
         if (password && confirmPassword && password.trim() !== confirmPassword.trim()) {
           setErrors({ ...errors, confirmPassword: 'Passwords do not match' });
         } else {
           const { confirmPassword: _, ...rest } = errors;
           setErrors(rest);
         }
+      } else {
+        if (errors[name]) setErrors({ ...errors, [name]: '' });
       }
     },
     [updateFormData, errors, setErrors, formData.password, formData.confirmPassword, formData.email]
@@ -227,11 +237,14 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
   );
 
   const handleEmailVerify = useCallback(async () => {
-    const success = await otpHook.sendEmailOTP(formData.email || '');
+    const success = await otpHook.sendEmailOTP(
+      formData.email || '',
+      role === 'hr' ? { signupType: 'hr' } : undefined
+    );
     if (!success && otpHook.errors.email) {
       setErrors({ ...errors, email: otpHook.errors.email });
     }
-  }, [formData.email, otpHook, errors, setErrors]);
+  }, [formData.email, role, otpHook, errors, setErrors]);
 
   const handlePhoneVerify = useCallback(async () => {
     const dialCode = (countryConfig[location as string] || countryConfig.UK).dialCode;
@@ -657,4 +670,3 @@ const GenericPersonalInformation: React.FC<StepComponentProps> = ({
 };
 
 export default GenericPersonalInformation;
-

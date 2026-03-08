@@ -35,6 +35,7 @@ import {
   Grid,
   Card,
   CardContent,
+  Alert,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -79,6 +80,7 @@ const CodingProblems: React.FC = () => {
   const [problems, setProblems] = useState<Problem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [totalCount, setTotalCount] = useState(0);
@@ -91,14 +93,14 @@ const CodingProblems: React.FC = () => {
   
   // Stats
   const [stats, setStats] = useState({
-    total: 400,
-    easy: 100,
-    medium: 200,
-    hard: 100,
-    solved: 45,
-    easySolved: 15,
-    mediumSolved: 22,
-    hardSolved: 8,
+    total: 0,
+    easy: 0,
+    medium: 0,
+    hard: 0,
+    solved: 0,
+    easySolved: 0,
+    mediumSolved: 0,
+    hardSolved: 0,
   });
   
   const getDifficultyColor = (diff: string) => {
@@ -135,26 +137,39 @@ const CodingProblems: React.FC = () => {
       
       if (response.ok) {
         const data = await response.json();
-        setProblems(data.results || data);
-        setTotalCount(data.count || data.length);
+        const list: Problem[] = data.results || data || [];
+        const count = Number(data.count ?? list.length ?? 0);
+        setProblems(list);
+        setTotalCount(count);
+        setError(null);
+
+        const easy = list.filter((p) => p.difficulty === 'easy').length;
+        const medium = list.filter((p) => p.difficulty === 'medium').length;
+        const hard = list.filter((p) => p.difficulty === 'hard').length;
+        const easySolved = list.filter((p) => p.difficulty === 'easy' && p.is_solved).length;
+        const mediumSolved = list.filter((p) => p.difficulty === 'medium' && p.is_solved).length;
+        const hardSolved = list.filter((p) => p.difficulty === 'hard' && p.is_solved).length;
+        const solved = list.filter((p) => p.is_solved).length;
+        setStats({
+          total: count,
+          easy,
+          medium,
+          hard,
+          solved,
+          easySolved,
+          mediumSolved,
+          hardSolved,
+        });
       } else {
-        // Mock data for demonstration
-        setProblems([
-          { id: '1', problem_number: 1, title: 'Two Sum', slug: 'two-sum', difficulty: 'easy', acceptance_rate: 49.1, categories: ['Array', 'Hash Table'], tags: ['amazon', 'google'], is_solved: true, is_premium: false },
-          { id: '2', problem_number: 2, title: 'Add Two Numbers', slug: 'add-two-numbers', difficulty: 'medium', acceptance_rate: 40.2, categories: ['Linked List', 'Math'], tags: ['microsoft'], is_solved: false, is_premium: false },
-          { id: '3', problem_number: 3, title: 'Longest Substring Without Repeating Characters', slug: 'longest-substring', difficulty: 'medium', acceptance_rate: 33.8, categories: ['String', 'Sliding Window'], tags: ['amazon'], is_solved: true, is_premium: false },
-          { id: '4', problem_number: 4, title: 'Median of Two Sorted Arrays', slug: 'median-two-sorted', difficulty: 'hard', acceptance_rate: 35.9, categories: ['Array', 'Binary Search'], tags: ['google'], is_solved: false, is_premium: false },
-          { id: '5', problem_number: 5, title: 'Longest Palindromic Substring', slug: 'longest-palindrome', difficulty: 'medium', acceptance_rate: 32.4, categories: ['String', 'DP'], tags: [], is_solved: false, is_premium: false },
-          { id: '6', problem_number: 6, title: 'Zigzag Conversion', slug: 'zigzag-conversion', difficulty: 'medium', acceptance_rate: 44.1, categories: ['String'], tags: [], is_solved: false, is_premium: false },
-          { id: '7', problem_number: 7, title: 'Reverse Integer', slug: 'reverse-integer', difficulty: 'medium', acceptance_rate: 27.5, categories: ['Math'], tags: [], is_solved: true, is_premium: false },
-          { id: '8', problem_number: 8, title: 'String to Integer (atoi)', slug: 'string-to-integer', difficulty: 'medium', acceptance_rate: 16.6, categories: ['String'], tags: [], is_solved: false, is_premium: false },
-          { id: '9', problem_number: 9, title: 'Palindrome Number', slug: 'palindrome-number', difficulty: 'easy', acceptance_rate: 53.4, categories: ['Math'], tags: [], is_solved: true, is_premium: false },
-          { id: '10', problem_number: 10, title: 'Regular Expression Matching', slug: 'regex-matching', difficulty: 'hard', acceptance_rate: 27.7, categories: ['String', 'DP'], tags: ['google', 'facebook'], is_solved: false, is_premium: true },
-        ]);
-        setTotalCount(400);
+        setProblems([]);
+        setTotalCount(0);
+        setError(`Failed to fetch problems (${response.status})`);
       }
     } catch (err) {
       console.error('Error fetching problems:', err);
+      setProblems([]);
+      setTotalCount(0);
+      setError('Unable to load problems from server.');
     } finally {
       setLoading(false);
     }
@@ -176,21 +191,13 @@ const CodingProblems: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setCategories(data.results || data);
+        setError(null);
       } else {
-        // Mock categories
-        setCategories([
-          { id: 1, name: 'Array', slug: 'array', problem_count: 150 },
-          { id: 2, name: 'String', slug: 'string', problem_count: 100 },
-          { id: 3, name: 'Hash Table', slug: 'hash-table', problem_count: 80 },
-          { id: 4, name: 'Dynamic Programming', slug: 'dp', problem_count: 120 },
-          { id: 5, name: 'Math', slug: 'math', problem_count: 60 },
-          { id: 6, name: 'Tree', slug: 'tree', problem_count: 90 },
-          { id: 7, name: 'Binary Search', slug: 'binary-search', problem_count: 70 },
-          { id: 8, name: 'Graph', slug: 'graph', problem_count: 85 },
-        ]);
+        setCategories([]);
       }
     } catch (err) {
       console.error('Error fetching categories:', err);
+      setCategories([]);
     }
   }, []);
   
@@ -219,14 +226,11 @@ const CodingProblems: React.FC = () => {
         const problem = await response.json();
         navigate(`/techie/problems/${problem.slug}`);
       } else {
-        // Pick random from current list
-        if (problems.length > 0) {
-          const randomIndex = Math.floor(Math.random() * problems.length);
-          navigate(`/techie/problems/${problems[randomIndex].slug}`);
-        }
+        setError('Unable to fetch random problem right now.');
       }
     } catch (err) {
       console.error('Error getting random problem:', err);
+      setError('Unable to fetch random problem right now.');
     }
   };
   
@@ -251,6 +255,11 @@ const CodingProblems: React.FC = () => {
             Practice coding challenges to ace your interviews
           </Typography>
         </Box>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
         
         {/* Stats Cards */}
         <Grid container spacing={2} sx={{ mb: 4 }}>
@@ -263,7 +272,7 @@ const CodingProblems: React.FC = () => {
                 <Typography variant="body2" color="text.secondary">Easy</Typography>
                 <LinearProgress
                   variant="determinate"
-                  value={(stats.easySolved / stats.easy) * 100}
+                  value={stats.easy > 0 ? (stats.easySolved / stats.easy) * 100 : 0}
                   sx={{ mt: 1, height: 6, borderRadius: 3, bgcolor: alpha('#10b981', 0.2), '& .MuiLinearProgress-bar': { bgcolor: '#10b981' } }}
                 />
               </CardContent>
@@ -278,7 +287,7 @@ const CodingProblems: React.FC = () => {
                 <Typography variant="body2" color="text.secondary">Medium</Typography>
                 <LinearProgress
                   variant="determinate"
-                  value={(stats.mediumSolved / stats.medium) * 100}
+                  value={stats.medium > 0 ? (stats.mediumSolved / stats.medium) * 100 : 0}
                   sx={{ mt: 1, height: 6, borderRadius: 3, bgcolor: alpha('#f59e0b', 0.2), '& .MuiLinearProgress-bar': { bgcolor: '#f59e0b' } }}
                 />
               </CardContent>
@@ -293,7 +302,7 @@ const CodingProblems: React.FC = () => {
                 <Typography variant="body2" color="text.secondary">Hard</Typography>
                 <LinearProgress
                   variant="determinate"
-                  value={(stats.hardSolved / stats.hard) * 100}
+                  value={stats.hard > 0 ? (stats.hardSolved / stats.hard) * 100 : 0}
                   sx={{ mt: 1, height: 6, borderRadius: 3, bgcolor: alpha('#ef4444', 0.2), '& .MuiLinearProgress-bar': { bgcolor: '#ef4444' } }}
                 />
               </CardContent>
@@ -308,7 +317,7 @@ const CodingProblems: React.FC = () => {
                 <Typography variant="body2" color="text.secondary">Total Solved</Typography>
                 <LinearProgress
                   variant="determinate"
-                  value={(stats.solved / stats.total) * 100}
+                  value={stats.total > 0 ? (stats.solved / stats.total) * 100 : 0}
                   sx={{ mt: 1, height: 6, borderRadius: 3, bgcolor: alpha('#6366f1', 0.2), '& .MuiLinearProgress-bar': { bgcolor: '#6366f1' } }}
                 />
               </CardContent>

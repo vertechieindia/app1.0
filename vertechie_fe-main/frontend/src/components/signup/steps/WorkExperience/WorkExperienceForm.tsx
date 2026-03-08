@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Box,
   Button,
@@ -20,6 +20,7 @@ import {
   Chip,
   Divider,
   Slider,
+  Autocomplete,
 } from '@mui/material';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import AddIcon from '@mui/icons-material/Add';
@@ -29,6 +30,18 @@ import CloseIcon from '@mui/icons-material/Close';
 import { StepComponentProps } from '../../types';
 import axios from 'axios';
 import { getApiUrl, API_ENDPOINTS } from '../../../../config/api';
+
+/** Internal location autocomplete: API country code (US, IN, GB, CA) */
+const LOCATION_COUNTRY_MAP: Record<string, string> = { US: 'US', IN: 'IN', UK: 'GB', CA: 'CA' };
+const LOCATION_COUNTRIES = new Set(['US', 'IN', 'UK', 'CA']);
+
+interface PlaceSuggestion {
+  id: string;
+  display_name: string;
+  name: string;
+  admin1?: string | null;
+  country_code: string;
+}
 import { isValidEmail, isValidUrl, isValidPhone, isValidLinkedInUrl, isValidDateRange, isValidPersonName } from '../../../../utils/validation';
 import { formatDateToMMDDYYYY } from '../../utils/formatters';
 
@@ -59,11 +72,23 @@ interface ExperienceFormData {
 interface CompanyInviteData {
   companyName: string;
   address: string;
-  emails: string[];
-  phoneNumbers: string[];
-  website: string;
-  contactPersonName: string;
-  contactPersonRole: string;
+  email: string;
+  phone: string;
+}
+
+/** Company from API for autocomplete */
+interface CompanyOption {
+  id: string;
+  name: string;
+}
+/** Option to invite a company not on the platform */
+interface InviteCompanyOption {
+  __invite: true;
+  name: string;
+}
+type CompanyAutocompleteOption = CompanyOption | InviteCompanyOption;
+function isInviteCompanyOption(o: CompanyAutocompleteOption): o is InviteCompanyOption {
+  return (o as InviteCompanyOption).__invite === true;
 }
 
 const WorkExperienceForm: React.FC<StepComponentProps> = ({
@@ -121,13 +146,85 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
   const [companyInvite, setCompanyInvite] = useState<CompanyInviteData>({
     companyName: '',
     address: '',
-    emails: [''],
-    phoneNumbers: [''],
-    website: '',
-    contactPersonName: '',
-    contactPersonRole: '',
+    email: '',
+    phone: '',
   });
-  const [companySearchResults] = useState<Array<{ id: string, name: string }>>([]);
+  const [companyInviteErrors, setCompanyInviteErrors] = useState<Record<string, string>>({});
+  const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>([]);
+  const [companyLoading, setCompanyLoading] = useState(false);
+  const [companyInputValue, setCompanyInputValue] = useState('');
+  const companySearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [locationOptions, setLocationOptions] = useState<PlaceSuggestion[]>([]);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const placeCountry = location ? LOCATION_COUNTRY_MAP[location] || null : null;
+  const useLocationAutocomplete = placeCountry && LOCATION_COUNTRIES.has(location);
+
+  useEffect(() => {
+    return () => {
+      if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+      if (companySearchDebounceRef.current) clearTimeout(companySearchDebounceRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showExperienceForm) return;
+    const query = (companyInputValue || '').trim();
+    if (query.length < 2) {
+      setCompanyOptions([]);
+      return;
+    }
+    if (companySearchDebounceRef.current) clearTimeout(companySearchDebounceRef.current);
+    companySearchDebounceRef.current = setTimeout(async () => {
+      setCompanyLoading(true);
+      try {
+        const url = `${getApiUrl(API_ENDPOINTS.COMPANY)}?search=${encodeURIComponent(query)}&limit=10`;
+        const token = localStorage.getItem('authToken') || (formData as any)?.access_token;
+        const res = await axios.get<{ id: string; name: string }[]>(url, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const list = Array.isArray(res.data) ? res.data : [];
+        setCompanyOptions(list.map((c) => ({ id: c.id, name: c.name })));
+      } catch {
+        setCompanyOptions([]);
+      } finally {
+        setCompanyLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (companySearchDebounceRef.current) {
+        clearTimeout(companySearchDebounceRef.current);
+        companySearchDebounceRef.current = null;
+      }
+    };
+  }, [companyInputValue, showExperienceForm, (formData as any)?.access_token]);
+
+  const fetchLocationSuggestions = useCallback(
+    async (query: string) => {
+      if (!query.trim() || !placeCountry) {
+        setLocationOptions([]);
+        return;
+      }
+      setLocationLoading(true);
+      try {
+        const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${encodeURIComponent(query.trim())}&country=${placeCountry}&limit=10`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data: PlaceSuggestion[] = await res.json();
+          setLocationOptions(data);
+        } else {
+          setLocationOptions([]);
+        }
+      } catch {
+        setLocationOptions([]);
+      } finally {
+        setLocationLoading(false);
+      }
+    },
+    [placeCountry]
+  );
 
   const experiences = formData.experience || [];
 
@@ -157,6 +254,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
       managerLinkedIn: exp.managerLinkedIn || '',
     });
     setJobDescAcknowledged(true); // For edit, already acknowledged
+    setCompanyInputValue(exp.companyName || exp.company || '');
     setShowExperienceForm(true);
   }, [experiences]);
 
@@ -167,6 +265,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
 
   const handleWarningAccept = useCallback(() => {
     setShowExperienceWarning(false);
+    setCompanyInputValue('');
     setShowExperienceForm(true);
   }, []);
 
@@ -181,6 +280,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
     setEditingIndex(null);
     setJobDescAcknowledged(false);
     setSkillInput('');
+    setCompanyInputValue('');
     if (setErrors) {
       setErrors({});
     }
@@ -216,7 +316,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
 
     // Website is optional, validate only when provided
     if (newExperience.website && newExperience.website.trim() && !isValidUrl(newExperience.website.trim())) {
-      validationErrors.website = 'Please enter a valid website URL (e.g., https://www.example.com)';
+      validationErrors.website = 'Please enter a valid website (e.g. https://example.com or example.com)';
     }
 
     // Validate work location
@@ -797,53 +897,140 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
           <Box sx={{ pt: 1 }}>
             {/* --- Top Section --- */}
             <Grid container spacing={{ xs: 2, md: 3 }}>
-              {/* Column 1 - Company Name with Invite */}
+              {/* Column 1 - Company Name with autocomplete + Invite this company */}
               <Grid item xs={12} md={4}>
-                <TextField
+                <Autocomplete<CompanyAutocompleteOption, boolean, boolean, boolean>
+                  freeSolo
                   fullWidth
-                  label="Company Name *"
-                  value={newExperience.companyName}
-                  onChange={(e) => {
-                    setNewExperience({ ...newExperience, companyName: e.target.value });
+                  loading={companyLoading}
+                  inputValue={companyInputValue}
+                  onInputChange={(_, value) => {
+                    setCompanyInputValue(value || '');
+                    setNewExperience((prev) => ({ ...prev, companyName: value || '' }));
                   }}
-                  error={!!errors.companyName}
-                  helperText={
-                    errors.companyName || (
-                      companySearchResults.length === 0 && newExperience.companyName.length >= 2 ? (
-                        <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <span>Company not found.</span>
-                          <Button
-                            size="small"
-                            onClick={() => {
-                              setCompanyInvite(prev => ({ ...prev, companyName: newExperience.companyName }));
-                              setShowCompanyInvite(true);
-                            }}
-                            sx={{ textTransform: 'none', p: 0, minWidth: 'auto', fontSize: '0.75rem' }}
-                          >
-                            Invite company
-                          </Button>
-                        </Box>
-                      ) : ''
-                    )
-                  }
-                  required
+                  value={companyOptions.find((c) => c.name === newExperience.companyName) ?? (newExperience.companyName || null)}
+                  onChange={(_, newValue) => {
+                    if (typeof newValue === 'string') {
+                      setNewExperience((prev) => ({ ...prev, companyName: newValue }));
+                      setCompanyInputValue(newValue);
+                      return;
+                    }
+                    if (!newValue || Array.isArray(newValue)) {
+                      setNewExperience((prev) => ({ ...prev, companyName: '' }));
+                      setCompanyInputValue('');
+                      return;
+                    }
+                    const opt = newValue as CompanyAutocompleteOption;
+                    if (isInviteCompanyOption(opt)) {
+                      const name = opt.name.trim();
+                      if (!name) return;
+                      setNewExperience((prev) => ({ ...prev, companyName: name }));
+                      setCompanyInputValue(name);
+                      setCompanyInvite((prev) => ({ ...prev, companyName: name }));
+                      setShowCompanyInvite(true);
+                      return;
+                    }
+                    setNewExperience((prev) => ({ ...prev, companyName: opt.name }));
+                    setCompanyInputValue(opt.name);
+                  }}
+                  options={(() => {
+                    const trimmed = companyInputValue.trim();
+                    const hasExact = companyOptions.some((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+                    const options: CompanyAutocompleteOption[] = [...companyOptions];
+                    if (trimmed.length >= 2 && !hasExact) options.push({ __invite: true, name: trimmed });
+                    return options;
+                  })()}
+                  getOptionLabel={(opt: CompanyAutocompleteOption | string) => (typeof opt === 'string' ? opt : opt.name)}
+                  renderOption={(props, opt: CompanyAutocompleteOption) => {
+                    if (isInviteCompanyOption(opt)) {
+                      return (
+                        <li {...props} key="__invite">
+                          <AddIcon sx={{ mr: 1, fontSize: 20 }} />
+                          Invite this company to the platform — &quot;{opt.name}&quot;
+                        </li>
+                      );
+                    }
+                    return (
+                      <li {...props} key={opt.id}>
+                        {opt.name}
+                      </li>
+                    );
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Company Name *"
+                      error={!!errors.companyName}
+                      helperText={errors.companyName}
+                      required
+                    />
+                  )}
                 />
               </Grid>
 
-              {/* Work Location */}
+              {/* Work Location - internal autocomplete for US, IN, UK, CA */}
               <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  label="Work Location *"
-                  placeholder="City, State, Country"
-                  value={newExperience.workLocation}
-                  onChange={(e) =>
-                    setNewExperience({ ...newExperience, workLocation: e.target.value })
-                  }
-                  error={!!errors.workLocation}
-                  helperText={errors.workLocation}
-                  required
-                />
+                {useLocationAutocomplete ? (
+                  <Autocomplete
+                    freeSolo
+                    options={locationOptions}
+                    getOptionLabel={(opt) =>
+                      typeof opt === 'string' ? opt : opt.display_name
+                    }
+                    inputValue={newExperience.workLocation}
+                    onInputChange={(_, value) => {
+                      setNewExperience({ ...newExperience, workLocation: value });
+                      if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+                      locationDebounceRef.current = setTimeout(() => {
+                        fetchLocationSuggestions(value);
+                        locationDebounceRef.current = null;
+                      }, 300);
+                    }}
+                    onChange={(_, value) => {
+                      const display =
+                        typeof value === 'string' ? value : value?.display_name ?? '';
+                      if (display)
+                        setNewExperience({ ...newExperience, workLocation: display });
+                    }}
+                    loading={locationLoading}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Work Location *"
+                        placeholder="City, State, Country"
+                        error={!!errors.workLocation}
+                        helperText={errors.workLocation}
+                        required
+                        InputProps={{
+                          ...params.InputProps,
+                          endAdornment: (
+                            <>
+                              {locationLoading ? (
+                                <InputAdornment position="end">
+                                  <CircularProgress size={20} />
+                                </InputAdornment>
+                              ) : null}
+                              {params.InputProps.endAdornment}
+                            </>
+                          ),
+                        }}
+                      />
+                    )}
+                  />
+                ) : (
+                  <TextField
+                    fullWidth
+                    label="Work Location *"
+                    placeholder="City, State, Country"
+                    value={newExperience.workLocation}
+                    onChange={(e) =>
+                      setNewExperience({ ...newExperience, workLocation: e.target.value })
+                    }
+                    error={!!errors.workLocation}
+                    helperText={errors.workLocation}
+                    required
+                  />
+                )}
               </Grid>
 
               {/* Column 3 */}
@@ -851,14 +1038,14 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 <TextField
                   fullWidth
                   label="Website of the Company"
-                  type="url"
-                  placeholder="https://www.example.com"
+                  type="text"
+                  placeholder="https://example.com or example.com"
                   value={newExperience.website}
                   onChange={(e) =>
                     setNewExperience({ ...newExperience, website: e.target.value })
                   }
                   error={!!errors.website}
-                  helperText={errors.website || "Optional"}
+                  helperText={errors.website || "Optional (e.g. https://example.com or example.com)"}
                 />
               </Grid>
 
@@ -872,7 +1059,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                     setNewExperience({ ...newExperience, position: e.target.value })
                   }
                   error={!!errors.position}
-                  helperText={errors.position || "⚠️ Cannot be changed after account creation"}
+                  helperText={errors.position }
                   required
                 />
               </Grid>
@@ -1658,23 +1845,33 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
         </DialogActions>
       </Dialog>
 
-      {/* Company Invite Dialog */}
-      <Dialog open={showCompanyInvite} onClose={() => setShowCompanyInvite(false)} maxWidth="md" fullWidth>
+      {/* Company Invite Dialog - company name, address, email, phone only */}
+      <Dialog
+        open={showCompanyInvite}
+        onClose={() => { setShowCompanyInvite(false); setCompanyInviteErrors({}); }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle sx={{ fontWeight: 700 }}>
           Invite Your Company to VerTechie
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2, color: '#64748b' }}>
             Your company is not registered with us. You can invite them to create an account,
-            or proceed without inviting by clicking "Skip".
+            or proceed without inviting by clicking &quot;Skip&quot;.
           </Typography>
           <Grid container spacing={2}>
             <Grid item xs={12}>
               <TextField
                 fullWidth
-                label="Company Full Name *"
+                label="Company Name *"
                 value={companyInvite.companyName}
-                onChange={(e) => setCompanyInvite(prev => ({ ...prev, companyName: e.target.value }))}
+                onChange={(e) => {
+                  setCompanyInvite(prev => ({ ...prev, companyName: e.target.value }));
+                  if (companyInviteErrors.companyName) setCompanyInviteErrors(prev => ({ ...prev, companyName: '' }));
+                }}
+                error={!!companyInviteErrors.companyName}
+                helperText={companyInviteErrors.companyName}
               />
             </Grid>
             <Grid item xs={12}>
@@ -1684,149 +1881,85 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                 multiline
                 rows={2}
                 value={companyInvite.address}
-                onChange={(e) => setCompanyInvite(prev => ({ ...prev, address: e.target.value }))}
+                onChange={(e) => {
+                  setCompanyInvite(prev => ({ ...prev, address: e.target.value }));
+                  if (companyInviteErrors.address) setCompanyInviteErrors(prev => ({ ...prev, address: '' }));
+                }}
+                error={!!companyInviteErrors.address}
+                helperText={companyInviteErrors.address}
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Company Website"
-                placeholder="https://company.com"
-                value={companyInvite.website}
-                onChange={(e) => setCompanyInvite(prev => ({ ...prev, website: e.target.value }))}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Contact Person Name *"
-                value={companyInvite.contactPersonName}
-                onChange={(e) => setCompanyInvite(prev => ({ ...prev, contactPersonName: e.target.value }))}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Contact Person Role"
-                placeholder="e.g., HR Manager"
-                value={companyInvite.contactPersonRole}
-                onChange={(e) => setCompanyInvite(prev => ({ ...prev, contactPersonRole: e.target.value }))}
-              />
-            </Grid>
-
-            {/* Email Fields */}
             <Grid item xs={12}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Company Email(s)</Typography>
-              {companyInvite.emails.map((email, idx) => (
-                <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    placeholder="company@example.com"
-                    value={email}
-                    onChange={(e) => {
-                      const newEmails = [...companyInvite.emails];
-                      newEmails[idx] = e.target.value;
-                      setCompanyInvite(prev => ({ ...prev, emails: newEmails }));
-                    }}
-                  />
-                  {companyInvite.emails.length > 1 && (
-                    <Button
-                      size="small"
-                      color="error"
-                      onClick={() => {
-                        setCompanyInvite(prev => ({
-                          ...prev,
-                          emails: prev.emails.filter((_, i) => i !== idx)
-                        }));
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  )}
-                </Box>
-              ))}
-              <Button
-                size="small"
-                onClick={() => setCompanyInvite(prev => ({ ...prev, emails: [...prev.emails, ''] }))}
-              >
-                + Add Another Email
-              </Button>
+              <TextField
+                fullWidth
+                label="Company Email *"
+                type="email"
+                placeholder="company@example.com"
+                value={companyInvite.email}
+                onChange={(e) => {
+                  setCompanyInvite(prev => ({ ...prev, email: e.target.value }));
+                  if (companyInviteErrors.email) setCompanyInviteErrors(prev => ({ ...prev, email: '' }));
+                }}
+                error={!!companyInviteErrors.email}
+                helperText={companyInviteErrors.email}
+              />
             </Grid>
-
-            {/* Phone Fields */}
             <Grid item xs={12}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Company Phone(s)</Typography>
-              {companyInvite.phoneNumbers.map((phone, idx) => (
-                <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    placeholder="+1 (555) 123-4567"
-                    value={phone}
-                    onChange={(e) => {
-                      const newPhones = [...companyInvite.phoneNumbers];
-                      newPhones[idx] = e.target.value;
-                      setCompanyInvite(prev => ({ ...prev, phoneNumbers: newPhones }));
-                    }}
-                  />
-                  {companyInvite.phoneNumbers.length > 1 && (
-                    <Button
-                      size="small"
-                      color="error"
-                      onClick={() => {
-                        setCompanyInvite(prev => ({
-                          ...prev,
-                          phoneNumbers: prev.phoneNumbers.filter((_, i) => i !== idx)
-                        }));
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  )}
-                </Box>
-              ))}
-              <Button
-                size="small"
-                onClick={() => setCompanyInvite(prev => ({ ...prev, phoneNumbers: [...prev.phoneNumbers, ''] }))}
-              >
-                + Add Another Phone
-              </Button>
+              <TextField
+                fullWidth
+                label="Company Phone *"
+                placeholder="+1 (555) 123-4567"
+                value={companyInvite.phone}
+                onChange={(e) => {
+                  setCompanyInvite(prev => ({ ...prev, phone: e.target.value }));
+                  if (companyInviteErrors.phone) setCompanyInviteErrors(prev => ({ ...prev, phone: '' }));
+                }}
+                error={!!companyInviteErrors.phone}
+                helperText={companyInviteErrors.phone}
+              />
             </Grid>
           </Grid>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setShowCompanyInvite(false)}>
+          <Button onClick={() => { setShowCompanyInvite(false); setCompanyInviteErrors({}); }}>
             Skip - Proceed Without Inviting
           </Button>
           <Button
             variant="contained"
             onClick={async () => {
+              const name = companyInvite.companyName.trim();
+              const address = companyInvite.address.trim();
+              const email = companyInvite.email.trim();
+              const phone = companyInvite.phone.trim();
+              const err: Record<string, string> = {};
+              if (!name) err.companyName = 'Company name is required';
+              else if (name.length < 2) err.companyName = 'Company name must be at least 2 characters';
+              if (!address) err.address = 'Company address is required';
+              else if (address.length < 5) err.address = 'Address must be at least 5 characters';
+              if (!email) err.email = 'Company email is required';
+              else if (!isValidEmail(email)) err.email = 'Enter a valid email address';
+              if (!phone) err.phone = 'Company phone is required';
+              else if (!isValidPhone(phone)) err.phone = 'Enter a valid phone number (at least 10 digits)';
+              setCompanyInviteErrors(err);
+              if (Object.keys(err).length > 0) return;
               try {
                 const token = localStorage.getItem('authToken') || (formData as any)?.access_token;
-                const response = await axios.post(
+                await axios.post(
                   getApiUrl(API_ENDPOINTS.COMPANY_INVITES),
                   {
-                    company_name: companyInvite.companyName,
-                    address: companyInvite.address,
-                    emails: companyInvite.emails.filter(e => e.trim()),
-                    phone_numbers: companyInvite.phoneNumbers.filter(p => p.trim()),
-                    website: companyInvite.website,
-                    contact_person_name: companyInvite.contactPersonName,
-                    contact_person_role: companyInvite.contactPersonRole,
+                    company_name: name,
+                    address: address || undefined,
+                    emails: email ? [email] : [],
+                    phone_numbers: phone ? [phone] : [],
                   },
-                  {
-                    headers: token ? { Authorization: `Bearer ${token}` } : {},
-                  }
+                  { headers: token ? { Authorization: `Bearer ${token}` } : {} }
                 );
-                console.log('Company invite sent:', response.data);
                 setShowCompanyInvite(false);
-                // Optionally show success message
+                setCompanyInviteErrors({});
               } catch (error) {
                 console.error('Error sending company invite:', error);
               }
             }}
-            disabled={!companyInvite.companyName || !companyInvite.contactPersonName}
           >
             Send Invite
           </Button>

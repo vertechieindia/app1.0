@@ -29,8 +29,13 @@ _otp_storage: Dict[str, Dict[str, Any]] = {}
 
 # ============= Request/Response Models =============
 
+# Allowed email domain suffixes for HR signup email verification (.com and .in)
+HR_SIGNUP_ALLOWED_EMAIL_SUFFIXES = (".com", ".in", ".co.in")
+
+
 class SendEmailOTPRequest(BaseModel):
     email: EmailStr
+    signup_type: Optional[str] = None  # e.g. "hr" - when set, only .com / .in (and .co.in) domains allowed
 
 
 class VerifyEmailOTPRequest(BaseModel):
@@ -721,16 +726,33 @@ import asyncio
 
 # ============= Endpoints =============
 
+def _email_domain_allowed_for_hr(email: str) -> bool:
+    """Allow only .com, .in, and .co.in for HR signup email verification."""
+    if not email or "@" not in email:
+        return False
+    domain = email.strip().split("@")[-1].lower()
+    return any(domain.endswith(suffix) for suffix in HR_SIGNUP_ALLOWED_EMAIL_SUFFIXES)
+
+
 @router.post("/send-email-otp/")
 async def send_email_otp(request: SendEmailOTPRequest) -> Dict[str, Any]:
     """
     Send OTP to email address.
     Checks if email is already registered first to prevent duplicate registrations.
+    When signup_type is "hr", only .com, .in, and .co.in email domains are allowed.
     """
     from app.db.session import AsyncSessionLocal
     from app.models.user import User
     from sqlalchemy import select
-    
+
+    if (request.signup_type or "").strip().lower() == "hr":
+        if not _email_domain_allowed_for_hr(request.email):
+            return {
+                "success": False,
+                "message": "For HR signup, please use an email address with a .com or .in domain (e.g. company.com, company.co.in).",
+                "error": "domain_not_allowed"
+            }
+
     # Check if email is already registered
     try:
         async with AsyncSessionLocal() as db:

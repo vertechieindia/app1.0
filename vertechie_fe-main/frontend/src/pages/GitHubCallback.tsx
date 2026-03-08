@@ -14,6 +14,9 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { api } from '../services/apiClient';
 import { API_ENDPOINTS } from '../config/api';
 
+// Guard against double execution (e.g. React Strict Mode runs effects twice in dev)
+const githubCallbackStateStarted = new Set<string>();
+
 const GitHubCallback: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -32,7 +35,6 @@ const GitHubCallback: React.FC = () => {
       const error = searchParams.get('error');
       const errorDescription = searchParams.get('error_description');
 
-      // Check for OAuth error from GitHub (user denied, etc.)
       if (error) {
         setStatus('error');
         setMessage(errorDescription || `GitHub authorization failed: ${error}`);
@@ -45,29 +47,31 @@ const GitHubCallback: React.FC = () => {
         return;
       }
 
+      if (githubCallbackStateStarted.has(state)) return;
+      githubCallbackStateStarted.add(state);
+
       const storedState = sessionStorage.getItem('github_oauth_state');
       if (storedState !== state) {
         setStatus('error');
         setMessage('Invalid OAuth state. Please try connecting again.');
         sessionStorage.removeItem('github_oauth_state');
+        githubCallbackStateStarted.delete(state);
         return;
       }
 
       sessionStorage.removeItem('github_oauth_state');
-
-      // Keep loading state; only switch to success/error after API responds
       setMessage('Connecting your account...');
 
       try {
-        const response = await api.post<{ status: string; username: string; user_id: string }>(
+        const data = await api.post<{ status: string; username: string; user_id: string }>(
           API_ENDPOINTS.GITHUB_GITLAB.GITHUB_CALLBACK,
           { code, state }
         );
 
-        if (response.status === 'connected') {
+        if (data.status === 'connected') {
           setStatus('success');
-          setUsername(response.username);
-          setMessage(`Successfully connected as ${response.username}!`);
+          setUsername(data.username);
+          setMessage(`Successfully connected as ${data.username}!`);
           setTimeout(() => navigate('/techie/profile', { replace: true }), 2000);
         } else {
           setStatus('error');
@@ -75,10 +79,19 @@ const GitHubCallback: React.FC = () => {
         }
       } catch (err: unknown) {
         setStatus('error');
-        const errorMsg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-          || (err as Error)?.message
-          || 'Failed to complete GitHub authorization';
+        const axErr = err as { response?: { status?: number; data?: { detail?: string } } };
+        const res = axErr?.response;
+        const statusCode = res?.status;
+        const detail = res?.data?.detail;
+        let errorMsg: string;
+        if (statusCode === 403) {
+          errorMsg = 'Session expired or access denied. Please log in again and try connecting GitHub from your profile.';
+        } else {
+          errorMsg = typeof detail === 'string' ? detail : (err as Error)?.message || 'Failed to complete GitHub authorization';
+        }
         setMessage(errorMsg);
+      } finally {
+        githubCallbackStateStarted.delete(state);
       }
     };
 
@@ -154,13 +167,22 @@ const GitHubCallback: React.FC = () => {
             <Alert severity="error" sx={{ mb: 3, textAlign: 'left' }}>
               {message}
             </Alert>
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center' }}>
               <Button
                 variant="outlined"
                 onClick={() => navigate('/techie/profile', { replace: true })}
               >
                 Go to Profile
               </Button>
+              {message.includes('log in again') && (
+                <Button
+                  variant="contained"
+                  onClick={() => (window.location.href = '/login?redirect=/techie/profile')}
+                  sx={{ bgcolor: '#333', '&:hover': { bgcolor: '#444' } }}
+                >
+                  Log in again
+                </Button>
+              )}
               <Button
                 variant="contained"
                 startIcon={<GitHubIcon />}

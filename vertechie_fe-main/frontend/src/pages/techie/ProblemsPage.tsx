@@ -37,6 +37,7 @@ import {
   CardContent,
   LinearProgress,
   useTheme,
+  useMediaQuery,
   alpha,
   Dialog,
   DialogTitle,
@@ -401,6 +402,7 @@ const ProgressCard: React.FC<{ stats: ProblemStats }> = ({ stats }) => {
 // Main Component
 const ProblemsPage: React.FC = () => {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const navigate = useNavigate();
   
   // State
@@ -532,28 +534,40 @@ const ProblemsPage: React.FC = () => {
       const token = localStorage.getItem('authToken');
       const params = new URLSearchParams();
       if (difficulty !== 'all') params.append('difficulty', difficulty);
-      
-      const response = await fetch(getApiUrl(`/practice/problems/random/?${params.toString()}`), {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        const problem = await response.json();
-        navigate(`/techie/problems/${problem.slug}`);
-      } else {
-        // Pick random from current list
-        const random = problems[Math.floor(Math.random() * problems.length)];
-        if (random) {
-          navigate(`/techie/problems/${random.slug}`);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const query = params.toString();
+      const randomUrls = [
+        getApiUrl(`/practice/problems/random/${query ? `?${query}` : ''}`),
+        getApiUrl(`/practice/problems/random${query ? `?${query}` : ''}`),
+      ];
+
+      let problem: Problem | null = null;
+      for (const url of randomUrls) {
+        const response = await fetch(url, { headers });
+        if (response.ok) {
+          problem = await response.json();
+          break;
         }
+      }
+
+      if (problem) {
+        const slugOrId = (problem as any).slug || problem.id;
+        if (slugOrId) {
+          navigate(`/techie/problems/${slugOrId}`);
+          return;
+        }
+      }
+
+      // Pick random from current list
+      const random = problems[Math.floor(Math.random() * problems.length)];
+      if (random) {
+        navigate(`/techie/problems/${random.slug || random.id}`);
       }
     } catch (err) {
       const random = problems[Math.floor(Math.random() * problems.length)];
       if (random) {
-        navigate(`/techie/problems/${random.slug}`);
+        navigate(`/techie/problems/${random.slug || random.id}`);
       }
     }
   };
@@ -696,77 +710,117 @@ const ProblemsPage: React.FC = () => {
             <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>
           ) : (
             <>
-              <TableContainer>
-                <Table>
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
-                      <TableCell width={60}>Status</TableCell>
-                      <TableCell>Title</TableCell>
-                      <TableCell width={100}>Difficulty</TableCell>
-                      <TableCell width={120}>Acceptance</TableCell>
-                      <TableCell width={150}>Categories</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {(statusFilter === 'solved'
-                      ? problems.filter((p) => p.is_solved)
-                      : statusFilter === 'unsolved'
-                        ? problems.filter((p) => !p.is_solved)
-                        : problems
-                    ).map((problem) => (
-                      <TableRow
-                        key={problem.id}
-                        hover
-                        sx={{ cursor: 'pointer' }}
-                        onClick={() => navigate(`/techie/problems/${problem.slug}`)}
-                      >
-                        <TableCell>
-                          {problem.is_solved ? (
-                            <SolvedIcon sx={{ color: '#10b981' }} />
-                          ) : (
-                            <UnsolvedIcon sx={{ color: 'text.disabled' }} />
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {problem.problem_number}. {problem.title}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
+              {!isMobile && (
+                <TableContainer sx={{ overflowX: 'auto' }}>
+                  <Table>
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
+                        <TableCell width={60}>Status</TableCell>
+                        <TableCell>Title</TableCell>
+                        <TableCell width={100}>Difficulty</TableCell>
+                        <TableCell width={120}>Acceptance</TableCell>
+                        <TableCell width={150}>Categories</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(statusFilter === 'solved'
+                        ? problems.filter((p) => p.is_solved)
+                        : statusFilter === 'unsolved'
+                          ? problems.filter((p) => !p.is_solved)
+                          : problems
+                      ).map((problem) => (
+                        <TableRow
+                          key={problem.id}
+                          hover
+                          sx={{ cursor: 'pointer' }}
+                          onClick={() => navigate(`/techie/problems/${problem.slug || problem.id}`)}
+                        >
+                          <TableCell>
+                            {problem.is_solved ? (
+                              <SolvedIcon sx={{ color: '#10b981' }} />
+                            ) : (
+                              <UnsolvedIcon sx={{ color: 'text.disabled' }} />
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {problem.problem_number}. {problem.title}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={problem.difficulty}
+                              size="small"
+                              sx={{
+                                bgcolor: alpha(getDifficultyColor(problem.difficulty), 0.15),
+                                color: getDifficultyColor(problem.difficulty),
+                                fontWeight: 600,
+                                textTransform: 'capitalize',
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">
+                              {problem.acceptance_rate.toFixed(1)}%
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                              {(problem.categories ?? problem.tags ?? []).slice(0, 2).map((cat) => (
+                                <Chip
+                                  key={cat}
+                                  label={cat}
+                                  size="small"
+                                  variant="outlined"
+                                  sx={{ fontSize: '0.7rem' }}
+                                />
+                              ))}
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+
+              {isMobile && (
+                <Box sx={{ p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {(statusFilter === 'solved'
+                    ? problems.filter((p) => p.is_solved)
+                    : statusFilter === 'unsolved'
+                      ? problems.filter((p) => !p.is_solved)
+                      : problems
+                  ).map((problem) => (
+                    <Card
+                      key={`m-${problem.id}`}
+                      sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', cursor: 'pointer' }}
+                      onClick={() => navigate(`/techie/problems/${problem.slug || problem.id}`)}
+                    >
+                      <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                          {problem.problem_number}. {problem.title}
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                           <Chip
-                            label={problem.difficulty}
                             size="small"
+                            label={problem.difficulty}
                             sx={{
                               bgcolor: alpha(getDifficultyColor(problem.difficulty), 0.15),
                               color: getDifficultyColor(problem.difficulty),
-                              fontWeight: 600,
                               textTransform: 'capitalize',
+                              fontWeight: 600,
                             }}
                           />
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2">
+                          <Typography variant="caption" color="text.secondary">
                             {problem.acceptance_rate.toFixed(1)}%
                           </Typography>
-                        </TableCell>
-                        <TableCell>
-                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-  {(problem.categories ?? problem.tags ?? []).slice(0, 2).map((cat) => (
-    <Chip
-      key={cat}
-      label={cat}
-      size="small"
-      variant="outlined"
-      sx={{ fontSize: '0.7rem' }}
-    />
-  ))}
-</Box>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </Box>
+              )}
               
               <TablePagination
                 component="div"

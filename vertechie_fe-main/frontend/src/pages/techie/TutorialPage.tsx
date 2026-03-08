@@ -597,16 +597,18 @@ const TutorialPage: React.FC = () => {
       {!isMobile && sidebarContent}
 
       {/* Sidebar - Mobile Drawer */}
-      <Drawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        sx={{ '& .MuiDrawer-paper': { width: 280 } }}
-      >
-        {sidebarContent}
-      </Drawer>
+      {isMobile && (
+        <Drawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          sx={{ '& .MuiDrawer-paper': { width: 280 } }}
+        >
+          {sidebarContent}
+        </Drawer>
+      )}
 
       {/* Main Content */}
-      <MainContent sidebarVisible={sidebarVisible}>
+      <MainContent sidebarVisible={!isMobile && sidebarVisible}>
         {/* Lesson Content */}
         <LessonContent>
           {/* Breadcrumb */}
@@ -623,7 +625,11 @@ const TutorialPage: React.FC = () => {
           </Box>
 
           {/* Lesson Title */}
-          <Typography variant="h3" fontWeight={800} sx={{ mb: 4, color: tutorial.color }}>
+          <Typography
+            variant="h3"
+            fontWeight={800}
+            sx={{ mb: 4, color: tutorial.color, fontSize: { xs: '1.75rem', md: '3rem' }, wordBreak: 'break-word' }}
+          >
             {lessonContent.title}
           </Typography>
 

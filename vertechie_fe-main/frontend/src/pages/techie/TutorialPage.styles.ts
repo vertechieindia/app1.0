@@ -38,6 +38,14 @@ export const Sidebar = styled(Box)<{ tutorialColor: string; collapsed?: boolean 
     overflowY: 'auto',
     backgroundColor: '#fff',
   },
+  '@media (max-width: 900px)': {
+    position: 'static',
+    top: 'auto',
+    bottom: 'auto',
+    width: '100%',
+    minWidth: '100%',
+    borderRight: 'none',
+  },
 }));
 
 export const SidebarToggle = styled(IconButton)<{ tutorialColor?: string; sidebarVisible?: boolean }>(({ tutorialColor, sidebarVisible = true }) => ({
@@ -63,12 +71,20 @@ export const MainContent = styled(Box)<{ sidebarVisible?: boolean }>(({ sidebarV
   flexDirection: 'column',
   marginLeft: sidebarVisible ? 280 : 0,
   transition: 'margin-left 0.3s ease',
+  '@media (max-width: 900px)': {
+    marginLeft: 0,
+    width: '100%',
+  },
 }));
 
 export const LessonContent = styled(Box)({
   flex: 1,
   padding: '24px 40px',
   width: '100%',
+  overflowX: 'hidden',
+  '@media (max-width: 900px)': {
+    padding: '16px 12px 24px',
+  },
 });
 
 export const ChapterItem = styled(ListItem)<{ active?: boolean }>(({ active }) => ({
@@ -138,6 +154,18 @@ export const NavigationBar = styled(Box)<{ color?: string }>(({ color }) => ({
   justifyContent: 'space-between',
   alignItems: 'center',
   zIndex: 10,
+  gap: 8,
+  flexWrap: 'wrap',
+  '& .MuiButton-root': {
+    textTransform: 'none',
+  },
+  '@media (max-width: 900px)': {
+    padding: '10px 12px',
+    '& .MuiButton-root': {
+      flex: '1 1 calc(50% - 8px)',
+      minWidth: 0,
+    },
+  },
 }));
 
 export const ProgressBar = styled(LinearProgress)<{ barColor?: string }>(({ barColor }) => ({

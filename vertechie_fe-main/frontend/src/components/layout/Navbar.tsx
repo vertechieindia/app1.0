@@ -28,6 +28,7 @@ import BookmarkIcon from '@mui/icons-material/Bookmark';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import resolveAssetPath from '../../utils/assetResolver';
+import { isUserVerified } from '../../utils/authRedirect';
 
 const LogoImage = styled('img')(({ theme }) => ({
   height: '45px',
@@ -54,9 +55,11 @@ const Navbar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
   const [userName, setUserName] = useState('');
   const [userRole, setUserRole] = useState<'HR' | 'Techie' | 'Admin' | 'Super Admin' | ''>('');
   const theme = useTheme();
+  const showLoggedInHeader = isLoggedIn && isVerified;
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const navigate = useNavigate();
   const location = useLocation();
@@ -74,6 +77,7 @@ const Navbar = () => {
       setIsLoggedIn(true);
       try {
         const user = JSON.parse(userData);
+        setIsVerified(isUserVerified(user));
         // Get user name
         const firstName = user.first_name || '';
         const lastName = user.last_name || '';
@@ -95,9 +99,11 @@ const Navbar = () => {
       } catch {
         setUserName('User');
         setUserRole('');
+        setIsVerified(false);
       }
     } else {
       setIsLoggedIn(false);
+      setIsVerified(false);
       setUserName('');
       setUserRole('');
     }
@@ -139,8 +145,8 @@ const Navbar = () => {
 
   const drawer = (
     <List>
-      {/* Only show menu items when NOT logged in */}
-      {!isLoggedIn && menuItems.map((item) => (
+      {/* Only show menu items when NOT showing logged-in header (e.g. guest or processing) */}
+      {!showLoggedInHeader && menuItems.map((item) => (
         <ListItem
           key={item.label}
           component={RouterLink}
@@ -150,9 +156,9 @@ const Navbar = () => {
           <ListItemText primary={item.label} />
         </ListItem>
       ))}
-      {!isLoggedIn && <Divider sx={{ my: 2 }} />}
+      {!showLoggedInHeader && <Divider sx={{ my: 2 }} />}
       
-      {isLoggedIn ? (
+      {showLoggedInHeader ? (
         <>
           <ListItem sx={{ py: 2 }}>
             <Avatar 
@@ -235,8 +241,8 @@ const Navbar = () => {
           </IconButton>
         ) : (
           <>
-            {/* Only show navigation menu when NOT logged in */}
-            {!isLoggedIn && (
+            {/* Only show navigation menu when NOT showing logged-in header */}
+            {!showLoggedInHeader && (
               <Box sx={{ display: { xs: 'none', md: 'flex' }, ml: 4 }}>
                 {menuItems.map((item) => (
                   <Button
@@ -261,7 +267,7 @@ const Navbar = () => {
         <Box sx={{ flexGrow: 1 }} />
 
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          {isLoggedIn ? (
+          {showLoggedInHeader ? (
             <>
               {/* User Avatar and Name */}
               <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>

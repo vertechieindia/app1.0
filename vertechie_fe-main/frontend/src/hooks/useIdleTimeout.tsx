@@ -47,6 +47,7 @@ export const useIdleTimeout = ({
   const warningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
+  const hasInitializedTimerRef = useRef(false);
 
   const clearAllTimers = useCallback(() => {
     if (timeoutRef.current) {
@@ -75,15 +76,17 @@ export const useIdleTimeout = ({
       const now = Date.now();
       const remaining = Math.max(0, Math.floor((endTime - now) / 1000));
       setRemainingTime(remaining);
-      
+
       if (remaining <= 0) {
         if (countdownRef.current) {
           clearInterval(countdownRef.current);
           countdownRef.current = null;
         }
+        clearAllTimers();
+        onIdle();
       }
     }, 1000);
-  }, [warningTime]);
+  }, [warningTime, clearAllTimers, onIdle]);
 
   const resetTimer = useCallback(() => {
     if (!enabled) return;
@@ -121,27 +124,32 @@ export const useIdleTimeout = ({
     }, timeout);
   }, [enabled, timeout, warningTime, isIdle, isWarning, onIdle, onActive, onWarning, clearAllTimers, startCountdown]);
 
-  // Handle activity events
+  // When disabled, allow re-initialization when enabled again (e.g. after re-login)
+  useEffect(() => {
+    if (!enabled) hasInitializedTimerRef.current = false;
+  }, [enabled]);
+
+  // Handle activity events. Only call resetTimer() on first run when enabled, so that when the
+  // warning appears (isWarning -> true), this effect re-running does NOT reset the timer
+  // and clear the 1-minute countdown — otherwise the session would never log out.
   useEffect(() => {
     if (!enabled) return;
 
     const handleActivity = () => {
-      // Debounce activity detection
       const now = Date.now();
-      if (now - lastActivityRef.current < 1000) return; // Ignore events within 1 second
-      
+      if (now - lastActivityRef.current < 1000) return;
       resetTimer();
     };
 
-    // Add event listeners
     ACTIVITY_EVENTS.forEach((event) => {
       document.addEventListener(event, handleActivity, { passive: true });
     });
 
-    // Start the timer initially
-    resetTimer();
+    if (!hasInitializedTimerRef.current) {
+      hasInitializedTimerRef.current = true;
+      resetTimer();
+    }
 
-    // Cleanup
     return () => {
       ACTIVITY_EVENTS.forEach((event) => {
         document.removeEventListener(event, handleActivity);

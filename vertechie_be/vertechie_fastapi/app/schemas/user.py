@@ -315,6 +315,7 @@ class AdminUserCreate(BaseModel):
     dob: Optional[str] = None  # Accept string for flexibility
     country: Optional[str] = None
     gov_id: Optional[str] = None
+    gov_id_last_four: Optional[str] = None  # Last 4 of PAN (India) or SSN (USA) for VerTechie ID
     address: Optional[str] = None
     
     # Role - determines user type

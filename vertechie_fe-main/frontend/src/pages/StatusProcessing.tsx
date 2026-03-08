@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import { Container, Box, Typography, Paper, Button, Divider } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { styled } from '@mui/material/styles';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
+import { getApiUrl } from '../config/api';
+import { getRedirectPathForUser, isUserVerified } from '../utils/authRedirect';
 
 const StatusContainer = styled(Container)(({ theme }) => ({
   marginTop: theme.spacing(8),
@@ -17,18 +19,66 @@ const StatusPaper = styled(Paper)(({ theme }) => ({
   textAlign: 'center',
 }));
 
+const POLL_INTERVAL_MS = 15000;
+
 const StatusProcessing = () => {
   const navigate = useNavigate();
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const checkApprovalStatus = useCallback(async () => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return false;
+    try {
+      const response = await fetch(getApiUrl('/users/me'), {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) return false;
+      const userData = await response.json();
+      if (!isUserVerified(userData)) return false;
+      localStorage.setItem('userData', JSON.stringify(userData));
+      const path = getRedirectPathForUser(userData);
+      if (path) {
+        navigate(path, { replace: true });
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  }, [navigate]);
+
+  useEffect(() => {
+    checkApprovalStatus();
+
+    pollingRef.current = setInterval(() => {
+      checkApprovalStatus();
+    }, POLL_INTERVAL_MS);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkApprovalStatus();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [checkApprovalStatus]);
 
   const handleLogout = () => {
-    // Clear all auth tokens and user data
     localStorage.removeItem('vertechie_access_token');
     localStorage.removeItem('vertechie_refresh_token');
     localStorage.removeItem('authToken');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
     localStorage.removeItem('userData');
     sessionStorage.clear();
-    // Navigate to home/login
     navigate('/');
   };
 

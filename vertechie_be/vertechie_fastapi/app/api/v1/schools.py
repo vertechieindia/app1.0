@@ -15,10 +15,11 @@ from app.db.session import get_db
 from app.models.school import (
     School, Department, Program, StudentBatch,
     SchoolMember, SchoolAdmin, Placement, SchoolInvite,
+    InstitutionInviteRequest,
     SchoolType, SchoolStatus, ProgramType, MemberType, InviteStatus
 )
 from app.models.user import User
-from app.core.security import get_current_user, get_current_admin_user
+from app.core.security import get_current_user, get_current_admin_user, get_optional_user
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -216,6 +217,47 @@ async def get_school_by_slug(
         raise HTTPException(status_code=404, detail="School not found")
     
     return school
+
+
+# ============= Institution Invite Request (for Add Education autocomplete) =============
+
+class InstitutionInviteRequestCreate(BaseModel):
+    """Request to invite an institution to the platform (when not yet registered)."""
+    institution_name: str
+
+
+class InstitutionInviteRequestResponse(BaseModel):
+    id: UUID
+    institution_name: str
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+@router.post("/invite-request", response_model=InstitutionInviteRequestResponse)
+async def create_institution_invite_request(
+    body: InstitutionInviteRequestCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """Create an invite request for an institution not yet on the platform. No auth required."""
+    name = (body.institution_name or "").strip()
+    if not name or len(name) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Institution name must be at least 2 characters",
+        )
+    request_obj = InstitutionInviteRequest(
+        institution_name=name,
+        requested_by_id=current_user.id if current_user else None,
+        status=InviteStatus.PENDING,
+    )
+    db.add(request_obj)
+    await db.commit()
+    await db.refresh(request_obj)
+    return request_obj
 
 
 # ============= Posts Routes (must be before GET /{school_id} to avoid route conflicts) =============

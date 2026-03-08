@@ -79,6 +79,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     dob = Column(Date, nullable=True)
     country = Column(String(50), nullable=True)
     gov_id = Column(String(50), nullable=True)  # Up to 50 characters
+    gov_id_last_four = Column(String(4), nullable=True)  # Last 4 of PAN (India) or SSN (USA) for VerTechie ID
     address = Column(Text, nullable=True)
     
     # Status
@@ -98,6 +99,8 @@ class User(Base, UUIDMixin, TimestampMixin):
     reviewed_at = Column(DateTime, nullable=True)
     rejection_reason = Column(Text, nullable=True)
     admin_notes = Column(Text, nullable=True)  # Internal notes for admin
+    # HR/Company signup: set when admin has verified the company name (enables Approve/Reject)
+    hr_company_verified_at = Column(DateTime, nullable=True)
     
     # Blocked profile
     is_blocked = Column(Boolean, default=False)

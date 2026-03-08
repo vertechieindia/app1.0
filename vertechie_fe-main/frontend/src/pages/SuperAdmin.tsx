@@ -3459,31 +3459,51 @@ const SuperAdmin: React.FC = () => {
           <Button onClick={() => setReviewDialogOpen(false)} variant="outlined">
             Close
           </Button>
-          {reviewingProfile?.verification_status === 'pending' && (
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                variant="outlined"
-                color="error"
-                onClick={() => {
-                  setSelectedApproval(reviewingProfile);
-                  setRejectDialogOpen(true);
-                  setReviewDialogOpen(false);
-                }}
-              >
-                Reject
-              </Button>
-              <Button
-                variant="contained"
-                color="success"
-                onClick={() => {
-                  handleApproveUser(reviewingProfile.id);
-                  setReviewDialogOpen(false);
-                }}
-              >
-                Approve
-              </Button>
-            </Box>
-          )}
+          {reviewingProfile?.verification_status === 'pending' && (() => {
+            const educations = reviewingProfile.educations || [];
+            const experiences = reviewingProfile.experiences || [];
+            const allEducationVerified = educations.length === 0 || educations.every((e: any) => e.is_verified);
+            const allExperienceVerified = experiences.length === 0 || experiences.every((e: any) => e.is_verified);
+            const isHR = Boolean(reviewingProfile.organization);
+            const techieCanApproveReject = !isHR && allEducationVerified && allExperienceVerified;
+            const hrCanApproveReject = isHR && (!reviewingProfile.organization || reviewingProfile.organization.verified === true);
+            const canApproveReject = techieCanApproveReject || hrCanApproveReject;
+            if (!canApproveReject) {
+              return (
+                <Typography variant="body2" color="text.secondary" sx={{ flex: 1, mr: 2 }}>
+                  {!isHR && (!allEducationVerified || !allExperienceVerified) &&
+                    'Verify all Education and Work Experience entries (in Techie Admin) before Approve or Reject.'}
+                  {isHR && reviewingProfile.organization && reviewingProfile.organization.verified !== true &&
+                    'Verify the Company/Organization (in HM Admin) before Approve or Reject.'}
+                </Typography>
+              );
+            }
+            return (
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={() => {
+                    setSelectedApproval(reviewingProfile);
+                    setRejectDialogOpen(true);
+                    setReviewDialogOpen(false);
+                  }}
+                >
+                  Reject
+                </Button>
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={() => {
+                    handleApproveUser(reviewingProfile.id);
+                    setReviewDialogOpen(false);
+                  }}
+                >
+                  Approve
+                </Button>
+              </Box>
+            );
+          })()}
         </DialogActions>
       </Dialog>
 

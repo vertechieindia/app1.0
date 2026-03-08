@@ -80,6 +80,7 @@ export const API_ENDPOINTS = {
 
     // Company invites
     COMPANY_INVITES: '/companies/invites',
+    COMPANY_INVITES_MINE: '/companies/invites/mine',
 
     // Shorthand aliases for backwards compatibility
     REGISTER: '/auth/register',
@@ -134,6 +135,10 @@ export const API_ENDPOINTS = {
         UPDATE_SCHOOL: (schoolId: string) => `/schools/${schoolId}`,
     },
 
+    // Schools (institution autocomplete, invite request)
+    SCHOOLS: '/schools',
+    SCHOOL_INVITE_REQUEST: '/schools/invite-request',
+
     // Additional top-level endpoints used across the app
     GROUPS: '/groups/',
     PERMISSIONS: '/permissions/',
@@ -144,6 +149,9 @@ export const API_ENDPOINTS = {
     EXPERIENCES: '/experiences/',
     FORGOT_PASSWORD: '/auth/forgot-password',
     FRONTEND_LOGS: '/logs/frontend/',
+
+    // Internal location autocomplete (no external APIs)
+    PLACES_AUTOCOMPLETE: '/places/autocomplete',
 
     // Legacy endpoint shortcuts (also accessible via LEGACY.*)
     SEND_EMAIL_OTP: 'v_auth/auth/send-email-otp/',
