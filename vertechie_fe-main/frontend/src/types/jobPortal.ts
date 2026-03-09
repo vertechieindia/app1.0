@@ -48,6 +48,9 @@ export interface Job {
 export interface ScreeningQuestion {
   id: string;
   question: string;
+  type?: 'text' | 'yesno' | 'multiple' | 'number' | 'code';
+  required?: boolean;
+  options?: string[];
   expectedOutput?: string;
 }
 
@@ -60,6 +63,7 @@ export interface JobFormData {
   location: string;
   jobType: 'full-time' | 'internship' | 'part-time' | 'contract';
   codingQuestions: CodingQuestion[];
+  screeningQuestions?: ScreeningQuestion[];
   // Salary fields
   salaryMin?: number;
   salaryMax?: number;

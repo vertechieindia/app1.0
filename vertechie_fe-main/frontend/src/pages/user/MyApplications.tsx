@@ -514,6 +514,13 @@ const MyApplications: React.FC = () => {
                             size="small"
                             sx={{ fontWeight: 500, bgcolor: 'grey.100' }}
                           />
+                          {application.job?.status === 'closed' && (
+                            <Chip
+                              label="Closed"
+                              size="small"
+                              sx={{ fontWeight: 600, bgcolor: alpha(colors.error, 0.1), color: colors.error }}
+                            />
+                          )}
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'text.secondary' }}>
                             <CalendarIcon fontSize="small" />
                             <Typography variant="body2">

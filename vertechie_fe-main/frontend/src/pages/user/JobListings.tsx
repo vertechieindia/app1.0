@@ -48,6 +48,7 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { Job, JOB_TYPES, EXPERIENCE_LEVELS, JobFilters } from '../../types/jobPortal';
 import { jobService, applicationService, getUserInfo } from '../../services/jobPortalService';
+import { getAccessToken } from '../../services/apiClient';
 import { Snackbar } from '@mui/material';
 
 // Theme Colors - VerTechie Blue Palette (Matching App Theme)
@@ -298,7 +299,8 @@ const JobListings: React.FC = () => {
 
   const loadAppliedJobs = async () => {
     const user = getUserInfo();
-    if (!user?.id) {
+    const token = getAccessToken() || localStorage.getItem('accessToken') || localStorage.getItem('authToken');
+    if (!user?.id || !token) {
       setAppliedJobIds(new Set());
       return;
     }
@@ -316,27 +318,27 @@ const JobListings: React.FC = () => {
     }
   };
 
-  // Format salary in Indian Rupees (₹) - uses real data from job or shows range based on experience
+  // Format salary
   const getSalary = (job: any): string => {
     // If job has real salary data, use it
     if (job.salary_min && job.salary_max) {
-      return `₹${(job.salary_min / 100000).toFixed(1)}L - ₹${(job.salary_max / 100000).toFixed(1)}L`;
+      return `$${job.salary_min.toLocaleString()} - $${job.salary_max.toLocaleString()}`;
     }
     if (job.salary_min) {
-      return `From ₹${(job.salary_min / 100000).toFixed(1)}L`;
+      return `From $${job.salary_min.toLocaleString()}`;
     }
     if (job.salary_max) {
-      return `Up to ₹${(job.salary_max / 100000).toFixed(1)}L`;
+      return `Up to $${job.salary_max.toLocaleString()}`;
     }
     
     // Fallback: show estimated range based on job type and experience level
     const jobType = job.jobType || 'full-time';
     const experienceLevel = job.experienceLevel || 'mid';
     const salaries: Record<string, Record<string, string>> = {
-      'full-time': { entry: '₹4L - ₹8L', mid: '₹8L - ₹15L', senior: '₹15L - ₹25L', lead: '₹25L - ₹40L' },
-      'internship': { entry: '₹15K - ₹25K/mo', mid: '₹20K - ₹35K/mo', senior: '₹30K - ₹50K/mo', lead: '₹40K - ₹60K/mo' },
-      'contract': { entry: '₹50K - ₹80K/mo', mid: '₹80K - ₹1.2L/mo', senior: '₹1.2L - ₹2L/mo', lead: '₹2L - ₹3L/mo' },
-      'part-time': { entry: '₹20K - ₹35K/mo', mid: '₹35K - ₹50K/mo', senior: '₹50K - ₹80K/mo', lead: '₹80K - ₹1.2L/mo' },
+      'full-time': { entry: '$60k - $80k', mid: '$80k - $120k', senior: '$120k - $160k', lead: '$150k - $200k' },
+      'internship': { entry: '$20/hr - $30/hr', mid: '$30/hr - $40/hr', senior: '$40/hr - $50/hr', lead: '$50/hr+' },
+      'contract': { entry: '$40/hr - $60/hr', mid: '$60/hr - $80/hr', senior: '$80/hr - $120/hr', lead: '$120/hr+' },
+      'part-time': { entry: '$30/hr - $50/hr', mid: '$50/hr - $70/hr', senior: '$70/hr - $90/hr', lead: '$90/hr+' },
     };
     return salaries[jobType]?.[experienceLevel] || 'Not specified';
   };
@@ -745,12 +747,12 @@ const JobListings: React.FC = () => {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'text.secondary' }}>
                         <ApplicantsIcon fontSize="small" />
                         <Typography variant="body2">
-                          {Math.floor(Math.random() * 50) + 10} applicants
+                          {job.applicantCount || 0} applicant{(job.applicantCount || 0) === 1 ? '' : 's'}
                         </Typography>
                       </Box>
                     </Box>
 
-                    {/* Coding Tests Badge */}
+                    {/* Coding Tests Badge
                     {job.codingQuestions.length > 0 && (
                       <Box sx={{ mb: 2 }}>
                         <Chip
@@ -766,8 +768,8 @@ const JobListings: React.FC = () => {
                           }}
                         />
                       </Box>
-                    )}
-
+                    )} */}
+ 
                     {/* Skills */}
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 3 }}>
                       {job.requiredSkills.slice(0, 4).map((skill, idx) => (

@@ -46,11 +46,6 @@ export const IdleTimeoutProvider: React.FC<IdleTimeoutProviderProps> = ({ childr
     window.location.href = '/login?reason=idle';
   }, []);
 
-  const handleStayActive = useCallback(() => {
-    setShowWarningDialog(false);
-    resetTimer();
-  }, []);
-
   const handleWarning = useCallback((remainingSeconds: number) => {
     setCountdown(remainingSeconds);
     setShowWarningDialog(true);
@@ -64,6 +59,11 @@ export const IdleTimeoutProvider: React.FC<IdleTimeoutProviderProps> = ({ childr
     onWarning: handleWarning,
     onActive: () => setShowWarningDialog(false),
   });
+
+  const handleStayActive = useCallback(() => {
+    setShowWarningDialog(false);
+    resetTimer();
+  }, [resetTimer]);
 
   // Update countdown display
   useEffect(() => {

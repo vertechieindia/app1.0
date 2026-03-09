@@ -128,6 +128,17 @@ class ChatMemberResponse(BaseModel):
         from_attributes = True
 
 
+class ChatUserCandidateResponse(BaseModel):
+    """User candidate for starting a chat (accepted connections only)."""
+
+    id: UUID
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    username: Optional[str] = None
+    email: str
+    user_type: str = "techie"
+
+
 class MessageReaction(BaseModel):
     """Add reaction to message."""
     

@@ -190,11 +190,11 @@ export const API_ENDPOINTS = {
         UPDATE: (id: string) => `/jobs/${id}`,
         DELETE: (id: string) => `/jobs/${id}`,
         APPLY: (id: string) => `/jobs/${id}/apply`,
-        APPLICATIONS: (id: string) => `/jobs/${id}/applications/`,
+        APPLICATIONS: (id: string) => `/jobs/${id}/applications`,
         /** POST /jobs/saved with body { job_id }; GET /jobs/saved returns list of saved jobs */
         SAVED_LIST: '/jobs/saved',
         SAVED_DELETE: (jobId: string) => `/jobs/saved/${jobId}`,
-        MY_APPLICATIONS: '/jobs/my/applications/',
+        MY_APPLICATIONS: '/jobs/my/applications',
     },
 
     // ============================================
@@ -244,6 +244,7 @@ export const API_ENDPOINTS = {
     CHAT: {
         CONVERSATIONS: '/chat/conversations',
         CREATE_CONVERSATION: '/chat/conversations',
+        AVAILABLE_USERS: '/chat/users/available',
         MESSAGES: (conversationId: string) => `/chat/conversations/${conversationId}/messages`,
         SEND_MESSAGE: (conversationId: string) => `/chat/conversations/${conversationId}/messages`,
         REACT: (messageId: string) => `/chat/messages/${messageId}/react`,

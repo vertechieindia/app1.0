@@ -455,7 +455,7 @@ const NetworkFeed: React.FC = () => {
     navigator.clipboard.writeText(url);
     setShareAnchor(null);
     setSharePostId(null);
-    setSnackbar({ open: true, message: 'Link copied. It works in private or incognito.', severity: 'success' });
+    setSnackbar({ open: true, message: 'Link copied.', severity: 'success' });
   };
 
   const openPostMenu = (postId: string, anchorEl: HTMLElement) => {
@@ -1514,7 +1514,7 @@ const NetworkFeed: React.FC = () => {
           onClick={() => sharePostId && handleCopyPostLink(sharePostId)}
         >
           <ListItemIcon><ContentCopy fontSize="small" /></ListItemIcon>
-          <ListItemText primary="Copy link to post" secondary="Works in private or incognito" />
+          <ListItemText primary="Copy link to post"  />
         </MenuItem>
       </Menu>
 

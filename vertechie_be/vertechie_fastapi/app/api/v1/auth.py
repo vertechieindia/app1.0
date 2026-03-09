@@ -520,9 +520,11 @@ async def request_password_reset(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Request password reset email."""
-    
+    from app.core.email import send_password_reset_email
+
+    normalized_email = (reset_in.email or "").strip().lower()
     result = await db.execute(
-        select(User).where(User.email == reset_in.email)
+        select(User).where(func.lower(User.email) == normalized_email)
     )
     user = result.scalar_one_or_none()
     
@@ -533,9 +535,16 @@ async def request_password_reset(
             expires_delta=timedelta(hours=1),
             additional_claims={"type": "password_reset"}
         )
-        
-        # TODO: Send email in background
-        # background_tasks.add_task(send_password_reset_email, user.email, reset_token)
+        user_name = user.first_name or user.username or "User"
+        background_tasks.add_task(
+            send_password_reset_email,
+            user.email,
+            reset_token,
+            user_name
+        )
+        logger.info("Password reset requested for %s via /password/reset", user.email)
+    else:
+        logger.info("Password reset requested for non-existing email via /password/reset: %s", normalized_email)
     
     # Always return success (security)
     return {"message": "If an account exists, a password reset email will be sent"}
@@ -926,8 +935,9 @@ async def forgot_password(
     import logging
     logger = logging.getLogger(__name__)
     
+    normalized_email = (reset_in.email or "").strip().lower()
     result = await db.execute(
-        select(User).where(User.email == reset_in.email)
+        select(User).where(func.lower(User.email) == normalized_email)
     )
     user = result.scalar_one_or_none()
     
@@ -952,6 +962,8 @@ async def forgot_password(
             reset_token,
             user_name
         )
+    else:
+        logger.info("Forgot password requested for non-existing email: %s", normalized_email)
     
     # Always return success (security - don't reveal if email exists)
     return {"message": "If an account exists with this email, a password reset link will be sent."}
@@ -989,4 +1001,3 @@ async def reset_password(
     await db.commit()
     
     return {"message": "Password reset successfully"}
-

@@ -6,6 +6,7 @@ from typing import List, Optional, Any
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from functools import lru_cache
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -95,8 +96,11 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     FROM_EMAIL: str = "noreply@vertechie.com"
     
+    # Always resolve .env relative to backend project root, not process CWD.
+    _ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
+
     model_config = {
-        "env_file": ".env",
+        "env_file": str(_ENV_FILE_PATH),
         "env_file_encoding": "utf-8",
         "case_sensitive": True,
         "extra": "ignore"
@@ -118,7 +122,7 @@ class Settings(BaseSettings):
 
 def get_settings() -> Settings:
     """Get settings instance (reload each time to pick up env changes)."""
-    return Settings(_env_file=".env")
+    return Settings()
 
 
 settings = get_settings()

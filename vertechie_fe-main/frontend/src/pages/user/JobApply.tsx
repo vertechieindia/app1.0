@@ -154,7 +154,7 @@ const SubmitButton = styled(Button)({
 interface ScreeningQuestion {
   id: string;
   question: string;
-  type: 'text' | 'yesno' | 'multiple' | 'number';
+  type: 'text' | 'yesno' | 'multiple' | 'number' | 'code';
   required: boolean;
   options?: string[];
 }
@@ -196,11 +196,12 @@ const JobApply: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [questionErrors, setQuestionErrors] = useState<Record<string, string>>({});
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   
   // Job data from API
   const [job, setJob] = useState<Job>({
-    id: jobId || '1',
+    id: jobId || '',
     title: '',
     company: '',
     location: '',
@@ -220,52 +221,106 @@ const JobApply: React.FC = () => {
   });
   
   // Default screening questions (can be overridden by job-specific questions)
-  const [questions, setQuestions] = useState<ScreeningQuestion[]>([
-    { id: '1', question: 'How many years of experience do you have with React?', type: 'number', required: true },
-    { id: '2', question: 'Are you authorized to work in India?', type: 'yesno', required: true },
-    { id: '3', question: 'Are you comfortable working in a remote environment?', type: 'yesno', required: true },
-    { id: '4', question: 'What is your expected salary range?', type: 'text', required: false },
-    { id: '5', question: 'Why are you interested in this role?', type: 'text', required: true },
-    { id: '6', question: 'What is your notice period?', type: 'multiple', required: true, options: ['Immediately', '2 weeks', '1 month', 'More than 1 month'] },
-  ]);
+  const [questions, setQuestions] = useState<ScreeningQuestion[]>([]);
+
+  const parseQuestionRequired = (value: unknown): boolean => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+      if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+    }
+    // Keep default as required when source doesn't provide a value.
+    return true;
+  };
+
+  const parseQuestionType = (value: unknown): ScreeningQuestion['type'] => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'yesno' || normalized === 'yes_no' || normalized === 'boolean') return 'yesno';
+    if (normalized === 'multiple' || normalized === 'multiple_choice' || normalized === 'mcq') return 'multiple';
+    if (normalized === 'number' || normalized === 'numeric') return 'number';
+    if (normalized === 'code' || normalized === 'coding') return 'code';
+    return 'text';
+  };
+
+  const normalizeSkill = (value: string): string =>
+    value.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  const getRequiredSkills = (): string[] =>
+    Array.from(new Set((job.requiredSkills || []).map(normalizeSkill).filter(Boolean)));
+
+  const getUserSkills = (): string[] =>
+    Array.from(new Set((userProfile.skills || []).map(normalizeSkill).filter(Boolean)));
+
+  const getMatchedRequiredSkills = (): string[] => {
+    const required = getRequiredSkills();
+    const user = getUserSkills();
+    return required.filter((req) => user.some((skill) => skill === req || skill.includes(req) || req.includes(skill)));
+  };
+
+  const getTargetYearsForRole = (): number => {
+    const level = String(job.experienceLevel || '').toLowerCase();
+    if (level.includes('entry')) return 2;
+    if (level.includes('mid')) return 5;
+    if (level.includes('senior')) return 8;
+    if (level.includes('lead') || level.includes('principal')) return 12;
+    return 5;
+  };
 
   // Calculate match score
   const calculateMatchScore = () => {
-    // Handle case when no required skills (avoid divide by zero)
-    if (!job.requiredSkills || job.requiredSkills.length === 0) {
-      // If no required skills specified, base score on experience only
-      const experienceMatch = Math.min(100, (userProfile.yearsExperience / 5) * 100);
+    const requiredSkills = getRequiredSkills();
+    const matched = getMatchedRequiredSkills();
+    const targetYears = getTargetYearsForRole();
+    const experienceYears = Math.max(0, Number(userProfile.yearsExperience) || 0);
+    const experienceMatch = Math.min(100, (experienceYears / targetYears) * 100);
+
+    if (requiredSkills.length === 0) {
       return Math.round(experienceMatch);
     }
-    
-    // Handle case when user has no skills
-    if (!userProfile.skills || userProfile.skills.length === 0) {
-      const experienceMatch = Math.min(100, (userProfile.yearsExperience / 5) * 100);
-      return Math.round(experienceMatch * 0.4);
-    }
-    
-    const matchedSkills = userProfile.skills.filter(skill => 
-      job.requiredSkills.some(req => 
-        req.toLowerCase().includes(skill.toLowerCase()) || 
-        skill.toLowerCase().includes(req.toLowerCase())
-      )
-    );
-    const skillMatch = (matchedSkills.length / job.requiredSkills.length) * 100;
-    
-    // Experience match (assuming 5 years is ideal)
-    const experienceMatch = Math.min(100, (userProfile.yearsExperience / 5) * 100);
-    
-    // Overall score
-    return Math.round((skillMatch * 0.6) + (experienceMatch * 0.4));
+
+    const skillMatch = (matched.length / requiredSkills.length) * 100;
+    return Math.round((skillMatch * 0.75) + (experienceMatch * 0.25));
   };
   
   const matchScore = calculateMatchScore();
-  const matchedSkills = userProfile.skills.filter(skill => 
-    job.requiredSkills.some(req => 
-      req.toLowerCase().includes(skill.toLowerCase()) || 
-      skill.toLowerCase().includes(req.toLowerCase())
-    )
-  );
+  const matchedSkills = getMatchedRequiredSkills();
+
+  const validateQuestionAnswer = (question: ScreeningQuestion, rawValue: string): string => {
+    const value = (rawValue || '').trim();
+
+    if (question.required && !value) return 'This question is required';
+    if (!value) return '';
+
+    if (question.type === 'text') {
+      if (/^\d+([.,]\d+)?$/.test(value)) {
+        return 'Numbers-only answers are not allowed for this question';
+      }
+      if (!/[A-Za-z]/.test(value)) {
+        return 'Please include letters in your answer';
+      }
+      return '';
+    }
+
+    if (question.type === 'number') {
+      if (!/^-?\d+(\.\d+)?$/.test(value)) return 'Please enter a valid number';
+      return '';
+    }
+
+    if (question.type === 'yesno') {
+      if (value !== 'yes' && value !== 'no') return 'Please choose Yes or No';
+      return '';
+    }
+
+    if (question.type === 'multiple') {
+      const options = question.options || [];
+      if (options.length > 0 && !options.includes(value)) return 'Please select a valid option';
+      return '';
+    }
+
+    return '';
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -277,10 +332,10 @@ const JobApply: React.FC = () => {
             setJob({
               id: jobData.id,
               title: jobData.title,
-              company: jobData.companyName || 'Company',
-              location: jobData.location || 'Remote',
+              company: jobData.companyName || '',
+              location: jobData.location || '',
               requiredSkills: jobData.requiredSkills || [],
-              experienceLevel: jobData.experienceLevel || 'Mid-Level',
+              experienceLevel: jobData.experienceLevel || '',
             });
             // Prefer screening questions; fallback to coding questions for backward compatibility
             const jobQuestions = (jobData.screeningQuestions && jobData.screeningQuestions.length > 0)
@@ -295,11 +350,11 @@ const JobApply: React.FC = () => {
 
             if (jobQuestions.length > 0) {
               setQuestions(jobQuestions.map((q: any, idx: number) => ({
-                id: String(idx + 1),
+                id: String(q.id || idx + 1),
                 question: q.question,
-                type: q.type || 'text',
-                required: q.required !== false,
-                options: q.options,
+                type: parseQuestionType(q.type),
+                required: parseQuestionRequired(q.required),
+                options: Array.isArray(q.options) ? q.options : [],
               })));
             }
           }
@@ -367,9 +422,9 @@ const JobApply: React.FC = () => {
             const userStr = localStorage.getItem('userData');
             if (userStr) {
               const user = JSON.parse(userStr);
-              userName = user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User';
-              if (!userTitle) userTitle = user.title || user.headline || 'Professional';
-              if (!userLocation) userLocation = user.location || user.address || 'India';
+              userName = user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || '';
+              if (!userTitle) userTitle = user.title || user.headline || '';
+              if (!userLocation) userLocation = user.location || user.address || '';
               if (userSkills.length === 0) userSkills = user.skills || [];
             }
             
@@ -377,7 +432,7 @@ const JobApply: React.FC = () => {
               name: userName,
               title: userTitle,
               location: userLocation,
-              yearsExperience: yearsExp || 3,
+              yearsExperience: yearsExp,
               skills: userSkills,
               experience: userExperiences.map((exp: any) => ({
                 title: exp.title || exp.position || '',
@@ -398,10 +453,10 @@ const JobApply: React.FC = () => {
             if (userStr) {
               const user = JSON.parse(userStr);
               setUserProfile({
-                name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User',
-                title: user.title || user.headline || 'Professional',
-                location: user.location || user.address || 'India',
-                yearsExperience: user.yearsExperience || 3,
+                name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || '',
+                title: user.title || user.headline || '',
+                location: user.location || user.address || '',
+                yearsExperience: Number(user.yearsExperience) || 0,
                 skills: user.skills || [],
                 experience: user.experience || [],
                 education: user.education || [],
@@ -414,10 +469,10 @@ const JobApply: React.FC = () => {
           if (userStr) {
             const user = JSON.parse(userStr);
             setUserProfile({
-              name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User',
-              title: user.title || user.headline || 'Professional',
-              location: user.location || user.address || 'India',
-              yearsExperience: user.yearsExperience || 3,
+              name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || '',
+              title: user.title || user.headline || '',
+              location: user.location || user.address || '',
+              yearsExperience: Number(user.yearsExperience) || 0,
               skills: user.skills || [],
               experience: user.experience || [],
               education: user.education || [],
@@ -436,6 +491,16 @@ const JobApply: React.FC = () => {
 
   const handleAnswerChange = (questionId: string, value: string) => {
     setAnswers({ ...answers, [questionId]: value });
+    const question = questions.find((q) => q.id === questionId);
+    if (!question) return;
+    const err = validateQuestionAnswer(question, value);
+    setQuestionErrors((prev) => {
+      if (!err && !prev[questionId]) return prev;
+      const updated = { ...prev };
+      if (err) updated[questionId] = err;
+      else delete updated[questionId];
+      return updated;
+    });
   };
 
   const isQuestionAnswered = (question: ScreeningQuestion) => {
@@ -445,8 +510,14 @@ const JobApply: React.FC = () => {
   const allRequiredAnswered = questions.filter(q => q.required).every(q => !!answers[q.id]?.trim());
 
   const handleSubmit = async () => {
-    if (!allRequiredAnswered) {
-      setSnackbar({ open: true, message: 'Please answer all required questions', severity: 'error' });
+    const validationErrors: Record<string, string> = {};
+    for (const question of questions) {
+      const err = validateQuestionAnswer(question, answers[question.id] || '');
+      if (err) validationErrors[question.id] = err;
+    }
+    if (Object.keys(validationErrors).length > 0) {
+      setQuestionErrors(validationErrors);
+      setSnackbar({ open: true, message: Object.values(validationErrors)[0], severity: 'error' });
       return;
     }
     
@@ -586,16 +657,16 @@ const JobApply: React.FC = () => {
             </Button>
           </Box>
           <Typography variant="h4" fontWeight={700} sx={{ mb: 1 }}>
-            Apply for {job.title}
+            Apply for {job.title || 'Job'}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <BusinessIcon sx={{ fontSize: 20 }} />
-              <Typography>{job.company}</Typography>
+              <Typography>{job.company || 'Company not available'}</Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <LocationOnIcon sx={{ fontSize: 20 }} />
-              <Typography>{job.location}</Typography>
+              <Typography>{job.location || 'Location not available'}</Typography>
             </Box>
           </Box>
         </HeaderCard>
@@ -606,10 +677,12 @@ const JobApply: React.FC = () => {
             <ContentCard>
               <CardContent sx={{ p: 4 }}>
                 <Typography variant="h5" fontWeight={700} sx={{ mb: 1 }}>
-                  Screening Questions
+                  {questions.length > 0 ? "Screening Questions" : "Submit Application"}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-                  Please answer the following questions. Your profile information will be automatically shared with the hiring manager.
+                  {questions.length > 0 
+                    ? "Please answer the following questions. Your profile information will be automatically shared with the hiring manager."
+                    : "Review your profile match score and submit your application. Your profile information will be automatically shared with the hiring manager."}
                 </Typography>
 
                 {questions.map((question, index) => (
@@ -623,15 +696,18 @@ const JobApply: React.FC = () => {
                       )}
                     </Box>
 
-                    {question.type === 'text' && (
+                    {(question.type === 'text' || question.type === 'code') && (
                       <TextField
                         fullWidth
                         multiline
                         rows={3}
-                        placeholder="Type your answer here..."
+                        placeholder={question.type === 'code' ? 'Type your code answer here...' : 'Type your answer here...'}
                         value={answers[question.id] || ''}
                         onChange={(e) => handleAnswerChange(question.id, e.target.value)}
                         variant="outlined"
+                        error={Boolean(questionErrors[question.id])}
+                        helperText={questionErrors[question.id] || ' '}
+                        InputProps={question.type === 'code' ? { sx: { fontFamily: 'monospace' } } : undefined}
                       />
                     )}
 
@@ -643,6 +719,8 @@ const JobApply: React.FC = () => {
                         onChange={(e) => handleAnswerChange(question.id, e.target.value)}
                         variant="outlined"
                         sx={{ width: 200 }}
+                        error={Boolean(questionErrors[question.id])}
+                        helperText={questionErrors[question.id] || ' '}
                       />
                     )}
 
@@ -690,15 +768,22 @@ const JobApply: React.FC = () => {
                         ))}
                       </RadioGroup>
                     )}
+                    {(question.type === 'yesno' || question.type === 'multiple') && questionErrors[question.id] && (
+                      <Typography variant="caption" sx={{ color: colors.error, mt: 1, display: 'block' }}>
+                        {questionErrors[question.id]}
+                      </Typography>
+                    )}
                   </QuestionCard>
                 ))}
 
                 <Divider sx={{ my: 4 }} />
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body2" color="text.secondary">
-                    {questions.filter(q => q.required && answers[q.id]?.trim()).length} of {questions.filter(q => q.required).length} required questions answered
-                  </Typography>
+                <Box sx={{ display: 'flex', justifyContent: questions.length > 0 ? 'space-between' : 'flex-end', alignItems: 'center' }}>
+                  {questions.length > 0 && (
+                    <Typography variant="body2" color="text.secondary">
+                      {questions.filter(q => q.required && answers[q.id]?.trim()).length} of {questions.filter(q => q.required).length} required questions answered
+                    </Typography>
+                  )}
                   <SubmitButton
                     onClick={handleSubmit}
                     disabled={!allRequiredAnswered || submitting}
@@ -783,10 +868,10 @@ const JobApply: React.FC = () => {
                   </Avatar>
                   <Box>
                     <Typography variant="subtitle1" fontWeight={600}>
-                      {userProfile.name}
+                      {userProfile.name || 'Profile name not available'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {userProfile.title}
+                      {userProfile.title || 'Title not available'}
                     </Typography>
                   </Box>
                 </Box>
@@ -797,32 +882,50 @@ const JobApply: React.FC = () => {
                   <WorkIcon fontSize="small" color="primary" />
                   Experience ({userProfile.yearsExperience} years)
                 </Typography>
-                {userProfile.experience.map((exp, idx) => (
-                  <Box key={idx} sx={{ mb: 2, pl: 3 }}>
-                    <Typography variant="body2" fontWeight={600}>{exp.title}</Typography>
-                    <Typography variant="caption" color="text.secondary">{exp.company} • {exp.duration}</Typography>
-                  </Box>
-                ))}
+                {userProfile.experience.length > 0 ? (
+                  userProfile.experience.map((exp, idx) => (
+                    <Box key={idx} sx={{ mb: 2, pl: 3 }}>
+                      <Typography variant="body2" fontWeight={600}>{exp.title}</Typography>
+                      <Typography variant="caption" color="text.secondary">{exp.company} • {exp.duration}</Typography>
+                    </Box>
+                  ))
+                ) : (
+                  <Typography variant="caption" color="text.secondary" sx={{ pl: 3 }}>
+                    No experience entries in profile
+                  </Typography>
+                )}
 
                 <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <SchoolIcon fontSize="small" color="primary" />
                   Education
                 </Typography>
-                {userProfile.education.map((edu, idx) => (
-                  <Box key={idx} sx={{ mb: 1, pl: 3 }}>
-                    <Typography variant="body2" fontWeight={600}>{edu.degree}</Typography>
-                    <Typography variant="caption" color="text.secondary">{edu.school} • {edu.year}</Typography>
-                  </Box>
-                ))}
+                {userProfile.education.length > 0 ? (
+                  userProfile.education.map((edu, idx) => (
+                    <Box key={idx} sx={{ mb: 1, pl: 3 }}>
+                      <Typography variant="body2" fontWeight={600}>{edu.degree}</Typography>
+                      <Typography variant="caption" color="text.secondary">{edu.school} • {edu.year}</Typography>
+                    </Box>
+                  ))
+                ) : (
+                  <Typography variant="caption" color="text.secondary" sx={{ pl: 3 }}>
+                    No education entries in profile
+                  </Typography>
+                )}
 
                 <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <CodeIcon fontSize="small" color="primary" />
                   Your Skills
                 </Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, pl: 3 }}>
-                  {userProfile.skills.map((skill) => (
-                    <Chip key={skill} label={skill} size="small" sx={{ fontSize: '0.75rem' }} />
-                  ))}
+                  {userProfile.skills.length > 0 ? (
+                    userProfile.skills.map((skill) => (
+                      <Chip key={skill} label={skill} size="small" sx={{ fontSize: '0.75rem' }} />
+                    ))
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      No skills added in profile
+                    </Typography>
+                  )}
                 </Box>
 
                 <Alert severity="info" sx={{ mt: 3, borderRadius: 2 }}>

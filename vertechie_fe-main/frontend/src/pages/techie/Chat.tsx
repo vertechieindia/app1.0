@@ -12,8 +12,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { chatService } from '../../services/chatService';
 import { chatWebSocket, WebSocketMessage } from '../../services/chatWebSocket';
-import { getApiUrl } from '../../config/api';
-import { fetchWithAuth } from '../../utils/apiInterceptor';
 import {
   Box,
   Paper,
@@ -53,6 +51,8 @@ import {
   Checkbox,
   ListItemSecondaryAction,
   CircularProgress,
+  Drawer,
+  ListItemIcon,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 
@@ -459,6 +459,15 @@ const Chat: React.FC = () => {
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [showCreatePoll, setShowCreatePoll] = useState(false);
+  const [showInfoPanel, setShowInfoPanel] = useState(false);
+  const [mediaTab, setMediaTab] = useState(0);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+
+  // Call states
+  const [showCallDialog, setShowCallDialog] = useState(false);
+  const [callType, setCallType] = useState<'audio' | 'video' | null>(null);
+  const [callStatus, setCallStatus] = useState<'calling' | 'connected' | 'ended'>('calling');
 
   // Users for new chat
   const [availableUsers, setAvailableUsers] = useState<any[]>([]);
@@ -504,18 +513,8 @@ const Chat: React.FC = () => {
   const fetchUsers = useCallback(async (search?: string) => {
     try {
       setLoadingUsers(true);
-      const params = new URLSearchParams();
-      if (search) params.append('search', search);
-      params.append('limit', '50');
-
-      const response = await fetchWithAuth(getApiUrl(`/users/?${params.toString()}`));
-      if (response.ok) {
-        const data = await response.json();
-        const currentUserId = JSON.parse(localStorage.getItem('userData') || '{}').id;
-        // Filter out current user
-        const filteredUsers = data.filter((user: any) => user.id !== currentUserId);
-        setAvailableUsers(filteredUsers);
-      }
+      const data = await chatService.getAvailableUsers(search, 100);
+      setAvailableUsers(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching users:', err);
     } finally {
@@ -770,12 +769,12 @@ const Chat: React.FC = () => {
     if (isMobile) setShowMobileChat(true);
   }, [location.state, loading, conversations, isMobile]);
 
-  // Fetch users when new chat dialog opens
+  // Fetch users when new chat/group dialog opens
   useEffect(() => {
-    if (showNewChat) {
+    if (showNewChat || showCreateGroup) {
       fetchUsers();
     }
-  }, [showNewChat, fetchUsers]);
+  }, [showNewChat, showCreateGroup, fetchUsers]);
 
   // WebSocket connection and message handling
   useEffect(() => {
@@ -1466,7 +1465,7 @@ const Chat: React.FC = () => {
               </OnlineBadge>
             )}
 
-            <Box sx={{ flex: 1, cursor: selectedConversation.isGroup ? 'pointer' : 'default' }} onClick={() => selectedConversation.isGroup && setShowGroupInfo(true)}>
+            <Box sx={{ flex: 1, cursor: 'pointer' }} onClick={() => setShowInfoPanel(true)}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                   {selectedConversation.name}
@@ -1486,10 +1485,10 @@ const Chat: React.FC = () => {
             {!selectedConversation.isGroup && (
               <>
                 <Tooltip title="Video Call">
-                  <IconButton><VideocamIcon /></IconButton>
+                  <IconButton onClick={() => handleStartCall('video')}><VideocamIcon /></IconButton>
                 </Tooltip>
                 <Tooltip title="Voice Call">
-                  <IconButton><CallIcon /></IconButton>
+                  <IconButton onClick={() => handleStartCall('audio')}><CallIcon /></IconButton>
                 </Tooltip>
               </>
             )}
@@ -1507,24 +1506,24 @@ const Chat: React.FC = () => {
             <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
               {selectedConversation.isGroup ? (
                 [
-                  <MenuItem key="info" onClick={() => { setShowGroupInfo(true); setMenuAnchor(null); }}>
-                    <InfoIcon sx={{ mr: 1 }} /> Group Info
+                  <MenuItem key="info" onClick={() => { setShowInfoPanel(true); setMenuAnchor(null); }}>
+                    <InfoIcon sx={{ mr: 1 }} /> Group Info & Media
                   </MenuItem>,
                   isCurrentUserAdmin() && (
                     <MenuItem key="settings" onClick={() => { setShowGroupSettings(true); setMenuAnchor(null); }}>
                       <SettingsIcon sx={{ mr: 1 }} /> Group Settings
                     </MenuItem>
                   ),
-                  <MenuItem key="leave" onClick={() => setMenuAnchor(null)} sx={{ color: 'error.main' }}>
+                  <MenuItem key="leave" onClick={() => { setShowLeaveConfirm(true); setMenuAnchor(null); }} sx={{ color: 'error.main' }}>
                     <ExitToAppIcon sx={{ mr: 1 }} /> Leave Group
                   </MenuItem>,
                 ]
               ) : (
                 [
-                  <MenuItem key="profile" onClick={() => setMenuAnchor(null)}>
-                    <InfoIcon sx={{ mr: 1 }} /> View Profile
+                  <MenuItem key="profile" onClick={() => { setShowInfoPanel(true); setMenuAnchor(null); }}>
+                    <InfoIcon sx={{ mr: 1 }} /> Contact Info & Media
                   </MenuItem>,
-                  <MenuItem key="delete" onClick={() => setMenuAnchor(null)}>
+                  <MenuItem key="delete" onClick={() => { setShowDeleteConfirm(true); setMenuAnchor(null); }}>
                     <DeleteIcon sx={{ mr: 1 }} /> Delete Chat
                   </MenuItem>,
                   <MenuItem key="block" onClick={() => setMenuAnchor(null)} sx={{ color: 'error.main' }}>
@@ -1876,9 +1875,9 @@ const Chat: React.FC = () => {
           sx={{ mb: 3, mt: 1 }}
         />
 
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Add Members</Typography>
-        <List sx={{ maxHeight: 250, overflow: 'auto', bgcolor: '#f5f7fa', borderRadius: 2 }}>
-          {mockMembers.slice(1).map((member) => (
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>Add Members</Typography>
+          <List sx={{ maxHeight: 250, overflow: 'auto', bgcolor: '#f5f7fa', borderRadius: 2 }}>
+          {availableUsers.map((member) => (
             <ListItem key={member.id} button onClick={() => {
               setSelectedMembers(prev =>
                 prev.includes(member.id)
@@ -1887,9 +1886,12 @@ const Chat: React.FC = () => {
               );
             }}>
               <ListItemAvatar>
-                <Avatar>{member.name.charAt(0)}</Avatar>
+                <Avatar>{(member.first_name?.[0] || member.email?.[0] || '?').toUpperCase()}</Avatar>
               </ListItemAvatar>
-              <ListItemText primary={member.name} />
+              <ListItemText
+                primary={`${member.first_name || ''} ${member.last_name || ''}`.trim() || member.username || member.email}
+                secondary={member.email}
+              />
               <Checkbox checked={selectedMembers.includes(member.id)} />
             </ListItem>
           ))}
@@ -2004,6 +2006,115 @@ const Chat: React.FC = () => {
       </Dialog>
     );
   };
+
+  const handleStartCall = (type: 'audio' | 'video') => {
+    setCallType(type);
+    setCallStatus('calling');
+    setShowCallDialog(true);
+    // Mock connecting after 3 seconds
+    setTimeout(() => {
+      setCallStatus('connected');
+    }, 3000);
+  };
+
+  const handleEndCall = () => {
+    setCallStatus('ended');
+    setTimeout(() => {
+      setShowCallDialog(false);
+      setCallType(null);
+    }, 1000);
+  };
+
+  const handleDeleteChat = () => {
+    if (!selectedConversation) return;
+    // In a real app, call API to delete
+    setConversations(prev => prev.filter(c => c.id !== selectedConversation.id));
+    setSelectedConversation(null);
+    setShowDeleteConfirm(false);
+  };
+
+  const handleLeaveGroup = () => {
+    if (!selectedConversation) return;
+    // In a real app, call API to leave group
+    setConversations(prev => prev.filter(c => c.id !== selectedConversation.id));
+    setSelectedConversation(null);
+    setShowLeaveConfirm(false);
+  };
+
+  // Call Dialog UI (Mock)
+  const renderCallDialog = () => (
+    <Dialog open={showCallDialog} fullScreen>
+      <Box sx={{
+        height: '100vh',
+        bgcolor: '#1a1a2e',
+        color: 'white',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        p: 4
+      }}>
+        <Box sx={{ mt: 4, textAlign: 'center' }}>
+          <Avatar
+            src={selectedConversation?.avatar}
+            sx={{ width: 150, height: 150, mx: 'auto', mb: 3, border: '4px solid #fff' }}
+          >
+            {selectedConversation?.name?.charAt(0)}
+          </Avatar>
+          <Typography variant="h4" fontWeight="bold">{selectedConversation?.name}</Typography>
+          <Typography variant="subtitle1" color="rgba(255,255,255,0.7)" mt={1}>
+            {callStatus === 'calling' ? `Calling...` : callStatus === 'connected' ? '00:03' : 'Call ended'}
+          </Typography>
+        </Box>
+
+        {callStatus === 'connected' && callType === 'video' && (
+          <Box sx={{ width: '100%', maxWidth: 600, height: 400, bgcolor: '#000', borderRadius: 4, my: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Typography color="rgba(255,255,255,0.5)">[Video Stream Placeholder]</Typography>
+          </Box>
+        )}
+
+        <Box sx={{ display: 'flex', gap: 4, mb: 8 }}>
+          <IconButton sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', p: 2 }}>
+            <VideocamIcon />
+          </IconButton>
+          <IconButton sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', p: 2 }}>
+            <CallIcon />
+          </IconButton>
+          <IconButton onClick={handleEndCall} sx={{ bgcolor: '#e53935', color: 'white', p: 2, '&:hover': { bgcolor: '#c62828' } }}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
+      </Box>
+    </Dialog>
+  );
+
+  const renderConfirmDialogs = () => (
+    <>
+      {/* Delete Chat Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}>
+        <DialogTitle>Delete Chat?</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this chat? This action cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteChat}>Delete</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Leave Group Confirmation Dialog */}
+      <Dialog open={showLeaveConfirm} onClose={() => setShowLeaveConfirm(false)}>
+        <DialogTitle>Leave Group?</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to leave "{selectedConversation?.name}"?</Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShowLeaveConfirm(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleLeaveGroup}>Leave Group</Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
 
   // Group Info Dialog
   const renderGroupInfoDialog = () => (
@@ -2189,6 +2300,8 @@ const Chat: React.FC = () => {
         {renderGroupInfoDialog()}
         {renderGroupSettingsDialog()}
         {renderCreatePollDialog()}
+        {renderCallDialog()}
+        {renderConfirmDialogs()}
 
         {/* Link Dialog */}
         <Dialog open={showLinkDialog} onClose={() => setShowLinkDialog(false)} maxWidth="sm" fullWidth>
@@ -2214,6 +2327,155 @@ const Chat: React.FC = () => {
       </Box>
     );
   }
+
+  // Info Panel Drawer (Shared Media & Docs)
+  const renderInfoPanel = () => {
+    // Extract shared media
+    const sharedImages = messages.filter(m => m.type === 'image' && m.fileUrl);
+    const sharedDocs = messages.filter(m => m.type === 'file' && m.fileUrl);
+    const sharedLinks = messages.filter(m => m.type === 'link' || (m.type === 'text' && m.text.includes('http')));
+
+    return (
+      <Drawer anchor="right" open={showInfoPanel} onClose={() => setShowInfoPanel(false)}>
+        <Box sx={{ width: { xs: '100vw', sm: 360 }, p: 0, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <Box sx={{ p: 2, display: 'flex', alignItems: 'center', borderBottom: '1px solid #e0e0e0', bgcolor: 'white', position: 'sticky', top: 0, zIndex: 1 }}>
+            <IconButton onClick={() => setShowInfoPanel(false)} sx={{ mr: 1 }}>
+              <ArrowBackIcon />
+            </IconButton>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>Contact Info</Typography>
+          </Box>
+
+          <Box sx={{ p: 3, flex: 1, overflowY: 'auto', bgcolor: '#f5f7fa' }}>
+            <Box sx={{ textAlign: 'center', mb: 3 }}>
+              <Avatar
+                src={selectedConversation?.avatar}
+                sx={{ width: 120, height: 120, mx: 'auto', mb: 2, fontSize: 48, bgcolor: selectedConversation?.isGroup ? '#6c5ce7' : '#0d47a1' }}
+              >
+                {selectedConversation?.isGroup ? <GroupIcon fontSize="large" /> : selectedConversation?.name?.charAt(0)}
+              </Avatar>
+              <Typography variant="h5" sx={{ fontWeight: 700 }}>{selectedConversation?.name}</Typography>
+              <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
+                {selectedConversation?.isGroup ? `${selectedConversation?.members?.length} members` : (selectedConversation?.isOnline ? 'Online' : 'Offline')}
+              </Typography>
+            </Box>
+
+            <Paper sx={{ borderRadius: 3, mb: 3, overflow: 'hidden' }}>
+              <List disablePadding>
+                <ListItem button onClick={handleToggleNotifications}>
+                  <ListItemIcon>
+                    {selectedConversation?.notificationsMuted ? <NotificationsOffIcon color="action" /> : <NotificationsIcon color="action" />}
+                  </ListItemIcon>
+                  <ListItemText primary="Mute Notifications" />
+                  <Switch edge="end" checked={selectedConversation?.notificationsMuted || false} disableRipple />
+                </ListItem>
+                {!selectedConversation?.isGroup && (
+                  <>
+                    <Divider />
+                    <ListItem button onClick={() => setShowInfoPanel(false)} sx={{ color: 'error.main' }}>
+                      <ListItemIcon>
+                        <BlockIcon color="error" />
+                      </ListItemIcon>
+                      <ListItemText primary="Block User" />
+                    </ListItem>
+                  </>
+                )}
+              </List>
+            </Paper>
+
+            <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
+              <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid #e0e0e0' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Shared Media, Links & Docs</Typography>
+              </Box>
+              <Tabs
+                value={mediaTab}
+                onChange={(_, v) => setMediaTab(v)}
+                variant="fullWidth"
+                sx={{ borderBottom: '1px solid #e0e0e0', minHeight: 40 }}
+                TabIndicatorProps={{ sx: { height: 2 } }}
+              >
+                <Tab label={`Media (${sharedImages.length})`} sx={{ minHeight: 40, fontSize: '0.8rem', textTransform: 'none' }} />
+                <Tab label={`Docs (${sharedDocs.length})`} sx={{ minHeight: 40, fontSize: '0.8rem', textTransform: 'none' }} />
+                <Tab label={`Links (${sharedLinks.length})`} sx={{ minHeight: 40, fontSize: '0.8rem', textTransform: 'none' }} />
+              </Tabs>
+
+              <Box sx={{ p: 2, minHeight: 200 }}>
+                {mediaTab === 0 && (
+                  sharedImages.length > 0 ? (
+                    <Grid container spacing={1}>
+                      {sharedImages.map(img => (
+                        <Grid item xs={4} key={img.id}>
+                          <Box
+                            component="img"
+                            src={img.fileUrl}
+                            alt="Shared"
+                            sx={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 1, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}
+                          />
+                        </Grid>
+                      ))}
+                    </Grid>
+                  ) : (
+                    <Typography variant="body2" sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>No media shared</Typography>
+                  )
+                )}
+
+                {mediaTab === 1 && (
+                  sharedDocs.length > 0 ? (
+                    <List disablePadding>
+                      {sharedDocs.map(doc => (
+                        <ListItem key={doc.id} component="a" href={doc.fileUrl} target="_blank" sx={{ px: 0, py: 1 }}>
+                          <ListItemIcon sx={{ minWidth: 40 }}>
+                            <Box sx={{ p: 1, borderRadius: 1, bgcolor: alpha('#0d47a1', 0.1) }}>
+                              <InsertDriveFileIcon sx={{ color: '#0d47a1', fontSize: 20 }} />
+                            </Box>
+                          </ListItemIcon>
+                          <ListItemText 
+                            primary={doc.fileName || 'Document'} 
+                            secondary={doc.timestamp.toLocaleDateString()}
+                            primaryTypographyProps={{ variant: 'body2', fontWeight: 500, noWrap: true }}
+                            secondaryTypographyProps={{ variant: 'caption' }}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  ) : (
+                    <Typography variant="body2" sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>No documents shared</Typography>
+                  )
+                )}
+
+                {mediaTab === 2 && (
+                  sharedLinks.length > 0 ? (
+                    <List disablePadding>
+                      {sharedLinks.map(link => {
+                        const urlMatch = link.type === 'link' ? link.text : link.text.match(/https?:\/\/[^\s]+/)?.[0] || '';
+                        const displayUrl = urlMatch.replace('🔗 ', '').trim();
+                        return (
+                          <ListItem key={link.id} component="a" href={displayUrl} target="_blank" rel="noopener" sx={{ px: 0, py: 1 }}>
+                            <ListItemIcon sx={{ minWidth: 40 }}>
+                              <Box sx={{ p: 1, borderRadius: 1, bgcolor: alpha('#0d47a1', 0.1) }}>
+                                <LinkIcon sx={{ color: '#0d47a1', fontSize: 20 }} />
+                              </Box>
+                            </ListItemIcon>
+                            <ListItemText 
+                              primary={displayUrl} 
+                              secondary={link.timestamp.toLocaleDateString()}
+                              primaryTypographyProps={{ variant: 'body2', fontWeight: 500, noWrap: true, color: 'primary.main' }}
+                              secondaryTypographyProps={{ variant: 'caption' }}
+                            />
+                          </ListItem>
+                        );
+                      })}
+                    </List>
+                  ) : (
+                    <Typography variant="body2" sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>No links shared</Typography>
+                  )
+                )}
+              </Box>
+            </Paper>
+          </Box>
+        </Box>
+      </Drawer>
+    );
+  };
 
   // Desktop View
   return (
@@ -2242,6 +2504,9 @@ const Chat: React.FC = () => {
       {renderGroupInfoDialog()}
       {renderGroupSettingsDialog()}
       {renderCreatePollDialog()}
+      {renderInfoPanel()}
+      {renderCallDialog()}
+      {renderConfirmDialogs()}
 
       {/* Link Dialog */}
       <Dialog open={showLinkDialog} onClose={() => setShowLinkDialog(false)} maxWidth="sm" fullWidth>

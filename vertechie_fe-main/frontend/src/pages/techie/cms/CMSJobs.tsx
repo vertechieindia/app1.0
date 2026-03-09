@@ -45,7 +45,6 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import CMSLayout from './CMSLayout';
 import { api } from '../../../services/apiClient';
 import { API_ENDPOINTS } from '../../../config/api';
-import { DUMMY_JOBS } from './CMSDummyData';
 
 const colors = {
   primary: '#0d47a1',
@@ -123,13 +122,9 @@ const CMSJobs: React.FC = () => {
       }
     } catch (err: any) {
       console.error("Failed to fetch jobs", err);
-      // Fallback
-      setJobs(DUMMY_JOBS);
-      setStats({
-        active: DUMMY_JOBS.filter((j: any) => j.status === 'active').length,
-        total: DUMMY_JOBS.length,
-        applicants: 452
-      });
+      setJobs([]);
+      setStats({ active: 0, total: 0, applicants: 0 });
+      setError(err?.response?.data?.detail || err?.message || 'Failed to fetch jobs');
     } finally {
       setLoading(false);
     }

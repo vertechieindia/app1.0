@@ -1,6 +1,8 @@
 /**
  * Idle Timeout Hook
- * Tracks user activity and triggers logout after specified idle time
+ * Tracks user activity and triggers logout after specified idle time.
+ * On tab focus/visibility change, recalculates elapsed time from last activity
+ * so warning and logout work correctly when the tab was in the background (timers are throttled).
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
@@ -64,14 +66,14 @@ export const useIdleTimeout = ({
     }
   }, []);
 
-  const startCountdown = useCallback(() => {
+  const startCountdown = useCallback((durationMs?: number) => {
     if (countdownRef.current) {
       clearInterval(countdownRef.current);
     }
-    
+    const duration = durationMs ?? warningTime;
     const startTime = Date.now();
-    const endTime = startTime + warningTime;
-    
+    const endTime = startTime + duration;
+
     countdownRef.current = setInterval(() => {
       const now = Date.now();
       const remaining = Math.max(0, Math.floor((endTime - now) / 1000));
@@ -124,10 +126,78 @@ export const useIdleTimeout = ({
     }, timeout);
   }, [enabled, timeout, warningTime, isIdle, isWarning, onIdle, onActive, onWarning, clearAllTimers, startCountdown]);
 
+  // On tab focus/visibility: recalculate elapsed from lastActivityRef and either logout,
+  // show warning with correct countdown, or reschedule timers (browser throttling can delay timers in background).
+  const checkElapsedOnVisibility = useCallback(() => {
+    if (!enabled || typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+    const now = Date.now();
+    const elapsed = now - lastActivityRef.current;
+    const fullPeriod = timeout + warningTime;
+
+    if (elapsed >= fullPeriod) {
+      clearAllTimers();
+      setIsWarning(false);
+      setIsIdle(true);
+      onIdle();
+      return;
+    }
+
+    if (elapsed >= timeout) {
+      clearAllTimers();
+      const remainingMs = fullPeriod - elapsed;
+      const remainingSec = Math.max(0, Math.floor(remainingMs / 1000));
+      setIsWarning(true);
+      setRemainingTime(remainingSec);
+      onWarning?.(remainingSec);
+      startCountdown(remainingMs);
+      return;
+    }
+
+    // elapsed < timeout: reschedule timers without resetting lastActivityRef
+    clearAllTimers();
+    const delayUntilIdle = timeout - elapsed;
+    const delayUntilWarning = delayUntilIdle - warningTime;
+
+    if (delayUntilWarning > 0) {
+      warningTimeoutRef.current = setTimeout(() => {
+        setIsWarning(true);
+        setRemainingTime(Math.floor(warningTime / 1000));
+        startCountdown();
+        onWarning?.(Math.floor(warningTime / 1000));
+      }, delayUntilWarning);
+      timeoutRef.current = setTimeout(() => {
+        setIsIdle(true);
+        setIsWarning(false);
+        clearAllTimers();
+        onIdle();
+      }, delayUntilIdle);
+    } else if (delayUntilIdle > 0) {
+      // Already past when warning should have shown; show warning now with remaining time until logout
+      const remainingMs = delayUntilIdle;
+      const remainingSec = Math.max(0, Math.floor(remainingMs / 1000));
+      setIsWarning(true);
+      setRemainingTime(remainingSec);
+      onWarning?.(remainingSec);
+      startCountdown(remainingMs); // countdown will call onIdle when it hits 0
+    }
+  }, [enabled, timeout, warningTime, clearAllTimers, startCountdown, onIdle, onWarning]);
+
   // When disabled, allow re-initialization when enabled again (e.g. after re-login)
   useEffect(() => {
     if (!enabled) hasInitializedTimerRef.current = false;
   }, [enabled]);
+
+  // On tab focus/visibility change: recalculate elapsed inactivity and handle overdue warning/logout
+  useEffect(() => {
+    if (!enabled || typeof document === 'undefined') return;
+    const onVisible = () => checkElapsedOnVisibility();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [enabled, checkElapsedOnVisibility]);
 
   // Handle activity events. Only call resetTimer() on first run when enabled, so that when the
   // warning appears (isWarning -> true), this effect re-running does NOT reset the timer

@@ -6,7 +6,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { jobService, getHRUserInfo } from '../../../services/jobPortalService';
+import { applicationService, jobService, getHRUserInfo } from '../../../services/jobPortalService';
+import { interviewService } from '../../../services/interviewService';
 import { JobFormData, CodingQuestion } from '../../../types/jobPortal';
 import {
   Box,
@@ -17,7 +18,6 @@ import {
   IconButton,
   Grid,
   Card,
-  Badge,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -111,6 +111,13 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
   const [openJobDialog, setOpenJobDialog] = useState(false);
   const [dialogTab, setDialogTab] = useState(0);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [atsStats, setAtsStats] = useState({
+    activeJobs: 0,
+    candidates: 0,
+    newThisWeek: 0,
+    interviews: 0,
+    offersExtended: 0,
+  });
   
   // Job form state
   const [newJob, setNewJob] = useState({
@@ -125,10 +132,12 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
     responsibilities: '',
     requirements: '',
   });
+  const [jobFieldErrors, setJobFieldErrors] = useState<Record<string, string>>({});
   
   // Skills state
   const [skills, setSkills] = useState<string[]>(['JavaScript', 'React', 'Node.js']);
   const [newSkill, setNewSkill] = useState('');
+  const [skillsError, setSkillsError] = useState('');
   
   // Screening Questions state
   const [questions, setQuestions] = useState<ScreeningQuestion[]>([
@@ -140,10 +149,22 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
   const [questionRequired, setQuestionRequired] = useState(true);
   const [questionOptions, setQuestionOptions] = useState<string[]>(['']);
 
+  const handleJobFieldChange = (field: keyof typeof newJob, value: string) => {
+    setNewJob((prev) => ({ ...prev, [field]: value }));
+    if (jobFieldErrors[field]) {
+      setJobFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
   const handleAddSkill = () => {
     if (newSkill.trim() && !skills.includes(newSkill.trim())) {
       setSkills([...skills, newSkill.trim()]);
       setNewSkill('');
+      setSkillsError('');
     }
   };
 
@@ -174,16 +195,158 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
 
   const [isPosting, setIsPosting] = useState(false);
 
+  const loadAtsStats = async () => {
+    try {
+      const hrUser = getHRUserInfo();
+      const hrId = hrUser?.id || localStorage.getItem('userId') || '';
+      if (!hrId) {
+        setAtsStats({
+          activeJobs: 0,
+          candidates: 0,
+          newThisWeek: 0,
+          interviews: 0,
+          offersExtended: 0,
+        });
+        return;
+      }
+
+      const jobs = await jobService.getJobsByHR(hrId);
+      const activeJobs = (jobs || []).filter((job) => String(job.status).toLowerCase() === 'active').length;
+
+      const appsByJob = await Promise.allSettled(
+        (jobs || []).map((job) => applicationService.getApplicationsByJob(job.id))
+      );
+
+      let candidates = 0;
+      let newThisWeek = 0;
+      let offersExtended = 0;
+      const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+      appsByJob.forEach((result) => {
+        if (result.status !== 'fulfilled' || !Array.isArray(result.value)) return;
+        candidates += result.value.length;
+        result.value.forEach((app) => {
+          const ts = new Date(app.appliedAt || '').getTime();
+          if (Number.isFinite(ts) && ts >= weekAgo) {
+            newThisWeek += 1;
+          }
+          const status = String(app.status || '').toLowerCase();
+          if (status === 'hired' || status === 'offer' || status === 'offered' || status === 'selected') {
+            offersExtended += 1;
+          }
+        });
+      });
+
+      if (candidates === 0) {
+        candidates = (jobs || []).reduce((sum, job) => sum + Number(job.applicantCount || 0), 0);
+      }
+
+      let interviews = 0;
+      try {
+        const interviewList = await interviewService.getMyInterviewsAsInterviewer(false);
+        interviews = Array.isArray(interviewList) ? interviewList.length : 0;
+      } catch {
+        interviews = 0;
+      }
+
+      setAtsStats({
+        activeJobs,
+        candidates,
+        newThisWeek,
+        interviews,
+        offersExtended,
+      });
+    } catch (err) {
+      console.error('Failed to load ATS stats:', err);
+      setAtsStats({
+        activeJobs: 0,
+        candidates: 0,
+        newThisWeek: 0,
+        interviews: 0,
+        offersExtended: 0,
+      });
+    }
+  };
+
+  useEffect(() => {
+    loadAtsStats();
+  }, []);
+
+  const validateJobDetailsStep = (): boolean => {
+    const requiredFields: Array<{ key: keyof typeof newJob; label: string }> = [
+      { key: 'title', label: 'Job Title' },
+      { key: 'department', label: 'Department' },
+      { key: 'location', label: 'Location' },
+      { key: 'type', label: 'Employment Type' },
+      { key: 'experience', label: 'Experience Level' },
+      { key: 'salaryMin', label: 'Minimum Salary' },
+      { key: 'salaryMax', label: 'Maximum Salary' },
+      { key: 'description', label: 'Job Description' },
+      { key: 'responsibilities', label: 'Key Responsibilities' },
+    ];
+
+    const errors: Record<string, string> = {};
+    for (const field of requiredFields) {
+      const value = (newJob[field.key] || '').toString().trim();
+      if (!value) {
+        errors[field.key] = `${field.label} is required`;
+      }
+    }
+
+    const minSalaryRaw = newJob.salaryMin.toString().trim();
+    const maxSalaryRaw = newJob.salaryMax.toString().trim();
+    if (minSalaryRaw && maxSalaryRaw) {
+      const minSalary = Number(minSalaryRaw);
+      const maxSalary = Number(maxSalaryRaw);
+      if (!Number.isFinite(minSalary) || !Number.isFinite(maxSalary) || minSalary <= 0 || maxSalary <= 0) {
+        errors.salaryMin = 'Enter valid salary';
+        errors.salaryMax = 'Enter valid salary';
+      } else if (minSalary > maxSalary) {
+        errors.salaryMin = 'Min salary must be <= max salary';
+        errors.salaryMax = 'Max salary must be >= min salary';
+      }
+    }
+
+    setJobFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setSnackbar({ open: true, message: Object.values(errors)[0], severity: 'error' });
+      setDialogTab(0);
+      return false;
+    }
+
+    return true;
+  };
+
+  const validateSkillsStep = (): boolean => {
+    if (skills.length < 2) {
+      setSkillsError('Please add at least 2 required skills');
+      setSnackbar({ open: true, message: 'Please add at least 2 required skills', severity: 'error' });
+      setDialogTab(1);
+      return false;
+    }
+    setSkillsError('');
+    return true;
+  };
+
+  const handleDialogTabChange = (_: React.SyntheticEvent, nextTab: number) => {
+    if (nextTab <= dialogTab) {
+      setDialogTab(nextTab);
+      return;
+    }
+    if (dialogTab === 0 && !validateJobDetailsStep()) return;
+    if (dialogTab === 1 && !validateSkillsStep()) return;
+    setDialogTab(nextTab);
+  };
+
+  const handleNextTab = () => {
+    if (dialogTab === 0 && !validateJobDetailsStep()) return;
+    if (dialogTab === 1 && !validateSkillsStep()) return;
+    setDialogTab((prev) => Math.min(prev + 1, 2));
+  };
+
   const handlePostJob = async () => {
-    if (!newJob.title || !newJob.department) {
-      setSnackbar({ open: true, message: 'Please fill in Job Title and Department', severity: 'error' });
-      return;
-    }
-    
-    if (!newJob.description) {
-      setSnackbar({ open: true, message: 'Please fill in Job Description', severity: 'error' });
-      return;
-    }
+    if (!validateJobDetailsStep()) return;
+    if (!validateSkillsStep()) return;
 
     setIsPosting(true);
 
@@ -229,6 +392,13 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
         location: newJob.location || 'Remote',
         jobType: jobTypeMap[newJob.type] || 'full-time',
         codingQuestions: codingQuestions,
+        screeningQuestions: questions.map((q) => ({
+          id: q.id,
+          question: q.question,
+          type: q.type,
+          required: q.required,
+          options: q.options || [],
+        })),
       };
 
       // Save job using job service
@@ -236,6 +406,8 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
 
       setSnackbar({ open: true, message: 'Job posted successfully! Applicants will answer screening questions.', severity: 'success' });
       setOpenJobDialog(false);
+      setJobFieldErrors({});
+      setSkillsError('');
       
       // Reset form
       setNewJob({ title: '', department: '', location: '', type: '', experience: '', salaryMin: '', salaryMax: '', description: '', responsibilities: '', requirements: '' });
@@ -246,8 +418,8 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
       ]);
       setDialogTab(0);
 
-      // Trigger a refresh by reloading the page or navigating
-      window.location.reload();
+      // Refresh ATS metrics after successful job creation
+      loadAtsStats();
     } catch (error: any) {
       console.error('Error posting job:', error);
       setSnackbar({ open: true, message: error.message || 'Failed to post job. Please try again.', severity: 'error' });
@@ -267,10 +439,11 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
   ];
 
   const stats = [
-    { value: 5, label: 'Active Jobs', color: '#0d47a1' },
-    { value: 247, label: 'Candidates', color: '#34C759' },
-    { value: 42, label: 'New This Week', color: '#5856D6', badge: '+42' },
-    { value: 12, label: 'Interviews', color: '#FF9500' },
+    { value: atsStats.activeJobs, label: 'Active Jobs', color: '#0d47a1' },
+    { value: atsStats.candidates, label: 'Candidates', color: '#34C759' },
+    { value: atsStats.newThisWeek, label: 'New This Week', color: '#5856D6' },
+    { value: atsStats.interviews, label: 'Interviews', color: '#FF9500' },
+    { value: atsStats.offersExtended, label: 'Offers Extended', color: '#FF3B30' },
   ];
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
@@ -295,8 +468,8 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
             </Typography>
           </Box>
         </Box>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button variant="outlined" startIcon={<RefreshIcon />}>Sync Data</Button>
+        {/* <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadAtsStats}>Sync Data</Button>
           <Button 
             variant="contained" 
             startIcon={<AddIcon />} 
@@ -305,48 +478,34 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
           >
             Post New Job
           </Button>
-        </Box>
+        </Box> */}
       </Box>
 
       {/* Stats Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
+      <Grid container spacing={2} columns={{ xs: 5, sm: 10, md: 10 }} sx={{ mb: 3 }}>
         {stats.map((stat, idx) => (
-          <Grid item xs={6} md={3} key={idx}>
+          <Grid item xs={2} sm={2} md={2} key={idx}>
             <StatCard>
-              <Badge badgeContent={stat.badge} color="success" sx={{ width: '100%' }}>
-                <Box sx={{ width: '100%' }}>
-                  <Typography variant="h3" fontWeight={700} color={stat.color}>
-                    {stat.value}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">{stat.label}</Typography>
-                </Box>
-              </Badge>
+              <Box sx={{ width: '100%' }}>
+                <Typography variant="h3" fontWeight={700} color={stat.color}>
+                  {stat.value}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">{stat.label}</Typography>
+              </Box>
             </StatCard>
           </Grid>
         ))}
       </Grid>
 
       {/* Secondary Stats */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={4}>
+      {/* <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={12}>
           <StatCard>
-            <Typography variant="h4" fontWeight={700} color="#34C759">3</Typography>
+            <Typography variant="h4" fontWeight={700} color="#34C759">{atsStats.offersExtended}</Typography>
             <Typography variant="body2" color="text.secondary">Offers Extended</Typography>
           </StatCard>
         </Grid>
-        <Grid item xs={4}>
-          <StatCard>
-            <Typography variant="h4" fontWeight={700} color="#FF9500">18d</Typography>
-            <Typography variant="body2" color="text.secondary">Avg Time to Hire</Typography>
-          </StatCard>
-        </Grid>
-        <Grid item xs={4}>
-          <StatCard>
-            <Typography variant="h4" fontWeight={700} color="#5856D6">12.4%</Typography>
-            <Typography variant="body2" color="text.secondary">Conversion Rate</Typography>
-          </StatCard>
-        </Grid>
-      </Grid>
+      </Grid> */}
 
       {/* Navigation */}
       <Paper sx={{ mb: 3, borderRadius: 2 }}>
@@ -370,10 +529,19 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
       </Paper>
 
       {/* Enhanced Post New Job Dialog */}
-      <Dialog open={openJobDialog} onClose={() => setOpenJobDialog(false)} maxWidth="md" fullWidth>
+      <Dialog
+        open={openJobDialog}
+        onClose={() => {
+          setOpenJobDialog(false);
+          setJobFieldErrors({});
+          setSkillsError('');
+        }}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid #eee', pb: 0 }}>
           <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>Post New Job</Typography>
-          <Tabs value={dialogTab} onChange={(_, v) => setDialogTab(v)} sx={{ minHeight: 40 }}>
+          <Tabs value={dialogTab} onChange={handleDialogTabChange} sx={{ minHeight: 40 }}>
             <Tab label="Job Details" sx={{ minHeight: 40, textTransform: 'none' }} />
             <Tab label="Required Skills" sx={{ minHeight: 40, textTransform: 'none' }} />
             <Tab label="Screening Questions" sx={{ minHeight: 40, textTransform: 'none' }} />
@@ -388,20 +556,22 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
                   fullWidth
                   label="Job Title"
                   value={newJob.title}
-                  onChange={(e) => setNewJob({ ...newJob, title: e.target.value })}
+                  onChange={(e) => handleJobFieldChange('title', e.target.value)}
                   placeholder="e.g., Senior Software Engineer"
                   required
                   variant="outlined"
+                  error={Boolean(jobFieldErrors.title)}
+                  helperText={jobFieldErrors.title || ' '}
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
-                <FormControl fullWidth required>
+                <FormControl fullWidth required error={Boolean(jobFieldErrors.department)}>
                   <InputLabel shrink>Department</InputLabel>
                   <Select
                     value={newJob.department}
                     label="Department"
-                    onChange={(e) => setNewJob({ ...newJob, department: e.target.value })}
+                    onChange={(e) => handleJobFieldChange('department', e.target.value)}
                     displayEmpty
                   >
                     <MenuItem value="" disabled>Select Department</MenuItem>
@@ -422,18 +592,20 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
                   fullWidth
                   label="Location"
                   value={newJob.location}
-                  onChange={(e) => setNewJob({ ...newJob, location: e.target.value })}
+                  onChange={(e) => handleJobFieldChange('location', e.target.value)}
                   placeholder="e.g., New York, NY or Remote"
+                  error={Boolean(jobFieldErrors.location)}
+                  helperText={jobFieldErrors.location || ' '}
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
-                <FormControl fullWidth>
+                <FormControl fullWidth error={Boolean(jobFieldErrors.type)}>
                   <InputLabel shrink>Employment Type</InputLabel>
                   <Select
                     value={newJob.type}
                     label="Employment Type"
-                    onChange={(e) => setNewJob({ ...newJob, type: e.target.value })}
+                    onChange={(e) => handleJobFieldChange('type', e.target.value)}
                     displayEmpty
                   >
                     <MenuItem value="" disabled>Select Type</MenuItem>
@@ -446,12 +618,12 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
                 </FormControl>
               </Grid>
               <Grid item xs={12} md={6}>
-                <FormControl fullWidth>
+                <FormControl fullWidth error={Boolean(jobFieldErrors.experience)}>
                   <InputLabel shrink>Experience Level</InputLabel>
                   <Select
                     value={newJob.experience}
                     label="Experience Level"
-                    onChange={(e) => setNewJob({ ...newJob, experience: e.target.value })}
+                    onChange={(e) => handleJobFieldChange('experience', e.target.value)}
                     displayEmpty
                   >
                     <MenuItem value="" disabled>Select Level</MenuItem>
@@ -468,9 +640,11 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
                   fullWidth
                   label="Minimum Salary"
                   value={newJob.salaryMin}
-                  onChange={(e) => setNewJob({ ...newJob, salaryMin: e.target.value })}
+                  onChange={(e) => handleJobFieldChange('salaryMin', e.target.value)}
                   placeholder="e.g., 80000"
                   type="number"
+                  error={Boolean(jobFieldErrors.salaryMin)}
+                  helperText={jobFieldErrors.salaryMin || ' '}
                   InputLabelProps={{ shrink: true }}
                   InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                 />
@@ -480,9 +654,11 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
                   fullWidth
                   label="Maximum Salary"
                   value={newJob.salaryMax}
-                  onChange={(e) => setNewJob({ ...newJob, salaryMax: e.target.value })}
+                  onChange={(e) => handleJobFieldChange('salaryMax', e.target.value)}
                   placeholder="e.g., 120000"
                   type="number"
+                  error={Boolean(jobFieldErrors.salaryMax)}
+                  helperText={jobFieldErrors.salaryMax || ' '}
                   InputLabelProps={{ shrink: true }}
                   InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                 />
@@ -494,8 +670,10 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
                   rows={3}
                   label="Job Description"
                   value={newJob.description}
-                  onChange={(e) => setNewJob({ ...newJob, description: e.target.value })}
+                  onChange={(e) => handleJobFieldChange('description', e.target.value)}
                   placeholder="Describe the role and what the candidate will be doing..."
+                  error={Boolean(jobFieldErrors.description)}
+                  helperText={jobFieldErrors.description || ' '}
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>
@@ -506,8 +684,10 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
                   rows={3}
                   label="Key Responsibilities"
                   value={newJob.responsibilities}
-                  onChange={(e) => setNewJob({ ...newJob, responsibilities: e.target.value })}
+                  onChange={(e) => handleJobFieldChange('responsibilities', e.target.value)}
                   placeholder="List the main responsibilities (one per line)..."
+                  error={Boolean(jobFieldErrors.responsibilities)}
+                  helperText={jobFieldErrors.responsibilities || ' '}
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>
@@ -531,8 +711,13 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
                   size="small"
                   placeholder="Type a skill and press Enter or click Add..."
                   value={newSkill}
-                  onChange={(e) => setNewSkill(e.target.value)}
+                  onChange={(e) => {
+                    setNewSkill(e.target.value);
+                    if (skillsError) setSkillsError('');
+                  }}
                   onKeyDown={(e) => e.key === 'Enter' && handleAddSkill()}
+                  error={Boolean(skillsError)}
+                  helperText={skillsError || ' '}
                 />
                 <Button variant="contained" onClick={handleAddSkill} sx={{ bgcolor: '#0d47a1', whiteSpace: 'nowrap' }}>
                   Add Skill
@@ -740,9 +925,17 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
             )}
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button onClick={() => setOpenJobDialog(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                setOpenJobDialog(false);
+                setJobFieldErrors({});
+                setSkillsError('');
+              }}
+            >
+              Cancel
+            </Button>
             {dialogTab < 2 ? (
-              <Button variant="contained" onClick={() => setDialogTab(dialogTab + 1)} sx={{ bgcolor: '#0d47a1' }}>
+              <Button variant="contained" onClick={handleNextTab} sx={{ bgcolor: '#0d47a1' }}>
                 Next
               </Button>
             ) : (

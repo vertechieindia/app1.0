@@ -13,7 +13,7 @@ import {
   Grid, InputAdornment, Avatar, Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Select, MenuItem, Menu, Checkbox, FormControlLabel,
   FormGroup, Divider, Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, Paper, LinearProgress, Snackbar, Alert, Tabs, Tab, Switch, Tooltip, List,
+  TableRow, Paper, LinearProgress, Snackbar, Alert, Tabs, Tab, Switch, Tooltip, List, Autocomplete, FormHelperText,
 } from '@mui/material';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
@@ -38,6 +38,8 @@ import WorkIcon from '@mui/icons-material/Work';
 import StarIcon from '@mui/icons-material/Star';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import ATSLayout from './ATSLayout';
+import { API_ENDPOINTS, getApiUrl } from '../../../config/api';
+import { fetchWithAuth } from '../../../utils/apiInterceptor';
 
 const JobCard = styled(Card)(({ theme }) => ({
   height: '100%',
@@ -76,11 +78,15 @@ const formatTimeAgo = (dateStr: string): string => {
   const diffDays = Math.floor(diffMs / 86400000);
   
   if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins} minutes ago`;
-  if (diffHours < 24) return `${diffHours} hours ago`;
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-  return `${Math.floor(diffDays / 30)} months ago`;
+  if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  
+  const weeks = Math.floor(diffDays / 7);
+  if (weeks < 4) return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
+  
+  const months = Math.floor(diffDays / 30);
+  return `${months} month${months === 1 ? '' : 's'} ago`;
 };
 
 // Display job interface
@@ -100,7 +106,7 @@ interface DisplayJob {
   description?: string;
   responsibilities?: string;
   skills?: string[];
-  screeningQuestions?: Array<{ id: string; question: string; type?: string; options?: string[] }>;
+  screeningQuestions?: Array<{ id: string; question: string; type?: string; required?: boolean; options?: string[] }>;
   salaryMin?: number;  // Raw salary value for edit form
   salaryMax?: number;  // Raw salary value for edit form
 }
@@ -129,6 +135,17 @@ const JobPostingsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
+  const parseQuestionRequired = (value: unknown): boolean => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+      if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+    }
+    return true;
+  };
+
   // Fetch jobs from API on component mount
   useEffect(() => {
     const fetchJobs = async () => {
@@ -145,16 +162,16 @@ const JobPostingsPage: React.FC = () => {
         const displayJobs: DisplayJob[] = apiJobs.map((job) => ({
           id: job.id,
           title: job.title,
-          department: job.requiredSkills?.length > 0 ? 'Engineering' : 'General',
+          department: job.companyName || 'Company',
           location: job.location || 'Remote',
           type: job.jobType === 'full-time' ? 'Full-time' : job.jobType || 'Full-time',
-          // Show real salary in Indian Rupees (₹) format
+          // Show real salary
           salary: job.salary_min && job.salary_max 
-            ? `₹${(job.salary_min / 100000).toFixed(1)}L - ₹${(job.salary_max / 100000).toFixed(1)}L` 
+            ? `$${job.salary_min.toLocaleString()} - $${job.salary_max.toLocaleString()}` 
             : job.salary_min 
-              ? `From ₹${(job.salary_min / 100000).toFixed(1)}L`
+              ? `From $${job.salary_min.toLocaleString()}`
               : job.salary_max
-                ? `Up to ₹${(job.salary_max / 100000).toFixed(1)}L`
+                ? `Up to $${job.salary_max.toLocaleString()}`
                 : 'Not specified',
           applicants: job.applicantCount || 0,
           newApplicants: 0, // Will be calculated when viewing applicants
@@ -190,6 +207,48 @@ const JobPostingsPage: React.FC = () => {
     title: '', department: '', location: '', type: '', experience: '', 
     salaryMin: '', salaryMax: '', description: '', responsibilities: '',
   });
+  const [newJobErrors, setNewJobErrors] = useState<Record<string, boolean>>({});
+  const [skillsFieldError, setSkillsFieldError] = useState(false);
+  
+  // Predefined Skills for suggestions
+  const ALL_SKILLS = [
+    'React', 'Angular', 'Vue.js', 'TypeScript', 'JavaScript', 'HTML5', 'CSS3', 'Tailwind CSS', 'Next.js', 'Redux', 'Svelte',
+    'Python', 'Node.js', 'Java', 'Go', 'Rust', 'C#', '.NET', 'Ruby', 'PHP', 'Django', 'FastAPI', 'Express.js', 'Spring Boot',
+    'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Elasticsearch', 'Oracle', 'SQL Server', 'DynamoDB', 'Cassandra',
+    'Docker', 'Kubernetes', 'AWS', 'Azure', 'GCP', 'Jenkins', 'GitLab CI', 'Terraform', 'Ansible', 'Linux',
+    'React Native', 'Flutter', 'Swift', 'Kotlin', 'iOS', 'Android', 'Xamarin',
+    'Machine Learning', 'TensorFlow', 'PyTorch', 'Pandas', 'NumPy', 'Data Science', 'NLP', 'Computer Vision', 'LLMs',
+    'Git', 'VS Code', 'Jira', 'Figma', 'Postman', 'Slack', 'Notion'
+  ].sort();
+  
+  // Available locations for suggestions
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+
+  // Location Search Handler
+  const handleLocationSearch = async (query: string) => {
+    if (!query || query.length < 2) {
+      setLocationSuggestions([]);
+      return;
+    }
+    try {
+      const q = encodeURIComponent(query.trim());
+      const countries = ['IN', 'US'];
+      const responses = await Promise.all(
+        countries.map(async (country) => {
+          const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${q}&country=${country}&limit=10`;
+          const response = await fetchWithAuth(url);
+          if (!response.ok) return [];
+          const data = await response.json();
+          return Array.isArray(data) ? data.map((place: any) => place.display_name).filter(Boolean) : [];
+        })
+      );
+      const suggestions = Array.from(new Set(responses.flat())).slice(0, 20);
+      setLocationSuggestions(suggestions);
+    } catch (error) {
+      console.error('Error fetching location suggestions:', error);
+      setLocationSuggestions([]);
+    }
+  };
   
   // Skills state for create dialog
   const [skills, setSkills] = useState<string[]>(['JavaScript', 'React', 'Node.js']);
@@ -213,10 +272,180 @@ const JobPostingsPage: React.FC = () => {
   const [questionOptions, setQuestionOptions] = useState<string[]>(['']);
   const [isPosting, setIsPosting] = useState(false);
 
+  const validateCreateJobDetailsStep = (): boolean => {
+    const requiredFields: Array<{ key: keyof typeof newJob; label: string }> = [
+      { key: 'title', label: 'Job Title' },
+      { key: 'department', label: 'Department' },
+      { key: 'location', label: 'Location' },
+      { key: 'type', label: 'Employment Type' },
+      { key: 'experience', label: 'Experience Level' },
+      { key: 'salaryMin', label: 'Minimum Salary' },
+      { key: 'salaryMax', label: 'Maximum Salary' },
+      { key: 'description', label: 'Job Description' },
+      { key: 'responsibilities', label: 'Key Responsibilities' },
+    ];
+
+    const errors: Record<string, boolean> = {};
+    let hasError = false;
+
+    for (const field of requiredFields) {
+      const value = (newJob[field.key] || '').toString().trim();
+      if (!value) {
+        errors[field.key] = true;
+        hasError = true;
+      }
+    }
+
+    const minSalary = Number(newJob.salaryMin);
+    const maxSalary = Number(newJob.salaryMax);
+    if (newJob.salaryMin && (!Number.isFinite(minSalary) || minSalary <= 0)) {
+       errors['salaryMin'] = true;
+       hasError = true;
+    }
+    if (newJob.salaryMax && (!Number.isFinite(maxSalary) || maxSalary <= 0)) {
+       errors['salaryMax'] = true;
+       hasError = true;
+    }
+    if (!hasError && newJob.salaryMin && newJob.salaryMax && minSalary > maxSalary) {
+      errors['salaryMin'] = true;
+      errors['salaryMax'] = true;
+      setSnackbar({ open: true, message: 'Minimum salary cannot be greater than maximum salary', severity: 'error' });
+      hasError = true;
+    }
+
+    setNewJobErrors(errors);
+
+    if (hasError) {
+      const missingCount = Object.keys(errors).length;
+      if (missingCount > 0 && !errors['salaryMin'] && !errors['salaryMax']) {
+        setSnackbar({ open: true, message: 'Please fill in all required fields', severity: 'error' });
+      } else if (missingCount > 0) {
+        setSnackbar({ open: true, message: 'Please check the highlighted fields', severity: 'error' });
+      }
+      setCreateTab(0);
+      return false;
+    }
+
+    return true;
+  };
+
+  const validateCreateSkillsStep = (): boolean => {
+    if (skills.length < 2) {
+      setSkillsFieldError(true);
+      setSnackbar({ open: true, message: 'Please add at least 2 required skills', severity: 'error' });
+      setCreateTab(1);
+      return false;
+    }
+    setSkillsFieldError(false);
+    return true;
+  };
+
+  const handleCreateTabChange = (_: React.SyntheticEvent, nextTab: number) => {
+    if (nextTab <= createTab) {
+      setCreateTab(nextTab);
+      return;
+    }
+    if (createTab === 0 && !validateCreateJobDetailsStep()) return;
+    if (createTab === 1 && !validateCreateSkillsStep()) return;
+    setCreateTab(nextTab);
+  };
+
+  const handleCreateNextTab = () => {
+    if (createTab === 0 && !validateCreateJobDetailsStep()) return;
+    if (createTab === 1 && !validateCreateSkillsStep()) return;
+    setCreateTab((prev) => Math.min(prev + 1, 2));
+  };
+
+  const validateEditJobDetailsStep = (): boolean => {
+    if (!editingJob) return false;
+    const requiredFields: Array<{ key: string; label: string }> = [
+      { key: 'title', label: 'Job Title' },
+      { key: 'department', label: 'Department' },
+      { key: 'location', label: 'Location' },
+      { key: 'type', label: 'Employment Type' },
+      { key: 'experience', label: 'Experience Level' },
+      { key: 'salaryMin', label: 'Minimum Salary' },
+      { key: 'salaryMax', label: 'Maximum Salary' },
+      { key: 'description', label: 'Job Description' },
+      { key: 'responsibilities', label: 'Key Responsibilities' },
+    ];
+
+    const errors: Record<string, boolean> = {};
+    let hasError = false;
+
+    for (const field of requiredFields) {
+      const value = (editingJob[field.key] || '').toString().trim();
+      if (!value) {
+        errors[field.key] = true;
+        hasError = true;
+      }
+    }
+
+    const minSalary = Number(editingJob.salaryMin);
+    const maxSalary = Number(editingJob.salaryMax);
+    if (editingJob.salaryMin && (!Number.isFinite(minSalary) || minSalary <= 0)) {
+       errors['salaryMin'] = true;
+       hasError = true;
+    }
+    if (editingJob.salaryMax && (!Number.isFinite(maxSalary) || maxSalary <= 0)) {
+       errors['salaryMax'] = true;
+       hasError = true;
+    }
+    if (!hasError && editingJob.salaryMin && editingJob.salaryMax && minSalary > maxSalary) {
+      errors['salaryMin'] = true;
+      errors['salaryMax'] = true;
+      setSnackbar({ open: true, message: 'Minimum salary cannot be greater than maximum salary', severity: 'error' });
+      hasError = true;
+    }
+
+    setEditJobErrors(errors);
+
+    if (hasError) {
+      const missingCount = Object.keys(errors).length;
+      if (missingCount > 0 && !errors['salaryMin'] && !errors['salaryMax']) {
+        setSnackbar({ open: true, message: 'Please fill in all required fields', severity: 'error' });
+      } else if (missingCount > 0) {
+        setSnackbar({ open: true, message: 'Please check the highlighted fields', severity: 'error' });
+      }
+      setEditTab(0);
+      return false;
+    }
+
+    return true;
+  };
+
+  const validateEditSkillsStep = (): boolean => {
+    if (editSkills.length < 2) {
+      setEditSkillsFieldError(true);
+      setSnackbar({ open: true, message: 'Please add at least 2 required skills', severity: 'error' });
+      setEditTab(1);
+      return false;
+    }
+    setEditSkillsFieldError(false);
+    return true;
+  };
+
+  const handleEditTabChange = (_: React.SyntheticEvent, nextTab: number) => {
+    if (nextTab <= editTab) {
+      setEditTab(nextTab);
+      return;
+    }
+    if (editTab === 0 && !validateEditJobDetailsStep()) return;
+    if (editTab === 1 && !validateEditSkillsStep()) return;
+    setEditTab(nextTab);
+  };
+
+  const handleEditNextTab = () => {
+    if (editTab === 0 && !validateEditJobDetailsStep()) return;
+    if (editTab === 1 && !validateEditSkillsStep()) return;
+    setEditTab((prev) => Math.min(prev + 1, 2));
+  };
+
   const handleAddSkill = () => {
     if (newSkill.trim() && !skills.includes(newSkill.trim())) {
       setSkills([...skills, newSkill.trim()]);
       setNewSkill('');
+      setSkillsFieldError(false);
     }
   };
 
@@ -248,12 +477,14 @@ const JobPostingsPage: React.FC = () => {
   // Filter Menu
   const [filterAnchor, setFilterAnchor] = useState<null | HTMLElement>(null);
   const [filters, setFilters] = useState({
-    active: true, draft: true, engineering: true, product: true, design: true, remote: true, onsite: true,
+    active: true, draft: true, closed: true, fulltime: true, parttime: true, contract: true, internship: true,
   });
   
   // Edit Dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<any>(null);
+  const [editJobErrors, setEditJobErrors] = useState<Record<string, boolean>>({});
+  const [editSkillsFieldError, setEditSkillsFieldError] = useState(false);
   const [editTab, setEditTab] = useState(0);
   const [editSkills, setEditSkills] = useState<string[]>([]);
   const [editNewSkill, setEditNewSkill] = useState('');
@@ -277,17 +508,8 @@ const JobPostingsPage: React.FC = () => {
 
   // Create Job - Uses Backend API
   const handleCreateJob = async () => {
-    if (!newJob.title || !newJob.department) {
-      setSnackbar({ open: true, message: 'Please fill in Job Title and Department', severity: 'error' });
-      setCreateTab(0);
-      return;
-    }
-    
-    if (!newJob.description) {
-      setSnackbar({ open: true, message: 'Please fill in Job Description', severity: 'error' });
-      setCreateTab(0);
-      return;
-    }
+    if (!validateCreateJobDetailsStep()) return;
+    if (!validateCreateSkillsStep()) return;
 
     setIsPosting(true);
     
@@ -332,18 +554,25 @@ const JobPostingsPage: React.FC = () => {
         location: newJob.location || 'Remote',
         jobType: jobTypeMap[newJob.type] || 'full-time',
         codingQuestions: codingQuestions,
+        screeningQuestions: questions.map((q) => ({
+          id: q.id,
+          question: q.question,
+          type: q.type,
+          required: q.required,
+          options: q.options || [],
+        })),
         // Include salary values if provided
         salaryMin: newJob.salaryMin ? parseInt(newJob.salaryMin) : undefined,
         salaryMax: newJob.salaryMax ? parseInt(newJob.salaryMax) : undefined,
       }, userId);
       
-      // Format salary display in Indian Rupees (₹) - show real values or "Not specified"
+      // Format salary display
       const salaryDisplay = newJob.salaryMin && newJob.salaryMax 
-        ? `₹${(parseInt(newJob.salaryMin) / 100000).toFixed(1)}L - ₹${(parseInt(newJob.salaryMax) / 100000).toFixed(1)}L`
+        ? `$${parseInt(newJob.salaryMin).toLocaleString()} - $${parseInt(newJob.salaryMax).toLocaleString()}`
         : newJob.salaryMin 
-          ? `From ₹${(parseInt(newJob.salaryMin) / 100000).toFixed(1)}L`
+          ? `From $${parseInt(newJob.salaryMin).toLocaleString()}`
           : newJob.salaryMax
-            ? `Up to ₹${(parseInt(newJob.salaryMax) / 100000).toFixed(1)}L`
+            ? `Up to $${parseInt(newJob.salaryMax).toLocaleString()}`
             : 'Not specified';
 
       // Map department for display
@@ -372,7 +601,9 @@ const JobPostingsPage: React.FC = () => {
       
       // Reset form
       setNewJob({ title: '', department: '', location: '', type: '', experience: '', salaryMin: '', salaryMax: '', description: '', responsibilities: '' });
+      setNewJobErrors({});
       setSkills(['JavaScript', 'React', 'Node.js']);
+      setSkillsFieldError(false);
       setQuestions([
         { id: '1', question: 'How many years of experience do you have in this field?', type: 'number', required: true },
         { id: '2', question: 'Are you authorized to work in the location specified?', type: 'yesno', required: true },
@@ -425,13 +656,31 @@ const JobPostingsPage: React.FC = () => {
           difficulty: 'medium' as const,
           expectedOutput: q.type === 'yesno' ? 'Yes/No' : q.type === 'multiple' ? q.options?.join(',') || '' : '',
         })),
+        screeningQuestions: editQuestions.map((q) => ({
+          id: q.id,
+          question: q.question,
+          type: q.type,
+          required: q.required,
+          options: q.options || [],
+        })),
+        salaryMin: editingJob.salaryMin ? parseInt(editingJob.salaryMin) : undefined,
+        salaryMax: editingJob.salaryMax ? parseInt(editingJob.salaryMax) : undefined,
       } as any);
       
+      const salaryDisplay = editingJob.salaryMin && editingJob.salaryMax 
+        ? `$${parseInt(editingJob.salaryMin).toLocaleString()} - $${parseInt(editingJob.salaryMax).toLocaleString()}`
+        : editingJob.salaryMin 
+          ? `From $${parseInt(editingJob.salaryMin).toLocaleString()}`
+          : editingJob.salaryMax
+            ? `Up to $${parseInt(editingJob.salaryMax).toLocaleString()}`
+            : 'Not specified';
+
       // Update local state with full job data
       const updatedJob = {
         ...editingJob,
         skills: editSkills,
         screeningQuestions: editQuestions,
+        salary: salaryDisplay,
       };
       setJobs(jobs.map(j => j.id === editingJob.id ? updatedJob : j));
       setEditDialogOpen(false);
@@ -458,6 +707,32 @@ const JobPostingsPage: React.FC = () => {
     }
   };
 
+  const handleCloseJob = async (jobId: string) => {
+    try {
+      await jobService.closeJob(jobId);
+      setJobs(jobs.map(j => j.id === jobId ? { ...j, status: 'closed' } : j));
+      setMoreAnchor(null);
+      setMoreJobId(null);
+      setSnackbar({ open: true, message: 'Job closed successfully', severity: 'success' });
+    } catch (error: any) {
+      console.error('Error closing job:', error);
+      setSnackbar({ open: true, message: error.message || 'Failed to close job', severity: 'error' });
+    }
+  };
+
+  const handleReopenJob = async (jobId: string) => {
+    try {
+      await jobService.reopenJob(jobId);
+      setJobs(jobs.map(j => j.id === jobId ? { ...j, status: 'active' } : j));
+      setMoreAnchor(null);
+      setMoreJobId(null);
+      setSnackbar({ open: true, message: 'Job reopened successfully', severity: 'success' });
+    } catch (error: any) {
+      console.error('Error reopening job:', error);
+      setSnackbar({ open: true, message: error.message || 'Failed to reopen job', severity: 'error' });
+    }
+  };
+
   const openEditDialog = (job: DisplayJob) => {
     setEditingJob({ 
       ...job,
@@ -469,7 +744,7 @@ const JobPostingsPage: React.FC = () => {
     setEditQuestions(((job as any).screeningQuestions || []).map((q: any) => ({
       ...q,
       type: q.type || 'text',
-      required: q.required !== undefined ? q.required : true,
+      required: parseQuestionRequired(q.required),
     })));
     setEditTab(0);
     setEditNewSkill('');
@@ -572,14 +847,13 @@ const JobPostingsPage: React.FC = () => {
   };
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'new': return '#0d47a1';
-      case 'reviewed': return '#FF9500';
-      case 'interviewed': return '#5856D6';
-      case 'rejected': return '#FF3B30';
-      case 'hired': return '#34C759';
-      default: return '#8E8E93';
-    }
+    const s = status?.toLowerCase() || '';
+    if (['new', 'applied', 'submitted'].includes(s)) return '#0d47a1';
+    if (['reviewed', 'under_review', 'shortlisted'].includes(s)) return '#FF9500';
+    if (['interviewed', 'interview'].includes(s)) return '#5856D6';
+    if (['rejected'].includes(s)) return '#FF3B30';
+    if (['hired', 'offered'].includes(s)) return '#34C759';
+    return '#8E8E93';
   };
   
   // Browse all candidates from backend API
@@ -606,18 +880,40 @@ const JobPostingsPage: React.FC = () => {
     }
   };
 
+  const isNew = (status: string) => ['new', 'applied', 'submitted'].includes(status?.toLowerCase());
+  const isReviewed = (status: string) => ['reviewed', 'under_review', 'shortlisted'].includes(status?.toLowerCase());
+  const isInterviewed = (status: string) => ['interviewed', 'interview', 'offered', 'hired'].includes(status?.toLowerCase());
+
   const filteredApplicants = applicants.filter(a => {
     if (applicantTab === 0) return true;
-    if (applicantTab === 1) return a.status === 'new';
-    if (applicantTab === 2) return a.status === 'reviewed';
-    if (applicantTab === 3) return a.status === 'interviewed';
+    if (applicantTab === 1) return isNew(a.status);
+    if (applicantTab === 2) return isReviewed(a.status);
+    if (applicantTab === 3) return isInterviewed(a.status);
     return true;
   }).sort((a, b) => b.matchScore - a.matchScore);
 
   const filteredJobs = jobs.filter(job => {
-    if (searchTerm && !job.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    // text search
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      const titleMatch = job.title.toLowerCase().includes(term);
+      const locMatch = job.location.toLowerCase().includes(term);
+      const companyMatch = job.department.toLowerCase().includes(term);
+      if (!titleMatch && !locMatch && !companyMatch) return false;
+    }
+
+    // status filters
     if (!filters.active && job.status === 'active') return false;
     if (!filters.draft && job.status === 'draft') return false;
+    if (!filters.closed && job.status === 'closed') return false;
+    
+    // job type filters
+    const type = job.type.toLowerCase().replace('-', '');
+    if (!filters.fulltime && type.includes('fulltime')) return false;
+    if (!filters.parttime && type.includes('parttime')) return false;
+    if (!filters.contract && type.includes('contract')) return false;
+    if (!filters.internship && type.includes('internship')) return false;
+
     return true;
   });
 
@@ -665,11 +961,11 @@ const JobPostingsPage: React.FC = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                       <Typography variant="h6" fontWeight={600}>{job.title}</Typography>
                       <Chip
-                        label={job.status === 'active' ? 'ACTIVE' : 'DRAFT'}
+                        label={job.status === 'active' ? 'ACTIVE' : job.status === 'closed' ? 'CLOSED' : 'DRAFT'}
                         size="small"
                         sx={{
-                          bgcolor: job.status === 'active' ? alpha('#34C759', 0.1) : alpha('#8E8E93', 0.1),
-                          color: job.status === 'active' ? '#34C759' : '#8E8E93',
+                          bgcolor: job.status === 'active' ? alpha('#34C759', 0.1) : job.status === 'closed' ? alpha('#FF3B30', 0.1) : alpha('#8E8E93', 0.1),
+                          color: job.status === 'active' ? '#34C759' : job.status === 'closed' ? '#FF3B30' : '#8E8E93',
                           fontWeight: 600,
                         }}
                       />
@@ -750,6 +1046,16 @@ const JobPostingsPage: React.FC = () => {
         <MenuItem onClick={() => { const job = jobs.find(j => j.id === moreJobId); if (job) openEditDialog(job); setMoreAnchor(null); }}>
           <EditIcon sx={{ mr: 1, fontSize: 18 }} /> Edit Job
         </MenuItem>
+        {jobs.find(j => j.id === moreJobId)?.status !== 'closed' && (
+          <MenuItem onClick={() => moreJobId && handleCloseJob(moreJobId)} sx={{ color: '#FF9500' }}>
+            <CloseIcon sx={{ mr: 1, fontSize: 18 }} /> Close Job
+          </MenuItem>
+        )}
+        {jobs.find(j => j.id === moreJobId)?.status === 'closed' && (
+          <MenuItem onClick={() => moreJobId && handleReopenJob(moreJobId)} sx={{ color: '#34C759' }}>
+            <CheckCircleIcon sx={{ mr: 1, fontSize: 18 }} /> Reopen Job
+          </MenuItem>
+        )}
         <MenuItem onClick={() => moreJobId && handleDeleteJob(moreJobId)} sx={{ color: '#FF3B30' }}>
           <DeleteIcon sx={{ mr: 1, fontSize: 18 }} /> Delete Job
         </MenuItem>
@@ -772,21 +1078,29 @@ const JobPostingsPage: React.FC = () => {
             control={<Checkbox checked={filters.draft} onChange={(e) => setFilters({ ...filters, draft: e.target.checked })} />} 
             label="Draft" 
           />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.closed} onChange={(e) => setFilters({ ...filters, closed: e.target.checked })} />} 
+            label="Closed" 
+          />
         </FormGroup>
         <Divider sx={{ my: 1 }} />
-        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, mt: 1 }}>Department</Typography>
+        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, mt: 1 }}>Job Type</Typography>
         <FormGroup>
           <FormControlLabel 
-            control={<Checkbox checked={filters.engineering} onChange={(e) => setFilters({ ...filters, engineering: e.target.checked })} />} 
-            label="Engineering" 
+            control={<Checkbox checked={filters.fulltime} onChange={(e) => setFilters({ ...filters, fulltime: e.target.checked })} />} 
+            label="Full-time" 
           />
           <FormControlLabel 
-            control={<Checkbox checked={filters.product} onChange={(e) => setFilters({ ...filters, product: e.target.checked })} />} 
-            label="Product" 
+            control={<Checkbox checked={filters.parttime} onChange={(e) => setFilters({ ...filters, parttime: e.target.checked })} />} 
+            label="Part-time" 
           />
           <FormControlLabel 
-            control={<Checkbox checked={filters.design} onChange={(e) => setFilters({ ...filters, design: e.target.checked })} />} 
-            label="Design" 
+            control={<Checkbox checked={filters.contract} onChange={(e) => setFilters({ ...filters, contract: e.target.checked })} />} 
+            label="Contract" 
+          />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.internship} onChange={(e) => setFilters({ ...filters, internship: e.target.checked })} />} 
+            label="Internship" 
           />
         </FormGroup>
         <Divider sx={{ my: 1 }} />
@@ -796,10 +1110,19 @@ const JobPostingsPage: React.FC = () => {
       </Menu>
 
       {/* Create Job Dialog - Enhanced with Tabs */}
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog
+        open={createDialogOpen}
+        onClose={() => {
+          setCreateDialogOpen(false);
+          setNewJobErrors({});
+          setSkillsFieldError(false);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid #eee', pb: 0 }}>
           <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>Post New Job</Typography>
-          <Tabs value={createTab} onChange={(_, v) => setCreateTab(v)} sx={{ minHeight: 40 }}>
+          <Tabs value={createTab} onChange={handleCreateTabChange} sx={{ minHeight: 40 }}>
             <Tab label="Job Details" sx={{ minHeight: 40, textTransform: 'none' }} />
             <Tab label="Required Skills" sx={{ minHeight: 40, textTransform: 'none' }} />
             <Tab label="Screening Questions" sx={{ minHeight: 40, textTransform: 'none' }} />
@@ -814,20 +1137,22 @@ const JobPostingsPage: React.FC = () => {
                   fullWidth
                   label="Job Title"
                   value={newJob.title}
-                  onChange={(e) => setNewJob({ ...newJob, title: e.target.value })}
+                  onChange={(e) => { setNewJob({ ...newJob, title: e.target.value }); setNewJobErrors({ ...newJobErrors, title: false }); }}
                   placeholder="e.g., Senior Software Engineer"
                   required
                   variant="outlined"
                   InputLabelProps={{ shrink: true }}
+                  error={!!newJobErrors.title}
+                  helperText={newJobErrors.title ? "Job Title is required" : ""}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
-                <FormControl fullWidth required>
+                <FormControl fullWidth required error={!!newJobErrors.department}>
                   <InputLabel shrink>Department</InputLabel>
                   <Select
                     value={newJob.department}
                     label="Department"
-                    onChange={(e) => setNewJob({ ...newJob, department: e.target.value })}
+                    onChange={(e) => { setNewJob({ ...newJob, department: e.target.value }); setNewJobErrors({ ...newJobErrors, department: false }); }}
                     displayEmpty
                   >
                     <MenuItem value="" disabled>Select Department</MenuItem>
@@ -841,25 +1166,55 @@ const JobPostingsPage: React.FC = () => {
                     <MenuItem value="product">Product</MenuItem>
                     <MenuItem value="data">Data Science</MenuItem>
                   </Select>
+                  {newJobErrors.department && <FormHelperText>Department is required</FormHelperText>}
                 </FormControl>
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Location"
+                <Autocomplete
+                  freeSolo
+                  options={locationSuggestions}
                   value={newJob.location}
-                  onChange={(e) => setNewJob({ ...newJob, location: e.target.value })}
-                  placeholder="e.g., New York, NY or Remote"
-                  InputLabelProps={{ shrink: true }}
+                  onChange={(_, newValue) => { 
+                    setNewJob({ ...newJob, location: newValue || '' }); 
+                    setNewJobErrors({ ...newJobErrors, location: false }); 
+                  }}
+                  onInputChange={(_, newInputValue) => { 
+                    setNewJob({ ...newJob, location: newInputValue }); 
+                    setNewJobErrors({ ...newJobErrors, location: false }); 
+                    if (newInputValue && newInputValue.length >= 2) {
+                      handleLocationSearch(newInputValue);
+                    } else {
+                      setLocationSuggestions([]);
+                    }
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Location"
+                      placeholder="e.g., New York, NY or Remote"
+                      InputLabelProps={{ shrink: true }}
+                      error={!!newJobErrors.location}
+                      helperText={newJobErrors.location ? "Location is required" : ""}
+                      required
+                      variant="outlined"
+                    />
+                  )}
+                  slotProps={{
+                    paper: {
+                      sx: {
+                        maxHeight: 200,
+                      },
+                    },
+                  }}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
-                <FormControl fullWidth>
+                <FormControl fullWidth required error={!!newJobErrors.type}>
                   <InputLabel shrink>Employment Type</InputLabel>
                   <Select
                     value={newJob.type}
                     label="Employment Type"
-                    onChange={(e) => setNewJob({ ...newJob, type: e.target.value })}
+                    onChange={(e) => { setNewJob({ ...newJob, type: e.target.value }); setNewJobErrors({ ...newJobErrors, type: false }); }}
                     displayEmpty
                   >
                     <MenuItem value="" disabled>Select Type</MenuItem>
@@ -869,15 +1224,16 @@ const JobPostingsPage: React.FC = () => {
                     <MenuItem value="internship">Internship</MenuItem>
                     <MenuItem value="freelance">Freelance</MenuItem>
                   </Select>
+                  {newJobErrors.type && <FormHelperText>Employment Type is required</FormHelperText>}
                 </FormControl>
               </Grid>
               <Grid item xs={12} md={6}>
-                <FormControl fullWidth>
+                <FormControl fullWidth required error={!!newJobErrors.experience}>
                   <InputLabel shrink>Experience Level</InputLabel>
                   <Select
                     value={newJob.experience}
                     label="Experience Level"
-                    onChange={(e) => setNewJob({ ...newJob, experience: e.target.value })}
+                    onChange={(e) => { setNewJob({ ...newJob, experience: e.target.value }); setNewJobErrors({ ...newJobErrors, experience: false }); }}
                     displayEmpty
                   >
                     <MenuItem value="" disabled>Select Level</MenuItem>
@@ -887,6 +1243,7 @@ const JobPostingsPage: React.FC = () => {
                     <MenuItem value="lead">Lead/Principal (8+ years)</MenuItem>
                     <MenuItem value="executive">Executive</MenuItem>
                   </Select>
+                  {newJobErrors.experience && <FormHelperText>Experience Level is required</FormHelperText>}
                 </FormControl>
               </Grid>
               <Grid item xs={12} md={6}>
@@ -894,12 +1251,14 @@ const JobPostingsPage: React.FC = () => {
                   fullWidth
                   label="Minimum Salary (Annual)"
                   value={newJob.salaryMin}
-                  onChange={(e) => setNewJob({ ...newJob, salaryMin: e.target.value })}
+                  onChange={(e) => { setNewJob({ ...newJob, salaryMin: e.target.value }); setNewJobErrors({ ...newJobErrors, salaryMin: false, salaryMax: false }); }}
                   placeholder="e.g., 600000"
                   type="number"
+                  required
                   InputLabelProps={{ shrink: true }}
                   InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
-                  helperText="Enter annual salary in INR"
+                  helperText={newJobErrors.salaryMin ? "Valid minimum salary is required" : "Enter annual salary in INR"}
+                  error={!!newJobErrors.salaryMin}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
@@ -907,12 +1266,14 @@ const JobPostingsPage: React.FC = () => {
                   fullWidth
                   label="Maximum Salary (Annual)"
                   value={newJob.salaryMax}
-                  onChange={(e) => setNewJob({ ...newJob, salaryMax: e.target.value })}
+                  onChange={(e) => { setNewJob({ ...newJob, salaryMax: e.target.value }); setNewJobErrors({ ...newJobErrors, salaryMin: false, salaryMax: false }); }}
                   placeholder="e.g., 1200000"
                   type="number"
+                  required
                   InputLabelProps={{ shrink: true }}
                   InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
-                  helperText="Enter annual salary in INR"
+                  helperText={newJobErrors.salaryMax ? "Valid maximum salary is required" : "Enter annual salary in INR"}
+                  error={!!newJobErrors.salaryMax}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -922,9 +1283,12 @@ const JobPostingsPage: React.FC = () => {
                   rows={3}
                   label="Job Description"
                   value={newJob.description}
-                  onChange={(e) => setNewJob({ ...newJob, description: e.target.value })}
+                  onChange={(e) => { setNewJob({ ...newJob, description: e.target.value }); setNewJobErrors({ ...newJobErrors, description: false }); }}
                   placeholder="Describe the role and what the candidate will be doing..."
                   InputLabelProps={{ shrink: true }}
+                  required
+                  error={!!newJobErrors.description}
+                  helperText={newJobErrors.description ? "Job Description is required" : ""}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -934,9 +1298,12 @@ const JobPostingsPage: React.FC = () => {
                   rows={3}
                   label="Key Responsibilities"
                   value={newJob.responsibilities}
-                  onChange={(e) => setNewJob({ ...newJob, responsibilities: e.target.value })}
+                  onChange={(e) => { setNewJob({ ...newJob, responsibilities: e.target.value }); setNewJobErrors({ ...newJobErrors, responsibilities: false }); }}
                   placeholder="List the main responsibilities (one per line)..."
                   InputLabelProps={{ shrink: true }}
+                  required
+                  error={!!newJobErrors.responsibilities}
+                  helperText={newJobErrors.responsibilities ? "Key Responsibilities are required" : ""}
                 />
               </Grid>
             </Grid>
@@ -954,13 +1321,35 @@ const JobPostingsPage: React.FC = () => {
               
               {/* Add new skill */}
               <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
-                <TextField
+                <Autocomplete
+                  freeSolo={false}
+                  options={ALL_SKILLS.filter(s => !skills.includes(s))}
+                  value={newSkill || null}
+                  onChange={(_, newValue) => {
+                    if (newValue) {
+                      setNewSkill(newValue);
+                      if (skillsFieldError) setSkillsFieldError(false);
+                    }
+                  }}
+                  onInputChange={(_, newInputValue) => {
+                    setNewSkill(newInputValue);
+                  }}
                   fullWidth
-                  size="small"
-                  placeholder="Type a skill and press Enter or click Add..."
-                  value={newSkill}
-                  onChange={(e) => setNewSkill(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddSkill()}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      size="small"
+                      placeholder="Select a skill to add..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault(); // Prevent form submission
+                          handleAddSkill();
+                        }
+                      }}
+                      error={skillsFieldError}
+                      helperText={skillsFieldError ? 'At least 2 skills are required' : ''}
+                    />
+                  )}
                 />
                 <Button variant="contained" onClick={handleAddSkill} sx={{ bgcolor: '#0d47a1', whiteSpace: 'nowrap' }}>
                   Add Skill
@@ -1168,9 +1557,17 @@ const JobPostingsPage: React.FC = () => {
             )}
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                setCreateDialogOpen(false);
+                setNewJobErrors({});
+                setSkillsFieldError(false);
+              }}
+            >
+              Cancel
+            </Button>
             {createTab < 2 ? (
-              <Button variant="contained" onClick={() => setCreateTab(createTab + 1)} sx={{ bgcolor: '#0d47a1' }}>
+              <Button variant="contained" onClick={handleCreateNextTab} sx={{ bgcolor: '#0d47a1' }}>
                 Next
               </Button>
             ) : (
@@ -1197,7 +1594,7 @@ const JobPostingsPage: React.FC = () => {
         {/* Tabs */}
         <Tabs 
           value={editTab} 
-          onChange={(_, v) => setEditTab(v)} 
+          onChange={handleEditTabChange} 
           sx={{ px: 3, borderBottom: '1px solid #eee' }}
         >
           <Tab label="Job Details" />
@@ -1216,18 +1613,20 @@ const JobPostingsPage: React.FC = () => {
                       fullWidth
                       label="Job Title"
                       value={editingJob.title}
-                      onChange={(e) => setEditingJob({ ...editingJob, title: e.target.value })}
+                      onChange={(e) => { setEditingJob({ ...editingJob, title: e.target.value }); setEditJobErrors({ ...editJobErrors, title: false }); }}
                       required
                       InputLabelProps={{ shrink: true }}
+                      error={!!editJobErrors.title}
+                      helperText={editJobErrors.title ? "Job Title is required" : ""}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
-                    <FormControl fullWidth required>
+                    <FormControl fullWidth required error={!!editJobErrors.department}>
                       <InputLabel shrink>Department</InputLabel>
                       <Select
                         value={editingJob.department}
                         label="Department"
-                        onChange={(e) => setEditingJob({ ...editingJob, department: e.target.value })}
+                        onChange={(e) => { setEditingJob({ ...editingJob, department: e.target.value }); setEditJobErrors({ ...editJobErrors, department: false }); }}
                       >
                         <MenuItem value="Engineering">Engineering</MenuItem>
                         <MenuItem value="Product">Product</MenuItem>
@@ -1238,46 +1637,78 @@ const JobPostingsPage: React.FC = () => {
                         <MenuItem value="Finance">Finance</MenuItem>
                         <MenuItem value="Operations">Operations</MenuItem>
                       </Select>
+                      {editJobErrors.department && <FormHelperText>Department is required</FormHelperText>}
                     </FormControl>
                   </Grid>
                   <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Location"
+                    <Autocomplete
+                      freeSolo
+                      options={locationSuggestions}
                       value={editingJob.location}
-                      onChange={(e) => setEditingJob({ ...editingJob, location: e.target.value })}
-                      placeholder="e.g., Remote, New York, NY"
-                      InputLabelProps={{ shrink: true }}
+                      onChange={(_, newValue) => { 
+                        setEditingJob({ ...editingJob, location: newValue || '' }); 
+                        setEditJobErrors({ ...editJobErrors, location: false }); 
+                      }}
+                      onInputChange={(_, newInputValue) => { 
+                        setEditingJob({ ...editingJob, location: newInputValue }); 
+                        setEditJobErrors({ ...editJobErrors, location: false }); 
+                        if (newInputValue && newInputValue.length >= 2) {
+                          handleLocationSearch(newInputValue);
+                        } else {
+                          setLocationSuggestions([]);
+                        }
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Location"
+                          placeholder="e.g., New York, NY or Remote"
+                          InputLabelProps={{ shrink: true }}
+                          error={!!editJobErrors.location}
+                          helperText={editJobErrors.location ? "Location is required" : ""}
+                          required
+                          variant="outlined"
+                        />
+                      )}
+                      slotProps={{
+                        paper: {
+                          sx: {
+                            maxHeight: 200,
+                          },
+                        },
+                      }}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
-                    <FormControl fullWidth>
+                    <FormControl fullWidth required error={!!editJobErrors.type}>
                       <InputLabel shrink>Employment Type</InputLabel>
                       <Select
                         value={editingJob.type}
                         label="Employment Type"
-                        onChange={(e) => setEditingJob({ ...editingJob, type: e.target.value })}
+                        onChange={(e) => { setEditingJob({ ...editingJob, type: e.target.value }); setEditJobErrors({ ...editJobErrors, type: false }); }}
                       >
                         <MenuItem value="Full-time">Full-time</MenuItem>
                         <MenuItem value="Part-time">Part-time</MenuItem>
                         <MenuItem value="Contract">Contract</MenuItem>
                         <MenuItem value="Internship">Internship</MenuItem>
                       </Select>
+                      {editJobErrors.type && <FormHelperText>Employment Type is required</FormHelperText>}
                     </FormControl>
                   </Grid>
                   <Grid item xs={12} md={6}>
-                    <FormControl fullWidth>
+                    <FormControl fullWidth required error={!!editJobErrors.experience}>
                       <InputLabel shrink>Experience Level</InputLabel>
                       <Select
                         value={editingJob.experience || 'Mid Level'}
                         label="Experience Level"
-                        onChange={(e) => setEditingJob({ ...editingJob, experience: e.target.value })}
+                        onChange={(e) => { setEditingJob({ ...editingJob, experience: e.target.value }); setEditJobErrors({ ...editJobErrors, experience: false }); }}
                       >
                         <MenuItem value="Entry Level">Entry Level</MenuItem>
                         <MenuItem value="Mid Level">Mid Level</MenuItem>
                         <MenuItem value="Senior Level">Senior Level</MenuItem>
                         <MenuItem value="Lead/Principal">Lead/Principal</MenuItem>
                       </Select>
+                      {editJobErrors.experience && <FormHelperText>Experience Level is required</FormHelperText>}
                     </FormControl>
                   </Grid>
                   <Grid item xs={12} md={6}>
@@ -1285,11 +1716,13 @@ const JobPostingsPage: React.FC = () => {
                       fullWidth
                       label="Min Salary (Annual)"
                       value={editingJob.salaryMin || ''}
-                      onChange={(e) => setEditingJob({ ...editingJob, salaryMin: e.target.value })}
-                      placeholder="e.g., 600000"
+                      onChange={(e) => { setEditingJob({ ...editingJob, salaryMin: e.target.value }); setEditJobErrors({ ...editJobErrors, salaryMin: false }); }}
+                      placeholder="e.g., 60000"
                       type="number"
                       InputLabelProps={{ shrink: true }}
-                      InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      error={!!editJobErrors.salaryMin}
+                      helperText={editJobErrors.salaryMin ? "Min salary is required and must be valid" : ""}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
@@ -1297,11 +1730,13 @@ const JobPostingsPage: React.FC = () => {
                       fullWidth
                       label="Max Salary (Annual)"
                       value={editingJob.salaryMax || ''}
-                      onChange={(e) => setEditingJob({ ...editingJob, salaryMax: e.target.value })}
-                      placeholder="e.g., 1200000"
+                      onChange={(e) => { setEditingJob({ ...editingJob, salaryMax: e.target.value }); setEditJobErrors({ ...editJobErrors, salaryMax: false }); }}
+                      placeholder="e.g., 120000"
                       type="number"
                       InputLabelProps={{ shrink: true }}
-                      InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      error={!!editJobErrors.salaryMax}
+                      helperText={editJobErrors.salaryMax ? "Max salary is required and must be valid" : ""}
                     />
                   </Grid>
                   <Grid item xs={12}>
@@ -1309,11 +1744,14 @@ const JobPostingsPage: React.FC = () => {
                       fullWidth
                       label="Job Description"
                       value={editingJob.description || ''}
-                      onChange={(e) => setEditingJob({ ...editingJob, description: e.target.value })}
+                      onChange={(e) => { setEditingJob({ ...editingJob, description: e.target.value }); setEditJobErrors({ ...editJobErrors, description: false }); }}
                       multiline
                       rows={4}
                       placeholder="Describe the role, responsibilities, and what you're looking for..."
                       InputLabelProps={{ shrink: true }}
+                      required
+                      error={!!editJobErrors.description}
+                      helperText={editJobErrors.description ? "Job Description is required" : ""}
                     />
                   </Grid>
                   <Grid item xs={12}>
@@ -1321,11 +1759,14 @@ const JobPostingsPage: React.FC = () => {
                       fullWidth
                       label="Key Responsibilities"
                       value={editingJob.responsibilities || ''}
-                      onChange={(e) => setEditingJob({ ...editingJob, responsibilities: e.target.value })}
+                      onChange={(e) => { setEditingJob({ ...editingJob, responsibilities: e.target.value }); setEditJobErrors({ ...editJobErrors, responsibilities: false }); }}
                       multiline
                       rows={3}
                       placeholder="List key responsibilities (one per line)"
                       InputLabelProps={{ shrink: true }}
+                      required
+                      error={!!editJobErrors.responsibilities}
+                      helperText={editJobErrors.responsibilities ? "Key Responsibilities are required" : ""}
                     />
                   </Grid>
                   <Grid item xs={12}>
@@ -1348,6 +1789,47 @@ const JobPostingsPage: React.FC = () => {
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Add the skills required for this position. These will be used to match candidates.
                   </Typography>
+
+                  {/* Add skill input */}
+                  <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
+                    <Autocomplete
+                      freeSolo={false}
+                      options={ALL_SKILLS.filter(s => !editSkills.includes(s))}
+                      value={editNewSkill || null}
+                      onChange={(_, newValue) => {
+                        if (newValue) {
+                          setEditNewSkill(newValue);
+                          if (editSkillsFieldError) setEditSkillsFieldError(false);
+                        }
+                      }}
+                      onInputChange={(_, newInputValue) => {
+                        setEditNewSkill(newInputValue);
+                      }}
+                      fullWidth
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          size="small"
+                          placeholder="Select a skill to add..."
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault(); // Prevent form submission
+                              handleAddEditSkill();
+                            }
+                          }}
+                          error={editSkillsFieldError}
+                          helperText={editSkillsFieldError ? 'At least 2 skills are required' : ''}
+                        />
+                      )}
+                    />
+                    <Button 
+                      variant="contained" 
+                      onClick={handleAddEditSkill}
+                      sx={{ bgcolor: '#0d47a1', whiteSpace: 'nowrap' }}
+                    >
+                      Add Skill
+                    </Button>
+                  </Box>
                   
                   {/* Current skills */}
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3, p: 2, bgcolor: '#f5f5f5', borderRadius: 2, minHeight: 60 }}>
@@ -1359,31 +1841,14 @@ const JobPostingsPage: React.FC = () => {
                           key={skill}
                           label={skill}
                           onDelete={() => handleRemoveEditSkill(skill)}
-                          sx={{ bgcolor: '#e3f2fd', color: '#0d47a1' }}
+                          sx={{ 
+                            bgcolor: alpha('#0d47a1', 0.1), 
+                            color: '#0d47a1',
+                            '& .MuiChip-deleteIcon': { color: '#0d47a1' },
+                          }}
                         />
                       ))
                     )}
-                  </Box>
-                  
-                  {/* Add skill input */}
-                  <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
-                    <TextField
-                      fullWidth
-                      label="Add a skill"
-                      value={editNewSkill}
-                      onChange={(e) => setEditNewSkill(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleAddEditSkill()}
-                      placeholder="e.g., React, Python, AWS..."
-                      InputLabelProps={{ shrink: true }}
-                    />
-                    <Button 
-                      variant="contained" 
-                      onClick={handleAddEditSkill}
-                      disabled={!editNewSkill.trim()}
-                      sx={{ bgcolor: '#0d47a1' }}
-                    >
-                      Add
-                    </Button>
                   </Box>
                   
                   {/* Suggested skills */}
@@ -1391,17 +1856,15 @@ const JobPostingsPage: React.FC = () => {
                     Suggested Skills
                   </Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                    {['JavaScript', 'TypeScript', 'React', 'Node.js', 'Python', 'Java', 'AWS', 'Docker', 'Kubernetes', 'SQL', 'MongoDB', 'GraphQL', 'REST API', 'Git', 'Agile', 'CI/CD'].map((skill) => (
+                    {['JavaScript', 'TypeScript', 'React', 'Node.js', 'Python', 'Java', 'AWS', 'Docker', 'Kubernetes', 'SQL', 'MongoDB', 'GraphQL', 'REST API', 'Git', 'Agile', 'CI/CD']
+                      .filter((skill) => !editSkills.includes(skill))
+                      .map((skill) => (
                       <Chip
                         key={skill}
                         label={skill}
                         variant="outlined"
-                        onClick={() => !editSkills.includes(skill) && setEditSkills([...editSkills, skill])}
-                        sx={{ 
-                          cursor: 'pointer',
-                          opacity: editSkills.includes(skill) ? 0.5 : 1,
-                          '&:hover': { bgcolor: '#e3f2fd' }
-                        }}
+                        onClick={() => setEditSkills([...editSkills, skill])}
+                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: alpha('#0d47a1', 0.05) } }}
                       />
                     ))}
                   </Box>
@@ -1542,9 +2005,9 @@ const JobPostingsPage: React.FC = () => {
             )}
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button onClick={() => { setEditDialogOpen(false); setEditTab(0); }}>Cancel</Button>
+            <Button onClick={() => { setEditDialogOpen(false); setEditJobErrors({}); setEditSkillsFieldError(false); setEditTab(0); }}>Cancel</Button>
             {editTab < 2 ? (
-              <Button variant="contained" onClick={() => setEditTab(editTab + 1)} sx={{ bgcolor: '#0d47a1' }}>
+              <Button variant="contained" onClick={handleEditNextTab} sx={{ bgcolor: '#0d47a1' }}>
                 Next
               </Button>
             ) : (
@@ -1560,9 +2023,19 @@ const JobPostingsPage: React.FC = () => {
       <Dialog open={applicantsDialogOpen} onClose={() => setApplicantsDialogOpen(false)} maxWidth="lg" fullWidth>
         <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Box>
-            <Typography variant="h6" fontWeight={700}>
-              Applicants for {selectedJob?.title}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Typography variant="h6" fontWeight={700}>
+                Applicants for {selectedJob?.title}
+              </Typography>
+              {selectedJob?.status === 'closed' && (
+                <Chip 
+                  label="JOB CLOSED" 
+                  size="small" 
+                  color="error" 
+                  sx={{ fontWeight: 'bold' }} 
+                />
+              )}
+            </Box>
             <Typography variant="body2" color="text.secondary">
               {applicants.length} total applicants • Sorted by profile match score
             </Typography>
@@ -1578,9 +2051,9 @@ const JobPostingsPage: React.FC = () => {
             sx={{ borderBottom: '1px solid #eee', px: 2 }}
           >
             <Tab label={`All (${applicants.length})`} />
-            <Tab label={`New (${applicants.filter(a => a.status === 'new').length})`} />
-            <Tab label={`Reviewed (${applicants.filter(a => a.status === 'reviewed').length})`} />
-            <Tab label={`Interviewed (${applicants.filter(a => a.status === 'interviewed').length})`} />
+            <Tab label={`New (${applicants.filter(a => isNew(a.status)).length})`} />
+            <Tab label={`Reviewed (${applicants.filter(a => isReviewed(a.status)).length})`} />
+            <Tab label={`Interviewed (${applicants.filter(a => isInterviewed(a.status)).length})`} />
           </Tabs>
           
           {applicants.length === 0 ? (
@@ -1591,13 +2064,13 @@ const JobPostingsPage: React.FC = () => {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                 No one has applied to this job yet. Browse existing candidates in the system to find potential matches.
               </Typography>
-              <Button 
+              {/* <Button 
                 variant="contained" 
                 onClick={loadAllCandidates}
                 sx={{ bgcolor: '#0d47a1' }}
               >
                 Browse All Candidates
-              </Button>
+              </Button> */}
             </Box>
           ) : (
           <TableContainer>
@@ -1649,7 +2122,7 @@ const JobPostingsPage: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={applicant.status.charAt(0).toUpperCase() + applicant.status.slice(1)}
+                        label={applicant.status.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
                         size="small"
                         sx={{
                           bgcolor: alpha(getStatusColor(applicant.status), 0.1),

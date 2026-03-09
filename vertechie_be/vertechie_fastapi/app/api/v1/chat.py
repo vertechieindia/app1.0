@@ -11,8 +11,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +35,11 @@ def _ext(filename: str) -> str:
 from app.db.session import get_db
 from app.models.chat import Conversation, Message, ChatMember, ConversationType, MessageType, MemberRole
 from app.models.user import User
+from app.models.network import Connection, ConnectionStatus
 from app.schemas.chat import (
     ConversationCreate, ConversationResponse,
     MessageCreate, MessageResponse,
-    ChatMemberResponse, MessageReaction, MessageEdit
+    ChatMemberResponse, MessageReaction, MessageEdit, ChatUserCandidateResponse
 )
 from app.core.security import get_current_user
 from app.api.v1.chat_ws import broadcast_new_message, broadcast_message_edit, broadcast_message_delete
@@ -46,6 +48,83 @@ router = APIRouter()
 
 
 # ============= Conversations =============
+
+@router.get("/users/available", response_model=List[ChatUserCandidateResponse])
+async def list_available_chat_users(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    search: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=200),
+) -> Any:
+    """List users eligible for new chat/group creation (accepted connections)."""
+
+    result = await db.execute(
+        select(Connection).where(
+            or_(
+                Connection.user_id == current_user.id,
+                Connection.connected_user_id == current_user.id,
+            ),
+            Connection.status == ConnectionStatus.ACCEPTED,
+        )
+    )
+    connections = result.scalars().all()
+
+    connected_ids = set()
+    for conn in connections:
+        if conn.user_id == current_user.id:
+            connected_ids.add(conn.connected_user_id)
+        else:
+            connected_ids.add(conn.user_id)
+
+    if not connected_ids:
+        return []
+
+    query = (
+        select(User)
+        .where(
+            User.id.in_(connected_ids),
+            User.is_active == True,
+            User.is_blocked == False,
+        )
+        .options(selectinload(User.roles))
+        .order_by(User.first_name.asc().nulls_last(), User.last_name.asc().nulls_last(), User.email.asc())
+        .limit(limit)
+    )
+
+    if search:
+        q = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                User.email.ilike(q),
+                User.first_name.ilike(q),
+                User.last_name.ilike(q),
+                User.username.ilike(q),
+            )
+        )
+
+    users_result = await db.execute(query)
+    users = users_result.scalars().all()
+
+    response = []
+    for user in users:
+        user_type = "techie"
+        if getattr(user, "roles", None):
+            first_role = user.roles[0]
+            role_type = getattr(first_role, "role_type", None)
+            user_type = role_type.value if role_type else user_type
+
+        response.append(
+            ChatUserCandidateResponse(
+                id=user.id,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                username=user.username,
+                email=user.email,
+                user_type=user_type,
+            )
+        )
+
+    return response
 
 @router.get("/conversations", response_model=List[ConversationResponse])
 async def list_conversations(

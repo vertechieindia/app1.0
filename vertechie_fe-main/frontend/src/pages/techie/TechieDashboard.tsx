@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Techie Dashboard - Main Dashboard for Tech Professionals
  * Comprehensive platform featuring:
  * - Job Search & Applications
@@ -728,34 +728,38 @@ const TechieDashboard: React.FC = () => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Box>
               <Typography variant="h4" sx={{ fontWeight: 800, mb: 0.5 }}>
-                Welcome back! ðŸ‘‹
+                Welcome back! 👋
               </Typography>
               <Typography color="text.secondary">
-                Keep up the great work. You're on a roll!
+                {isSavedRoute 
+                  ? "Your saved items will appear here!" 
+                  : "Keep up the great work. You're on a roll!"}
               </Typography>
             </Box>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Tooltip title="Notifications">
-                <IconButton
-                  sx={{
-                    bgcolor: 'background.paper',
-                    boxShadow: 1,
-                  }}
-                >
-                  <NotificationsIcon />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Search">
-                <IconButton
-                  sx={{
-                    bgcolor: 'background.paper',
-                    boxShadow: 1,
-                  }}
-                >
-                  <SearchIcon />
-                </IconButton>
-              </Tooltip>
-            </Box>
+            {!isSavedRoute && (
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Tooltip title="Notifications">
+                  <IconButton
+                    sx={{
+                      bgcolor: 'background.paper',
+                      boxShadow: 1,
+                    }}
+                  >
+                    <NotificationsIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Search">
+                  <IconButton
+                    sx={{
+                      bgcolor: 'background.paper',
+                      boxShadow: 1,
+                    }}
+                  >
+                    <SearchIcon />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            )}
           </Box>
           
           {error && (
@@ -765,15 +769,16 @@ const TechieDashboard: React.FC = () => {
           )}
           
           {/* Quick Stats */}
-          <QuickStats stats={stats} />
+          {!isSavedRoute && <QuickStats stats={stats} />}
         </Box>
         
         {/* Main Content */}
         <Grid container spacing={3}>
           {/* Left Column */}
-          <Grid item xs={12} lg={8}>
+          <Grid item xs={12} lg={isSavedRoute ? 12 : 8}>
             {/* Navigation Tabs */}
-            <Paper sx={{ borderRadius: 3, mb: 3 }}>
+            {!isSavedRoute && (
+              <Paper sx={{ borderRadius: 3, mb: 3 }}>
               <Tabs
                 value={tabValue}
                 onChange={handleTabChange}
@@ -796,9 +801,12 @@ const TechieDashboard: React.FC = () => {
                 <Tab icon={<BookmarkIcon />} iconPosition="start" label="Saved" />
               </Tabs>
             </Paper>
+            )}
             
             {/* Tab Panels */}
-            <TabPanel value={tabValue} index={0}>
+            {!isSavedRoute && (
+              <>
+                <TabPanel value={tabValue} index={0}>
               <Grid container spacing={3}>
                 <Grid item xs={12}>
                   <RecommendedJobs jobs={recommendedJobs} />
@@ -1036,17 +1044,20 @@ const TechieDashboard: React.FC = () => {
                 </Grid>
               </Grid>
             </TabPanel>
+            </>
+            )}
 
-            <TabPanel value={tabValue} index={5}>
+            {(isSavedRoute || tabValue === 5) && (
+            <TabPanel value={isSavedRoute ? 5 : tabValue} index={5}>
               <Grid container spacing={3}>
-                <Grid item xs={12}>
+                {/* <Grid item xs={12}>
                   <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
                     Saved Items
                   </Typography>
                   <Typography color="text.secondary" sx={{ mb: 2 }}>
                     Saved blogs and saved feed posts for your account
                   </Typography>
-                </Grid>
+                </Grid> */}
                 {!savedBlogsLoading && savedPosts.length > 0 && (
                   <>
                     <Grid item xs={12}>
@@ -1138,9 +1149,11 @@ const TechieDashboard: React.FC = () => {
                 )}
               </Grid>
             </TabPanel>
+            )}
           </Grid>
           
           {/* Right Column */}
+          {!isSavedRoute && (
           <Grid item xs={12} lg={4}>
             <Box sx={{ position: 'sticky', top: 24, display: 'flex', flexDirection: 'column', gap: 3 }}>
               <StreakCard stats={stats} />
@@ -1182,6 +1195,7 @@ const TechieDashboard: React.FC = () => {
               </Card>
             </Box>
           </Grid>
+          )}
         </Grid>
       </Container>
     </Box>

@@ -36,10 +36,14 @@ async def list_jobs(
     is_remote: Optional[bool] = Query(None),
     location: Optional[str] = Query(None),
     company_id: Optional[UUID] = Query(None),
+    posted_by: Optional[UUID] = Query(None),
 ) -> Any:
     """List published jobs."""
     
-    query = select(Job).where(Job.status == JobStatus.PUBLISHED)
+    if posted_by:
+        query = select(Job).where(Job.posted_by_id == posted_by)
+    else:
+        query = select(Job).where(Job.status == JobStatus.PUBLISHED)
     
     if search:
         query = query.where(
@@ -64,7 +68,7 @@ async def list_jobs(
     
     if company_id:
         query = query.where(Job.company_id == company_id)
-    
+
     query = query.order_by(Job.is_featured.desc(), Job.published_at.desc())
     query = query.offset(skip).limit(limit)
     
