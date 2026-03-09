@@ -56,6 +56,15 @@ export interface MessageListParams {
   limit?: number;
 }
 
+export interface ChatUserCandidate {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  email: string;
+  user_type?: string;
+}
+
 // Chat service
 export const chatService = {
   /**
@@ -74,6 +83,15 @@ export const chatService = {
       member_ids: data.member_ids,
       name: data.name,
       description: data.description,
+    });
+  },
+
+  /**
+   * List users available for new chats/groups (accepted connections)
+   */
+  getAvailableUsers: async (search?: string, limit: number = 100): Promise<ChatUserCandidate[]> => {
+    return api.get<ChatUserCandidate[]>(API_ENDPOINTS.CHAT.AVAILABLE_USERS, {
+      params: { search, limit },
     });
   },
 

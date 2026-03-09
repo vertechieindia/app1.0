@@ -14,7 +14,6 @@ import {
   AppBar,
   Toolbar,
   Typography,
-  Button,
   Box,
   IconButton,
   Drawer,
@@ -71,6 +70,8 @@ import InstagramIcon from '@mui/icons-material/Instagram';
 import YouTubeIcon from '@mui/icons-material/YouTube';
 import XIcon from '@mui/icons-material/X';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
+import HelpIcon from '@mui/icons-material/Help';
 
 // Styled Components - Using Hero Section Colors
 const StyledAppBar = styled(AppBar)(({ theme }) => ({
@@ -90,37 +91,6 @@ const LogoImage = styled('img')({
   width: 40,
   marginRight: 8,
 });
-
-// Hero accent color: #5AC8FA (cyan) and #90CAF9 (light blue)
-const NavButton = styled(Button, {
-  shouldForwardProp: (prop) => prop !== 'active',
-})<{ active?: boolean; component?: React.ElementType; to?: string }>(({ theme, active }) => ({
-  color: active ? '#5AC8FA' : 'rgba(255, 255, 255, 0.9)',
-  fontWeight: active ? 600 : 500,
-  fontSize: '0.9rem',
-  padding: '8px 16px',
-  borderRadius: 8,
-  textTransform: 'none',
-  position: 'relative',
-  transition: 'all 0.2s ease',
-  '&:hover': {
-    backgroundColor: alpha('#5AC8FA', 0.15),
-    color: '#5AC8FA',
-  },
-  ...(active && {
-    '&::after': {
-      content: '""',
-      position: 'absolute',
-      bottom: 0,
-      left: '50%',
-      transform: 'translateX(-50%)',
-      width: '60%',
-      height: 3,
-      background: 'linear-gradient(90deg, #5AC8FA 0%, #90CAF9 100%)',
-      borderRadius: '3px 3px 0 0',
-    },
-  }),
-}));
 
 const ProfileChip = styled(Chip)(({ theme }) => ({
   backgroundColor: alpha('#5AC8FA', 0.15),
@@ -346,52 +316,6 @@ const AppHeader = () => {
 
   const navItems = roleNavConfig[userRole] || roleNavConfig.techie;
 
-  const renderDesktopNav = () => (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 3 }}>
-      {navItems.map((item) => (
-        item.isExternal ? (
-          <Tooltip key={item.path} title={item.label} arrow>
-            <IconButton
-              component="a"
-              href={item.path}
-              target="_blank"
-              rel="noopener noreferrer"
-              sx={{
-                color: 'rgba(255, 255, 255, 0.9)',
-                transition: 'all 0.2s ease',
-                padding: '10px',
-                '&:hover': {
-                  color: '#5AC8FA',
-                  backgroundColor: alpha('#5AC8FA', 0.15),
-                  transform: 'scale(1.1)',
-                },
-              }}
-            >
-              {item.icon}
-            </IconButton>
-          </Tooltip>
-        ) : (
-          <NavButton
-            key={item.path}
-            component={RouterLink}
-            to={item.path}
-            active={isActive(item.path)}
-            startIcon={!isMobile ? item.icon : undefined}
-          >
-            {item.label}
-            {item.badge && item.badge > 0 && (
-              <Badge
-                badgeContent={item.badge}
-                color="error"
-                sx={{ ml: 1 }}
-              />
-            )}
-          </NavButton>
-        )
-      ))}
-    </Box>
-  );
-
   const renderMobileDrawer = () => (
     <Drawer
       anchor="left"
@@ -562,9 +486,6 @@ const AppHeader = () => {
             VerTechie
           </Typography>
         </Box>
-
-        {/* Desktop Navigation */}
-        {!isTablet && renderDesktopNav()}
 
         <Box sx={{ flexGrow: 1 }} />
 
@@ -740,20 +661,22 @@ const AppHeader = () => {
             </Box>
             <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
             <MenuItem
-              component={RouterLink}
-              to="/profile"
-              onClick={() => setProfileAnchor(null)}
+              onClick={() => {
+                navigate(userRole === 'hiring_manager' ? '/hr/profile' : '/techie/profile');
+                setProfileAnchor(null);
+              }}
               sx={{ py: 1.5 }}
             >
               <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
                 <PersonIcon />
               </ListItemIcon>
-              My Profile
+              View Profile
             </MenuItem>
             <MenuItem
-              component={RouterLink}
-              to="/saved"
-              onClick={() => setProfileAnchor(null)}
+              onClick={() => {
+                navigate(userRole === 'hiring_manager' ? '/hr/saved' : '/techie/saved');
+                setProfileAnchor(null);
+              }}
               sx={{ py: 1.5 }}
             >
               <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
@@ -761,16 +684,48 @@ const AppHeader = () => {
               </ListItemIcon>
               Saved Items
             </MenuItem>
+
+            {userRole !== 'hiring_manager' && (
+              <MenuItem
+                onClick={() => {
+                  navigate('/my-applications');
+                  setProfileAnchor(null);
+                }}
+                sx={{ py: 1.5 }}
+              >
+                <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                  <WorkIcon />
+                </ListItemIcon>
+                My Applications
+              </MenuItem>
+            )}
+
+            {userRole !== 'hiring_manager' && (
+              <MenuItem
+                onClick={() => {
+                  navigate('/techie/my-interviews');
+                  setProfileAnchor(null);
+                }}
+                sx={{ py: 1.5 }}
+              >
+                <ListItemIcon sx={{ color: '#5AC8FA' }}>
+                  <EventAvailableIcon />
+                </ListItemIcon>
+                My Interviews
+              </MenuItem>
+            )}
+
             <MenuItem
-              component={RouterLink}
-              to="/settings"
-              onClick={() => setProfileAnchor(null)}
+              onClick={() => {
+                window.location.href = 'https://vertechie.com/contact';
+                setProfileAnchor(null);
+              }}
               sx={{ py: 1.5 }}
             >
               <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                <SettingsIcon />
+                <HelpIcon />
               </ListItemIcon>
-              Settings
+              Help Center
             </MenuItem>
             <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
             <MenuItem
@@ -780,7 +735,7 @@ const AppHeader = () => {
               <ListItemIcon sx={{ color: '#ff6b6b' }}>
                 <LogoutIcon />
               </ListItemIcon>
-              Logout
+              Sign Out
             </MenuItem>
           </Menu>
         </Box>

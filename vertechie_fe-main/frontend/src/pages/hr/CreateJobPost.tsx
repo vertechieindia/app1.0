@@ -26,6 +26,7 @@ import {
   Paper,
   Divider,
   Collapse,
+  Autocomplete,
   alpha,
   keyframes,
 } from '@mui/material';
@@ -48,6 +49,8 @@ import {
   DIFFICULTY_LABELS,
 } from '../../types/jobPortal';
 import { jobService, getHRUserInfo } from '../../services/jobPortalService';
+import { API_ENDPOINTS, getApiUrl } from '../../config/api';
+import { fetchWithAuth } from '../../utils/apiInterceptor';
 
 // Theme Colors - Poncho Palette
 const colors = {
@@ -278,6 +281,18 @@ const CreateJobPost: React.FC = () => {
   const [success, setSuccess] = useState(false);
   const [skillInput, setSkillInput] = useState('');
   const [expandedQuestion, setExpandedQuestion] = useState<number | null>(0);
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+
+  // Predefined Skills for suggestions
+  const ALL_SKILLS = [
+    'React', 'Angular', 'Vue.js', 'TypeScript', 'JavaScript', 'HTML5', 'CSS3', 'Tailwind CSS', 'Next.js', 'Redux', 'Svelte',
+    'Python', 'Node.js', 'Java', 'Go', 'Rust', 'C#', '.NET', 'Ruby', 'PHP', 'Django', 'FastAPI', 'Express.js', 'Spring Boot',
+    'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Elasticsearch', 'Oracle', 'SQL Server', 'DynamoDB', 'Cassandra',
+    'Docker', 'Kubernetes', 'AWS', 'Azure', 'GCP', 'Jenkins', 'GitLab CI', 'Terraform', 'Ansible', 'Linux',
+    'React Native', 'Flutter', 'Swift', 'Kotlin', 'iOS', 'Android', 'Xamarin',
+    'Machine Learning', 'TensorFlow', 'PyTorch', 'Pandas', 'NumPy', 'Data Science', 'NLP', 'Computer Vision', 'LLMs',
+    'Git', 'VS Code', 'Jira', 'Figma', 'Postman', 'Slack', 'Notion'
+  ].sort();
 
   const [formData, setFormData] = useState<JobFormData>({
     title: '',
@@ -295,6 +310,43 @@ const CreateJobPost: React.FC = () => {
       fetchJob(jobId);
     }
   }, [jobId]);
+
+  const handleLocationSearch = async (query: string) => {
+    if (!query || query.trim().length < 2) {
+      setLocationSuggestions([]);
+      return;
+    }
+
+    try {
+      const q = encodeURIComponent(query.trim());
+      const countries = ['IN', 'US'];
+      const token = localStorage.getItem('authToken');
+      
+      const results = await Promise.all(
+        countries.map(async (country) => {
+          const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${q}&country=${country}&limit=10`;
+          
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            }
+          });
+          
+          if (!response.ok) return [];
+          const data = await response.json();
+          return Array.isArray(data) ? data.map((place: any) => place.display_name).filter(Boolean) : [];
+        })
+      );
+
+      const merged = Array.from(new Set(results.flat())).slice(0, 20);
+      setLocationSuggestions(merged);
+    } catch (err) {
+      console.error('Failed to fetch location suggestions:', err);
+      setLocationSuggestions([]);
+    }
+  };
 
   const fetchJob = async (id: string) => {
     try {
@@ -564,13 +616,28 @@ const CreateJobPost: React.FC = () => {
 
               {/* Location */}
               <Grid item xs={12} md={6}>
-                <StyledTextField
-                  fullWidth
-                  label="Location"
-                  value={formData.location}
-                  onChange={(e) => handleInputChange('location', e.target.value)}
-                  required
-                  placeholder="e.g., Remote, New York, NY"
+                <Autocomplete
+                  freeSolo
+                  options={locationSuggestions}
+                  value={formData.location || ''}
+                  onChange={(_, newValue) => handleInputChange('location', (newValue as string) || '')}
+                  onInputChange={(_, newInputValue) => {
+                    handleInputChange('location', newInputValue);
+                    if (newInputValue && newInputValue.trim().length >= 2) {
+                      handleLocationSearch(newInputValue);
+                    } else {
+                      setLocationSuggestions([]);
+                    }
+                  }}
+                  renderInput={(params) => (
+                    <StyledTextField
+                      {...params}
+                      fullWidth
+                      label="Location"
+                      required
+                      placeholder="Type city/village in India or USA..."
+                    />
+                  )}
                 />
               </Grid>
 
@@ -630,14 +697,33 @@ const CreateJobPost: React.FC = () => {
                   Required Skills
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
-                  <StyledTextField
+                  <Autocomplete
+                    freeSolo={false}
+                    options={ALL_SKILLS.filter(s => !formData.requiredSkills.includes(s))}
+                    value={skillInput || null}
+                    onChange={(_, newValue) => {
+                      if (newValue) {
+                        setSkillInput(newValue);
+                      }
+                    }}
+                    onInputChange={(_, newInputValue) => {
+                      setSkillInput(newInputValue);
+                    }}
                     fullWidth
-                    size="small"
-                    label="Add a skill"
-                    value={skillInput}
-                    onChange={(e) => setSkillInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddSkill())}
-                    placeholder="e.g., React, TypeScript"
+                    renderInput={(params) => (
+                      <StyledTextField
+                        {...params}
+                        size="small"
+                        label="Add a skill"
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddSkill();
+                          }
+                        }}
+                        placeholder="Select or type a skill..."
+                      />
+                    )}
                   />
                   <Button
                     variant="contained"

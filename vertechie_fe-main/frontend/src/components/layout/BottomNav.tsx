@@ -672,7 +672,7 @@ const BottomNav: React.FC = () => {
             </MenuItem>
           )}
 
-          <MenuItem
+          {/* <MenuItem
             onClick={() => {
               navigate(userRole === 'hiring_manager' ? '/hr/settings' : '/techie/settings');
               setProfileAnchor(null);
@@ -683,14 +683,14 @@ const BottomNav: React.FC = () => {
               <SettingsIcon />
             </ListItemIcon>
             <ListItemText primary="Settings" />
-          </MenuItem>
+          </MenuItem> */}
 
           {/* Create School/Company Account Option */}
           <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
 
           {(userRole === 'techie' || userRole === 'hiring_manager') && (
             <>
-              <MenuItem
+              {/* <MenuItem
                 onClick={() => {
                   navigate('/techie/create-company');
                   setProfileAnchor(null);
@@ -701,9 +701,9 @@ const BottomNav: React.FC = () => {
                   <BusinessIcon />
                 </ListItemIcon>
                 <ListItemText primary="Create Company Page" />
-              </MenuItem>
+              </MenuItem> */}
 
-              <MenuItem
+              {/* <MenuItem
                 onClick={() => {
                   navigate('/techie/create-school');
                   setProfileAnchor(null);
@@ -714,7 +714,7 @@ const BottomNav: React.FC = () => {
                   <SchoolIcon />
                 </ListItemIcon>
                 <ListItemText primary="Create School Page" />
-              </MenuItem>
+              </MenuItem> */}
 
               <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
             </>
@@ -722,7 +722,7 @@ const BottomNav: React.FC = () => {
 
           <MenuItem
             onClick={() => {
-              navigate(userRole === 'hiring_manager' ? '/hr/help' : '/techie/help');
+              window.location.href = 'https://vertechie.com/contact';
               setProfileAnchor(null);
             }}
             sx={{ py: 1.5 }}

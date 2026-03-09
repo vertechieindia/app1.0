@@ -4,7 +4,8 @@
  * Now with Backend API Integration
  */
 
-import { getApiUrl, API_ENDPOINTS, API_BASE_URL } from '../config/api';
+import { API_ENDPOINTS, API_BASE_URL } from '../config/api';
+import { getAccessToken } from './apiClient';
 import {
   Job,
   JobFormData,
@@ -12,16 +13,16 @@ import {
   ApplicationStatus,
   CodingAnswer,
 } from '../types/jobPortal';
-import { emailNotificationService } from './emailNotificationService';
-
-// Storage keys (fallback when API is unavailable)
-const JOBS_STORAGE_KEY = 'vertechie_jobs';
-const APPLICATIONS_STORAGE_KEY = 'vertechie_applications';
-const INTERESTS_STORAGE_KEY = 'vertechie_interests';
 
 // API Helper - Get auth token
 const getAuthToken = (): string | null => {
-  return localStorage.getItem('authToken') || localStorage.getItem('access_token') || localStorage.getItem('token');
+  return (
+    getAccessToken() ||
+    localStorage.getItem('authToken') ||
+    localStorage.getItem('accessToken') ||
+    localStorage.getItem('access_token') ||
+    localStorage.getItem('token')
+  );
 };
 
 // API Helper - Make authenticated request
@@ -36,7 +37,10 @@ const apiRequest = async (
     ...(options.headers || {}),
   };
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  // Prevent double slashes when joining API_BASE_URL and endpoint
+  const url = `${API_BASE_URL.replace(/\/$/, '')}/${endpoint.replace(/^\//, '')}`;
+
+  const response = await fetch(url, {
     ...options,
     headers,
   });
@@ -56,135 +60,53 @@ export interface JobInterest {
   status: 'pending' | 'viewed' | 'contacted';
 }
 
-// Helper functions for local storage (simulating backend)
-const getStoredJobs = (): Job[] => {
-  const stored = localStorage.getItem(JOBS_STORAGE_KEY);
-  return stored ? JSON.parse(stored) : [];
+const parseApiError = async (response: Response, fallback: string): Promise<string> => {
+  const errorData = await response.json().catch(() => ({} as any));
+  return errorData?.detail || fallback;
 };
-
-const storeJobs = (jobs: Job[]): void => {
-  localStorage.setItem(JOBS_STORAGE_KEY, JSON.stringify(jobs));
-};
-
-const getStoredApplications = (): Application[] => {
-  const stored = localStorage.getItem(APPLICATIONS_STORAGE_KEY);
-  return stored ? JSON.parse(stored) : [];
-};
-
-const storeApplications = (applications: Application[]): void => {
-  localStorage.setItem(APPLICATIONS_STORAGE_KEY, JSON.stringify(applications));
-};
-
-const getStoredInterests = (): JobInterest[] => {
-  const stored = localStorage.getItem(INTERESTS_STORAGE_KEY);
-  return stored ? JSON.parse(stored) : [];
-};
-
-const storeInterests = (interests: JobInterest[]): void => {
-  localStorage.setItem(INTERESTS_STORAGE_KEY, JSON.stringify(interests));
-};
-
-// Generate unique ID
-const generateId = (): string => {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-};  
 
 // ==================== JOB API (Backend + Fallback) ====================
 
 export const jobService = {
-  // Get all active jobs (for users) - Uses Backend API with localStorage fallback
+  // Get all active jobs (for users)
   getAllActiveJobs: async (): Promise<Job[]> => {
-    // Get localStorage jobs first for fallback
-    const storedJobs = getStoredJobs();
-    const activeStoredJobs = storedJobs.filter((job) => job.status === 'active');
-    
-    try {
-      const response = await apiRequest(API_ENDPOINTS.JOBS.LIST);
-      if (response.ok) {
-        const data = await response.json();
-        const apiJobs = data.map(mapBackendJobToFrontend);
-        
-        // If API returns jobs, merge with localStorage jobs
-        if (apiJobs.length > 0) {
-          const apiJobIds = new Set(apiJobs.map((j: Job) => j.id));
-          const uniqueStoredJobs = activeStoredJobs.filter((j: Job) => !apiJobIds.has(j.id));
-          return [...apiJobs, ...uniqueStoredJobs];
-        }
-        
-        // API returned empty, use localStorage
-        if (activeStoredJobs.length > 0) {
-          console.log('API returned empty, using localStorage jobs');
-          return activeStoredJobs;
-        }
-        
-        return apiJobs;
-      }
-    } catch (error) {
-      console.warn('API unavailable, using localStorage fallback:', error);
+    const response = await apiRequest(API_ENDPOINTS.JOBS.LIST);
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to load jobs'));
     }
-    
-    // Fallback to localStorage
-    return activeStoredJobs;
+    const data = await response.json();
+    return data.map(mapBackendJobToFrontend);
   },
 
-  // Get jobs by HR (for HR dashboard) - Uses Backend API with localStorage fallback
+  // Get jobs by HR (for HR dashboard)
   getJobsByHR: async (hrUserId: string): Promise<Job[]> => {
-    // Get localStorage jobs first for fallback
-    const storedJobs = getStoredJobs();
-    
-    try {
-      const response = await apiRequest(`${API_ENDPOINTS.JOBS.LIST}?posted_by=${hrUserId}`);
-      if (response.ok) {
-        const data = await response.json();
-        const apiJobs = data.map(mapBackendJobToFrontend);
-        
-        // If API returns jobs, use them; otherwise fall back to localStorage
-        if (apiJobs.length > 0) {
-          return apiJobs;
-        }
-      }
-    } catch (error) {
-      console.warn('API unavailable, using localStorage fallback:', error);
+    const response = await apiRequest(`${API_ENDPOINTS.JOBS.LIST}?posted_by=${hrUserId}`);
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to load recruiter jobs'));
     }
-    
-    // Fallback to localStorage - return all jobs if no hrUserId or filter by createdBy
-    if (!hrUserId || hrUserId.trim() === '') {
-      return storedJobs;
-    }
-    
-    // Filter by hrUserId, but if no matches found, return all jobs as fallback
-    const filteredJobs = storedJobs.filter((job) => job.createdBy === hrUserId);
-    return filteredJobs.length > 0 ? filteredJobs : storedJobs;
+    const data = await response.json();
+    return data.map(mapBackendJobToFrontend);
   },
 
-  // Get job by ID - Uses Backend API
+  // Get job by ID
   getJobById: async (jobId: string): Promise<Job | null> => {
-    try {
-      const response = await apiRequest(API_ENDPOINTS.JOBS.GET(jobId));
-      if (response.ok) {
-        const data = await response.json();
-        return mapBackendJobToFrontend(data);
-      }
-    } catch (error) {
-      console.warn('API unavailable, using localStorage fallback:', error);
+    const response = await apiRequest(API_ENDPOINTS.JOBS.GET(jobId));
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to load job details'));
     }
-    // Fallback to localStorage
-    const jobs = getStoredJobs();
-    return jobs.find((job) => job.id === jobId) || null;
+    const data = await response.json();
+    return mapBackendJobToFrontend(data);
   },
 
    // Get saved (bookmarked) job IDs from backend - GET /jobs/saved
   getSavedJobs: async (): Promise<Job[]> => {
-    try {
-      const response = await apiRequest(API_ENDPOINTS.JOBS.SAVED_LIST);
-      if (response.ok) {
-        const data = await response.json();
-        return Array.isArray(data) ? data.map(mapBackendJobToFrontend) : [];
-      }
-    } catch (e) {
-      console.warn('Failed to load saved jobs:', e);
+    const response = await apiRequest(API_ENDPOINTS.JOBS.SAVED_LIST);
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to load saved jobs'));
     }
-    return [];
+    const data = await response.json();
+    return Array.isArray(data) ? data.map(mapBackendJobToFrontend) : [];
   },
 
   // Save (bookmark) a job - POST /jobs/saved with body { job_id }
@@ -208,160 +130,70 @@ export const jobService = {
     }
   },
 
-  // Create a new job - Uses Backend API
+  // Create a new job
   createJob: async (jobData: JobFormData, hrUserId: string): Promise<Job> => {
-    try {
-      const backendData = mapFrontendJobToBackend(jobData);
-      const response = await apiRequest(API_ENDPOINTS.JOBS.CREATE, {
-        method: 'POST',
-        body: JSON.stringify(backendData),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const createdJob = mapBackendJobToFrontend(data);
-        // Also store in localStorage as cache
-        const jobs = getStoredJobs();
-        jobs.push(createdJob);
-        storeJobs(jobs);
-        return createdJob;
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to create job');
-      }
-    } catch (error: any) {
-      console.warn('API error, using localStorage fallback:', error);
-      // Fallback to localStorage
-      const jobs = getStoredJobs();
-      const newJob: Job = {
-        ...jobData,
-        id: generateId(),
-        status: 'active',
-        createdBy: hrUserId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        applicantCount: 0,
-      };
-      jobs.push(newJob);
-      storeJobs(jobs);
-      return newJob;
+    void hrUserId;
+    const backendData = mapFrontendJobToBackend(jobData);
+    const response = await apiRequest(API_ENDPOINTS.JOBS.CREATE, {
+      method: 'POST',
+      body: JSON.stringify(backendData),
+    });
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to create job'));
     }
+    const data = await response.json();
+    return mapBackendJobToFrontend(data);
   },
 
-  // Update a job - Uses Backend API
+  // Update a job
   updateJob: async (jobId: string, jobData: Partial<JobFormData>): Promise<Job | null> => {
-    try {
-      const backendData = mapFrontendJobToBackend(jobData as JobFormData);
-      const response = await apiRequest(API_ENDPOINTS.JOBS.UPDATE(jobId), {
-        method: 'PUT',
-        body: JSON.stringify(backendData),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const updatedJob = mapBackendJobToFrontend(data);
-        // Update localStorage cache
-        const jobs = getStoredJobs();
-        const jobIndex = jobs.findIndex((job) => job.id === jobId);
-        if (jobIndex !== -1) {
-          jobs[jobIndex] = updatedJob;
-          storeJobs(jobs);
-        }
-        return updatedJob;
-      }
-    } catch (error) {
-      console.warn('API unavailable, using localStorage fallback:', error);
+    const backendData = mapFrontendJobToBackend(jobData as JobFormData);
+    const response = await apiRequest(API_ENDPOINTS.JOBS.UPDATE(jobId), {
+      method: 'PUT',
+      body: JSON.stringify(backendData),
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to update job'));
     }
-    // Fallback to localStorage
-    const jobs = getStoredJobs();
-    const jobIndex = jobs.findIndex((job) => job.id === jobId);
-    if (jobIndex === -1) return null;
-    jobs[jobIndex] = {
-      ...jobs[jobIndex],
-      ...jobData,
-      updatedAt: new Date().toISOString(),
-    };
-    storeJobs(jobs);
-    return jobs[jobIndex];
+    const data = await response.json();
+    return mapBackendJobToFrontend(data);
   },
 
-  // Close a job - Uses Backend API
+  // Close a job
   closeJob: async (jobId: string): Promise<boolean> => {
-    try {
-      const response = await apiRequest(API_ENDPOINTS.JOBS.UPDATE(jobId), {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'closed' }),
-      });
-      if (response.ok) {
-        // Update localStorage cache
-        const jobs = getStoredJobs();
-        const jobIndex = jobs.findIndex((job) => job.id === jobId);
-        if (jobIndex !== -1) {
-          jobs[jobIndex].status = 'closed';
-          storeJobs(jobs);
-        }
-        return true;
-      }
-    } catch (error) {
-      console.warn('API unavailable, using localStorage fallback:', error);
+    const response = await apiRequest(API_ENDPOINTS.JOBS.UPDATE(jobId), {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'closed' }),
+    });
+    if (response.status === 404) return false;
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to close job'));
     }
-    // Fallback to localStorage
-    const jobs = getStoredJobs();
-    const jobIndex = jobs.findIndex((job) => job.id === jobId);
-    if (jobIndex === -1) return false;
-    jobs[jobIndex].status = 'closed';
-    jobs[jobIndex].updatedAt = new Date().toISOString();
-    storeJobs(jobs);
     return true;
   },
 
-  // Reopen a job - Uses Backend API
+  // Reopen a job
   reopenJob: async (jobId: string): Promise<boolean> => {
-    try {
-      const response = await apiRequest(`${API_ENDPOINTS.JOBS.LIST}/${jobId}/publish`, {
-        method: 'POST',
-      });
-      if (response.ok) {
-        // Update localStorage cache
-        const jobs = getStoredJobs();
-        const jobIndex = jobs.findIndex((job) => job.id === jobId);
-        if (jobIndex !== -1) {
-          jobs[jobIndex].status = 'active';
-          storeJobs(jobs);
-        }
-        return true;
-      }
-    } catch (error) {
-      console.warn('API unavailable, using localStorage fallback:', error);
+    const response = await apiRequest(`${API_ENDPOINTS.JOBS.LIST}/${jobId}/publish`, {
+      method: 'POST',
+    });
+    if (response.status === 404) return false;
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to reopen job'));
     }
-    // Fallback to localStorage
-    const jobs = getStoredJobs();
-    const jobIndex = jobs.findIndex((job) => job.id === jobId);
-    if (jobIndex === -1) return false;
-    jobs[jobIndex].status = 'active';
-    jobs[jobIndex].updatedAt = new Date().toISOString();
-    storeJobs(jobs);
     return true;
   },
 
-  // Delete a job - Uses Backend API
+  // Delete a job
   deleteJob: async (jobId: string): Promise<boolean> => {
-    try {
-      const response = await apiRequest(API_ENDPOINTS.JOBS.DELETE(jobId), {
-        method: 'DELETE',
-      });
-      if (response.ok || response.status === 204) {
-        // Remove from localStorage cache
-        const jobs = getStoredJobs();
-        const filteredJobs = jobs.filter((job) => job.id !== jobId);
-        storeJobs(filteredJobs);
-        return true;
-      }
-    } catch (error) {
-      console.warn('API unavailable, using localStorage fallback:', error);
+    const response = await apiRequest(API_ENDPOINTS.JOBS.DELETE(jobId), {
+      method: 'DELETE',
+    });
+    if (response.status === 404) return false;
+    if (!response.ok && response.status !== 204) {
+      throw new Error(await parseApiError(response, 'Failed to delete job'));
     }
-    // Fallback to localStorage
-    const jobs = getStoredJobs();
-    const filteredJobs = jobs.filter((job) => job.id !== jobId);
-    storeJobs(filteredJobs);
     return true;
   },
 };
@@ -370,14 +202,20 @@ export const jobService = {
 const normalizeBackendTimestamp = (value: unknown): string => {
   if (!value || typeof value !== 'string') return '';
 
-  const ts = value.trim();
+  let ts = value.trim();
   if (!ts) return ts;
 
-  // Backend sends UTC naive timestamps (e.g. 2026-02-24T10:15:00).
+  // Backend sometimes sends spaces instead of 'T' (e.g. 2026-02-24 10:15:00)
+  if (!ts.includes('T') && ts.includes(' ')) {
+    ts = ts.replace(' ', 'T');
+  }
+
+  // Backend sends UTC naive timestamps.
   // Treat those explicitly as UTC to avoid local-time drift in UI "x hours ago".
   const hasTimezone = /([zZ]|[+\-]\d{2}:?\d{2})$/.test(ts);
-  if (hasTimezone || !ts.includes('T')) return ts;
-  return `${ts}Z`;
+  if (!hasTimezone) return `${ts}Z`;
+  
+  return ts;
 };
 
 const mapBackendJobToFrontend = (backendJob: any): Job => {
@@ -389,7 +227,7 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
     requiredSkills: backendJob.skills_required || backendJob.required_skills || backendJob.requiredSkills || [],
     experienceLevel: backendJob.experience_level || backendJob.experienceLevel || 'entry',
     location: backendJob.location || '',
-    jobType: backendJob.job_type || backendJob.jobType || 'full-time',
+    jobType: (backendJob.job_type || backendJob.jobType || 'full-time').replace('_', '-'),
     codingQuestions: backendJob.coding_questions || backendJob.codingQuestions || [],
     screeningQuestions: backendJob.screening_questions || backendJob.screeningQuestions || [],
     status: backendJob.status === 'published' ? 'active' : (backendJob.status || 'active'),
@@ -409,13 +247,40 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
 
 // Helper: Map frontend job format to backend format
 const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
-  const explicitScreeningQuestions = (frontendJob as any).screeningQuestions;
+  const explicitScreeningQuestions = frontendJob.screeningQuestions;
+  const parseTypeFromDescription = (description?: string): 'text' | 'yesno' | 'multiple' | 'number' => {
+    const raw = String(description || '').toLowerCase();
+    const match = raw.match(/type:\s*([a-z_]+)/);
+    const type = (match?.[1] || '').replace('_', '');
+    if (type === 'yesno') return 'yesno';
+    if (type === 'multiple' || type === 'multiplechoice' || type === 'mcq') return 'multiple';
+    if (type === 'number' || type === 'numeric') return 'number';
+    return 'text';
+  };
+
+  const parseOptionsFromDescription = (description?: string): string[] => {
+    const raw = String(description || '');
+    const match = raw.match(/Options:\s*([^|]+)/i);
+    if (!match?.[1]) return [];
+    return match[1]
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  };
+
+  const parseRequiredFromDescription = (description?: string): boolean => {
+    const raw = String(description || '').toLowerCase();
+    if (raw.includes('(required)')) return true;
+    if (raw.includes('(optional)') || raw.includes('(not required)')) return false;
+    return true;
+  };
+
   const fallbackScreeningQuestions = (frontendJob.codingQuestions || []).map((q, index) => ({
     id: q.id || String(index + 1),
     question: q.question,
-    type: 'text',
-    required: true,
-    options: [],
+    type: parseTypeFromDescription(q.description),
+    required: parseRequiredFromDescription(q.description),
+    options: parseOptionsFromDescription(q.description),
   }));
 
   const screeningQuestions = Array.isArray(explicitScreeningQuestions) && explicitScreeningQuestions.length > 0
@@ -440,7 +305,7 @@ const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
   };
 };
 
-// ==================== APPLICATION API (Backend + Fallback) ====================
+// ==================== APPLICATION API ====================
 
 export const applicationService = {
   // Apply for a job - Uses Backend API
@@ -451,143 +316,48 @@ export const applicationService = {
     candidateEmail: string,
     codingAnswers: CodingAnswer[]
   ): Promise<Application> => {
-    try {
-      // Convert answers array to dict format for backend
-      const answersDict: Record<string, string> = {};
-      codingAnswers.forEach((answer) => {
-        answersDict[answer.questionId] = answer.code || '';
-      });
-      
-      const response = await apiRequest(API_ENDPOINTS.JOBS.APPLY(jobId), {
-        method: 'POST',
-        body: JSON.stringify({
-          cover_letter: '',
-          resume_url: '',
-          answers: answersDict,  // Send as dict, not array
-        }),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const application = mapBackendApplicationToFrontend(data);
-        // Cache in localStorage
-        const applications = getStoredApplications();
-        applications.push(application);
-        storeApplications(applications);
-        return application;
-      } else if (response.status === 400) {
-        throw new Error('You have already applied for this job');
-      }
-    } catch (error: any) {
-      if (error.message === 'You have already applied for this job') throw error;
-      console.warn('API unavailable, using localStorage fallback:', error);
+    void userId;
+    void candidateName;
+    void candidateEmail;
+    const answersDict: Record<string, string> = {};
+    codingAnswers.forEach((answer) => {
+      answersDict[answer.questionId] = answer.code || '';
+    });
+
+    const response = await apiRequest(API_ENDPOINTS.JOBS.APPLY(jobId), {
+      method: 'POST',
+      body: JSON.stringify({
+        cover_letter: '',
+        resume_url: '',
+        answers: answersDict,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to submit application'));
     }
-
-    // Fallback to localStorage
-    const applications = getStoredApplications();
-    const jobs = getStoredJobs();
-
-    const existingApplication = applications.find(
-      (app) => app.jobId === jobId && app.userId === userId
-    );
-    if (existingApplication) {
-      throw new Error('You have already applied for this job');
-    }
-
-    const newApplication: Application = {
-      id: generateId(),
-      jobId,
-      userId,
-      candidateName,
-      candidateEmail,
-      appliedAt: new Date().toISOString(),
-      status: 'applied',
-      codingAnswers,
-      codingScore: codingAnswers.length > 0 ? Math.floor(Math.random() * 40) + 60 : undefined,
-      codingStatus: codingAnswers.length > 0 ? 'submitted' : 'pending',
-    };
-
-    applications.push(newApplication);
-    storeApplications(applications);
-
-    const jobIndex = jobs.findIndex((job) => job.id === jobId);
-    if (jobIndex !== -1) {
-      jobs[jobIndex].applicantCount = (jobs[jobIndex].applicantCount || 0) + 1;
-      storeJobs(jobs);
-      
-      const job = jobs[jobIndex];
-      const hrInfo = getHREmailFromJob(job);
-      if (hrInfo) {
-        emailNotificationService.sendJobApplicationEmail({
-          hrEmail: hrInfo.email,
-          hrName: hrInfo.name,
-          jobTitle: job.title,
-          companyName: job.companyName,
-          candidateName: candidateName,
-          candidateEmail: candidateEmail,
-          appliedAt: newApplication.appliedAt,
-        }).then((sent) => {
-          if (sent) {
-            console.log('📧 Application notification sent to HR:', hrInfo.email);
-          }
-        });
-      }
-    }
-
-    return newApplication;
+    const data = await response.json();
+    return mapBackendApplicationToFrontend(data);
   },
 
   // Get applications for a job (HR) - Uses Backend API
   getApplicationsByJob: async (jobId: string): Promise<Application[]> => {
-    try {
-      const response = await apiRequest(API_ENDPOINTS.JOBS.APPLICATIONS(jobId));
-      if (response.ok) {
-        const data = await response.json();
-        return data.map(mapBackendApplicationToFrontend);
-      }
-      // Handle 401/403 - user doesn't have permission, return localStorage data silently
-      if (response.status === 401 || response.status === 403) {
-        console.log('No permission to fetch applications, using localStorage');
-      }
-    } catch (error) {
-      console.warn('API unavailable, using localStorage fallback:', error);
+    const response = await apiRequest(API_ENDPOINTS.JOBS.APPLICATIONS(jobId));
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to load applications'));
     }
-    // Fallback to localStorage
-    const applications = getStoredApplications();
-    const jobs = getStoredJobs();
-    
-    return applications
-      .filter((app) => app.jobId === jobId)
-      .map((app) => ({
-        ...app,
-        job: jobs.find((job) => job.id === app.jobId),
-      }));
+    const data = await response.json();
+    return data.map(mapBackendApplicationToFrontend);
   },
 
   // Get applications by user (Techie) - Uses Backend API
   getApplicationsByUser: async (userId: string): Promise<Application[]> => {
-    try {
-      const response = await apiRequest(API_ENDPOINTS.JOBS.MY_APPLICATIONS);
-      if (response.ok) {
-        const data = await response.json();
-        return data.map(mapBackendApplicationToFrontend);
-      }
-      // Handle 401/403 silently - use localStorage
-      if (response.status === 401 || response.status === 403) {
-        console.log('No permission to fetch user applications, using localStorage');
-      }
-    } catch (error) {
-      console.warn('API unavailable, using localStorage fallback:', error);
+    void userId;
+    const response = await apiRequest(API_ENDPOINTS.JOBS.MY_APPLICATIONS);
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to load my applications'));
     }
-    // Fallback to localStorage
-    const applications = getStoredApplications();
-    const jobs = getStoredJobs();
-
-    return applications
-      .filter((app) => app.userId === userId)
-      .map((app) => ({
-        ...app,
-        job: jobs.find((job) => job.id === app.jobId),
-      }));
+    const data = await response.json();
+    return data.map(mapBackendApplicationToFrontend);
   },
 
   // Update application status (HR) - Uses Backend API
@@ -595,52 +365,34 @@ export const applicationService = {
     applicationId: string,
     status: ApplicationStatus
   ): Promise<Application | null> => {
-    try {
-      const response = await apiRequest(`/jobs/applications/${applicationId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ new_status: status }),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        // Update localStorage cache
-        const applications = getStoredApplications();
-        const appIndex = applications.findIndex((app) => app.id === applicationId);
-        if (appIndex !== -1) {
-          applications[appIndex].status = status;
-          storeApplications(applications);
-        }
-        return mapBackendApplicationToFrontend(data);
-      }
-    } catch (error) {
-      console.warn('API unavailable, using localStorage fallback:', error);
+    const response = await apiRequest(`/jobs/applications/${applicationId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ new_status: status }),
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to update application status'));
     }
-    // Fallback to localStorage
-    const applications = getStoredApplications();
-    const appIndex = applications.findIndex((app) => app.id === applicationId);
-    if (appIndex === -1) return null;
-    applications[appIndex].status = status;
-    storeApplications(applications);
-    return applications[appIndex];
+    const data = await response.json();
+    return mapBackendApplicationToFrontend(data);
   },
 
   // Check if user has applied for a job
   hasUserApplied: async (jobId: string, userId: string): Promise<boolean> => {
-    const applications = getStoredApplications();
-    return applications.some((app) => app.jobId === jobId && app.userId === userId);
+    void userId;
+    const response = await apiRequest(API_ENDPOINTS.JOBS.MY_APPLICATIONS);
+    if (!response.ok) return false;
+    const apps = await response.json();
+    return Array.isArray(apps) && apps.some((app: any) => String(app.job_id || app.jobId) === String(jobId));
   },
 
   // Get application by ID
   getApplicationById: async (applicationId: string): Promise<Application | null> => {
-    const applications = getStoredApplications();
-    const jobs = getStoredJobs();
-    const application = applications.find((app) => app.id === applicationId);
-    
-    if (!application) return null;
-    
-    return {
-      ...application,
-      job: jobs.find((job) => job.id === application.jobId),
-    };
+    const response = await apiRequest(API_ENDPOINTS.JOBS.MY_APPLICATIONS);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const found = Array.isArray(data) ? data.find((app: any) => String(app.id) === String(applicationId)) : null;
+    return found ? mapBackendApplicationToFrontend(found) : null;
   },
 };
 
@@ -666,7 +418,7 @@ const mapBackendApplicationToFrontend = (backendApp: any): Application => {
     codingAnswers: backendApp.answers || [],
     codingScore: backendApp.match_score || backendApp.rating,
     codingStatus: backendApp.coding_status || 'pending',
-    job: backendApp.job,
+    job: backendApp.job ? mapBackendJobToFrontend(backendApp.job) : undefined,
     // Skill matching fields from backend
     match_score: backendApp.match_score,
     matched_skills: backendApp.matched_skills || [],
@@ -688,50 +440,6 @@ const mapBackendApplicationToFrontend = (backendApp: any): Application => {
 };
 
 // ==================== HR USER HELPER ====================
-
-// Helper to get HR email from a job (for sending notifications)
-const getHREmailFromJob = (job: Job): { email: string; name: string } | null => {
-  // First, try to get HR info from the job's createdBy field
-  if (job.createdBy) {
-    // Look up the HR user who created this job
-    // For now, we'll use stored HR data or fallback to a pattern
-    const storedHRData = localStorage.getItem('hr_users');
-    if (storedHRData) {
-      try {
-        const hrUsers = JSON.parse(storedHRData);
-        const hrUser = hrUsers.find((hr: any) => hr.id === job.createdBy);
-        if (hrUser) {
-          return { email: hrUser.email, name: hrUser.name };
-        }
-      } catch {}
-    }
-  }
-  
-  // Fallback: Try to get current logged-in HR user (if they created this job)
-  const currentUser = localStorage.getItem('userData');
-  if (currentUser) {
-    try {
-      const user = JSON.parse(currentUser);
-      // Check if user has HR email pattern or is the job creator
-      if (user.email && (user.id?.toString() === job.createdBy || user.email.includes('hr') || user.email.includes('hm'))) {
-        return {
-          email: user.email,
-          name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Hiring Manager',
-        };
-      }
-    } catch {}
-  }
-  
-  // Last fallback: Use a notification email from job data
-  if (job.companyName) {
-    return {
-      email: `hr@${job.companyName.toLowerCase().replace(/\s+/g, '')}.com`,
-      name: 'Hiring Manager',
-    };
-  }
-  
-  return null;
-};
 
 export const getHRUserInfo = (): { id: string; name: string; companyName: string } | null => {
   const userDataString = localStorage.getItem('userData');
@@ -781,17 +489,6 @@ export const getUserInfo = (): { id: string; name: string; email: string } | nul
   }
 };
 
-// Clear sample data (removed mock data initialization)
-export const clearSampleData = (): void => {
-  const jobs = getStoredJobs();
-  // Remove any sample/mock jobs
-  const realJobs = jobs.filter(job => !job.id.startsWith('sample-'));
-  storeJobs(realJobs);
-};
-
-// Call cleanup on load to remove mock data
-clearSampleData();
-
 // ==================== INTEREST API ====================
 
 export const interestService = {
@@ -803,81 +500,37 @@ export const interestService = {
     userEmail: string,
     message?: string
   ): Promise<JobInterest> => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    
-    const interests = getStoredInterests();
-    
-    // Check if already expressed interest
-    const existing = interests.find(
-      (i) => i.jobId === jobId && i.userId === userId
-    );
-    if (existing) {
-      throw new Error('You have already expressed interest in this job');
-    }
-    
-    const newInterest: JobInterest = {
-      id: generateId(),
-      jobId,
-      userId,
-      userName,
-      userEmail,
-      message,
-      createdAt: new Date().toISOString(),
-      status: 'pending',
-    };
-    
-    interests.push(newInterest);
-    
-    // Send email notification to HR
-    const jobs = getStoredJobs();
-    const job = jobs.find(j => j.id === jobId);
-    if (job) {
-      const hrInfo = getHREmailFromJob(job);
-      if (hrInfo) {
-        emailNotificationService.sendInterestEmail({
-          hrEmail: hrInfo.email,
-          hrName: hrInfo.name,
-          jobTitle: job.title,
-          candidateName: userName,
-          candidateEmail: userEmail,
-        }).then((sent) => {
-          if (sent) {
-            console.log('📧 Interest notification sent to HR:', hrInfo.email);
-          }
-        });
-      }
-    }
-    storeInterests(interests);
-    return newInterest;
+    void jobId;
+    void userId;
+    void userName;
+    void userEmail;
+    void message;
+    throw new Error('Job interest API is not implemented on backend yet');
   },
   
   // Get interests by user
   getInterestsByUser: async (userId: string): Promise<JobInterest[]> => {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const interests = getStoredInterests();
-    return interests.filter((i) => i.userId === userId);
+    void userId;
+    return [];
   },
   
   // Get interests for a job (for HR)
   getInterestsByJob: async (jobId: string): Promise<JobInterest[]> => {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const interests = getStoredInterests();
-    return interests.filter((i) => i.jobId === jobId);
+    void jobId;
+    return [];
   },
   
   // Get all interests for HR's jobs
   getInterestsForHR: async (hrUserId: string): Promise<JobInterest[]> => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const jobs = getStoredJobs();
-    const hrJobIds = jobs.filter((j) => j.createdBy === hrUserId).map((j) => j.id);
-    const interests = getStoredInterests();
-    return interests.filter((i) => hrJobIds.includes(i.jobId));
+    void hrUserId;
+    return [];
   },
   
   // Check if user has expressed interest
   hasExpressedInterest: async (jobId: string, userId: string): Promise<boolean> => {
-    const interests = getStoredInterests();
-    return interests.some((i) => i.jobId === jobId && i.userId === userId);
+    void jobId;
+    void userId;
+    return false;
   },
   
   // Update interest status (for HR)
@@ -885,13 +538,9 @@ export const interestService = {
     interestId: string,
     status: 'pending' | 'viewed' | 'contacted'
   ): Promise<boolean> => {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const interests = getStoredInterests();
-    const idx = interests.findIndex((i) => i.id === interestId);
-    if (idx === -1) return false;
-    interests[idx].status = status;
-    storeInterests(interests);
-    return true;
+    void interestId;
+    void status;
+    return false;
   },
 };
 
@@ -925,12 +574,10 @@ export const userService = {
         const data = await response.json();
         return data.map(mapBackendUserToCandidate);
       }
+      throw new Error(await parseApiError(response, 'Failed to load users'));
     } catch (error) {
-      console.warn('API unavailable for users, returning sample data:', error);
+      throw error instanceof Error ? error : new Error('Failed to load users');
     }
-    
-    // Return sample candidates when API is unavailable
-    return getSampleCandidates();
   },
   
   // Get a single user by ID
@@ -949,59 +596,31 @@ export const userService = {
   
   // Get candidates for a specific job (applicants + suggested matches)
   getCandidatesForJob: async (jobId: string): Promise<Candidate[]> => {
-    try {
-      // First try to get actual applications from API
-      const response = await apiRequest(API_ENDPOINTS.JOBS.APPLICATIONS(jobId));
-      if (response.ok) {
-        const applications = await response.json();
-        if (applications && applications.length > 0) {
-          // Map applications to candidates with applicant info
-          // IMPORTANT: id should be APPLICATION ID for interview scheduling
-          return applications.map((app: any) => ({
-            id: app.id, // APPLICATION ID - used for scheduling interviews
-            applicationId: app.id, // Explicit application ID
-            userId: app.applicant_id, // User ID - used for profile navigation
-            name: app.applicant?.first_name 
-              ? `${app.applicant.first_name} ${app.applicant.last_name || ''}`.trim()
-              : app.applicant_name || 'Applicant',
-            email: app.applicant?.email || app.applicant_email || '',
-            avatar: app.applicant?.avatar_url || undefined,
-            title: app.applicant?.title || app.applicant?.headline || '',
-            experience: app.applicant?.total_experience || '',
-            skills: app.applicant?.skills || [],
-            matchScore: app.match_score ?? 0,  // Use actual match score from backend
-            status: mapApplicationStatus(app.status),
-            appliedAt: app.submitted_at || app.created_at,
-            location: app.applicant?.location || '',
-            education: app.applicant?.education || '',
-            currentCompany: app.applicant?.current_company || '',
-          }));
-        }
-      }
-    } catch (error) {
-      console.warn('API unavailable for job candidates:', error);
+    const response = await apiRequest(API_ENDPOINTS.JOBS.APPLICATIONS(jobId));
+    if (!response.ok) {
+      throw new Error(await parseApiError(response, 'Failed to load job candidates'));
     }
-    
-    // Fallback: Check localStorage applications
-    const applications = getStoredApplications();
-    const jobApplications = applications.filter(app => app.jobId === jobId);
-    
-    if (jobApplications.length > 0) {
-      return jobApplications.map(app => ({
-        id: app.id, // Application ID
-        applicationId: app.id,
-        userId: app.userId,
-        name: app.candidateName,
-        email: app.candidateEmail,
-        skills: [],
-        matchScore: app.codingScore || app.match_score || 0,
-        status: mapApplicationStatus(app.status),
-        appliedAt: app.appliedAt,
-      }));
-    }
-    
-    // No applications found
-    return [];
+    const applications = await response.json();
+    if (!applications || applications.length === 0) return [];
+    return applications.map((app: any) => ({
+      id: app.id,
+      applicationId: app.id,
+      userId: app.applicant_id,
+      name: app.applicant?.first_name
+        ? `${app.applicant.first_name} ${app.applicant.last_name || ''}`.trim()
+        : app.applicant_name || 'Applicant',
+      email: app.applicant?.email || app.applicant_email || '',
+      avatar: app.applicant?.avatar_url || undefined,
+      title: app.applicant?.title || app.applicant?.headline || '',
+      experience: app.applicant?.total_experience || '',
+      skills: app.applicant?.skills || [],
+      matchScore: app.match_score ?? 0,
+      status: mapApplicationStatus(app.status),
+      appliedAt: app.submitted_at || app.created_at,
+      location: app.applicant?.location || '',
+      education: app.applicant?.education || '',
+      currentCompany: app.applicant?.current_company || '',
+    }));
   },
 };
 
@@ -1042,66 +661,3 @@ const mapApplicationStatus = (status: string): Candidate['status'] => {
   return statusMap[status?.toLowerCase()] || 'new';
 };
 
-// Sample candidates for demo when API is unavailable
-const getSampleCandidates = (): Candidate[] => [
-  {
-    id: 'c1',
-    name: 'Sarah Johnson',
-    email: 'sarah.johnson@email.com',
-    title: 'Senior React Developer',
-    experience: '6 years',
-    skills: ['React', 'TypeScript', 'Node.js', 'AWS'],
-    matchScore: 95,
-    status: 'new',
-    location: 'San Francisco, CA',
-    currentCompany: 'TechCorp Inc.',
-  },
-  {
-    id: 'c2',
-    name: 'Michael Chen',
-    email: 'michael.chen@email.com',
-    title: 'Full Stack Engineer',
-    experience: '4 years',
-    skills: ['JavaScript', 'Python', 'React', 'PostgreSQL'],
-    matchScore: 88,
-    status: 'reviewed',
-    location: 'New York, NY',
-    currentCompany: 'StartupXYZ',
-  },
-  {
-    id: 'c3',
-    name: 'Emily Davis',
-    email: 'emily.davis@email.com',
-    title: 'Frontend Developer',
-    experience: '3 years',
-    skills: ['React', 'Vue.js', 'CSS', 'Figma'],
-    matchScore: 82,
-    status: 'interviewed',
-    location: 'Austin, TX',
-    currentCompany: 'DesignHub',
-  },
-  {
-    id: 'c4',
-    name: 'James Wilson',
-    email: 'james.wilson@email.com',
-    title: 'Software Engineer',
-    experience: '5 years',
-    skills: ['Java', 'Spring Boot', 'Kubernetes', 'Docker'],
-    matchScore: 78,
-    status: 'new',
-    location: 'Seattle, WA',
-    currentCompany: 'CloudServices Ltd.',
-  },
-  {
-    id: 'c5',
-    name: 'Priya Patel',
-    email: 'priya.patel@email.com',
-    title: 'Backend Developer',
-    experience: '4 years',
-    skills: ['Python', 'Django', 'FastAPI', 'MongoDB'],
-    matchScore: 91,
-    status: 'new',
-    location: 'Remote',
-    currentCompany: 'DataTech Solutions',
-  },
-];

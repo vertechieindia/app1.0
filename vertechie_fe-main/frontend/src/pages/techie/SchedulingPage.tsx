@@ -778,7 +778,7 @@ const SchedulingPage: React.FC = () => {
         <DialogTitle>Share your scheduling link</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Only people with this link can book a meeting. The link works in private or incognito—no sign-in required for them.
+            Only people with this link can book a meeting. The link sign-in required.
           </Typography>
           <TextField
             fullWidth

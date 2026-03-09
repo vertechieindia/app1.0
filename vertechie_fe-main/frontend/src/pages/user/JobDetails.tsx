@@ -38,6 +38,7 @@ import {
   TrendingUp as TrendingUpIcon,
   Star as StarIcon,
   Send as SendIcon,
+  AttachMoney as AttachMoneyIcon,
 } from '@mui/icons-material';
 import IconButton from '@mui/material/IconButton';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -403,7 +404,7 @@ const JobDetails: React.FC = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
                       <CodeIcon color="primary" sx={{ fontSize: 28 }} />
                       <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                        Coding Assessment
+                        Coding Or Assessment Questions
                       </Typography>
                     </Box>
                     <Alert
@@ -411,7 +412,7 @@ const JobDetails: React.FC = () => {
                       sx={{ mb: 3, borderRadius: 2 }}
                       icon={<StarIcon />}
                     >
-                      This application requires completing {job.codingQuestions.length} coding challenge
+                      This application requires completing {job.codingQuestions.length} Questions
                       {job.codingQuestions.length > 1 ? 's' : ''}. Make sure you have time to complete them before applying.
                     </Alert>
 
@@ -611,6 +612,26 @@ const JobDetails: React.FC = () => {
                       </Box>
                     </InfoBox>
                   </Grid>
+                  {(job.salary_min || job.salary_max) && (
+                    <Grid item xs={12}>
+                      <InfoBox>
+                        <AttachMoneyIcon color="primary" />
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Salary Range
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {job.salary_min && job.salary_max 
+                              ? `$${job.salary_min.toLocaleString()} - $${job.salary_max.toLocaleString()}`
+                              : job.salary_min 
+                                ? `From $${job.salary_min.toLocaleString()}`
+                                : `Up to $${job.salary_max?.toLocaleString()}`
+                            }
+                          </Typography>
+                        </Box>
+                      </InfoBox>
+                    </Grid>
+                  )}
                   <Grid item xs={12}>
                     <InfoBox>
                       <TimeIcon color="primary" />
