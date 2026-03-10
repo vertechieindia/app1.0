@@ -254,7 +254,7 @@ export const formatInterviewStatus = (status: string): { label: string; color: s
  * Parse date string from backend (handles UTC conversion)
  * Backend sends dates without "Z" suffix, so we need to append it
  */
-const parseBackendDate = (dateString: string): Date => {
+export const parseBackendDateTime = (dateString: string): Date => {
   // If the string doesn't have timezone info (no Z or +/-), treat as UTC
   if (dateString && !dateString.includes('Z') && !dateString.includes('+') && !dateString.match(/[+-]\d{2}:\d{2}$/)) {
     // Replace space with T for ISO format and add Z for UTC
@@ -268,7 +268,7 @@ const parseBackendDate = (dateString: string): Date => {
  * Format date for interview display
  */
 export const formatInterviewDate = (dateString: string): string => {
-  const date = parseBackendDate(dateString);
+  const date = parseBackendDateTime(dateString);
   return date.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -281,7 +281,7 @@ export const formatInterviewDate = (dateString: string): string => {
  * Format time for interview display
  */
 export const formatInterviewTime = (dateString: string): string => {
-  const date = parseBackendDate(dateString);
+  const date = parseBackendDateTime(dateString);
   return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',

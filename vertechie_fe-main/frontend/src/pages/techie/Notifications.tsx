@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { notificationService } from '../../services/interviewService';
+import { notificationService, parseBackendDateTime } from '../../services/interviewService';
 import {
   Box,
   Container,
@@ -29,12 +29,6 @@ import {
   Menu,
   MenuItem,
   ListItemIcon,
-  Switch,
-  FormControlLabel,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Tooltip,
   alpha,
 } from '@mui/material';
@@ -44,7 +38,6 @@ import {
   Work as WorkIcon,
   People as PeopleIcon,
   School as SchoolIcon,
-  Settings as SettingsIcon,
   MoreVert,
   Check,
   CheckCircle,
@@ -53,11 +46,8 @@ import {
   AccessTime,
   Bookmark,
   BookmarkBorder,
-  FilterList,
   DoneAll,
   NotificationsOff,
-  Email,
-  Campaign,
   EmojiEvents,
   ThumbUp,
   Comment,
@@ -298,28 +288,22 @@ const mockNotifications: Notification[] = [
   },
 ];
 
-// ============================================
-// COMPONENT
-// ============================================
+// Backend sends UTC naive timestamps; normalize so "X hours ago" is correct
+const normalizeCreatedAt = (value: unknown): Date => {
+  if (!value || typeof value !== 'string') return new Date();
+  return parseBackendDateTime(String(value));
+};
+
+const SAVED_NOTIFICATIONS_STORAGE_KEY = 'vertechie_saved_notifications';
+
 const Notifications: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
   // Start with empty list; fill from backend so everything is real data
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [selectedNotification, setSelectedNotification] = useState<string | null>(null);
-
-  // Notification settings state
-  const [settings, setSettings] = useState({
-    emailNotifications: true,
-    pushNotifications: true,
-    jobAlerts: true,
-    networkUpdates: true,
-    learningReminders: true,
-    marketingEmails: false,
-  });
 
   // Fetch real notifications from backend
   useEffect(() => {
@@ -327,6 +311,9 @@ const Notifications: React.FC = () => {
       try {
         setLoading(true);
         const apiNotifications = await notificationService.getNotifications(false, 50);
+        const savedRaw = localStorage.getItem(SAVED_NOTIFICATIONS_STORAGE_KEY);
+        const savedList: { id: string }[] = savedRaw ? JSON.parse(savedRaw) : [];
+        const savedIds = new Set(savedList.map((x) => String(x.id)));
 
         if (apiNotifications && apiNotifications.length > 0) {
           // Map backend notifications to frontend format
@@ -346,20 +333,21 @@ const Notifications: React.FC = () => {
               icon = <SchoolIcon />;
             }
             
-            // Determine time group
-            const createdAt = new Date(n.created_at);
+            // Use UTC-normalized created_at so "X hours ago" is correct
+            const createdAt = normalizeCreatedAt(n.created_at);
             const now = new Date();
-            const diffDays = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+            const diffMs = now.getTime() - createdAt.getTime();
+            const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
             let timeGroup: 'today' | 'week' | 'earlier' = 'earlier';
             if (diffDays === 0) timeGroup = 'today';
             else if (diffDays < 7) timeGroup = 'week';
             
-            // Format time display
             let timeDisplay: string;
-            const diffHours = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60));
-            if (diffHours < 1) timeDisplay = 'Just now';
-            else if (diffHours < 24) timeDisplay = `${diffHours} hours ago`;
-            else if (diffDays < 7) timeDisplay = `${diffDays} days ago`;
+            if (diffMs < 60 * 1000) timeDisplay = 'Just now';
+            else if (diffHours < 1) timeDisplay = `${Math.floor(diffMs / 60000)} minutes ago`;
+            else if (diffHours < 24) timeDisplay = `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+            else if (diffDays < 7) timeDisplay = `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
             else timeDisplay = createdAt.toLocaleDateString();
             
             return {
@@ -370,7 +358,7 @@ const Notifications: React.FC = () => {
               time: timeDisplay,
               timeGroup,
               read: n.is_read,
-              saved: false,
+              saved: savedIds.has(String(n.id)),
               icon,
               actionUrl: n.link,
               actionLabel: n.link ? 'View Details' : undefined,
@@ -399,9 +387,6 @@ const Notifications: React.FC = () => {
     let filtered = notifications;
     switch (activeTab) {
       case 1: filtered = notifications.filter(n => n.type === 'job'); break;
-      case 2: filtered = notifications.filter(n => n.type === 'network'); break;
-      case 3: filtered = notifications.filter(n => n.type === 'learn'); break;
-      case 4: filtered = notifications.filter(n => n.type === 'system' || n.type === 'achievement'); break;
       default: filtered = notifications;
     }
     return filtered;
@@ -410,8 +395,6 @@ const Notifications: React.FC = () => {
   const filteredNotifications = filterNotifications();
   const unreadCount = notifications.filter(n => !n.read).length;
   const jobCount = notifications.filter(n => n.type === 'job' && !n.read).length;
-  const networkCount = notifications.filter(n => n.type === 'network' && !n.read).length;
-  const learnCount = notifications.filter(n => n.type === 'learn' && !n.read).length;
 
   // Group notifications by time
   const groupedNotifications = {
@@ -442,7 +425,30 @@ const Notifications: React.FC = () => {
   };
 
   const toggleSaved = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, saved: !n.saved } : n));
+    const notificationId = String(id);
+    setNotifications(prev => {
+      const next = prev.map(n => n.id === notificationId ? { ...n, saved: !n.saved } : n);
+      const notification = next.find(n => n.id === notificationId);
+      const savedList: { id: string; title?: string; message?: string; actionUrl?: string; type?: string; created_at?: string }[] = JSON.parse(localStorage.getItem(SAVED_NOTIFICATIONS_STORAGE_KEY) || '[]');
+      const existing = savedList.findIndex((x) => String(x.id) === notificationId);
+      if (notification?.saved) {
+        if (existing === -1) {
+          savedList.push({
+            id: notificationId,
+            title: notification.title,
+            message: notification.message,
+            actionUrl: notification.actionUrl,
+            type: notification.type,
+            created_at: new Date().toISOString(),
+          });
+        }
+      } else {
+        if (existing >= 0) savedList.splice(existing, 1);
+      }
+      localStorage.setItem(SAVED_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(savedList));
+      window.dispatchEvent(new CustomEvent('vt_saved_notifications_updated'));
+      return next;
+    });
   };
 
   const deleteNotification = (id: string) => {
@@ -582,18 +588,6 @@ const Notifications: React.FC = () => {
                 >
                   Mark All Read
                 </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<SettingsIcon />}
-                  onClick={() => setSettingsOpen(true)}
-                  sx={{
-                    borderColor: 'rgba(255,255,255,0.5)',
-                    color: 'white',
-                    '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' },
-                  }}
-                >
-                  Settings
-                </Button>
               </Box>
             </Box>
           </CardContent>
@@ -619,21 +613,6 @@ const Notifications: React.FC = () => {
               icon={<Badge badgeContent={jobCount} color="error"><WorkIcon /></Badge>}
               iconPosition="start"
               label="Jobs"
-            />
-            <StyledTab
-              icon={<Badge badgeContent={networkCount} color="error"><PeopleIcon /></Badge>}
-              iconPosition="start"
-              label="Network"
-            />
-            <StyledTab
-              icon={<Badge badgeContent={learnCount} color="error"><SchoolIcon /></Badge>}
-              iconPosition="start"
-              label="Learning"
-            />
-            <StyledTab
-              icon={<Campaign />}
-              iconPosition="start"
-              label="System"
             />
           </Tabs>
         </Card>
@@ -678,112 +657,6 @@ const Notifications: React.FC = () => {
           </MenuItem>
         </Menu>
 
-        {/* Settings Dialog */}
-        <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle sx={{ fontWeight: 700 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <SettingsIcon />
-              Notification Settings
-            </Box>
-          </DialogTitle>
-          <DialogContent dividers>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2, color: 'text.secondary' }}>
-              GENERAL
-            </Typography>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={settings.emailNotifications}
-                  onChange={(e) => setSettings({ ...settings, emailNotifications: e.target.checked })}
-                  color="primary"
-                />
-              }
-              label={
-                <Box>
-                  <Typography variant="body1">Email Notifications</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Receive notifications via email
-                  </Typography>
-                </Box>
-              }
-              sx={{ display: 'flex', mb: 2 }}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={settings.pushNotifications}
-                  onChange={(e) => setSettings({ ...settings, pushNotifications: e.target.checked })}
-                  color="primary"
-                />
-              }
-              label={
-                <Box>
-                  <Typography variant="body1">Push Notifications</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Receive push notifications in browser
-                  </Typography>
-                </Box>
-              }
-              sx={{ display: 'flex', mb: 3 }}
-            />
-
-            <Divider sx={{ my: 2 }} />
-
-            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2, color: 'text.secondary' }}>
-              CATEGORIES
-            </Typography>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={settings.jobAlerts}
-                  onChange={(e) => setSettings({ ...settings, jobAlerts: e.target.checked })}
-                  color="primary"
-                />
-              }
-              label="Job Alerts & Application Updates"
-              sx={{ display: 'flex', mb: 1 }}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={settings.networkUpdates}
-                  onChange={(e) => setSettings({ ...settings, networkUpdates: e.target.checked })}
-                  color="primary"
-                />
-              }
-              label="Network Updates (connections, likes, comments)"
-              sx={{ display: 'flex', mb: 1 }}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={settings.learningReminders}
-                  onChange={(e) => setSettings({ ...settings, learningReminders: e.target.checked })}
-                  color="primary"
-                />
-              }
-              label="Learning Reminders & Course Updates"
-              sx={{ display: 'flex', mb: 1 }}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={settings.marketingEmails}
-                  onChange={(e) => setSettings({ ...settings, marketingEmails: e.target.checked })}
-                  color="primary"
-                />
-              }
-              label="Marketing & Promotional Emails"
-              sx={{ display: 'flex' }}
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setSettingsOpen(false)}>Cancel</Button>
-            <Button variant="contained" onClick={() => setSettingsOpen(false)} sx={{ bgcolor: '#0d47a1' }}>
-              Save Settings
-            </Button>
-          </DialogActions>
-        </Dialog>
       </Container>
     </PageContainer>
   );

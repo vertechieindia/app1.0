@@ -4,12 +4,13 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Paper, Card, CardContent, Button, IconButton, Chip, Grid,
   TextField, Dialog, DialogTitle, DialogContent, DialogActions, FormControl,
   Select, MenuItem, Tooltip, List, ListItem, ListItemIcon, ListItemText,
   ListItemAvatar, Avatar, Switch, FormControlLabel, CircularProgress, Alert,
-  ToggleButton, ToggleButtonGroup,
+  ToggleButton, ToggleButtonGroup, Snackbar, Divider,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 import LinkIcon from '@mui/icons-material/Link';
@@ -29,10 +30,12 @@ import GoogleIcon from '@mui/icons-material/Google';
 import MicrosoftIcon from '@mui/icons-material/Microsoft';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
 import GroupsIcon from '@mui/icons-material/Groups';
+import PersonIcon from '@mui/icons-material/Person';
+import ScheduleIcon from '@mui/icons-material/Schedule';
 import ATSLayout from './ATSLayout';
-
-// API Base URL
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+import ScheduleInterviewModal, { ScheduleInterviewContext } from '../../../components/ats/ScheduleInterviewModal';
+import { calendarService, type MeetingType, type SchedulingLink, type Booking } from '../../../services/calendarService';
+import { interviewService } from '../../../services/interviewService';
 
 const MeetingTypeCard = styled(Card)(() => ({
   transition: 'all 0.2s ease',
@@ -42,22 +45,14 @@ const MeetingTypeCard = styled(Card)(() => ({
   },
 }));
 
-// Default meeting types (can be customized by HM)
-const defaultMeetingTypes = [
-  { id: 1, name: '30 Minute Interview', duration: 30, color: '#0d47a1', platform: 'VerTechie Meet', type: 'One-on-one', visibility: 'Private', bookings: 0, active: true },
-  { id: 2, name: '60 Minute Interview', duration: 60, color: '#34C759', platform: 'VerTechie Meet', type: 'One-on-one', visibility: 'Private', bookings: 0, active: true },
-  { id: 3, name: 'Technical Interview', duration: 45, color: '#FF9500', platform: 'VerTechie Meet', type: 'One-on-one', visibility: 'Private', bookings: 0, active: true },
-];
-
-// Default availability
-const defaultAvailability = [
-  { day: 'Monday', dayNum: 1, slots: [{ start: '9:00 AM', end: '12:00 PM' }, { start: '1:00 PM', end: '5:00 PM' }] },
-  { day: 'Tuesday', dayNum: 2, slots: [{ start: '9:00 AM', end: '12:00 PM' }, { start: '1:00 PM', end: '5:00 PM' }] },
-  { day: 'Wednesday', dayNum: 3, slots: [{ start: '9:00 AM', end: '12:00 PM' }, { start: '1:00 PM', end: '5:00 PM' }] },
-  { day: 'Thursday', dayNum: 4, slots: [{ start: '9:00 AM', end: '12:00 PM' }, { start: '1:00 PM', end: '5:00 PM' }] },
-  { day: 'Friday', dayNum: 5, slots: [{ start: '9:00 AM', end: '12:00 PM' }] },
-  { day: 'Saturday', dayNum: 6, slots: [] },
-  { day: 'Sunday', dayNum: 0, slots: [] },
+const WEEK_DAYS = [
+  { label: 'Monday', num: 1 },
+  { label: 'Tuesday', num: 2 },
+  { label: 'Wednesday', num: 3 },
+  { label: 'Thursday', num: 4 },
+  { label: 'Friday', num: 5 },
+  { label: 'Saturday', num: 6 },
+  { label: 'Sunday', num: 0 },
 ];
 
 interface LinkSettings {
@@ -85,6 +80,70 @@ interface GeneratedLinkData {
   expires_at: string | null;
 }
 
+interface BookingItem {
+  id: string;
+  name: string;
+  type: string;
+  date: string;
+  time: string;
+  meetingTypeId: string;
+}
+
+function ATSInterviewCard({
+  item,
+  formatTime,
+  formatType,
+  onReschedule,
+  onCancel,
+  onViewProfile,
+}: {
+  item: { id: string; candidate_name: string; job_title?: string; scheduled_at: string; duration_minutes: number; interview_type: string; interviewers: string[]; candidate_id?: string };
+  formatTime: (s: string) => string;
+  formatType: (s: string) => string;
+  onReschedule: () => void;
+  onCancel: () => void;
+  onViewProfile: () => void;
+}) {
+  return (
+    <ListItem
+      sx={{
+        border: '1px solid',
+        borderColor: alpha('#0d47a1', 0.15),
+        borderRadius: 2,
+        mb: 1,
+        bgcolor: 'background.paper',
+      }}
+    >
+      <ListItemAvatar>
+        <Avatar sx={{ bgcolor: alpha('#00897b', 0.15), color: '#00897b' }}>{item.candidate_name.charAt(0)}</Avatar>
+      </ListItemAvatar>
+      <ListItemText
+        primary={<Typography variant="subtitle2" fontWeight={600}>{item.candidate_name}</Typography>}
+        secondary={
+          <Box sx={{ mt: 0.5 }}>
+            <Typography variant="caption" display="block" color="text.secondary">{item.job_title || '—'}</Typography>
+            <Typography variant="caption" display="block">{formatType(item.interview_type)} • {formatTime(item.scheduled_at)} ({item.duration_minutes} min)</Typography>
+            {item.interviewers?.length > 0 && (
+              <Typography variant="caption" color="text.secondary">Interviewers: {item.interviewers.length}</Typography>
+            )}
+          </Box>
+        }
+      />
+      <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0 }}>
+        <Tooltip title="Reschedule">
+          <IconButton size="small" onClick={onReschedule} sx={{ color: '#0d47a1' }}><ScheduleIcon fontSize="small" /></IconButton>
+        </Tooltip>
+        <Tooltip title="Cancel interview">
+          <IconButton size="small" onClick={onCancel} color="error"><DeleteIcon fontSize="small" /></IconButton>
+        </Tooltip>
+        <Tooltip title="View candidate profile">
+          <IconButton size="small" onClick={onViewProfile} disabled={!item.candidate_id}><PersonIcon fontSize="small" /></IconButton>
+        </Tooltip>
+      </Box>
+    </ListItem>
+  );
+}
+
 const SchedulingPage: React.FC = () => {
   const [showLinkSettings, setShowLinkSettings] = useState(false);
   const [showCreateMeeting, setShowCreateMeeting] = useState(false);
@@ -109,54 +168,184 @@ const SchedulingPage: React.FC = () => {
   const [linkCopied, setLinkCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [realBookings, setRealBookings] = useState<any[]>([]);
-  const [meetingTypes, setMeetingTypes] = useState(defaultMeetingTypes);
-  const [availability] = useState(defaultAvailability);
+  const [realBookings, setRealBookings] = useState<BookingItem[]>([]);
+  const [meetingTypes, setMeetingTypes] = useState<MeetingType[]>([]);
+  const [schedulingLinks, setSchedulingLinks] = useState<SchedulingLink[]>([]);
+  const [totalBookings30d, setTotalBookings30d] = useState(0);
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [scheduleModalContext, setScheduleModalContext] = useState<ScheduleInterviewContext | null>(null);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
+  const navigate = useNavigate();
 
-  // Fetch real upcoming bookings from interviews
+  // ATS interviews (scheduled via ATS – show on this page)
+  interface ATSInterviewItem {
+    id: string;
+    application_id: string;
+    candidate_id?: string;
+    candidate_name: string;
+    job_title?: string;
+    scheduled_at: string;
+    duration_minutes: number;
+    interview_type: string;
+    interviewers: string[];
+    status: string;
+  }
+  const [atsInterviewsToday, setAtsInterviewsToday] = useState<ATSInterviewItem[]>([]);
+  const [atsInterviewsUpcoming, setAtsInterviewsUpcoming] = useState<ATSInterviewItem[]>([]);
+  const [atsInterviewsLoading, setAtsInterviewsLoading] = useState(false);
+  const [cancelConfirmInterview, setCancelConfirmInterview] = useState<ATSInterviewItem | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const activeSchedulingLink = schedulingLinks.find((link) => link.is_active) || schedulingLinks[0] || null;
+  const publicLink = activeSchedulingLink
+    ? `${window.location.origin}/book/${activeSchedulingLink.token}`
+    : '';
+
+  const getMeetingTypeNameById = (meetingTypeId: string, source: MeetingType[] = meetingTypes) => {
+    const found = source.find((mt) => String(mt.id) === String(meetingTypeId));
+    return found?.name || meetingTypeId;
+  };
+
+  const getMeetingTypeBookingsCount = (meetingTypeId: string) =>
+    realBookings.filter((booking) => booking.meetingTypeId === String(meetingTypeId)).length;
+
+  const formatAvailabilityLine = (dayNum: number) => {
+    if (!activeSchedulingLink || !activeSchedulingLink.available_days?.includes(dayNum)) {
+      return 'Unavailable';
+    }
+    const start = activeSchedulingLink.start_time || '00:00';
+    const end = activeSchedulingLink.end_time || '23:59';
+    return `${start} - ${end}`;
+  };
+
+  // Fetch real scheduling data
   useEffect(() => {
-    const fetchBookings = async () => {
+    const fetchSchedulingData = async () => {
       try {
-        const token = localStorage.getItem('authToken');
-        if (!token) return;
+        const [types, links, upcoming, allBookings] = await Promise.all([
+          calendarService.getMeetingTypes(),
+          calendarService.getSchedulingLinks(),
+          calendarService.getBookings({ upcoming_only: true }),
+          calendarService.getBookings(),
+        ]);
 
-        const response = await fetch(`${API_BASE}/v1/hiring/interviews?upcoming=true`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
+        setMeetingTypes(types);
+        setSchedulingLinks(links);
+
+        const bookingItems = (upcoming || []).map((booking: Booking) => {
+          const scheduledAt = new Date(booking.start_time);
+          return {
+            id: String(booking.id),
+            name: booking.invitee_name || booking.invitee_email,
+            type: getMeetingTypeNameById(String(booking.meeting_type_id), types),
+            date: scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+            time: scheduledAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            meetingTypeId: String(booking.meeting_type_id),
+          };
         });
+        setRealBookings(bookingItems);
 
-        if (response.ok) {
-          const data = await response.json();
-          const bookings = data.map((interview: any, idx: number) => {
-            const scheduledAt = new Date(interview.scheduled_at);
-            return {
-              id: interview.id || idx + 1,
-              name: interview.candidate_name || 'Candidate',
-              type: interview.interview_type || 'Technical Interview',
-              date: scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-              time: scheduledAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-              status: interview.status === 'scheduled' ? 'confirmed' : interview.status,
-              duration: interview.duration_minutes || 60,
-            };
-          });
-          setRealBookings(bookings);
-          
-          // Update meeting types with real booking counts
-          const updatedMeetingTypes = defaultMeetingTypes.map(mt => ({
-            ...mt,
-            bookings: bookings.filter((b: any) => b.duration === mt.duration).length,
-          }));
-          setMeetingTypes(updatedMeetingTypes);
-        }
+        const now = new Date();
+        const last30 = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+        const count30 = (allBookings || []).filter((booking: Booking) => {
+          const createdAt = new Date(booking.created_at);
+          return !Number.isNaN(createdAt.getTime()) && createdAt >= last30 && createdAt <= now;
+        }).length;
+        setTotalBookings30d(count30);
       } catch (err) {
-        console.warn('Could not fetch bookings:', err);
+        console.warn('Could not fetch scheduling data:', err);
       }
     };
 
-    fetchBookings();
+    fetchSchedulingData();
   }, []);
+
+  // Fetch ATS interviews for Today / Upcoming
+  useEffect(() => {
+    const fetchAtsInterviews = async () => {
+      setAtsInterviewsLoading(true);
+      try {
+        const list = await interviewService.getMyInterviewsAsInterviewer(true) as any[];
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const todayEnd = new Date(todayStart);
+        todayEnd.setDate(todayEnd.getDate() + 1);
+        const today: ATSInterviewItem[] = [];
+        const upcoming: ATSInterviewItem[] = [];
+        (list || []).forEach((i: any) => {
+          let s = String(i.scheduled_at || '').trim();
+          if (!s.includes('Z') && !s.includes('+') && !/[-+]\d{2}:?\d{2}$/.test(s)) {
+            s = s.replace(' ', 'T');
+            if (!s.endsWith('Z')) s += 'Z';
+          }
+          const d = new Date(s);
+          if (Number.isNaN(d.getTime())) return;
+          const item: ATSInterviewItem = {
+            id: i.id,
+            application_id: i.application_id,
+            candidate_id: i.candidate_id,
+            candidate_name: i.candidate_name || 'Candidate',
+            job_title: i.job_title,
+            scheduled_at: i.scheduled_at,
+            duration_minutes: i.duration_minutes ?? 60,
+            interview_type: i.interview_type || 'technical',
+            interviewers: Array.isArray(i.interviewers) ? i.interviewers : [],
+            status: i.status || 'scheduled',
+          };
+          if (d >= todayStart && d < todayEnd) {
+            today.push(item);
+          } else if (d >= now) {
+            upcoming.push(item);
+          }
+        });
+        today.sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+        upcoming.sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+        setAtsInterviewsToday(today);
+        setAtsInterviewsUpcoming(upcoming);
+      } catch {
+        setAtsInterviewsToday([]);
+        setAtsInterviewsUpcoming([]);
+      } finally {
+        setAtsInterviewsLoading(false);
+      }
+    };
+    fetchAtsInterviews();
+  }, [scheduleModalOpen]); // refetch when modal closes (after schedule/reschedule)
+
+  const formatInterviewTime = (scheduledAt: string) => {
+    let s = String(scheduledAt || '').trim();
+    if (!s.includes('Z') && !s.includes('+')) { s = s.replace(' ', 'T'); if (!s.endsWith('Z')) s += 'Z'; }
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? '--' : d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+
+  const formatInterviewType = (type: string) => (type || 'technical').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const handleRescheduleClick = (item: ATSInterviewItem) => {
+    setScheduleModalContext({
+      applicationId: item.application_id,
+      candidateId: item.candidate_id,
+      candidateName: item.candidate_name,
+      jobTitle: item.job_title,
+    });
+    setScheduleModalOpen(true);
+  };
+
+  const handleCancelInterview = async () => {
+    if (!cancelConfirmInterview) return;
+    setCancellingId(cancelConfirmInterview.id);
+    try {
+      await interviewService.cancelInterview(cancelConfirmInterview.id);
+      setSnackbar({ open: true, message: 'Interview cancelled.', severity: 'success' });
+      setCancelConfirmInterview(null);
+      setAtsInterviewsToday((prev) => prev.filter((i) => i.id !== cancelConfirmInterview.id));
+      setAtsInterviewsUpcoming((prev) => prev.filter((i) => i.id !== cancelConfirmInterview.id));
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.message || 'Failed to cancel interview', severity: 'error' });
+    } finally {
+      setCancellingId(null);
+    }
+  };
 
   const handleDayToggle = (day: number) => {
     const newDays = linkSettings.availableDays.includes(day)
@@ -173,74 +362,40 @@ const SchedulingPage: React.FC = () => {
       ? parseInt(linkSettings.customDuration) 
       : parseInt(linkSettings.duration);
     
-    const validityDays = linkSettings.validityDays === 'custom'
-      ? parseInt(linkSettings.customValidity)
-      : parseInt(linkSettings.validityDays);
-
     const requestData = {
       duration_minutes: duration,
-      validity_days: validityDays,
-      start_date: linkSettings.startDate || null,
-      end_date: linkSettings.endDate || null,
-      start_time: linkSettings.startTime || null,
-      end_time: linkSettings.endTime || null,
+      start_date: linkSettings.startDate || undefined,
+      end_date: linkSettings.endDate || undefined,
+      start_time: linkSettings.startTime || undefined,
+      end_time: linkSettings.endTime || undefined,
       available_days: linkSettings.availableDays,
       buffer_before: parseInt(linkSettings.bufferBefore) || 0,
       buffer_after: parseInt(linkSettings.bufferAfter) || 0,
-      max_bookings: linkSettings.maxBookings ? parseInt(linkSettings.maxBookings) : null,
-      max_bookings_per_day: linkSettings.maxBookingsPerDay ? parseInt(linkSettings.maxBookingsPerDay) : null,
+      max_bookings: linkSettings.maxBookings ? parseInt(linkSettings.maxBookings) : undefined,
       requires_approval: linkSettings.requireApproval,
     };
 
     try {
-      const response = await fetch(`${API_BASE}/v_calendar/scheduling-links/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // Add auth header if available
-          // 'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(requestData),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate link');
+      const data = await calendarService.createSchedulingLink(requestData);
+      const token = (data as any)?.token;
+      if (!token) {
+        throw new Error('Failed to generate link token');
       }
-
-      const data = await response.json();
-      setGeneratedLink(data);
-    } catch (err) {
-      // Fallback for when API is not available - generate local link with constraints encoded
-      console.warn('API not available, generating local link');
-      const token = generateLocalToken();
-      
-      // Store constraints in localStorage for demo purposes
-      const linkData = {
-        token,
-        constraints: requestData,
-        created_at: new Date().toISOString(),
-      };
-      localStorage.setItem(`scheduling_link_${token}`, JSON.stringify(linkData));
-
+      const fullUrl = `${window.location.origin}/book/${token}`;
       setGeneratedLink({
         token,
         url: `/book/${token}`,
-        full_url: `${window.location.origin}/book/${token}`,
-        expires_at: new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000).toISOString(),
+        full_url: fullUrl,
+        expires_at: null,
       });
+      const latestLinks = await calendarService.getSchedulingLinks();
+      setSchedulingLinks(latestLinks);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate link';
+      setError(message);
     }
 
     setGenerating(false);
-  };
-
-  const generateLocalToken = () => {
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    let token = '';
-    for (let i = 0; i < 10; i++) {
-      token += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return token;
   };
 
   const handleCopyGeneratedLink = () => {
@@ -280,12 +435,71 @@ const SchedulingPage: React.FC = () => {
             variant="contained" 
             startIcon={<VideocamIcon />} 
             sx={{ bgcolor: '#00897b' }}
-            href="/techie/schedule-interview"
+            onClick={() => { setScheduleModalContext(null); setScheduleModalOpen(true); }}
           >
             Schedule Interview
           </Button>
         </Box>
       </Box>
+
+      {/* ATS Interviews – Today & Upcoming */}
+      <Paper sx={{ p: 2, mb: 3, bgcolor: alpha('#00897b', 0.04), border: '1px solid rgba(0, 137, 123, 0.2)' }}>
+        <Typography variant="h6" fontWeight={600} sx={{ mb: 2, color: '#00897b' }}>
+          Interview Schedule (ATS)
+        </Typography>
+        {atsInterviewsLoading ? (
+          <Box sx={{ py: 3, textAlign: 'center' }}>
+            <CircularProgress size={28} sx={{ color: '#00897b' }} />
+          </Box>
+        ) : (
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" fontWeight={600} color="text.secondary" sx={{ mb: 1 }}>
+                Today&apos;s Interviews ({atsInterviewsToday.length})
+              </Typography>
+              {atsInterviewsToday.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">No interviews scheduled for today.</Typography>
+              ) : (
+                <List dense disablePadding>
+                  {atsInterviewsToday.map((item) => (
+                    <ATSInterviewCard
+                      key={item.id}
+                      item={item}
+                      formatTime={formatInterviewTime}
+                      formatType={formatInterviewType}
+                      onReschedule={() => handleRescheduleClick(item)}
+                      onCancel={() => setCancelConfirmInterview(item)}
+                      onViewProfile={() => item.candidate_id && navigate(`/techie/ats/candidate/${item.candidate_id}`)}
+                    />
+                  ))}
+                </List>
+              )}
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" fontWeight={600} color="text.secondary" sx={{ mb: 1 }}>
+                Upcoming Interviews ({atsInterviewsUpcoming.length})
+              </Typography>
+              {atsInterviewsUpcoming.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">No upcoming interviews.</Typography>
+              ) : (
+                <List dense disablePadding>
+                  {atsInterviewsUpcoming.map((item) => (
+                    <ATSInterviewCard
+                      key={item.id}
+                      item={item}
+                      formatTime={formatInterviewTime}
+                      formatType={formatInterviewType}
+                      onReschedule={() => handleRescheduleClick(item)}
+                      onCancel={() => setCancelConfirmInterview(item)}
+                      onViewProfile={() => item.candidate_id && navigate(`/techie/ats/candidate/${item.candidate_id}`)}
+                    />
+                  ))}
+                </List>
+              )}
+            </Grid>
+          </Grid>
+        )}
+      </Paper>
 
       {/* Scheduling Link */}
       <Paper sx={{ p: 2, mb: 3, bgcolor: alpha('#0d47a1', 0.03), border: '1px solid rgba(13, 71, 161, 0.1)' }}>
@@ -295,7 +509,7 @@ const SchedulingPage: React.FC = () => {
             <Box>
               <Typography variant="body2" color="text.secondary">Your Scheduling Link</Typography>
               <Typography variant="body1" fontWeight={600} color="#0d47a1">
-                vertechie.com/schedule/johndoe
+                {publicLink || 'No scheduling link created'}
               </Typography>
             </Box>
           </Box>
@@ -305,7 +519,11 @@ const SchedulingPage: React.FC = () => {
                 <SettingsIcon sx={{ color: '#0d47a1' }} />
               </IconButton>
             </Tooltip>
-            <Button variant="outlined" onClick={() => navigator.clipboard.writeText('https://vertechie.com/schedule/johndoe')}>
+            <Button
+              variant="outlined"
+              disabled={!publicLink}
+              onClick={() => publicLink && navigator.clipboard.writeText(publicLink)}
+            >
               Copy Link
             </Button>
             <Button variant="outlined">Share</Button>
@@ -317,25 +535,27 @@ const SchedulingPage: React.FC = () => {
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid item xs={6} md={3}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight={700} color="#0d47a1">4</Typography>
+            <Typography variant="h4" fontWeight={700} color="#0d47a1">
+              {meetingTypes.filter((m) => m.is_active).length}
+            </Typography>
             <Typography variant="body2" color="text.secondary">Active Meeting Types</Typography>
           </Paper>
         </Grid>
         <Grid item xs={6} md={3}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight={700} color="#34C759">2</Typography>
+            <Typography variant="h4" fontWeight={700} color="#34C759">--</Typography>
             <Typography variant="body2" color="text.secondary">Calendars Connected</Typography>
           </Paper>
         </Grid>
         <Grid item xs={6} md={3}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight={700} color="#5856D6">12</Typography>
+            <Typography variant="h4" fontWeight={700} color="#5856D6">{realBookings.length}</Typography>
             <Typography variant="body2" color="text.secondary">Upcoming Bookings</Typography>
           </Paper>
         </Grid>
         <Grid item xs={6} md={3}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight={700} color="#FF9500">85</Typography>
+            <Typography variant="h4" fontWeight={700} color="#FF9500">{totalBookings30d}</Typography>
             <Typography variant="body2" color="text.secondary">Total Bookings (30d)</Typography>
           </Paper>
         </Grid>
@@ -351,33 +571,41 @@ const SchedulingPage: React.FC = () => {
           <Grid container spacing={2}>
             {meetingTypes.map((meeting) => (
               <Grid item xs={12} sm={6} key={meeting.id}>
-                <MeetingTypeCard sx={{ opacity: meeting.active ? 1 : 0.6 }}>
+                <MeetingTypeCard sx={{ opacity: meeting.is_active ? 1 : 0.6 }}>
                   <CardContent>
                     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 2 }}>
-                      <Box sx={{ width: 8, height: 40, bgcolor: meeting.color, borderRadius: 1 }} />
+                      <Box sx={{ width: 8, height: 40, bgcolor: meeting.color || '#0d47a1', borderRadius: 1 }} />
                       <Box sx={{ flex: 1 }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Typography variant="subtitle1" fontWeight={600}>{meeting.name}</Typography>
-                          <Chip label={meeting.active ? 'Active' : 'Inactive'} size="small" sx={{ bgcolor: alpha(meeting.active ? '#34C759' : '#8E8E93', 0.1), color: meeting.active ? '#34C759' : '#8E8E93' }} />
+                          <Chip
+                            label={meeting.is_active ? 'Active' : 'Inactive'}
+                            size="small"
+                            sx={{
+                              bgcolor: alpha(meeting.is_active ? '#34C759' : '#8E8E93', 0.1),
+                              color: meeting.is_active ? '#34C759' : '#8E8E93',
+                            }}
+                          />
                         </Box>
                         <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                            <Typography variant="caption" color="text.secondary">{meeting.duration} min</Typography>
+                            <Typography variant="caption" color="text.secondary">{meeting.duration_minutes} min</Typography>
                           </Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             <VideocamIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                            <Typography variant="caption" color="text.secondary">{meeting.platform}</Typography>
+                            <Typography variant="caption" color="text.secondary">{meeting.location_type}</Typography>
                           </Box>
                         </Box>
                       </Box>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 0.5, mb: 2 }}>
-                      <Chip label={meeting.type} size="small" variant="outlined" />
-                      <Chip label={meeting.visibility} size="small" variant="outlined" />
+                      <Chip label={meeting.is_public ? 'Public' : 'Private'} size="small" variant="outlined" />
                     </Box>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="caption" color="text.secondary">{meeting.bookings} bookings</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {getMeetingTypeBookingsCount(String(meeting.id))} bookings
+                      </Typography>
                       <Box sx={{ display: 'flex', gap: 0.5 }}>
                         <IconButton size="small"><ContentCopyIcon fontSize="small" /></IconButton>
                         <IconButton size="small"><EditIcon fontSize="small" /></IconButton>
@@ -397,36 +625,39 @@ const SchedulingPage: React.FC = () => {
           <Paper sx={{ p: 2, mb: 3 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="subtitle1" fontWeight={600}>Availability</Typography>
-              <Button size="small" startIcon={<EditIcon />}>Edit</Button>
+              <Button size="small" startIcon={<EditIcon />} disabled={!activeSchedulingLink}>Edit</Button>
             </Box>
-            {availability.map((day) => (
-              <Box key={day.day} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
-                <Typography variant="body2" fontWeight={day.slots.length > 0 ? 500 : 400} color={day.slots.length > 0 ? 'text.primary' : 'text.disabled'}>
-                  {day.day}
-                </Typography>
-                <Typography variant="body2" color={day.slots.length > 0 ? 'text.secondary' : 'text.disabled'}>
-                  {day.slots.length > 0 ? day.slots.map(s => `${s.start} - ${s.end}`).join(', ') : 'Unavailable'}
-                </Typography>
-              </Box>
-            ))}
+            {WEEK_DAYS.map((day) => {
+              const line = formatAvailabilityLine(day.num);
+              const available = line !== 'Unavailable';
+              return (
+                <Box key={day.label} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                  <Typography variant="body2" fontWeight={available ? 500 : 400} color={available ? 'text.primary' : 'text.disabled'}>
+                    {day.label}
+                  </Typography>
+                  <Typography variant="body2" color={available ? 'text.secondary' : 'text.disabled'}>
+                    {line}
+                  </Typography>
+                </Box>
+              );
+            })}
+            {!activeSchedulingLink && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                Create a scheduling link to define availability.
+              </Typography>
+            )}
           </Paper>
 
           {/* Connected Calendars */}
           <Paper sx={{ p: 2, mb: 3 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="subtitle1" fontWeight={600}>Connected Calendars</Typography>
-              <Button size="small" startIcon={<AddIcon />}>Connect</Button>
+              <Button size="small" startIcon={<AddIcon />} disabled>Connect</Button>
             </Box>
             <List dense>
               <ListItem>
-                <ListItemIcon><GoogleIcon sx={{ color: '#4285F4' }} /></ListItemIcon>
-                <ListItemText primary="Google Calendar" secondary="john@gmail.com" />
-                <CheckCircleIcon sx={{ color: '#34C759' }} />
-              </ListItem>
-              <ListItem>
-                <ListItemIcon><MicrosoftIcon sx={{ color: '#00A4EF' }} /></ListItemIcon>
-                <ListItemText primary="Microsoft Outlook" secondary="john@company.com" />
-                <CheckCircleIcon sx={{ color: '#34C759' }} />
+                <ListItemIcon><EventBusyIcon color="disabled" /></ListItemIcon>
+                <ListItemText primary="No connected calendars" secondary="Calendar connections are not configured yet." />
               </ListItem>
             </List>
           </Paper>
@@ -452,7 +683,7 @@ const SchedulingPage: React.FC = () => {
                   </ListItemAvatar>
                   <ListItemText
                     primary={<Typography variant="body2" fontWeight={500}>{booking.name}</Typography>}
-                    secondary={<Typography variant="caption" color="text.secondary">{booking.type} • {booking.date} at {booking.time}</Typography>}
+                    secondary={<Typography variant="caption" color="text.secondary">{booking.type} - {booking.date} at {booking.time}</Typography>}
                   />
                 </ListItem>
               ))}
@@ -753,6 +984,44 @@ const SchedulingPage: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <ScheduleInterviewModal
+        open={scheduleModalOpen}
+        onClose={() => { setScheduleModalOpen(false); setScheduleModalContext(null); }}
+        onSuccess={() => setSnackbar({ open: true, message: 'Interview scheduled successfully!', severity: 'success' })}
+        onError={(msg) => setSnackbar({ open: true, message: msg, severity: 'error' })}
+        context={scheduleModalContext}
+        allowSelectApplication={!scheduleModalContext}
+      />
+
+      {/* Cancel interview confirmation */}
+      <Dialog open={Boolean(cancelConfirmInterview)} onClose={() => setCancelConfirmInterview(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Cancel interview?</DialogTitle>
+        <DialogContent>
+          {cancelConfirmInterview && (
+            <Typography variant="body2" color="text.secondary">
+              Cancel the interview with <strong>{cancelConfirmInterview.candidate_name}</strong> ({formatInterviewTime(cancelConfirmInterview.scheduled_at)})? The candidate will be notified.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCancelConfirmInterview(null)}>Keep</Button>
+          <Button variant="contained" color="error" onClick={handleCancelInterview} disabled={Boolean(cancellingId)}>
+            {cancellingId ? <CircularProgress size={20} /> : 'Cancel interview'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </ATSLayout>
   );
 };

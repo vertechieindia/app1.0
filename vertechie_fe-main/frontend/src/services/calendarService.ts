@@ -9,6 +9,7 @@ import { API_ENDPOINTS } from '../config/api';
 // Types
 export interface MeetingType {
   id: string;
+  user_id?: string;
   name: string;
   slug: string;
   description: string | null;
@@ -16,23 +17,28 @@ export interface MeetingType {
   location_type: string;
   color: string;
   is_active: boolean;
+  is_public?: boolean;
 }
 
 export interface SchedulingLink {
   id: string;
   token: string;
-  title: string | null;
+  name: string | null;
   duration_minutes: number;
+  available_days: number[];
   start_date: string | null;
   end_date: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
   max_bookings: number | null;
-  current_bookings: number;
+  bookings_count: number;
   is_active: boolean;
   created_at: string;
 }
 
 export interface Booking {
   id: string;
+  meeting_type_id: string;
   invitee_name: string;
   invitee_email: string;
   start_time: string;
@@ -96,6 +102,7 @@ export interface BookingListParams {
   status?: string;
   from_date?: string;
   to_date?: string;
+  upcoming_only?: boolean;
 }
 
 // Calendar service

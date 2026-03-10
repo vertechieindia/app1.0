@@ -53,6 +53,7 @@ import {
   formatInterviewStatus,
   formatInterviewDate,
   formatInterviewTime,
+  parseBackendDateTime,
 } from '../../services/interviewService';
 
 // Styled Components
@@ -118,16 +119,9 @@ const MyInterviews: React.FC = () => {
 
       // Fetch past interviews
       const past = await interviewService.getMyInterviewsAsCandidate(false);
-      // Helper to parse backend date
-      const parseDate = (ds: string) => {
-        if (ds && !ds.includes('Z') && !ds.includes('+')) {
-          return new Date(ds.replace(' ', 'T').replace(/\.000000$/, '') + 'Z');
-        }
-        return new Date(ds);
-      };
       // Filter out upcoming ones from past
       const pastOnly = past.filter(
-        (interview) => parseDate(interview.scheduled_at) < new Date()
+        (interview) => parseBackendDateTime(interview.scheduled_at) < new Date()
       );
       setPastInterviews(pastOnly);
 
@@ -163,19 +157,10 @@ const MyInterviews: React.FC = () => {
     setDetailDialogOpen(true);
   };
 
-  // Helper to parse backend date (handles UTC conversion)
-  const parseBackendDate = (dateString: string): Date => {
-    if (dateString && !dateString.includes('Z') && !dateString.includes('+') && !dateString.match(/[+-]\d{2}:\d{2}$/)) {
-      const isoString = dateString.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
-      return new Date(isoString);
-    }
-    return new Date(dateString);
-  };
-
   const renderInterviewCard = (interview: Interview) => {
     const status = formatInterviewStatus(interview.status);
     const now = new Date();
-    const scheduledTime = parseBackendDate(interview.scheduled_at);
+    const scheduledTime = parseBackendDateTime(interview.scheduled_at);
     const timeDiffMinutes = (scheduledTime.getTime() - now.getTime()) / (1000 * 60);
     const isUpcoming = scheduledTime > now;
     
@@ -492,7 +477,7 @@ const MyInterviews: React.FC = () => {
             {selectedInterview && 
              selectedInterview.status !== 'cancelled' && 
              selectedInterview.meeting_link && 
-             parseBackendDate(selectedInterview.scheduled_at) > new Date() && (
+             parseBackendDateTime(selectedInterview.scheduled_at) > new Date() && (
               <Button
                 variant="contained"
                 startIcon={<VideocamIcon />}

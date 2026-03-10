@@ -117,7 +117,7 @@ async def apply_to_job(
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """Apply to a job with skill matching calculation."""
-    from app.models.user import UserProfile
+    from app.models.user import UserProfile, Experience
     
     # Check job exists
     result = await db.execute(
@@ -145,21 +145,48 @@ async def apply_to_job(
         )
     
     # ============= SKILL MATCHING CALCULATION =============
-    # Get applicant's skills from profile
+    def _normalize_skills(values: Any) -> List[str]:
+        if not values:
+            return []
+        raw_skills: List[str] = []
+        if isinstance(values, list):
+            raw_skills = [str(s).strip() for s in values if str(s).strip()]
+        elif isinstance(values, str):
+            raw_skills = [s.strip() for s in values.split(',') if s.strip()]
+        else:
+            raw_skills = [str(values).strip()] if str(values).strip() else []
+        # lowercase + dedupe while preserving order
+        seen = set()
+        normalized: List[str] = []
+        for skill in raw_skills:
+            key = skill.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(key)
+        return normalized
+
+    # Get applicant profile
     profile_result = await db.execute(
         select(UserProfile).where(UserProfile.user_id == current_user.id)
     )
     user_profile = profile_result.scalar_one_or_none()
-    
-    # Get user skills (normalize to lowercase for comparison)
-    user_skills = []
-    if user_profile and user_profile.skills:
-        user_skills = [s.lower().strip() for s in user_profile.skills if s]
+
+    # Get applicant experiences and merge all skills
+    exp_result = await db.execute(
+        select(Experience).where(Experience.user_id == current_user.id)
+    )
+    experiences = exp_result.scalars().all()
+
+    user_skills: List[str] = []
+    user_skills.extend(_normalize_skills(user_profile.skills if user_profile else []))
+    for exp in experiences:
+        user_skills.extend(_normalize_skills(getattr(exp, "skills", [])))
+    # de-duplicate again after merge
+    user_skills = list(dict.fromkeys(user_skills))
     
     # Get required skills from job (normalize to lowercase)
-    required_skills = []
-    if job.skills_required:
-        required_skills = [s.lower().strip() for s in job.skills_required if s]
+    required_skills = _normalize_skills(job.skills_required or [])
     
     # Calculate matched and missing skills
     matched_skills = []

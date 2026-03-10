@@ -56,7 +56,7 @@ def _normalize_meeting_link(raw_link: Optional[str]) -> Optional[str]:
         return raw_link
 
     link = raw_link.strip()
-    frontend_base = settings.FRONTEND_URL.rstrip("/")
+    frontend_base = (getattr(settings, "FRONTEND_URL", None) or "http://localhost:5173").rstrip("/")
 
     if link.startswith("/"):
         return f"{frontend_base}{link}"
@@ -173,7 +173,8 @@ class InterviewResponse(BaseModel):
     # Additional fields for HM dashboard
     candidate_name: Optional[str] = None
     job_title: Optional[str] = None
-    
+    candidate_id: Optional[UUID] = None  # applicant user id for profile link
+
     class Config:
         from_attributes = True
 
@@ -322,7 +323,7 @@ class PipelineCandidateResponse(BaseModel):
     aiInsight: Optional[str] = None
     experience: Optional[int] = None
     education: Optional[str] = None
-    source: str = "VerTechie"
+    source: Optional[str] = None
     avatar: Optional[str] = None
     job_id: UUID
     job_title: Optional[str] = None
@@ -356,7 +357,8 @@ async def get_pipeline_candidates(
     
     # Get all applications for these jobs with applicant details
     applications_query = select(JobApplication).options(
-        selectinload(JobApplication.applicant),
+        selectinload(JobApplication.applicant).selectinload(User.profile),
+        selectinload(JobApplication.applicant).selectinload(User.experiences),
         selectinload(JobApplication.job)
     ).where(JobApplication.job_id.in_(job_ids))
     
@@ -375,6 +377,26 @@ async def get_pipeline_candidates(
         ApplicationStatus.REJECTED.value: 'rejected',
     }
     
+    def _normalize_skills(values) -> List[str]:
+        if not values:
+            return []
+        if isinstance(values, list):
+            raw = [str(v).strip() for v in values if str(v).strip()]
+        elif isinstance(values, str):
+            raw = [v.strip() for v in values.split(',') if v.strip()]
+        else:
+            raw = [str(values).strip()] if str(values).strip() else []
+
+        seen = set()
+        normalized: List[str] = []
+        for skill in raw:
+            key = skill.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(key)
+        return normalized
+
     candidates = []
     for app in applications:
         applicant = app.applicant
@@ -387,16 +409,30 @@ async def get_pipeline_candidates(
         app_status = app.status.value if hasattr(app.status, 'value') else str(app.status)
         stage = status_to_stage.get(app_status, 'new')
         
-        # Calculate match score (simplified - can be enhanced)
-        match_score = app.rating * 20 if app.rating else 75
-        
-        # Get skills
-        skills = []
-        if hasattr(applicant, 'skills') and applicant.skills:
-            if isinstance(applicant.skills, list):
-                skills = applicant.skills
-            elif isinstance(applicant.skills, str):
-                skills = [s.strip() for s in applicant.skills.split(',')]
+        # Aggregate applicant skills from all available sources
+        applicant_skills: List[str] = []
+        applicant_skills.extend(_normalize_skills(getattr(applicant, 'skills', None)))
+        applicant_profile = getattr(applicant, 'profile', None)
+        if applicant_profile is not None:
+            applicant_skills.extend(_normalize_skills(getattr(applicant_profile, 'skills', None)))
+        for exp in getattr(applicant, 'experiences', []) or []:
+            applicant_skills.extend(_normalize_skills(getattr(exp, 'skills', None)))
+        applicant_skills = list(dict.fromkeys(applicant_skills))
+
+        # Recalculate match score using current profile data
+        required_skills = _normalize_skills(getattr(job, 'skills_required', None))
+        matched = []
+        missing = []
+        for req in required_skills:
+            found = any(req in user_skill or user_skill in req for user_skill in applicant_skills)
+            if found:
+                matched.append(req)
+            else:
+                missing.append(req)
+        if required_skills:
+            match_score = int((len(matched) / len(required_skills)) * 100)
+        else:
+            match_score = 100
         
         # Calculate experience
         experience_years = None
@@ -449,15 +485,15 @@ async def get_pipeline_candidates(
             role=getattr(applicant, 'title', None) or getattr(applicant, 'headline', None) or job.title if job else None,
             stage=stage,
             stage_id=None,  # Will be set if using actual pipeline stages
-            skills=skills[:10],  # Limit to 10 skills
+            skills=applicant_skills[:10],  # Limit to 10 skills
             rating=app.rating if app.rating else None,
             time=time_str,
-            score=app.rating * 20 if app.rating else 75,
-            matchScore=app.match_score if app.match_score else match_score,  # Use stored match_score
+            score=match_score,
+            matchScore=match_score,
             aiInsight=None,  # Can be enhanced with AI insights
             experience=experience_years,
             education=education,
-            source="VerTechie",
+            source=app.referral_source if hasattr(app, "referral_source") else None,
             avatar=getattr(applicant, 'avatar_url', None) or getattr(applicant, 'profile_image', None),
             job_id=app.job_id,
             job_title=job.title if job else None,
@@ -643,15 +679,15 @@ async def send_assessment(
             role=getattr(applicant, 'title', None) or getattr(applicant, 'headline', None) or job.title if job else None,
             stage=stage,
             stage_id=None,  # Will be set if using actual pipeline stages
-            skills=skills[:10],  # Limit to 10 skills
+            skills=applicant_skills[:10],  # Limit to 10 skills
             rating=app.rating if app.rating else None,
             time=time_str,
-            score=app.rating * 20 if app.rating else 75,
-            matchScore=app.match_score if app.match_score else match_score,  # Use stored match_score
+            score=match_score,
+            matchScore=match_score,
             aiInsight=None,  # Can be enhanced with AI insights
             experience=experience_years,
             education=education,
-            source="VerTechie",
+            source=app.referral_source if hasattr(app, "referral_source") else None,
             avatar=getattr(applicant, 'avatar_url', None) or getattr(applicant, 'profile_image', None),
             job_id=app.job_id,
             job_title=job.title if job else None,
@@ -888,7 +924,8 @@ async def list_my_interviews(
         for app in apps_data.scalars().all():
             app_details[app.id] = {
                 "candidate_name": f"{app.applicant.first_name or ''} {app.applicant.last_name or ''}".strip() or app.applicant.email if app.applicant else "Unknown Candidate",
-                "job_title": app.job.title if app.job else "Unknown Position"
+                "job_title": app.job.title if app.job else "Unknown Position",
+                "candidate_id": app.applicant_id if app.applicant_id else None,
             }
     
     # 6. Build final response
@@ -910,6 +947,7 @@ async def list_my_interviews(
             created_at=interview.created_at,
             candidate_name=details.get("candidate_name"),
             job_title=details.get("job_title"),
+            candidate_id=details.get("candidate_id"),
         ))
     
     return enriched_interviews
@@ -923,7 +961,29 @@ async def schedule_interview(
     current_user: User = Depends(get_current_user)
 ):
     """Schedule an interview with notifications to candidate."""
-    
+    application_id = interview.application_id
+    if application_id:
+        now_utc = datetime.now(timezone.utc)
+        existing = await db.execute(
+            select(Interview)
+            .where(Interview.application_id == application_id)
+            .where(Interview.scheduled_at >= now_utc)
+            .where(Interview.status.in_([
+                InterviewStatus.SCHEDULED,
+                InterviewStatus.CONFIRMED,
+                InterviewStatus.IN_PROGRESS,
+            ]))
+        )
+        existing_interview = existing.scalar_one_or_none()
+        if existing_interview:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "This candidate already has an upcoming interview. Please reschedule the existing interview instead.",
+                    "existing_interview_id": str(existing_interview.id),
+                },
+            )
+
     # Create interview record
     interview_data = interview.model_dump()
     interview_data["scheduled_at"] = _to_utc_datetime(interview_data.get("scheduled_at"))
@@ -973,8 +1033,9 @@ async def schedule_interview(
     
     # Send email notification to candidate
     if candidate and candidate.email:
+        # Use UTC for email; frontend will show local time in My Interviews
         interview_date = db_interview.scheduled_at.strftime("%B %d, %Y")
-        interview_time = db_interview.scheduled_at.strftime("%I:%M %p")
+        interview_time_utc = db_interview.scheduled_at.strftime("%I:%M %p UTC")
         job_title = job.title if job else "the position"
         
         email_subject = f"📅 Interview Scheduled: {job_title}"
@@ -984,7 +1045,7 @@ Hello {candidate.first_name or 'Candidate'},
 Great news! Your interview for {job_title} has been scheduled.
 
 📅 Date: {interview_date}
-⏰ Time: {interview_time}
+⏰ Time: {interview_time_utc} (check the app for your local time)
 ⏱️ Duration: {interview.duration_minutes} minutes
 📍 Type: {interview.interview_type.value.replace('_', ' ').title()}
 
@@ -994,6 +1055,8 @@ Please make sure to:
 ✓ Test your camera and microphone beforehand
 ✓ Be ready 5 minutes before the scheduled time
 ✓ Have a quiet, well-lit environment
+
+View the exact date and time in your timezone in the app: My Interviews.
 
 If you need to reschedule, please contact us as soon as possible.
 
@@ -1010,11 +1073,11 @@ The VerTechie Team
             email_body
         )
         
-        # Create in-app notification for candidate
+        # In-app notification: do not embed server time (UTC); user sees correct local time in My Interviews
         notification = Notification(
             user_id=candidate.id,
             title=f"Interview Scheduled: {job_title}",
-            message=f"Your interview is scheduled for {interview_date} at {interview_time}",
+            message="Your interview has been scheduled. View date and time in My Interviews.",
             notification_type=NotificationType.INTERVIEW_SCHEDULED,
             link="/techie/my-interviews",
             reference_id=db_interview.id,
@@ -1342,7 +1405,7 @@ async def reschedule_interview(
             notification = Notification(
                 user_id=candidate.id,
                 title="Interview Rescheduled",
-                message=f"Your interview for {job.title if job else 'the position'} has been rescheduled to {reschedule.scheduled_at.strftime('%B %d, %Y at %I:%M %p')}",
+                message=f"Your interview for {job.title if job else 'the position'} has been rescheduled. View date and time in My Interviews.",
                 notification_type=NotificationType.INTERVIEW_SCHEDULED,
                 link="/techie/my-interviews",
                 reference_id=interview.id,

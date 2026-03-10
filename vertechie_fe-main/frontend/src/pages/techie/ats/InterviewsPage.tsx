@@ -723,14 +723,14 @@ const InterviewsPage: React.FC = () => {
           >
             Calendar View
           </Button>
-          <Button
+          {/* <Button
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => setScheduleDialogOpen(true)}
             sx={{ bgcolor: '#0d47a1', borderRadius: 2 }}
           >
             Schedule Interview
-          </Button>
+          </Button> */}
         </Box>
       </Box>
 

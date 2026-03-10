@@ -140,6 +140,7 @@ const getCurrentUserId = (): string => {
 };
 
 const getSavedPostsStorageKey = (userId: string) => `vt_saved_feed_posts_${userId || 'anonymous'}`;
+const SAVED_NOTIFICATIONS_STORAGE_KEY = 'vertechie_saved_notifications';
 
 // Tab Panel Component
 interface TabPanelProps {
@@ -549,6 +550,7 @@ const TechieDashboard: React.FC = () => {
   const [groups, setGroups] = useState<GroupPreview[]>([]);
   const [savedArticles, setSavedArticles] = useState<SavedArticle[]>([]);
   const [savedPosts, setSavedPosts] = useState<SavedFeedPost[]>([]);
+  const [savedNotifications, setSavedNotifications] = useState<{ id: string; title?: string; message?: string; actionUrl?: string; type?: string }[]>([]);
   const [savedBlogsLoading, setSavedBlogsLoading] = useState(false);
   const currentUserId = getCurrentUserId();
   
@@ -665,19 +667,37 @@ const TechieDashboard: React.FC = () => {
     }
   }, [currentUserId]);
 
+  const fetchSavedNotifications = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(SAVED_NOTIFICATIONS_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) {
+        const normalized = parsed
+          .filter((item) => item && item.id !== undefined && item.id !== null)
+          .map((item) => ({ ...item, id: String(item.id) }));
+        setSavedNotifications(normalized);
+      } else {
+        setSavedNotifications([]);
+      }
+    } catch {
+      setSavedNotifications([]);
+    }
+  }, []);
+
   // When navigating to Saved Items (/techie/saved or /saved), open Saved tab
   const isSavedRoute = location.pathname === '/techie/saved' || location.pathname === '/saved';
   useEffect(() => {
     if (isSavedRoute) setTabValue(5);
   }, [isSavedRoute]);
 
-  // Whenever Saved tab is active (index 5), fetch bookmarks so the API is always called
+  // Whenever Saved tab is active (index 5), fetch bookmarks and saved notifications
   useEffect(() => {
     if (tabValue === 5) {
       fetchSavedBlogs();
       fetchSavedPosts();
+      fetchSavedNotifications();
     }
-  }, [tabValue, fetchSavedBlogs, fetchSavedPosts]);
+  }, [tabValue, fetchSavedBlogs, fetchSavedPosts, fetchSavedNotifications]);
 
   useEffect(() => {
     const onSavedPostsUpdated = () => fetchSavedPosts();
@@ -685,11 +705,18 @@ const TechieDashboard: React.FC = () => {
     return () => window.removeEventListener('vt_saved_posts_updated', onSavedPostsUpdated as EventListener);
   }, [fetchSavedPosts]);
 
+  useEffect(() => {
+    const onSavedNotificationsUpdated = () => fetchSavedNotifications();
+    window.addEventListener('vt_saved_notifications_updated', onSavedNotificationsUpdated as EventListener);
+    return () => window.removeEventListener('vt_saved_notifications_updated', onSavedNotificationsUpdated as EventListener);
+  }, [fetchSavedNotifications]);
+
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
     if (newValue === 5) {
       fetchSavedBlogs();
       fetchSavedPosts();
+      fetchSavedNotifications();
     }
   };
 
@@ -710,7 +737,14 @@ const TechieDashboard: React.FC = () => {
     setSavedPosts(next);
     window.dispatchEvent(new CustomEvent('vt_saved_posts_updated'));
   };
-  
+
+  const handleRemoveSavedNotification = (id: string) => {
+    const next = savedNotifications.filter((n) => n.id !== id);
+    localStorage.setItem(SAVED_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(next));
+    setSavedNotifications(next);
+    window.dispatchEvent(new CustomEvent('vt_saved_notifications_updated'));
+  };
+
   return (
     <Box
       sx={{
@@ -1058,10 +1092,36 @@ const TechieDashboard: React.FC = () => {
                     Saved blogs and saved feed posts for your account
                   </Typography>
                 </Grid> */}
+                {savedNotifications.length > 0 && (
+                  <>
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>Saved Notifications</Typography>
+                    </Grid>
+                    {savedNotifications.map((n) => (
+                      <Grid item xs={12} sm={6} md={4} key={`notif-${n.id}`}>
+                        <Card sx={{ borderRadius: 3, cursor: n.actionUrl ? 'pointer' : 'default', '&:hover': { boxShadow: 4 } }} onClick={() => n.actionUrl && navigate(n.actionUrl)}>
+                          <CardContent>
+                            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                              <WorkIcon sx={{ color: 'primary.main', mt: 0.25 }} fontSize="small" />
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }} noWrap>{n.title || 'Notification'}</Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.message || ''}</Typography>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1.5 }}>
+                                  {n.actionUrl ? <Button size="small" onClick={(e) => { e.stopPropagation(); navigate(n.actionUrl!); }} sx={{ textTransform: 'none' }}>View</Button> : <span />}
+                                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleRemoveSavedNotification(n.id); }} sx={{ color: 'primary.main' }} title="Remove from saved"><BookmarkIcon fontSize="small" /></IconButton>
+                                </Box>
+                              </Box>
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </>
+                )}
                 {!savedBlogsLoading && savedPosts.length > 0 && (
                   <>
                     <Grid item xs={12}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>Saved Feed Posts</Typography>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1, mt: savedNotifications.length > 0 ? 2 : 0 }}>Saved Feed Posts</Typography>
                     </Grid>
                     {savedPosts.map((post) => (
                       <Grid item xs={12} sm={6} md={4} key={`post-${post.id}`}>
@@ -1096,12 +1156,12 @@ const TechieDashboard: React.FC = () => {
                     <LinearProgress sx={{ borderRadius: 2, height: 6 }} />
                     <Typography color="text.secondary" sx={{ mt: 2 }}>Loading saved items...</Typography>
                   </Grid>
-                ) : (savedArticles.length === 0 && savedPosts.length === 0) ? (
+                ) : (savedArticles.length === 0 && savedPosts.length === 0 && savedNotifications.length === 0) ? (
                   <Grid item xs={12}>
                     <Card sx={{ borderRadius: 3, p: 4, textAlign: 'center' }}>
                       <BookmarkIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                       <Typography color="text.secondary" gutterBottom>No saved items yet</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Save posts from Feed or save blogs to see them here.</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Save notifications, posts from Feed, or save blogs to see them here.</Typography>
                       <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
                         <Button variant="contained" onClick={() => navigate('/techie/home/feed')} sx={{ textTransform: 'none' }}>Explore Feed</Button>
                         <Button variant="outlined" onClick={() => navigate('/techie/blogs')} sx={{ textTransform: 'none' }}>Explore Blogs</Button>
