@@ -4,7 +4,7 @@
  * Integrated with Backend API
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { jobService, applicationService, userService, getHRUserInfo, Candidate } from '../../../services/jobPortalService';
 import { Job, Application } from '../../../types/jobPortal';
@@ -38,6 +38,8 @@ import WorkIcon from '@mui/icons-material/Work';
 import StarIcon from '@mui/icons-material/Star';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import ATSLayout from './ATSLayout';
+import ScheduleInterviewModal, { ScheduleInterviewContext } from '../../../components/ats/ScheduleInterviewModal';
+import { interviewService } from '../../../services/interviewService';
 import { API_ENDPOINTS, getApiUrl } from '../../../config/api';
 import { fetchWithAuth } from '../../../utils/apiInterceptor';
 
@@ -498,7 +500,25 @@ const JobPostingsPage: React.FC = () => {
   const [applicantsDialogOpen, setApplicantsDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [applicantTab, setApplicantTab] = useState(0);
-  
+  // Schedule Interview (unified modal from View Applicants)
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [scheduleModalContext, setScheduleModalContext] = useState<ScheduleInterviewContext | null>(null);
+  const [scheduledInterviewApplicationIds, setScheduledInterviewApplicationIds] = useState<Set<string>>(new Set());
+
+  // Load which applications already have a scheduled interview (for Reschedule vs Schedule Interview)
+  const loadScheduledInterviewApplicationIds = useCallback(async () => {
+    try {
+      const interviews = await interviewService.getMyInterviewsAsInterviewer(true);
+      const ids = new Set((interviews || []).map((i: any) => String(i.application_id)).filter(Boolean));
+      setScheduledInterviewApplicationIds(ids);
+    } catch {
+      setScheduledInterviewApplicationIds(new Set());
+    }
+  }, []);
+  useEffect(() => {
+    if (applicantsDialogOpen) loadScheduledInterviewApplicationIds();
+  }, [applicantsDialogOpen, loadScheduledInterviewApplicationIds]);
+
   // Snackbar
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
   
@@ -2146,24 +2166,20 @@ const JobPostingsPage: React.FC = () => {
                             <VisibilityIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Schedule Interview">
+                        <Tooltip title={scheduledInterviewApplicationIds.has(String(applicant.id)) ? 'Reschedule' : 'Schedule Interview'}>
                           <IconButton 
                             size="small" 
                             sx={{ color: '#5856D6' }}
                             onClick={() => {
-                              // Navigate to schedule interview page with candidate and job info
-                              // applicant.id = application ID, applicant.applicantId = user ID
-                              const candidateId = applicant.applicantId || applicant.id;
-                              const applicationId = applicant.id; // This is the JobApplication ID
-                              const params = new URLSearchParams({
-                                applicationId: applicationId,
-                                candidateId: candidateId,
+                              setScheduleModalContext({
+                                applicationId: applicant.id,
+                                candidateId: applicant.applicantId || applicant.id,
                                 candidateName: applicant.name,
                                 candidateEmail: applicant.email || '',
                                 jobId: selectedJob?.id || '',
                                 jobTitle: selectedJob?.title || '',
                               });
-                              navigate(`/techie/schedule-interview?${params.toString()}`);
+                              setScheduleModalOpen(true);
                             }}
                           >
                             <ScheduleIcon fontSize="small" />
@@ -2205,6 +2221,17 @@ const JobPostingsPage: React.FC = () => {
           <Button onClick={() => setApplicantsDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      <ScheduleInterviewModal
+        open={scheduleModalOpen}
+        onClose={() => { setScheduleModalOpen(false); setScheduleModalContext(null); }}
+        onSuccess={() => {
+          setSnackbar({ open: true, message: 'Interview scheduled successfully!', severity: 'success' });
+          loadScheduledInterviewApplicationIds(); // so this row shows "Reschedule" next time
+        }}
+        onError={(msg) => setSnackbar({ open: true, message: msg, severity: 'error' })}
+        context={scheduleModalContext}
+      />
 
       {/* Snackbar */}
       <Snackbar

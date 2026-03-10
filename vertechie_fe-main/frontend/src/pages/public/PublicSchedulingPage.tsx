@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -52,9 +52,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import BlockIcon from '@mui/icons-material/Block';
 import ScheduleIcon from '@mui/icons-material/Schedule';
-
-// API Base URL
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+import { getApiUrl } from '../../config/api';
 
 // Types
 interface LinkConstraints {
@@ -82,6 +80,7 @@ interface LinkData {
   link: {
     token: string;
     is_valid: boolean;
+    meeting_type_id?: string | null;
   };
   host: {
     name: string;
@@ -171,8 +170,7 @@ const ErrorCard = styled(Paper)(({ theme }) => ({
 }));
 
 const PublicSchedulingPage: React.FC = () => {
-  const { linkId, username } = useParams<{ linkId?: string; username?: string }>();
-  const [searchParams] = useSearchParams();
+  const { linkId } = useParams<{ linkId?: string; username?: string }>();
   
   // Use linkId from route params (for /book/:linkId) 
   const token = linkId;
@@ -214,7 +212,7 @@ const PublicSchedulingPage: React.FC = () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/v_calendar/book/${token}/`);
+      const response = await fetch(getApiUrl(`/calendar/scheduling-links/${token}`));
       
       if (!response.ok) {
         const data = await response.json();
@@ -233,90 +231,65 @@ const PublicSchedulingPage: React.FC = () => {
         return;
       }
 
-      const data: LinkData = await response.json();
-      setLinkData(data);
+      const data = await response.json();
+      const maxBookings = typeof data.max_bookings === 'number' ? data.max_bookings : null;
+      const bookingsCount = typeof data.bookings_count === 'number' ? data.bookings_count : 0;
+
+      const mapped: LinkData = {
+        link: {
+          token: data.token || token,
+          is_valid: Boolean(data.is_active ?? true),
+          meeting_type_id: data.meeting_type_id || null,
+        },
+        host: {
+          name: 'Hiring Team',
+          title: '',
+          company: '',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          avatar: null,
+        },
+        meeting: {
+          name: data.name || 'Interview Meeting',
+          duration_minutes: data.duration_minutes || 30,
+        },
+        constraints: {
+          duration_minutes: data.duration_minutes || 30,
+          start_date: data.start_date || null,
+          end_date: data.end_date || null,
+          start_time: data.start_time || null,
+          end_time: data.end_time || null,
+          available_days: Array.isArray(data.available_days) ? data.available_days : [],
+          buffer_before: 0,
+          buffer_after: 0,
+          max_bookings: maxBookings,
+          max_bookings_per_day: null,
+          remaining_bookings: maxBookings !== null ? Math.max(maxBookings - bookingsCount, 0) : null,
+          requires_approval: Boolean(data.requires_approval),
+          expires_at: null,
+        },
+        available_dates: [],
+        branding: {
+          show_branding: true,
+          primary_color: '#0d47a1',
+        },
+      };
+
+      setLinkData(mapped);
       setLoading(false);
     } catch (err) {
-      // If API is not available, use mock data for demo
-      console.warn('API not available, using mock data');
-      setLinkData(getMockLinkData());
+      console.error('Failed to load public scheduling link:', err);
+      setError({ code: 'FETCH_ERROR', message: 'Failed to load scheduling page' });
       setLoading(false);
     }
-  };
-
-  // Mock data for when API is not available
-  const getMockLinkData = (): LinkData => {
-    // Parse constraints from URL params if available
-    const duration = parseInt(searchParams.get('d')?.replace('m', '') || '30');
-    
-    return {
-      link: { token: token || '', is_valid: true },
-      host: {
-        name: 'John Doe',
-        title: 'Senior Hiring Manager',
-        company: 'TechCorp Solutions',
-        timezone: 'America/New_York (EST)',
-        avatar: null,
-      },
-      meeting: {
-        name: `${duration} Minute Meeting`,
-        duration_minutes: duration,
-      },
-      constraints: {
-        duration_minutes: duration,
-        start_date: searchParams.get('start') || null,
-        end_date: searchParams.get('end') || null,
-        start_time: searchParams.get('st') || '09:00',
-        end_time: searchParams.get('et') || '17:00',
-        available_days: [1, 2, 3, 4, 5], // Mon-Fri
-        buffer_before: 5,
-        buffer_after: 5,
-        max_bookings: null,
-        max_bookings_per_day: null,
-        remaining_bookings: null,
-        requires_approval: false,
-        expires_at: null,
-      },
-      available_dates: [],
-      branding: {
-        show_branding: true,
-        primary_color: '#0d47a1',
-      },
-    };
   };
 
   // Fetch available slots for a specific date
   const fetchSlotsForDate = async (date: Date) => {
-    if (!token) return;
+    if (!token || !linkData) return;
 
     setLoadingSlots(true);
-    const dateStr = date.toISOString().split('T')[0];
-
-    try {
-      const response = await fetch(`${API_BASE}/v_calendar/book/${token}/?date=${dateStr}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        // Even when API returns slots, filter out blocked times from synced calendars
-        const apiSlots = data.slots || [];
-        const filteredSlots = apiSlots.filter((slot: string) => {
-          const duration = linkData?.constraints?.duration_minutes || 30;
-          return !isTimeBlocked(date, slot, duration);
-        });
-        setAvailableSlots(filteredSlots);
-      } else {
-        // Use constraint-based calculation as fallback (already checks blocked times)
-        const slots = calculateSlotsFromConstraints(date);
-        console.log('Fallback slots for', dateStr, ':', slots);
-        setAvailableSlots(slots);
-      }
-    } catch (err) {
-      // Calculate slots locally based on constraints (already checks blocked times)
-      const slots = calculateSlotsFromConstraints(date);
-      console.log('Error fallback slots for', dateStr, ':', slots);
-      setAvailableSlots(slots);
-    }
-    
+    const slots = calculateSlotsFromConstraints(date);
+    setAvailableSlots(slots);
     setLoadingSlots(false);
   };
 
@@ -518,6 +491,10 @@ const PublicSchedulingPage: React.FC = () => {
 
   const handleConfirmBooking = async () => {
     if (!selectedDate || !selectedTime || !token) return;
+    if (!linkData?.link?.meeting_type_id) {
+      alert('Booking is not available for this link.');
+      return;
+    }
 
     setSubmitting(true);
 
@@ -528,18 +505,29 @@ const PublicSchedulingPage: React.FC = () => {
     if (ampm === 'AM' && hours === 12) hours = 0;
     const time24 = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 
+    const localStart = new Date(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate(),
+      hours,
+      minutes,
+      0,
+      0
+    );
+
     const bookingData = {
-      date: selectedDate.toISOString().split('T')[0],
-      time: time24,
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      notes: formData.notes,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      meeting_type_id: linkData.link.meeting_type_id,
+      invitee_name: formData.name,
+      invitee_email: formData.email,
+      invitee_phone: formData.phone || undefined,
+      invitee_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      start_time: localStart.toISOString(),
+      answers: {},
+      invitee_notes: formData.notes || undefined,
     };
 
     try {
-      const response = await fetch(`${API_BASE}/v_calendar/book/${token}/`, {
+      const response = await fetch(getApiUrl('/calendar/bookings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bookingData),
@@ -555,10 +543,7 @@ const PublicSchedulingPage: React.FC = () => {
       setShowBookingForm(false);
       setBookingConfirmed(true);
     } catch (err) {
-      // Simulate success for demo
-      console.warn('API not available, simulating success');
-      setShowBookingForm(false);
-      setBookingConfirmed(true);
+      alert('Booking failed. Please try again later.');
     }
 
     setSubmitting(false);

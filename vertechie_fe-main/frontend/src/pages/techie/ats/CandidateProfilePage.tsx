@@ -3,10 +3,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, Paper, Avatar, Chip, Button, Grid, Card, CardContent,
-  IconButton, Divider, CircularProgress, Rating, Snackbar, Alert, Tab, Tabs,
+  IconButton, Divider, CircularProgress, Snackbar, Alert, Tab, Tabs,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl,
   InputLabel, Select, MenuItem,
 } from '@mui/material';
@@ -21,11 +21,12 @@ import LinkIcon from '@mui/icons-material/Link';
 import DownloadIcon from '@mui/icons-material/Download';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import StarIcon from '@mui/icons-material/Star';
 import CodeIcon from '@mui/icons-material/Code';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import LinkedInIcon from '@mui/icons-material/LinkedIn';
 import ATSLayout from './ATSLayout';
+import ScheduleInterviewModal from '../../../components/ats/ScheduleInterviewModal';
+import { interviewService } from '../../../services/interviewService';
 import { getApiUrl, API_ENDPOINTS } from '../../../config/api';
 
 const ProfileHeader = styled(Paper)(({ theme }) => ({
@@ -82,27 +83,66 @@ interface CandidateData {
   };
 }
 
+interface PipelineSnapshot {
+  matchScore?: number | null;
+  stage?: string;
+  time?: string;
+  jobId?: string;
+  jobTitle?: string;
+  role?: string;
+  applicationId?: string;
+}
+
+interface ApplicationDetails {
+  status?: string;
+  submittedAt?: string;
+  matchScore?: number | null;
+  matchedSkills: string[];
+  missingSkills: string[];
+  answersCount: number;
+  jobTitle?: string;
+}
+
+const normalizeSkills = (...values: unknown[]): string[] => {
+  const set = new Set<string>();
+  values.forEach((value) => {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      value.forEach((skill) => {
+        const normalized = String(skill || '').trim();
+        if (normalized) set.add(normalized);
+      });
+      return;
+    }
+    if (typeof value === 'string') {
+      value.split(',').forEach((skill) => {
+        const normalized = skill.trim();
+        if (normalized) set.add(normalized);
+      });
+    }
+  });
+  return Array.from(set);
+};
+
 const CandidateProfilePage: React.FC = () => {
   const { candidateId } = useParams<{ candidateId: string }>();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
   const [candidate, setCandidate] = useState<CandidateData | null>(null);
+  const [pipelineSnapshot, setPipelineSnapshot] = useState<PipelineSnapshot | null>(
+    (routeLocation.state as any)?.pipelineCandidate || null
+  );
+  const [applicationDetails, setApplicationDetails] = useState<ApplicationDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
     open: false, message: '', severity: 'info'
   });
   
-  // Schedule Interview Dialog State
+  // Schedule Interview (unified modal) - applicationId set when opening
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [applicationId, setApplicationId] = useState<string | null>(null);
-  const [scheduleForm, setScheduleForm] = useState({
-    date: '',
-    time: '',
-    duration: 60,
-    type: 'technical',
-    notes: '',
-  });
-  const [scheduling, setScheduling] = useState(false);
+  const [scheduledInterviewApplicationIds, setScheduledInterviewApplicationIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const fetchCandidate = async () => {
@@ -154,16 +194,48 @@ const CandidateProfilePage: React.FC = () => {
           }
           
           // Combine all data
+          const aggregatedSkills = normalizeSkills(
+            profileData?.skills,
+            userData.skills,
+            userData.profile?.skills,
+            experiencesData.flatMap((exp: any) => exp?.skills || [])
+          );
           setCandidate({
             ...userData,
             profile: profileData || userData.profile,
             experience: experiencesData,
             education: educationsData,
-            skills: profileData?.skills || userData.skills || [],
+            skills: aggregatedSkills,
             headline: profileData?.headline || userData.headline,
             bio: profileData?.bio || userData.bio,
             location: profileData?.location || userData.location,
           });
+
+          // Fetch live pipeline snapshot (match score/stage/time) for this candidate
+          try {
+            const pipelineRes = await fetch(getApiUrl(API_ENDPOINTS.HIRING.PIPELINE_CANDIDATES), { headers });
+            if (pipelineRes.ok) {
+              const pipelineData = await pipelineRes.json();
+              const fromPipeline = Array.isArray(pipelineData)
+                ? pipelineData.find((item: any) => String(item.user_id) === String(candidateId))
+                : null;
+              if (fromPipeline) {
+                setPipelineSnapshot({
+                  matchScore: typeof fromPipeline.matchScore === 'number'
+                    ? fromPipeline.matchScore
+                    : (typeof fromPipeline.match_score === 'number' ? fromPipeline.match_score : null),
+                  stage: fromPipeline.stage,
+                  time: fromPipeline.time,
+                  jobId: fromPipeline.job_id,
+                  jobTitle: fromPipeline.job_title,
+                  role: fromPipeline.role,
+                  applicationId: fromPipeline.application_id,
+                });
+              }
+            }
+          } catch (e) {
+            console.warn('Could not fetch pipeline snapshot:', e);
+          }
         } else {
           setSnackbar({ open: true, message: 'Failed to load candidate profile', severity: 'error' });
         }
@@ -179,6 +251,19 @@ const CandidateProfilePage: React.FC = () => {
       fetchCandidate();
     }
   }, [candidateId]);
+
+  // Fetch HM's interviews to show Reschedule vs Schedule Interview
+  useEffect(() => {
+    let cancelled = false;
+    interviewService.getMyInterviewsAsInterviewer(true)
+      .then((interviews: any[]) => {
+        if (cancelled) return;
+        const ids = new Set((interviews || []).map((i: any) => String(i.application_id)).filter(Boolean));
+        setScheduledInterviewApplicationIds(ids);
+      })
+      .catch(() => { if (!cancelled) setScheduledInterviewApplicationIds(new Set()); });
+    return () => { cancelled = true; };
+  }, [candidateId, scheduleDialogOpen]);
 
   const handleScheduleInterview = async () => {
     // First, fetch the application for this candidate
@@ -219,81 +304,64 @@ const CandidateProfilePage: React.FC = () => {
     }
   };
 
-  const handleSubmitSchedule = async () => {
-    if (!applicationId || !scheduleForm.date || !scheduleForm.time) {
-      setSnackbar({ open: true, message: 'Please fill in all required fields', severity: 'error' });
-      return;
-    }
-    
-    // Validate UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(applicationId)) {
-      console.error('Invalid application_id format:', applicationId);
-      setSnackbar({ 
-        open: true, 
-        message: 'Invalid application ID format. Please refresh the page and try again.', 
-        severity: 'error' 
-      });
-      return;
-    }
-    
+  const refetchPipelineSnapshot = async () => {
+    if (!candidateId) return;
     try {
-      setScheduling(true);
       const token = localStorage.getItem('authToken');
-      // Convert local date/time to UTC properly to avoid timezone mismatch
-      const [year, month, day] = scheduleForm.date.split('-').map(Number);
-      const [hours, minutes] = scheduleForm.time.split(':').map(Number);
-      const localDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
-      const scheduledAt = localDate.toISOString();
-      const meetingId = `interview-${Date.now()}`;
-      const meetingLink = `${window.location.origin}/techie/lobby/${meetingId}?type=interview`;
-      
-      const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      
-      console.log('Scheduling interview:', {
-        application_id: applicationId,
-        local_date: scheduleForm.date,
-        local_time: scheduleForm.time,
-        utc_datetime: scheduledAt,
-        user_timezone: userTimezone
-      });
-      
-      const response = await fetch(getApiUrl('/hiring/interviews'), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          application_id: applicationId,
-          interview_type: scheduleForm.type,
-          scheduled_at: scheduledAt, // UTC datetime
-          duration_minutes: scheduleForm.duration,
-          meeting_link: meetingLink,
-          notes: scheduleForm.notes,
-        }),
-      });
-      
-      if (response.ok) {
-        setSnackbar({ open: true, message: 'Interview scheduled successfully!', severity: 'success' });
-        setScheduleDialogOpen(false);
-        setScheduleForm({ date: '', time: '', duration: 60, type: 'technical', notes: '' });
-      } else {
-        const errorData = await response.json().catch(() => ({ detail: 'Unknown error occurred' }));
-        console.error('Failed to schedule interview:', response.status, errorData);
-        setSnackbar({ 
-          open: true, 
-          message: errorData.detail || `Failed to schedule interview (${response.status})`, 
-          severity: 'error' 
-        });
+      const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+      const pipelineRes = await fetch(getApiUrl(API_ENDPOINTS.HIRING.PIPELINE_CANDIDATES), { headers });
+      if (pipelineRes.ok) {
+        const pipelineData = await pipelineRes.json();
+        const fromPipeline = Array.isArray(pipelineData)
+          ? pipelineData.find((item: any) => String(item.user_id) === String(candidateId))
+          : null;
+        if (fromPipeline) {
+          setPipelineSnapshot({
+            matchScore: typeof fromPipeline.matchScore === 'number' ? fromPipeline.matchScore : (typeof fromPipeline.match_score === 'number' ? fromPipeline.match_score : null),
+            stage: fromPipeline.stage,
+            time: fromPipeline.time,
+            jobId: fromPipeline.job_id,
+            jobTitle: fromPipeline.job_title,
+            role: fromPipeline.role,
+            applicationId: fromPipeline.application_id,
+          });
+        }
       }
-    } catch (error) {
-      console.error('Error scheduling interview:', error);
-      setSnackbar({ open: true, message: 'Network error. Please check your connection and try again.', severity: 'error' });
-    } finally {
-      setScheduling(false);
+    } catch (e) {
+      console.warn('Refetch pipeline snapshot:', e);
     }
   };
+
+  useEffect(() => {
+    const fetchApplicationDetails = async () => {
+      if (!candidateId || !pipelineSnapshot?.jobId) return;
+      try {
+        const token = localStorage.getItem('authToken');
+        const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+        const res = await fetch(getApiUrl(`/jobs/${pipelineSnapshot.jobId}/applications`), { headers });
+        if (!res.ok) return;
+        const apps = await res.json();
+        if (!Array.isArray(apps)) return;
+        const app = apps.find((a: any) => String(a.applicant_id) === String(candidateId) || String(a.applicant?.id) === String(candidateId));
+        if (!app) return;
+
+        setApplicationId(app.id || null);
+        setApplicationDetails({
+          status: app.status,
+          submittedAt: app.submitted_at || app.created_at,
+          matchScore: typeof app.match_score === 'number' ? app.match_score : pipelineSnapshot.matchScore ?? null,
+          matchedSkills: Array.isArray(app.matched_skills) ? app.matched_skills : [],
+          missingSkills: Array.isArray(app.missing_skills) ? app.missing_skills : [],
+          answersCount: app.answers && typeof app.answers === 'object' ? Object.keys(app.answers).length : 0,
+          jobTitle: app.job?.title || pipelineSnapshot.jobTitle,
+        });
+      } catch (e) {
+        console.warn('Could not fetch application details:', e);
+      }
+    };
+
+    fetchApplicationDetails();
+  }, [candidateId, pipelineSnapshot?.jobId, pipelineSnapshot?.jobTitle, pipelineSnapshot?.matchScore]);
 
   const handleSendEmail = () => {
     if (candidate?.email) {
@@ -336,10 +404,10 @@ const CandidateProfilePage: React.FC = () => {
     );
   }
 
-  const fullName = `${candidate.first_name || ''} ${candidate.last_name || ''}`.trim() || 'Unknown';
-  const skills = candidate.skills || candidate.profile?.skills || [];
+  const fullName = `${candidate.first_name || ''} ${candidate.last_name || ''}`.trim() || candidate.email?.split('@')?.[0] || 'Unknown';
+  const skills = normalizeSkills(candidate.skills, candidate.profile?.skills);
   const headline = candidate.headline || candidate.profile?.headline || candidate.profile?.current_position || 'Techie';
-  const location = candidate.location || candidate.profile?.location || '';
+  const candidateLocation = candidate.location || candidate.profile?.location || '';
   const bio = candidate.bio || candidate.profile?.bio || '';
 
   return (
@@ -381,10 +449,10 @@ const CandidateProfilePage: React.FC = () => {
               {headline}
             </Typography>
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2 }}>
-              {location && (
+              {candidateLocation && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <LocationOnIcon fontSize="small" color="action" />
-                  <Typography variant="body2" color="text.secondary">{location}</Typography>
+                  <Typography variant="body2" color="text.secondary">{candidateLocation}</Typography>
                 </Box>
               )}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -426,9 +494,9 @@ const CandidateProfilePage: React.FC = () => {
                 onClick={handleScheduleInterview}
                 sx={{ borderRadius: 2 }}
               >
-                Schedule Interview
+                {(pipelineSnapshot?.applicationId && scheduledInterviewApplicationIds.has(String(pipelineSnapshot.applicationId))) ? 'Reschedule' : 'Schedule Interview'}
               </Button>
-              <Button 
+              {/* <Button 
                 variant="outlined" 
                 startIcon={<EmailIcon />}
                 onClick={handleSendEmail}
@@ -443,7 +511,7 @@ const CandidateProfilePage: React.FC = () => {
                 sx={{ borderRadius: 2 }}
               >
                 Download Resume
-              </Button>
+              </Button> */}
             </Box>
           </Grid>
         </Grid>
@@ -472,7 +540,7 @@ const CandidateProfilePage: React.FC = () => {
               <CardContent>
                 <Typography variant="h6" fontWeight={600} gutterBottom>About</Typography>
                 <Typography variant="body1" color="text.secondary">
-                  {bio || 'No bio available'}
+                  {bio || (pipelineSnapshot?.role ? `Applied for ${pipelineSnapshot.jobTitle || pipelineSnapshot.role}.` : 'No bio available')}
                 </Typography>
               </CardContent>
             </InfoCard>
@@ -495,8 +563,36 @@ const CandidateProfilePage: React.FC = () => {
                     <Typography fontWeight={600}>{skills.length} skills</Typography>
                   </Box>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography color="text.secondary">Rating</Typography>
-                    <Rating value={4} size="small" readOnly />
+                    <Typography color="text.secondary">Match Score</Typography>
+                    <Typography fontWeight={600}>
+                      {typeof applicationDetails?.matchScore === 'number'
+                        ? `${applicationDetails.matchScore}%`
+                        : (typeof pipelineSnapshot?.matchScore === 'number' ? `${pipelineSnapshot.matchScore}%` : 'N/A')}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography color="text.secondary">Pipeline Stage</Typography>
+                    <Typography fontWeight={600}>
+                      {pipelineSnapshot?.stage || 'N/A'}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography color="text.secondary">Applied</Typography>
+                    <Typography fontWeight={600}>
+                      {pipelineSnapshot?.time || 'N/A'}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography color="text.secondary">Application Status</Typography>
+                    <Typography fontWeight={600}>
+                      {applicationDetails?.status || 'N/A'}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography color="text.secondary">Profile Updated</Typography>
+                    <Typography fontWeight={600}>
+                      {candidate.created_at ? new Date(candidate.created_at).toLocaleDateString() : 'N/A'}
+                    </Typography>
                   </Box>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography color="text.secondary">Status</Typography>
@@ -532,6 +628,42 @@ const CandidateProfilePage: React.FC = () => {
                     />
                   )}
                 </Box>
+              </CardContent>
+            </InfoCard>
+          </Grid>
+
+          <Grid item xs={12}>
+            <InfoCard>
+              <CardContent>
+                <Typography variant="h6" fontWeight={600} gutterBottom>
+                  Application Details
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                  <Chip label={`Job: ${applicationDetails?.jobTitle || pipelineSnapshot?.jobTitle || 'N/A'}`} size="small" />
+                  <Chip label={`Answers: ${applicationDetails?.answersCount ?? 0}`} size="small" />
+                  <Chip label={`Matched Skills: ${applicationDetails?.matchedSkills.length ?? 0}`} size="small" color="success" variant="outlined" />
+                  <Chip label={`Missing Skills: ${applicationDetails?.missingSkills.length ?? 0}`} size="small" color="warning" variant="outlined" />
+                </Box>
+                {applicationDetails?.matchedSkills && applicationDetails.matchedSkills.length > 0 && (
+                  <Box sx={{ mb: 1 }}>
+                    <Typography variant="caption" color="text.secondary">Matched Skills</Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                      {applicationDetails.matchedSkills.map((skill, idx) => (
+                        <SkillChip key={`m-${idx}`} label={skill} size="small" />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+                {applicationDetails?.missingSkills && applicationDetails.missingSkills.length > 0 && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Missing Skills</Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                      {applicationDetails.missingSkills.map((skill, idx) => (
+                        <Chip key={`ms-${idx}`} label={skill} size="small" variant="outlined" color="warning" />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
               </CardContent>
             </InfoCard>
           </Grid>
@@ -629,98 +761,21 @@ const CandidateProfilePage: React.FC = () => {
         </InfoCard>
       )}
 
-      {/* Schedule Interview Dialog */}
-      <Dialog
+      <ScheduleInterviewModal
         open={scheduleDialogOpen}
         onClose={() => setScheduleDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ fontWeight: 600 }}>
-          Schedule Interview with {candidate?.first_name} {candidate?.last_name}
-        </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Date"
-                type="date"
-                value={scheduleForm.date}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, date: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                required
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Time"
-                type="time"
-                value={scheduleForm.time}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, time: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                required
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Duration</InputLabel>
-                <Select
-                  value={scheduleForm.duration}
-                  label="Duration"
-                  onChange={(e) => setScheduleForm({ ...scheduleForm, duration: Number(e.target.value) })}
-                >
-                  <MenuItem value={30}>30 minutes</MenuItem>
-                  <MenuItem value={45}>45 minutes</MenuItem>
-                  <MenuItem value={60}>1 hour</MenuItem>
-                  <MenuItem value={90}>1.5 hours</MenuItem>
-                  <MenuItem value={120}>2 hours</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Interview Type</InputLabel>
-                <Select
-                  value={scheduleForm.type}
-                  label="Interview Type"
-                  onChange={(e) => setScheduleForm({ ...scheduleForm, type: e.target.value })}
-                >
-                  <MenuItem value="phone">Phone Screening</MenuItem>
-                  <MenuItem value="video">Video Interview</MenuItem>
-                  <MenuItem value="technical">Technical Interview</MenuItem>
-                  <MenuItem value="behavioral">Behavioral Interview</MenuItem>
-                  <MenuItem value="panel">Panel Interview</MenuItem>
-                  <MenuItem value="onsite">Onsite Interview</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Notes"
-                multiline
-                rows={3}
-                value={scheduleForm.notes}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, notes: e.target.value })}
-                placeholder="Add any notes or instructions for the interview..."
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={{ p: 2.5 }}>
-          <Button onClick={() => setScheduleDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleSubmitSchedule}
-            disabled={scheduling || !scheduleForm.date || !scheduleForm.time}
-            sx={{ bgcolor: '#0d47a1' }}
-          >
-            {scheduling ? <CircularProgress size={20} /> : 'Schedule Interview'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onSuccess={() => {
+          setSnackbar({ open: true, message: 'Interview scheduled successfully!', severity: 'success' });
+          refetchPipelineSnapshot();
+        }}
+        onError={(msg) => setSnackbar({ open: true, message: msg, severity: 'error' })}
+        context={applicationId && candidate ? {
+          applicationId,
+          candidateId: candidateId!,
+          candidateName: [candidate.first_name, candidate.last_name].filter(Boolean).join(' ') || candidate.email?.split('@')?.[0] || 'Candidate',
+          candidateEmail: candidate.email,
+        } : null}
+      />
 
       {/* Snackbar */}
       <Snackbar

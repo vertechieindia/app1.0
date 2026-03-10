@@ -44,7 +44,7 @@ interface CandidateRow {
   email: string;
   role: string;
   stage: string;
-  source: string;
+  source?: string;
   applied: string;
   status: string;
   avatar?: string;
@@ -84,6 +84,12 @@ const getStageColor = (stage: string) => {
   }
 };
 
+const toCsvCell = (value: unknown) => {
+  const text = String(value ?? '');
+  const escaped = text.replace(/"/g, '""');
+  return `"${escaped}"`;
+};
+
 const AllCandidatesPage: React.FC = () => {
   const navigate = useNavigate();
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
@@ -91,8 +97,10 @@ const AllCandidatesPage: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateRow | null>(null);
+  const [moreFiltersAnchor, setMoreFiltersAnchor] = useState<null | HTMLElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
   const [bulkStage, setBulkStage] = useState<StageType>('screening');
   const [page, setPage] = useState(1);
   const itemsPerPage = 10;
@@ -116,40 +124,27 @@ const AllCandidatesPage: React.FC = () => {
     }
     try {
       setLoading(true);
-      const jobsRes = await fetch(getApiUrl('/jobs/'), { headers });
-      const allJobs = jobsRes.ok ? await jobsRes.json() : [];
+      const res = await fetch(getApiUrl('/hiring/pipeline/candidates'), { headers });
+      if (!res.ok) throw new Error('pipeline-candidates-failed');
+      const data = await res.json();
+      const rows: CandidateRow[] = (Array.isArray(data) ? data : []).map((item: any) => {
+        const stage = STAGES.includes(item.stage) ? item.stage : statusToStage(item.status);
+        return {
+          applicationId: String(item.application_id || item.id || ''),
+          candidateId: String(item.user_id || ''),
+          jobId: String(item.job_id || ''),
+          name: item.name || item.email?.split('@')?.[0] || 'Candidate',
+          email: item.email || '',
+          role: item.job_title || item.role || '',
+          stage,
+          source: item.source || '',
+          applied: item.time || '',
+          status: item.status || stage,
+          avatar: item.avatar || undefined,
+        };
+      }).filter((r) => r.applicationId && r.candidateId);
 
-      const userData = localStorage.getItem('userData');
-      const currentUser = userData ? JSON.parse(userData) : null;
-      const hmJobs = (allJobs || []).filter((j: any) => j.posted_by_id === currentUser?.id);
-
-      const allRows: CandidateRow[] = [];
-      for (const job of hmJobs) {
-        const appRes = await fetch(getApiUrl(`/jobs/${job.id}/applications`), { headers });
-        if (!appRes.ok) continue;
-        const applications = await appRes.json();
-        for (const app of applications) {
-          const applicant = app.applicant;
-          if (!applicant?.id || !app.id) continue;
-          allRows.push({
-            applicationId: String(app.id),
-            candidateId: String(applicant.id),
-            jobId: String(job.id),
-            name: `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || applicant.email || 'Candidate',
-            email: applicant.email || '',
-            role: job.title || 'Applied Position',
-            stage: statusToStage(app.status),
-            source: 'VerTechie',
-            applied: app.submitted_at
-              ? new Date(app.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-              : 'Recently',
-            status: app.status || 'submitted',
-            avatar: applicant.avatar_url,
-          });
-        }
-      }
-
-      setCandidates(allRows);
+      setCandidates(rows);
     } catch (error) {
       console.error('Error fetching candidates:', error);
       setSnackbar({ open: true, message: 'Failed to load candidates', severity: 'error' });
@@ -160,20 +155,33 @@ const AllCandidatesPage: React.FC = () => {
 
   useEffect(() => {
     fetchCandidates();
+    const intervalId = window.setInterval(fetchCandidates, 20000);
+    const onFocus = () => fetchCandidates();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   const filteredCandidates = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return candidates.filter((c) => {
       const matchesStage = !stageFilter || c.stage === stageFilter;
+      const matchesRole = !roleFilter || c.role === roleFilter;
       const matchesQuery =
         !q ||
         c.name.toLowerCase().includes(q) ||
         c.email.toLowerCase().includes(q) ||
         c.role.toLowerCase().includes(q);
-      return matchesStage && matchesQuery;
+      return matchesStage && matchesRole && matchesQuery;
     });
-  }, [candidates, searchQuery, stageFilter]);
+  }, [candidates, searchQuery, stageFilter, roleFilter]);
+
+  const roleOptions = useMemo(
+    () => Array.from(new Set(candidates.map((c) => c.role).filter(Boolean))).sort(),
+    [candidates]
+  );
 
   const paginatedCandidates = filteredCandidates.slice((page - 1) * itemsPerPage, page * itemsPerPage);
   const totalPages = Math.ceil(filteredCandidates.length / itemsPerPage);
@@ -236,6 +244,51 @@ const AllCandidatesPage: React.FC = () => {
     }
   };
 
+  const handleExport = () => {
+    const rowsToExport = selectedIds.length
+      ? filteredCandidates.filter((c) => selectedIds.includes(c.applicationId))
+      : filteredCandidates;
+
+    if (!rowsToExport.length) {
+      setSnackbar({ open: true, message: 'No candidates to export', severity: 'info' });
+      return;
+    }
+
+    const header = ['Candidate Name', 'Email', 'Role/Title', 'Stage', 'Source', 'Applied', 'Status'];
+    const csvLines = [
+      header.map(toCsvCell).join(','),
+      ...rowsToExport.map((candidate) =>
+        [
+          candidate.name,
+          candidate.email,
+          candidate.role,
+          stageLabel(candidate.stage),
+          candidate.source || 'N/A',
+          candidate.applied || 'N/A',
+          candidate.status,
+        ].map(toCsvCell).join(',')
+      ),
+    ];
+
+    const csvContent = csvLines.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const datePart = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `ats-candidates-${datePart}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setSnackbar({
+      open: true,
+      message: `Exported ${rowsToExport.length} candidate(s)`,
+      severity: 'success',
+    });
+  };
+
   return (
     <ATSLayout>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -269,8 +322,16 @@ const AllCandidatesPage: React.FC = () => {
           </FormControl>
         </Box>
         <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button variant="outlined" startIcon={<FilterListIcon />}>More Filters</Button>
-          <Button variant="outlined" startIcon={<DownloadIcon />}>Export</Button>
+          <Button
+            variant="outlined"
+            startIcon={<FilterListIcon />}
+            onClick={(e) => setMoreFiltersAnchor(e.currentTarget)}
+          >
+            More Filters
+          </Button>
+          <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleExport}>
+            Export
+          </Button>
         </Box>
       </Box>
 
@@ -354,8 +415,8 @@ const AllCandidatesPage: React.FC = () => {
                     <TableCell>
                       <Chip label={stageLabel(candidate.stage)} size="small" sx={{ bgcolor: stageColor.bg, color: stageColor.text, fontWeight: 500 }} />
                     </TableCell>
-                    <TableCell>{candidate.source}</TableCell>
-                    <TableCell>{candidate.applied}</TableCell>
+                    <TableCell>{candidate.source || 'N/A'}</TableCell>
+                    <TableCell>{candidate.applied || 'N/A'}</TableCell>
                     <TableCell align="right">
                       <IconButton size="small" onClick={(e) => { setMenuAnchor(e.currentTarget); setSelectedCandidate(candidate); }}>
                         <MoreVertIcon />
@@ -391,14 +452,48 @@ const AllCandidatesPage: React.FC = () => {
         >
           View Profile
         </MenuItem>
-        <MenuItem
-          onClick={() => {
-            setMenuAnchor(null);
-            if (selectedCandidate?.email) window.location.href = `mailto:${selectedCandidate.email}`;
-          }}
-        >
-          Send Email
-        </MenuItem>
+      </Menu>
+
+      <Menu
+        anchorEl={moreFiltersAnchor}
+        open={Boolean(moreFiltersAnchor)}
+        onClose={() => setMoreFiltersAnchor(null)}
+      >
+        <Box sx={{ p: 2, width: 280 }}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Role</InputLabel>
+            <Select
+              label="Role"
+              value={roleFilter}
+              onChange={(e) => {
+                setRoleFilter(e.target.value);
+                setPage(1);
+              }}
+            >
+              <MenuItem value="">All Roles</MenuItem>
+              {roleOptions.map((role) => (
+                <MenuItem key={role} value={role}>{role}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+            <Button
+              size="small"
+              onClick={() => {
+                setRoleFilter('');
+                setStageFilter('');
+                setSearchQuery('');
+                setPage(1);
+                setMoreFiltersAnchor(null);
+              }}
+            >
+              Clear
+            </Button>
+            <Button size="small" variant="contained" onClick={() => setMoreFiltersAnchor(null)}>
+              Apply
+            </Button>
+          </Box>
+        </Box>
       </Menu>
 
       <Snackbar

@@ -6,27 +6,10 @@
 
 import React, { useState, useEffect } from 'react';
 
-/**
- * Convert local date and time strings to UTC ISO string
- * Handles timezone conversion properly to avoid timezone mismatch
- */
-const convertLocalDateTimeToUTC = (dateStr: string, timeStr: string): string => {
-  // Parse date components (YYYY-MM-DD)
-  const [year, month, day] = dateStr.split('-').map(Number);
-  
-  // Parse time components (HH:MM)
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  
-  // Create date in user's local timezone
-  const localDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
-  
-  // Convert to UTC ISO string
-  return localDate.toISOString();
-};
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Card, Avatar, Chip, IconButton, TextField, FormControl,
-  InputLabel, Select, MenuItem, InputAdornment, Button, Rating, Tooltip,
+  InputLabel, Select, MenuItem, InputAdornment, Button, Tooltip,
   LinearProgress, Menu, Snackbar, Alert, CircularProgress, Dialog, DialogTitle,
   DialogContent, DialogActions, DialogContentText,
 } from '@mui/material';
@@ -35,7 +18,6 @@ import SearchIcon from '@mui/icons-material/Search';
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import SchoolIcon from '@mui/icons-material/School';
 import WorkIcon from '@mui/icons-material/Work';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
@@ -46,7 +28,9 @@ import EmailIcon from '@mui/icons-material/Email';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import Grid from '@mui/material/Grid';
 import ATSLayout from './ATSLayout';
+import ScheduleInterviewModal from '../../../components/ats/ScheduleInterviewModal';
 import { userService, jobService, getHRUserInfo } from '../../../services/jobPortalService';
+import { interviewService } from '../../../services/interviewService';
 import { getApiUrl, API_ENDPOINTS } from '../../../config/api';
 
 const pulse = keyframes`
@@ -67,18 +51,6 @@ const ScoreBadge = styled(Box)<{ scorecolor: string }>(({ scorecolor }) => ({
   background: `linear-gradient(135deg, ${scorecolor} 0%, ${alpha(scorecolor, 0.8)} 100%)`,
   boxShadow: `0 4px 12px ${alpha(scorecolor, 0.35)}`,
   flexShrink: 0,
-}));
-
-const AIInsightBadge = styled(Box)(({ theme }) => ({
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '6px 12px',
-  borderRadius: 20,
-  background: `linear-gradient(135deg, ${alpha('#7C4DFF', 0.08)} 0%, ${alpha('#B388FF', 0.08)} 100%)`,
-  border: `1px solid ${alpha('#7C4DFF', 0.2)}`,
-  marginTop: theme.spacing(1.5),
-  maxWidth: '100%',
 }));
 
 const PipelineColumn = styled(Box)(({ theme }) => ({
@@ -147,14 +119,11 @@ interface Candidate {
   role: string;
   stage: string;
   skills: string[];
-  rating: number;
-  time: string;
-  score: number;
-  matchScore: number;
-  aiInsight: string;
-  experience: number;
-  education: string;
-  source: string;
+  time?: string;
+  score: number | null;
+  matchScore: number | null;
+  experience?: number | null;
+  education?: string | null;
   avatar?: string;
   applicationId?: string;
   userId?: string;  // The actual user ID for viewing profile
@@ -175,6 +144,36 @@ const getScoreLabel = (score: number): string => {
   if (score >= 80) return 'Good';
   if (score >= 70) return 'Fair';
   return 'Needs Review';
+};
+
+const parseNumberOrNull = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+};
+
+const parseSkills = (...values: unknown[]): string[] => {
+  const skillSet = new Set<string>();
+  for (const value of values) {
+    if (!value) continue;
+    if (Array.isArray(value)) {
+      value.forEach((skill) => {
+        const normalized = String(skill || '').trim();
+        if (normalized) skillSet.add(normalized);
+      });
+      continue;
+    }
+    if (typeof value === 'string') {
+      value.split(',').forEach((skill) => {
+        const normalized = skill.trim();
+        if (normalized) skillSet.add(normalized);
+      });
+    }
+  }
+  return Array.from(skillSet);
 };
 
 const getStageLabel = (stageId: string): string => {
@@ -199,16 +198,22 @@ const PipelinePage: React.FC = () => {
   });
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Schedule Interview Dialog State
+  // Schedule Interview (unified modal)
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
-  const [scheduleForm, setScheduleForm] = useState({
-    date: '',
-    time: '',
-    duration: 60,
-    type: 'technical',
-    notes: '',
-  });
-  const [scheduling, setScheduling] = useState(false);
+  const [scheduledInterviewApplicationIds, setScheduledInterviewApplicationIds] = useState<Set<string>>(new Set());
+
+  // Fetch HM's interviews to show Reschedule vs Schedule Interview
+  useEffect(() => {
+    let cancelled = false;
+    interviewService.getMyInterviewsAsInterviewer(true)
+      .then((interviews: any[]) => {
+        if (cancelled) return;
+        const ids = new Set((interviews || []).map((i: any) => String(i.application_id)).filter(Boolean));
+        setScheduledInterviewApplicationIds(ids);
+      })
+      .catch(() => { if (!cancelled) setScheduledInterviewApplicationIds(new Set()); });
+    return () => { cancelled = true; };
+  }, [scheduleDialogOpen]); // refetch when modal closes so after scheduling we show Reschedule
 
   // Fetch jobs for filter dropdown
   useEffect(() => {
@@ -257,37 +262,24 @@ const PipelinePage: React.FC = () => {
         
         const data = await response.json();
         
-        // Map API data to pipeline format
-        const aiInsights = [
-          'Strong technical background',
-          'Excellent communication skills',
-          'Great leadership potential',
-          'Perfect culture fit',
-          'Top performer in assessments',
-          'Highly recommended',
-          'Strong problem solver',
-          'Good team player',
-        ];
-        
-        const mappedCandidates: Candidate[] = data.map((candidate: any, index: number) => {
+        // Map API data to pipeline format (no mock fallback values)
+        const mappedCandidates: Candidate[] = data.map((candidate: any) => {
           // Ensure application_id is always set (use id as fallback since id is the application_id)
           const applicationId = candidate.application_id || candidate.id;
+          const matchScore = parseNumberOrNull(candidate.matchScore, candidate.match_score, candidate.score);
           
           return {
             id: candidate.id || candidate.application_id,
-            name: candidate.name || 'Unknown',
+            name: candidate.name || candidate.email?.split('@')?.[0] || 'Unknown',
             email: candidate.email || '',
-            role: candidate.role || candidate.job_title || 'Applicant',
+            role: candidate.role || candidate.job_title || '',
             stage: candidate.stage || 'new',
-            skills: candidate.skills || [],
-            rating: candidate.rating || 4,
-            time: candidate.time || 'Recently',
-            score: candidate.score || candidate.matchScore || candidate.match_score || 0,
-            matchScore: candidate.matchScore || candidate.match_score || candidate.score || 0,
-            aiInsight: candidate.aiInsight || aiInsights[index % aiInsights.length],
-            experience: candidate.experience || 0,
-            education: candidate.education || 'Not specified',
-            source: candidate.source || 'VerTechie',
+            skills: parseSkills(candidate.skills, candidate.profile?.skills, candidate.applicant_skills),
+            time: typeof candidate.time === 'string' ? candidate.time : '',
+            score: matchScore,
+            matchScore,
+            experience: parseNumberOrNull(candidate.experience),
+            education: candidate.education || null,
             avatar: candidate.avatar,
             applicationId: applicationId, // Always set with fallback
             userId: candidate.user_id,  // Store the actual user ID
@@ -476,7 +468,19 @@ const PipelinePage: React.FC = () => {
   // Handle card click - navigate to profile using userId (the actual user ID)
   const handleCardClick = (candidate: Candidate) => {
     const profileId = candidate.userId || candidate.id;
-    navigate(`/techie/ats/candidate/${profileId}`);
+    navigate(`/techie/ats/candidate/${profileId}`, {
+      state: {
+        pipelineCandidate: {
+          matchScore: candidate.matchScore,
+          stage: candidate.stage,
+          time: candidate.time,
+          jobId: candidate.jobId,
+          jobTitle: candidate.jobTitle,
+          role: candidate.role,
+          applicationId: candidate.applicationId,
+        },
+      },
+    });
   };
 
   // Handle schedule interview
@@ -484,95 +488,6 @@ const PipelinePage: React.FC = () => {
     setSelectedCandidate(candidate);
     setScheduleDialogOpen(true);
     setMenuAnchor(null);
-  };
-
-  const handleSubmitSchedule = async () => {
-    if (!selectedCandidate || !scheduleForm.date || !scheduleForm.time) {
-      setSnackbar({ open: true, message: 'Please fill in all required fields', severity: 'error' });
-      return;
-    }
-    
-    // Get application_id with fallback and validation
-    const applicationId = selectedCandidate.applicationId || selectedCandidate.id;
-    
-    if (!applicationId) {
-      console.error('Missing application_id:', selectedCandidate);
-      setSnackbar({ 
-        open: true, 
-        message: 'Application ID missing. Cannot schedule interview. Please refresh the page.', 
-        severity: 'error' 
-      });
-      return;
-    }
-    
-    // Validate UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(applicationId)) {
-      console.error('Invalid application_id format:', applicationId, 'Candidate:', selectedCandidate);
-      setSnackbar({ 
-        open: true, 
-        message: 'Invalid application ID format. Please refresh the page and try again.', 
-        severity: 'error' 
-      });
-      return;
-    }
-    
-    try {
-      setScheduling(true);
-      const token = localStorage.getItem('authToken');
-      // Convert local date/time to UTC properly to avoid timezone mismatch
-      const scheduledAt = convertLocalDateTimeToUTC(scheduleForm.date, scheduleForm.time);
-      const meetingId = `interview-${Date.now()}`;
-      const meetingLink = `${window.location.origin}/techie/lobby/${meetingId}?type=interview`;
-      
-      const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      
-      console.log('Scheduling interview:', {
-        application_id: applicationId,
-        candidate: selectedCandidate.name,
-        local_date: scheduleForm.date,
-        local_time: scheduleForm.time,
-        utc_datetime: scheduledAt,
-        user_timezone: userTimezone
-      });
-      
-      const response = await fetch(getApiUrl('/hiring/interviews'), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          application_id: applicationId,
-          interview_type: scheduleForm.type,
-          scheduled_at: scheduledAt, // UTC datetime
-          duration_minutes: scheduleForm.duration,
-          meeting_link: meetingLink,
-          notes: scheduleForm.notes,
-        }),
-      });
-      
-      if (response.ok) {
-        setSnackbar({ open: true, message: 'Interview scheduled successfully! Candidate will be notified.', severity: 'success' });
-        setScheduleDialogOpen(false);
-        setScheduleForm({ date: '', time: '', duration: 60, type: 'technical', notes: '' });
-        // Refresh candidates to reflect the stage change
-        window.location.reload();
-      } else {
-        const errorData = await response.json().catch(() => ({ detail: 'Unknown error occurred' }));
-        console.error('Failed to schedule interview:', response.status, errorData);
-        setSnackbar({ 
-          open: true, 
-          message: errorData.detail || `Failed to schedule interview (${response.status})`, 
-          severity: 'error' 
-        });
-      }
-    } catch (error) {
-      console.error('Error scheduling interview:', error);
-      setSnackbar({ open: true, message: 'Network error. Please check your connection and try again.', severity: 'error' });
-    } finally {
-      setScheduling(false);
-    }
   };
 
   // Filter candidates by search
@@ -710,7 +625,7 @@ const PipelinePage: React.FC = () => {
                         >
                           {candidate.name}
                         </Typography>
-                        {candidate.score >= 90 && (
+                        {candidate.matchScore !== null && candidate.matchScore >= 90 && (
                           <LocalFireDepartmentIcon sx={{ fontSize: 16, color: '#FF3D00' }} />
                         )}
                       </Box>
@@ -718,9 +633,9 @@ const PipelinePage: React.FC = () => {
                         {candidate.role}
                       </Typography>
                     </Box>
-                    <Tooltip title={`Match: ${candidate.matchScore}%`}>
-                      <ScoreBadge scorecolor={getScoreColor(candidate.score)}>
-                        {candidate.score}
+                    <Tooltip title={candidate.matchScore !== null ? `Match: ${candidate.matchScore}%` : 'Match score not available'}>
+                      <ScoreBadge scorecolor={candidate.matchScore !== null ? getScoreColor(candidate.matchScore) : '#9e9e9e'}>
+                        {candidate.matchScore !== null ? candidate.matchScore : '--'}
                       </ScoreBadge>
                     </Tooltip>
                   </Box>
@@ -729,57 +644,46 @@ const PipelinePage: React.FC = () => {
                   <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
                     <InfoPill>
                       <WorkIcon sx={{ fontSize: 14 }} />
-                      {candidate.experience} yrs
+                      {candidate.experience ?? 0} yrs
                     </InfoPill>
-                    <Tooltip title={candidate.education}>
+                    <Tooltip title={candidate.education || 'Not provided'}>
                       <InfoPill sx={{ maxWidth: 130 }}>
                         <SchoolIcon sx={{ fontSize: 14 }} />
                         <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {candidate.education}
+                          {candidate.education || 'Not provided'}
                         </Box>
                       </InfoPill>
                     </Tooltip>
+                    {candidate.time && (
+                      <InfoPill>
+                        <ScheduleIcon sx={{ fontSize: 14 }} />
+                        {candidate.time}
+                      </InfoPill>
+                    )}
                   </Box>
                   
                   {/* Match Score Bar */}
                   <Box sx={{ mb: 1.5 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                       <Typography variant="caption" fontWeight={500} color="text.secondary">Match Score</Typography>
-                      <Typography variant="caption" sx={{ color: getScoreColor(candidate.matchScore), fontWeight: 700 }}>
-                        {candidate.matchScore}%
+                      <Typography variant="caption" sx={{ color: candidate.matchScore !== null ? getScoreColor(candidate.matchScore) : '#777', fontWeight: 700 }}>
+                        {candidate.matchScore !== null ? `${candidate.matchScore}%` : 'N/A'}
                       </Typography>
                     </Box>
                     <LinearProgress 
                       variant="determinate" 
-                      value={candidate.matchScore} 
+                      value={candidate.matchScore ?? 0} 
                       sx={{ 
                         height: 6, 
                         borderRadius: 3,
-                        bgcolor: alpha(getScoreColor(candidate.matchScore), 0.15),
+                        bgcolor: alpha(getScoreColor(candidate.matchScore ?? 0), 0.15),
                         '& .MuiLinearProgress-bar': { 
-                          bgcolor: getScoreColor(candidate.matchScore),
+                          bgcolor: getScoreColor(candidate.matchScore ?? 0),
                           borderRadius: 3,
                         }
                       }} 
                     />
                   </Box>
-                  
-                  {/* AI Insight */}
-                  <AIInsightBadge>
-                    <AutoAwesomeIcon sx={{ fontSize: 14, color: '#7C4DFF' }} />
-                    <Typography 
-                      variant="caption" 
-                      sx={{ 
-                        color: '#5E35B1', 
-                        fontWeight: 500,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {candidate.aiInsight}
-                    </Typography>
-                  </AIInsightBadge>
                   
                   {/* Footer - Navigation & Actions */}
                   <Box sx={{ 
@@ -822,22 +726,6 @@ const PipelinePage: React.FC = () => {
                           </StageButton>
                         </span>
                       </Tooltip>
-                    </Box>
-
-                    {/* Rating & Source */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Rating value={candidate.rating} size="small" readOnly sx={{ '& .MuiRating-icon': { fontSize: 16 } }} />
-                      <Chip 
-                        label={candidate.source} 
-                        size="small"
-                        sx={{ 
-                          height: 22,
-                          fontSize: '0.7rem',
-                          fontWeight: 600,
-                          bgcolor: alpha('#0d47a1', 0.08),
-                          color: '#0d47a1',
-                        }}
-                      />
                     </Box>
 
                     {/* Menu Button */}
@@ -910,7 +798,19 @@ const PipelinePage: React.FC = () => {
           setMenuAnchor(null);
           if (selectedCandidate) {
             const profileId = selectedCandidate.userId || selectedCandidate.id;
-            navigate(`/techie/ats/candidate/${profileId}`);
+            navigate(`/techie/ats/candidate/${profileId}`, {
+              state: {
+                pipelineCandidate: {
+                  matchScore: selectedCandidate.matchScore,
+                  stage: selectedCandidate.stage,
+                  time: selectedCandidate.time,
+                  jobId: selectedCandidate.jobId,
+                  jobTitle: selectedCandidate.jobTitle,
+                  role: selectedCandidate.role,
+                  applicationId: selectedCandidate.applicationId,
+                },
+              },
+            });
           }
         }}>
           <PersonIcon fontSize="small" sx={{ mr: 1 }} />
@@ -931,7 +831,7 @@ const PipelinePage: React.FC = () => {
           }}
         >
           <ScheduleIcon fontSize="small" sx={{ mr: 1 }} />
-          Schedule Interview
+          {selectedCandidate && scheduledInterviewApplicationIds.has(String(selectedCandidate.applicationId || selectedCandidate.id)) ? 'Reschedule' : 'Schedule Interview'}
         </MenuItem>
         <MenuItem 
           onClick={() => {
@@ -1010,98 +910,23 @@ const PipelinePage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Schedule Interview Dialog */}
-      <Dialog
+      <ScheduleInterviewModal
         open={scheduleDialogOpen}
         onClose={() => setScheduleDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ fontWeight: 600 }}>
-          Schedule Interview with {selectedCandidate?.name}
-        </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Date"
-                type="date"
-                value={scheduleForm.date}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, date: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                required
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Time"
-                type="time"
-                value={scheduleForm.time}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, time: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                required
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Duration</InputLabel>
-                <Select
-                  value={scheduleForm.duration}
-                  label="Duration"
-                  onChange={(e) => setScheduleForm({ ...scheduleForm, duration: Number(e.target.value) })}
-                >
-                  <MenuItem value={30}>30 minutes</MenuItem>
-                  <MenuItem value={45}>45 minutes</MenuItem>
-                  <MenuItem value={60}>1 hour</MenuItem>
-                  <MenuItem value={90}>1.5 hours</MenuItem>
-                  <MenuItem value={120}>2 hours</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Interview Type</InputLabel>
-                <Select
-                  value={scheduleForm.type}
-                  label="Interview Type"
-                  onChange={(e) => setScheduleForm({ ...scheduleForm, type: e.target.value })}
-                >
-                  <MenuItem value="phone">Phone Screening</MenuItem>
-                  <MenuItem value="video">Video Interview</MenuItem>
-                  <MenuItem value="technical">Technical Interview</MenuItem>
-                  <MenuItem value="behavioral">Behavioral Interview</MenuItem>
-                  <MenuItem value="panel">Panel Interview</MenuItem>
-                  <MenuItem value="onsite">Onsite Interview</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Notes"
-                multiline
-                rows={3}
-                value={scheduleForm.notes}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, notes: e.target.value })}
-                placeholder="Add any notes or instructions for the interview..."
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={{ p: 2.5 }}>
-          <Button onClick={() => setScheduleDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleSubmitSchedule}
-            disabled={scheduling || !scheduleForm.date || !scheduleForm.time}
-            sx={{ bgcolor: '#0d47a1' }}
-          >
-            {scheduling ? <CircularProgress size={20} /> : 'Schedule Interview'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onSuccess={() => {
+          setSnackbar({ open: true, message: 'Interview scheduled successfully! Candidate will be notified.', severity: 'success' });
+          window.location.reload();
+        }}
+        onError={(msg) => setSnackbar({ open: true, message: msg, severity: 'error' })}
+        context={selectedCandidate ? {
+          applicationId: selectedCandidate.applicationId || selectedCandidate.id,
+          candidateId: selectedCandidate.userId,
+          candidateName: selectedCandidate.name,
+          candidateEmail: selectedCandidate.email,
+          jobId: selectedCandidate.jobId,
+          jobTitle: selectedCandidate.jobTitle,
+        } : null}
+      />
 
       {/* Snackbar */}
       <Snackbar

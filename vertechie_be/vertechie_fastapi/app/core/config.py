@@ -47,6 +47,9 @@ class Settings(BaseSettings):
         "https://vertechie.com",
         "https://www.vertechie.com"
     ]
+
+    # Frontend base URL (for emails, meeting links, redirects). Set FRONTEND_URL in .env for production.
+    FRONTEND_URL: str = "http://localhost:5173"
     
     # Email - Gmail SMTP settings
     SMTP_HOST: str = "smtp.gmail.com"

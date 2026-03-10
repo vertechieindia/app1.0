@@ -372,6 +372,7 @@ async def get_scheduling_link_by_token(
     
     return {
         "token": link.token,
+        "meeting_type_id": str(link.meeting_type_id) if link.meeting_type_id else None,
         "name": link.name,
         "duration_minutes": link.duration_minutes,
         "available_days": link.available_days,
