@@ -48,9 +48,8 @@ class Settings(BaseSettings):
         "https://www.vertechie.com"
     ]
 
-    # Frontend base URL (for emails, meeting links, redirects). Set FRONTEND_URL in .env for production.
+    # Frontend base URL (for emails, meeting links, redirects). Must set FRONTEND_URL in .env in production (e.g. https://vertechie.com) so forgot-password and other email links use the correct domain.
     FRONTEND_URL: str = "http://localhost:5173"
-    # FRONTEND_URL: str = "https://vertechie.com"
 
     
     # Email - Gmail SMTP settings
