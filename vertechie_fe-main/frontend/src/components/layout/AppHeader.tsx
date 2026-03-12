@@ -35,6 +35,7 @@ import {
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
+import resolveAssetPath from '../../utils/assetResolver';
 import { chatService } from '../../services/chatService';
 import { notificationService } from '../../services/interviewService';
 
@@ -331,7 +332,7 @@ const AppHeader = () => {
     >
       <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <LogoImage src="/images/logo/vertechie-logo.svg" alt="VerTechie" />
+          <LogoImage src={resolveAssetPath('images/logo/vertechie-logo.svg')} alt="VerTechie" />
           <Typography variant="h6" sx={{ fontWeight: 700, color: '#5AC8FA' }}>
             VerTechie
           </Typography>
@@ -471,7 +472,7 @@ const AppHeader = () => {
             mr: 3,
           }}
         >
-          <LogoImage src="/images/logo/vertechie-logo.svg" alt="VerTechie" />
+          <LogoImage src={resolveAssetPath('images/logo/vertechie-logo.svg')} alt="VerTechie" />
           <Typography
             variant="h6"
             sx={{

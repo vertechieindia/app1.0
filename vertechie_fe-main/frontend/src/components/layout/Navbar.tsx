@@ -216,7 +216,7 @@ const Navbar = () => {
       <Toolbar>
         <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
           <Link component={RouterLink} to="/" sx={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
-            <LogoImage src="/images/logo/vertechie-logo.svg" alt="VerTechie Logo" />
+            <LogoImage src={resolveAssetPath('images/logo/vertechie-logo.svg')} alt="VerTechie Logo" />
             <Typography
               variant="h6"
               sx={{

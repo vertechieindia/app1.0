@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { Link as RouterLink } from 'react-router-dom';
+import resolveAssetPath from '../../utils/assetResolver';
 import FacebookIcon from '@mui/icons-material/Facebook';
 // Custom X icon component for the rebranded Twitter/X platform
 const XIcon = () => (
@@ -297,7 +298,7 @@ const Footer: React.FC = () => {
           {/* Company Info */}
           <Grid item xs={12} sm={6} md={3}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <LogoImage src="/images/logo/vertechie-logo.svg" alt="VerTechie Logo" />
+              <LogoImage src={resolveAssetPath('images/logo/vertechie-logo.svg')} alt="VerTechie Logo" />
               <Typography variant="h6" sx={{ fontWeight: 700, color: theme.palette.text.primary, fontSize: '1.1rem' }}>
                 VerTechie
               </Typography>
