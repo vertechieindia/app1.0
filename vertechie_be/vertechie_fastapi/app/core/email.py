@@ -149,7 +149,7 @@ async def send_password_reset_email(email: str, token: str, user_name: str = "Us
     </head>
     <body>
         <div class="header">
-            <img src="https://www.vertechie.com/favicon.svg" alt="VerTechie Logo" style="width: 100px; height: 100px;">
+            <img src="https://www.vertechie.com/favicon.svg" alt="VerTechie Logo" style="width: 48px; height: 48px;">
             <h1> Password Reset</h1>
         </div>
         <div class="content">
