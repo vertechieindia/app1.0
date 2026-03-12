@@ -1908,12 +1908,14 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
               <TextField
                 fullWidth
                 label="Company Phone *"
-                placeholder="+1 (555) 123-4567"
+                placeholder="9876543210"
                 value={companyInvite.phone}
                 onChange={(e) => {
-                  setCompanyInvite(prev => ({ ...prev, phone: e.target.value }));
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setCompanyInvite(prev => ({ ...prev, phone: digits }));
                   if (companyInviteErrors.phone) setCompanyInviteErrors(prev => ({ ...prev, phone: '' }));
                 }}
+                inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', maxLength: 10 }}
                 error={!!companyInviteErrors.phone}
                 helperText={companyInviteErrors.phone}
               />
@@ -1931,6 +1933,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
               const address = companyInvite.address.trim();
               const email = companyInvite.email.trim();
               const phone = companyInvite.phone.trim();
+              const phoneDigits = phone.replace(/\D/g, '');
               const err: Record<string, string> = {};
               if (!name) err.companyName = 'Company name is required';
               else if (name.length < 2) err.companyName = 'Company name must be at least 2 characters';
@@ -1939,7 +1942,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
               if (!email) err.email = 'Company email is required';
               else if (!isValidEmail(email)) err.email = 'Enter a valid email address';
               if (!phone) err.phone = 'Company phone is required';
-              else if (!isValidPhone(phone)) err.phone = 'Enter a valid phone number (at least 10 digits)';
+              else if (phoneDigits.length !== 10) err.phone = 'Enter a valid 10-digit phone number';
               setCompanyInviteErrors(err);
               if (Object.keys(err).length > 0) return;
               try {
@@ -1950,7 +1953,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                     company_name: name,
                     address: address || undefined,
                     emails: email ? [email] : [],
-                    phone_numbers: phone ? [phone] : [],
+                    phone_numbers: phoneDigits ? [phoneDigits] : [],
                   },
                   { headers: token ? { Authorization: `Bearer ${token}` } : {} }
                 );

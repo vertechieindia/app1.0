@@ -40,6 +40,7 @@ const HRSignupFlow: React.FC<HRSignupFlowProps> = ({
     firstName: '',
     middleName: '',
     lastName: '',
+    profileName: '',
     dateOfBirth: '',
     visaStatus: '',
     email: '',

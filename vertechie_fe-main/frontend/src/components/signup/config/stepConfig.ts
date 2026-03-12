@@ -109,6 +109,7 @@ const validateDocumentVerification = (data: any, location?: SignupLocation): boo
 const validatePersonalInformation = (data: any): boolean | string => {
   if (!data.firstName) return 'First name is required';
   if (!data.lastName) return 'Last name is required';
+  if (!data.profileName || !String(data.profileName).trim()) return 'Profile name is required';
   if (!isValidPersonName(data.firstName)) return 'First name can contain only letters';
   if (!isValidLastName(data.lastName)) return 'Enter valid last name (e.g. K, K., Kumar)';
   if (!data.email) return 'Email is required';

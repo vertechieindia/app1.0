@@ -28,7 +28,12 @@ import AddIcon from '@mui/icons-material/Add';
 import { StepComponentProps } from '../../types';
 import axios from 'axios';
 import { getApiUrl, API_ENDPOINTS } from '../../../../config/api';
-import { isValidDateRange, isValidEducationScore, EducationScoreType } from '../../../../utils/validation';
+import {
+  isValidDateRange,
+  isValidEducationScore,
+  isValidEmail,
+  EducationScoreType,
+} from '../../../../utils/validation';
 import { formatDateToMMDDYYYY } from '../../utils/formatters';
 
 interface EducationFormData {
@@ -40,6 +45,13 @@ interface EducationFormData {
   scoreType: EducationScoreType;
   scoreValue: string;
   gpa?: string;
+}
+
+interface SchoolInviteFormData {
+  institutionName: string;
+  email: string;
+  address: string;
+  phone: string;
 }
 
 /** School from API (list_schools) for autocomplete */
@@ -95,6 +107,15 @@ const EducationForm: React.FC<StepComponentProps> = ({
   const [institutionLoading, setInstitutionLoading] = useState(false);
   const [institutionInputValue, setInstitutionInputValue] = useState('');
   const institutionSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showSchoolInvite, setShowSchoolInvite] = useState(false);
+  const [schoolInviteSending, setSchoolInviteSending] = useState(false);
+  const [schoolInvite, setSchoolInvite] = useState<SchoolInviteFormData>({
+    institutionName: '',
+    email: '',
+    address: '',
+    phone: '',
+  });
+  const [schoolInviteErrors, setSchoolInviteErrors] = useState<Record<string, string>>({});
 
   const education = formData.education || [];
 
@@ -180,6 +201,60 @@ const EducationForm: React.FC<StepComponentProps> = ({
       gpa: '',
     });
   }, [setErrors]);
+
+  const handleSchoolInviteClose = useCallback(() => {
+    setShowSchoolInvite(false);
+    setSchoolInviteSending(false);
+    setSchoolInviteErrors({});
+  }, []);
+
+  const handleSchoolInviteSend = useCallback(async () => {
+    const name = schoolInvite.institutionName.trim();
+    const email = schoolInvite.email.trim();
+    const address = schoolInvite.address.trim();
+    const phone = schoolInvite.phone.trim();
+    const phoneDigits = phone.replace(/\D/g, '');
+    const nextErrors: Record<string, string> = {};
+
+    if (!name) nextErrors.institutionName = 'School name is required';
+    else if (name.length < 2) nextErrors.institutionName = 'School name must be at least 2 characters';
+    if (!email) nextErrors.email = 'School email is required';
+    else if (!isValidEmail(email)) nextErrors.email = 'Enter a valid email address';
+    if (!address) nextErrors.address = 'School address is required';
+    else if (address.length < 5) nextErrors.address = 'Address must be at least 5 characters';
+    if (!phone) nextErrors.phone = 'School phone is required';
+    else if (phoneDigits.length !== 10) nextErrors.phone = 'Enter a valid 10-digit phone number';
+
+    setSchoolInviteErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    setSchoolInviteSending(true);
+    try {
+      const token = localStorage.getItem('authToken') || (formData as any)?.access_token;
+      await axios.post(
+        getApiUrl(API_ENDPOINTS.SCHOOL_INVITE_REQUEST),
+        {
+          institution_name: name,
+          email,
+          address,
+          phone: phoneDigits,
+        },
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+
+      setNewEducation((prev) => ({ ...prev, institution: name }));
+      setInstitutionInputValue(name);
+      handleSchoolInviteClose();
+    } catch (e) {
+      console.error('Institution invite request failed:', e);
+      setSchoolInviteErrors((prev) => ({
+        ...prev,
+        submit: 'Failed to send school invite. Please try again.',
+      }));
+    } finally {
+      setSchoolInviteSending(false);
+    }
+  }, [schoolInvite, formData, handleSchoolInviteClose]);
 
   const handleAddEducationSubmit = useCallback(async () => {
     // Clear previous errors
@@ -655,22 +730,12 @@ const EducationForm: React.FC<StepComponentProps> = ({
                     if (isInviteOption(opt)) {
                       const name = opt.name.trim();
                       if (!name) return;
-                      (async () => {
-                        try {
-                          const token = localStorage.getItem('authToken') || (formData as any)?.access_token;
-                          await axios.post(
-                            getApiUrl(API_ENDPOINTS.SCHOOL_INVITE_REQUEST),
-                            { institution_name: name },
-                            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-                          );
-                          setNewEducation((prev) => ({ ...prev, institution: name }));
-                          setInstitutionInputValue(name);
-                        } catch (e) {
-                          console.error('Institution invite request failed:', e);
-                          setNewEducation((prev) => ({ ...prev, institution: name }));
-                          setInstitutionInputValue(name);
-                        }
-                      })();
+                      setSchoolInvite((prev) => ({
+                        ...prev,
+                        institutionName: name,
+                      }));
+                      setSchoolInviteErrors({});
+                      setShowSchoolInvite(true);
                       return;
                     }
                     setNewEducation((prev) => ({ ...prev, institution: opt.name }));
@@ -1125,6 +1190,108 @@ const EducationForm: React.FC<StepComponentProps> = ({
             }}
           >
             {isSaving ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={showSchoolInvite}
+        onClose={handleSchoolInviteClose}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          Invite Your School to VerTechie
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2, color: '#64748b' }}>
+            Your school is not registered with us. Enter school details and we will send an invite email.
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="School Name *"
+                value={schoolInvite.institutionName}
+                onChange={(e) => {
+                  setSchoolInvite((prev) => ({ ...prev, institutionName: e.target.value }));
+                  if (schoolInviteErrors.institutionName) {
+                    setSchoolInviteErrors((prev) => ({ ...prev, institutionName: '' }));
+                  }
+                }}
+                error={!!schoolInviteErrors.institutionName}
+                helperText={schoolInviteErrors.institutionName}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="School Address *"
+                multiline
+                rows={2}
+                value={schoolInvite.address}
+                onChange={(e) => {
+                  setSchoolInvite((prev) => ({ ...prev, address: e.target.value }));
+                  if (schoolInviteErrors.address) {
+                    setSchoolInviteErrors((prev) => ({ ...prev, address: '' }));
+                  }
+                }}
+                error={!!schoolInviteErrors.address}
+                helperText={schoolInviteErrors.address}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="School Email *"
+                type="email"
+                placeholder="school@example.com"
+                value={schoolInvite.email}
+                onChange={(e) => {
+                  setSchoolInvite((prev) => ({ ...prev, email: e.target.value }));
+                  if (schoolInviteErrors.email) {
+                    setSchoolInviteErrors((prev) => ({ ...prev, email: '' }));
+                  }
+                }}
+                error={!!schoolInviteErrors.email}
+                helperText={schoolInviteErrors.email}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="School Phone *"
+                placeholder="9876543210"
+                value={schoolInvite.phone}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setSchoolInvite((prev) => ({ ...prev, phone: digits }));
+                  if (schoolInviteErrors.phone) {
+                    setSchoolInviteErrors((prev) => ({ ...prev, phone: '' }));
+                  }
+                }}
+                inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', maxLength: 10 }}
+                error={!!schoolInviteErrors.phone}
+                helperText={schoolInviteErrors.phone}
+              />
+            </Grid>
+          </Grid>
+          {schoolInviteErrors.submit && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {schoolInviteErrors.submit}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={handleSchoolInviteClose}>
+            Skip - Proceed Without Inviting
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSchoolInviteSend}
+            disabled={schoolInviteSending}
+          >
+            {schoolInviteSending ? 'Sending...' : 'Send Invite'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -40,6 +40,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 import theme from './styles/theme';
 import ScrollToTop from './components/layout/ScrollToTop';
+import { getRedirectPathForUser } from './utils/authRedirect';
 import './index.css';
 import Terms from './components/pages/Terms';
 import Privacy from './components/pages/Privacy';
@@ -127,29 +128,44 @@ import PublicSchedulingPage from './pages/public/PublicSchedulingPage';
 
 /**
  * PublicLayout - For unauthenticated pages (Home, About, Login, etc.)
+ * If user has valid session (token + userData), redirect to role-based dashboard so
+ * the public landing is never shown to logged-in users.
  */
-const PublicLayout: React.FC = () => (
-  <Box sx={{
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: '100vh',
-    width: '100%',
-    maxWidth: '100vw',
-    overflowX: 'hidden',
-    background: theme.palette.background.gradient,
-  }}>
-    <Navbar />
-    <Box component="main" sx={{
-      flexGrow: 1,
+const PublicLayout: React.FC = () => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+  const userDataStr = typeof window !== 'undefined' ? localStorage.getItem('userData') : null;
+  if (token && userDataStr) {
+    try {
+      const userData = JSON.parse(userDataStr);
+      const path = getRedirectPathForUser(userData);
+      if (path) return <Navigate to={path} replace />;
+    } catch {
+      // invalid userData, render public layout
+    }
+  }
+  return (
+    <Box sx={{
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: '100vh',
       width: '100%',
       maxWidth: '100vw',
-      overflowX: 'hidden'
+      overflowX: 'hidden',
+      background: theme.palette.background.gradient,
     }}>
-      <Outlet />
+      <Navbar />
+      <Box component="main" sx={{
+        flexGrow: 1,
+        width: '100%',
+        maxWidth: '100vw',
+        overflowX: 'hidden'
+      }}>
+        <Outlet />
+      </Box>
+      <Footer />
     </Box>
-    <Footer />
-  </Box>
-);
+  );
+};
 
 /**
  * AuthenticatedLayout - For logged-in users with role-based navigation

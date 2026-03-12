@@ -17,6 +17,7 @@ export interface RegisterData {
   password: string;
   first_name?: string;
   last_name?: string;
+  profile_name?: string;
   username?: string;
 }
 
@@ -25,6 +26,7 @@ export interface User {
   email: string;
   first_name: string | null;
   last_name: string | null;
+  profile_name?: string | null;
   username: string | null;
   full_name: string | null;
   is_active: boolean;

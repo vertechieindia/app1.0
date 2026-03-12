@@ -822,18 +822,22 @@ const ProblemsPage: React.FC = () => {
                 </Box>
               )}
               
-              <TablePagination
-                component="div"
-                count={totalCount}
-                page={page}
-                onPageChange={(e, newPage) => setPage(newPage)}
-                rowsPerPage={rowsPerPage}
-                onRowsPerPageChange={(e) => {
-                  setRowsPerPage(parseInt(e.target.value, 10));
-                  setPage(0);
-                }}
-                rowsPerPageOptions={[25, 50, 100]}
-              />
+              <Box sx={{ overflowX: 'auto', width: '100%' }}>
+                <TablePagination
+                  component="div"
+                  count={totalCount}
+                  page={page}
+                  onPageChange={(e, newPage) => setPage(newPage)}
+                  rowsPerPage={rowsPerPage}
+                  onRowsPerPageChange={(e) => {
+                    setRowsPerPage(parseInt(e.target.value, 10));
+                    setPage(0);
+                  }}
+                  rowsPerPageOptions={[25, 50, 100]}
+                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : to}`}
+                  labelRowsPerPage="Rows:"
+                />
+              </Box>
             </>
           )}
         </Paper>

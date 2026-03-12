@@ -610,6 +610,11 @@ const SuperAdmin: React.FC = () => {
   const [selectedBlockedUser, setSelectedBlockedUser] = useState<any>(null);
   const [unblockDialogOpen, setUnblockDialogOpen] = useState(false);
   const [unblockReason, setUnblockReason] = useState('');
+  // Block user: modal to collect reason before blocking
+  const [blockDialogOpen, setBlockDialogOpen] = useState(false);
+  const [blockReason, setBlockReason] = useState('');
+  const [userToBlock, setUserToBlock] = useState<User | null>(null);
+  const [blockingInProgress, setBlockingInProgress] = useState(false);
 
   // Pending Approvals States
   const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
@@ -854,6 +859,7 @@ const SuperAdmin: React.FC = () => {
       });
 
       if (response.ok) {
+        if (selectedBlockedUser?.id) updateUserInState(selectedBlockedUser.id, { is_blocked: false, status: 'pending' });
         setSnackbar({ open: true, message: 'User unblocked successfully', severity: 'success' });
         setUnblockDialogOpen(false);
         setUnblockReason('');
@@ -898,8 +904,13 @@ const SuperAdmin: React.FC = () => {
     }
   };
 
+  // Loading state for Approve/Reject in review dialog (indicator only after click)
+  const [reviewActionLoading, setReviewActionLoading] = useState<'approve' | 'reject' | null>(null);
+  const [rejectingUser, setRejectingUser] = useState(false);
+
   // Handle Approve User
   const handleApproveUser = async (approvalId: string) => {
+    setReviewActionLoading('approve');
     try {
       const token = localStorage.getItem('authToken');
       if (!token) return;
@@ -915,14 +926,17 @@ const SuperAdmin: React.FC = () => {
 
       if (response.ok) {
         setSnackbar({ open: true, message: 'User approved successfully', severity: 'success' });
+        setReviewDialogOpen(false);
         fetchPendingApprovals();
       } else {
         const error = await response.json();
-        setSnackbar({ open: true, message: error.error || 'Failed to approve user', severity: 'error' });
+        setSnackbar({ open: true, message: error.detail || error.error || 'Failed to approve user', severity: 'error' });
       }
     } catch (error) {
       console.error('Error approving user:', error);
       setSnackbar({ open: true, message: 'Error approving user', severity: 'error' });
+    } finally {
+      setReviewActionLoading(null);
     }
   };
 
@@ -930,6 +944,7 @@ const SuperAdmin: React.FC = () => {
   const handleRejectUser = async () => {
     if (!selectedApproval || rejectReason.length < 10) return;
 
+    setRejectingUser(true);
     try {
       const token = localStorage.getItem('authToken');
       if (!token) return;
@@ -951,11 +966,13 @@ const SuperAdmin: React.FC = () => {
         fetchPendingApprovals();
       } else {
         const error = await response.json();
-        setSnackbar({ open: true, message: error.error || 'Failed to reject user', severity: 'error' });
+        setSnackbar({ open: true, message: error.detail || error.error || 'Failed to reject user', severity: 'error' });
       }
     } catch (error) {
       console.error('Error rejecting user:', error);
       setSnackbar({ open: true, message: 'Error rejecting user', severity: 'error' });
+    } finally {
+      setRejectingUser(false);
     }
   };
 
@@ -1412,41 +1429,46 @@ const SuperAdmin: React.FC = () => {
     }
   };
 
-  const handleToggleUserBlockStatus = async (user: User) => {
+  const handleToggleUserBlockStatus = (user: User) => {
     const userBlocked = isUserBlocked(user);
-    const action = userBlocked ? 'unblock' : 'block';
-    setProcessingUserId(user.id);
+    if (userBlocked) {
+      setSelectedBlockedUser({ id: user.id, full_name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'User' });
+      setUnblockReason('');
+      setUnblockDialogOpen(true);
+    } else {
+      setUserToBlock(user);
+      setBlockReason('');
+      setBlockDialogOpen(true);
+    }
+  };
+
+  const handleBlockUserWithReason = async () => {
+    if (!userToBlock || !blockReason.trim() || blockReason.trim().length < 10) return;
+    setBlockingInProgress(true);
     try {
       const token = localStorage.getItem('authToken');
       if (!token) return;
-
-      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${user.id}/${action}`), {
+      const url = `${getApiUrl(`${API_ENDPOINTS.USERS}${userToBlock.id}/block`)}?reason=${encodeURIComponent(blockReason.trim())}`;
+      const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: { 'Authorization': `Bearer ${token}` },
       });
-
       if (response.ok) {
-        updateUserInState(user.id, {
-          is_blocked: !userBlocked,
-          status: !userBlocked ? 'blocked' : (user.is_verified ? 'approved' : 'pending'),
-        });
-        setSnackbar({
-          open: true,
-          message: `User ${userBlocked ? 'unblocked' : 'blocked'} successfully`,
-          severity: 'success',
-        });
+        updateUserInState(userToBlock.id, { is_blocked: true, status: 'blocked' });
+        setSnackbar({ open: true, message: 'User blocked successfully', severity: 'success' });
+        setBlockDialogOpen(false);
+        setUserToBlock(null);
+        setBlockReason('');
         fetchBlockedProfiles();
       } else {
         const error = await response.json().catch(() => ({}));
-        setSnackbar({ open: true, message: error.detail || error.error || `Failed to ${action} user`, severity: 'error' });
+        setSnackbar({ open: true, message: error.detail || error.error || 'Failed to block user', severity: 'error' });
       }
     } catch (error) {
-      console.error(`Error trying to ${action} user:`, error);
-      setSnackbar({ open: true, message: `Error trying to ${action} user`, severity: 'error' });
+      console.error('Error blocking user:', error);
+      setSnackbar({ open: true, message: 'Error blocking user', severity: 'error' });
     } finally {
-      setProcessingUserId(null);
+      setBlockingInProgress(false);
     }
   };
 
@@ -3130,14 +3152,49 @@ const SuperAdmin: React.FC = () => {
         </Container>
       </ContentWrapper>
 
-      {/* Unblock User Dialog */}
+      {/* Block User Dialog - reason required before blocking */}
+      <Dialog open={blockDialogOpen} onClose={() => !blockingInProgress && (setBlockDialogOpen(false), setUserToBlock(null), setBlockReason(''))} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700, color: '#dc2626' }}>
+          Block User
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            You are about to block <strong>{userToBlock ? [userToBlock.first_name, userToBlock.last_name].filter(Boolean).join(' ') || userToBlock.email : ''}</strong>. Please provide a reason (required).
+          </Typography>
+          <TextField
+            fullWidth
+            label="Reason for blocking *"
+            multiline
+            rows={3}
+            value={blockReason}
+            onChange={(e) => setBlockReason(e.target.value)}
+            placeholder="Enter the reason for blocking this user (min 10 characters)..."
+            sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
+            helperText="Minimum 10 characters required"
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => { setBlockDialogOpen(false); setUserToBlock(null); setBlockReason(''); }} disabled={blockingInProgress}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleBlockUserWithReason}
+            disabled={blockReason.trim().length < 10 || blockingInProgress}
+            startIcon={blockingInProgress ? <CircularProgress size={16} color="inherit" /> : null}
+          >
+            {blockingInProgress ? 'Blocking...' : 'Block User'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Unblock User Dialog - reason required before unblocking */}
       <Dialog open={unblockDialogOpen} onClose={() => setUnblockDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>
           Unblock User
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Are you sure you want to unblock <strong>{selectedBlockedUser?.full_name}</strong>?
+            Are you sure you want to unblock <strong>{selectedBlockedUser?.full_name}</strong>? Please provide a reason.
           </Typography>
           <TextField
             fullWidth
@@ -3146,8 +3203,9 @@ const SuperAdmin: React.FC = () => {
             rows={3}
             value={unblockReason}
             onChange={(e) => setUnblockReason(e.target.value)}
-            placeholder="Please provide a reason for unblocking this user..."
+            placeholder="Please provide a reason for unblocking this user (min 10 characters)..."
             sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
+            helperText="Minimum 10 characters required"
           />
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
@@ -3184,14 +3242,15 @@ const SuperAdmin: React.FC = () => {
           />
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => setRejectDialogOpen(false)} disabled={rejectingUser}>Cancel</Button>
           <Button
             variant="contained"
             color="error"
             onClick={handleRejectUser}
-            disabled={rejectReason.length < 10}
+            disabled={rejectReason.length < 10 || rejectingUser}
+            startIcon={rejectingUser ? <CircularProgress size={16} color="inherit" /> : null}
           >
-            Reject Registration
+            {rejectingUser ? 'Rejecting...' : 'Reject Registration'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -3488,18 +3547,18 @@ const SuperAdmin: React.FC = () => {
                     setRejectDialogOpen(true);
                     setReviewDialogOpen(false);
                   }}
+                  disabled={reviewActionLoading !== null}
                 >
                   Reject
                 </Button>
                 <Button
                   variant="contained"
                   color="success"
-                  onClick={() => {
-                    handleApproveUser(reviewingProfile.id);
-                    setReviewDialogOpen(false);
-                  }}
+                  onClick={() => handleApproveUser(reviewingProfile.id)}
+                  disabled={reviewActionLoading !== null}
+                  startIcon={reviewActionLoading === 'approve' ? <CircularProgress size={16} color="inherit" /> : null}
                 >
-                  Approve
+                  {reviewActionLoading === 'approve' ? 'Approving...' : 'Approve'}
                 </Button>
               </Box>
             );
@@ -3842,7 +3901,7 @@ const SuperAdmin: React.FC = () => {
             </AnimatedAvatar>
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                {editRoleDialog ? 'Edit Role' : 'Create New Role'}
+                {editRoleDialog ? 'Edit Access' : 'Create New Access'}
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 {editRoleDialog ? 'Modify role permissions' : 'Define a new role with permissions'}

@@ -40,6 +40,7 @@ const SchoolSignupFlow: React.FC<SchoolSignupFlowProps> = ({
     firstName: '',
     middleName: '',
     lastName: '',
+    profileName: '',
     dateOfBirth: '',
     visaStatus: '',
     email: '',

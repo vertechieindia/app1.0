@@ -325,7 +325,7 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
           />
         </Grid>
 
-        {/* Row 2: Last Name and Date of Birth */}
+        {/* Row 2: Last Name and Profile Name */}
         <Grid item xs={12} md={6}>
           <TextField
             fullWidth
@@ -349,6 +349,20 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
             }}
           />
         </Grid>
+        <Grid item xs={12} md={6}>
+          <TextField
+            fullWidth
+            label="Profile Name **"
+            name="profileName"
+            value={formData.profileName || ''}
+            onChange={handleChange}
+            error={!!errors.profileName}
+            helperText={errors.profileName || 'This name will be shown on your profile'}
+            required
+          />
+        </Grid>
+
+        {/* Row 3: Date of Birth */}
         <Grid item xs={12} md={6}>
           <TextField
             fullWidth

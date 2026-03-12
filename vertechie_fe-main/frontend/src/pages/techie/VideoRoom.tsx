@@ -260,11 +260,15 @@ interface InterviewNote {
   category: 'technical' | 'behavioral' | 'general';
 }
 
-// Mock Data
-const mockParticipants: Participant[] = [
+// Default: just local user until real interview data loads
+const defaultParticipants: Participant[] = [
   { id: '1', name: 'You', isMuted: false, isVideoOff: false, isScreenSharing: false, isSpeaking: false, isHost: true, handRaised: false, role: 'interviewer' },
-  { id: '2', name: 'John Smith', avatar: '', isMuted: false, isVideoOff: false, isScreenSharing: false, isSpeaking: true, isHost: false, handRaised: false, role: 'candidate' },
 ];
+
+function formatInterviewType(value: string): string {
+  if (!value) return 'Interview';
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 const VideoRoom: React.FC = () => {
   const { roomId } = useParams<{ roomId: string }>();
@@ -272,8 +276,12 @@ const VideoRoom: React.FC = () => {
   const navigate = useNavigate();
   const localVideoRef = useRef<HTMLVideoElement>(null);
 
+  const titleFromUrl = searchParams.get('title') ? decodeURIComponent(searchParams.get('title')!) : '';
+
   // State
-  const [participants, setParticipants] = useState<Participant[]>(mockParticipants);
+  const [participants, setParticipants] = useState<Participant[]>(defaultParticipants);
+  const [meetingTitle, setMeetingTitle] = useState(titleFromUrl || 'Meeting');
+  const [meetingTypeLabel, setMeetingTypeLabel] = useState('Interview');
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -288,10 +296,7 @@ const VideoRoom: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'speaker'>('grid');
   const [handRaised, setHandRaised] = useState(false);
   const [meetingDuration, setMeetingDuration] = useState(0);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { id: '1', senderId: '2', senderName: 'John Smith', content: 'Hello! I\'m ready for the interview.', timestamp: new Date(), type: 'text' },
-    { id: '2', senderId: 'system', senderName: 'System', content: 'Recording started', timestamp: new Date(), type: 'system' },
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [interviewNotes, setInterviewNotes] = useState<InterviewNote[]>([]);
   const [newNote, setNewNote] = useState('');
@@ -306,7 +311,13 @@ const VideoRoom: React.FC = () => {
   const isUuidInterviewId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(interviewId);
   const returnTo = searchParams.get('returnTo') || '/techie/ats/interviews';
 
-  // Fetch initial interview details
+  // Initialize title and type from URL
+  useEffect(() => {
+    if (titleFromUrl) setMeetingTitle(titleFromUrl);
+    setMeetingTypeLabel(isInterview ? 'Interview' : 'Meeting');
+  }, [titleFromUrl, isInterview]);
+
+  // Fetch initial interview details and set real participants, title, type
   useEffect(() => {
     const fetchInterviewDetails = async () => {
       if (!interviewId || !isUuidInterviewId) return;
@@ -315,8 +326,37 @@ const VideoRoom: React.FC = () => {
         const response = await fetchWithAuth(url);
         if (response.ok) {
           const data = await response.json();
+          const candidateName = data.candidate_name || 'Candidate';
+          const typeLabel = data.interview_type ? formatInterviewType(String(data.interview_type)) : 'Interview';
+          setMeetingTitle(`${typeLabel} - ${candidateName}`);
+          setMeetingTypeLabel(typeLabel);
+
+          const self: Participant = {
+            id: '1',
+            name: 'You',
+            isMuted: false,
+            isVideoOff: false,
+            isScreenSharing: false,
+            isSpeaking: false,
+            isHost: true,
+            handRaised: false,
+            role: 'interviewer',
+          };
+          const candidate: Participant = {
+            id: data.candidate_id || 'candidate',
+            name: candidateName,
+            avatar: data.candidate_avatar || undefined,
+            isMuted: false,
+            isVideoOff: true,
+            isScreenSharing: false,
+            isSpeaking: false,
+            isHost: false,
+            handRaised: false,
+            role: 'candidate',
+          };
+          setParticipants([self, candidate]);
+
           if (data.notes) {
-            // Split notes by newline or just set as one note if format is unknown
             setInterviewNotes([{
               id: 'initial',
               content: data.notes,
@@ -327,10 +367,11 @@ const VideoRoom: React.FC = () => {
         }
       } catch (err) {
         console.error('Error fetching interview details:', err);
+        if (titleFromUrl) setMeetingTitle(titleFromUrl);
       }
     };
     if (isInterview) fetchInterviewDetails();
-  }, [interviewId, isInterview, isUuidInterviewId]);
+  }, [interviewId, isInterview, isUuidInterviewId, titleFromUrl]);
 
   // Meeting timer
   useEffect(() => {
@@ -533,6 +574,9 @@ const VideoRoom: React.FC = () => {
       {/* Top Bar */}
       <TopBar>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="subtitle1" sx={{ color: 'white', fontWeight: 600, maxWidth: 280 }} noWrap title={meetingTitle}>
+            {meetingTitle}
+          </Typography>
           {isRecording && (
             <Chip
               icon={<FiberManualRecordIcon sx={{ color: '#ff4444 !important', animation: `${recordingPulse} 1s infinite` }} />}
@@ -549,7 +593,7 @@ const VideoRoom: React.FC = () => {
           />
           {isInterview && (
             <Chip
-              label="Technical Interview"
+              label={meetingTypeLabel}
               size="small"
               sx={{ bgcolor: 'rgba(255, 193, 7, 0.2)', color: '#ffc107' }}
             />
@@ -565,7 +609,7 @@ const VideoRoom: React.FC = () => {
           </Box>
           <Divider orientation="vertical" flexItem sx={{ bgcolor: 'rgba(255,255,255,0.2)' }} />
           <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-            Room: {roomId || 'interview-123'}
+            Room: {roomId || '—'}
           </Typography>
         </Box>
 

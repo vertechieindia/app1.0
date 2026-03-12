@@ -49,6 +49,12 @@ import {
   ContentCopy as CopyIcon,
   LocalFireDepartment as FireIcon,
   AutoAwesome as SparkleIcon,
+  FormatBold as FormatBoldIcon,
+  FormatItalic as FormatItalicIcon,
+  FormatUnderlined as FormatUnderlinedIcon,
+  FormatListBulleted as FormatListBulletedIcon,
+  FormatListNumbered as FormatListNumberedIcon,
+  Highlight as HighlightIcon,
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -71,6 +77,170 @@ const colors = {
 };
 
 const AUTHOR_ID_STORAGE_KEY = 'v_user_id';
+
+// ============================================
+// RICH TEXT EDITOR (Content tab - toolbar + contenteditable)
+// ============================================
+interface RichTextEditorProps {
+  value: string;
+  onChange: (html: string) => void;
+  placeholder?: string;
+  minHeight?: number;
+}
+
+const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, placeholder = 'Write your content...', minHeight = 280 }) => {
+  const editorRef = React.useRef<HTMLDivElement>(null);
+  const lastValueRef = React.useRef<string>(value);
+  const savedSelectionRef = React.useRef<{ anchorNode: Node; anchorOffset: number; focusNode: Node; focusOffset: number } | null>(null);
+
+  // Sync from parent only when value is set externally (e.g. opening edit dialog)
+  React.useEffect(() => {
+    if (value === lastValueRef.current) return;
+    lastValueRef.current = value;
+    const el = editorRef.current;
+    if (!el) return;
+    el.innerHTML = value || '';
+  }, [value]);
+
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const el = editorRef.current;
+    if (!el || !el.contains(range.commonAncestorContainer)) return;
+    savedSelectionRef.current = {
+      anchorNode: range.startContainer,
+      anchorOffset: range.startOffset,
+      focusNode: range.endContainer,
+      focusOffset: range.endOffset,
+    };
+  };
+
+  const restoreSelection = () => {
+    const saved = savedSelectionRef.current;
+    const el = editorRef.current;
+    if (!saved || !el) return false;
+    try {
+      const sel = window.getSelection();
+      if (!sel) return false;
+      const range = document.createRange();
+      range.setStart(saved.anchorNode, saved.anchorOffset);
+      range.setEnd(saved.focusNode, saved.focusOffset);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleInput = () => {
+    const el = editorRef.current;
+    if (el) {
+      const html = el.innerHTML || '';
+      lastValueRef.current = html;
+      onChange(html);
+    }
+  };
+
+  // Use mousedown + preventDefault so the editor keeps focus and selection when clicking toolbar
+  const runCommand = (e: React.MouseEvent, command: string, value?: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    // If selection was lost (e.g. click on toolbar), restore it
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !el.contains(sel.anchorNode)) {
+      restoreSelection();
+    }
+    document.execCommand('styleWithCSS', false, 'true');
+    document.execCommand(command, false, value ?? undefined);
+    handleInput();
+  };
+
+  const runHighlight = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    if (!window.getSelection()?.rangeCount) restoreSelection();
+    document.execCommand('styleWithCSS', false, 'true');
+    document.execCommand('backColor', false, '#fff59d');
+    handleInput();
+  };
+
+  const runForeColor = (e: React.MouseEvent, color: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    if (!window.getSelection()?.rangeCount) restoreSelection();
+    document.execCommand('styleWithCSS', false, 'true');
+    document.execCommand('foreColor', false, color);
+    handleInput();
+  };
+
+  const runFontSize = (e: React.MouseEvent, increase: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    if (!window.getSelection()?.rangeCount) restoreSelection();
+    document.execCommand(increase ? 'increaseFontSize' : 'decreaseFontSize', false);
+    handleInput();
+  };
+
+  return (
+    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden', bgcolor: 'background.paper' }}>
+      <Box
+        sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, p: 0.5, borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#f8fafc' }}
+        onMouseDown={(e) => e.preventDefault()}
+      >
+        <Button size="small" variant="text" onMouseDown={(e) => runCommand(e, 'bold')} sx={{ minWidth: 36 }} title="Bold"><FormatBoldIcon fontSize="small" /></Button>
+        <Button size="small" variant="text" onMouseDown={(e) => runCommand(e, 'italic')} sx={{ minWidth: 36 }} title="Italic"><FormatItalicIcon fontSize="small" /></Button>
+        <Button size="small" variant="text" onMouseDown={(e) => runCommand(e, 'underline')} sx={{ minWidth: 36 }} title="Underline"><FormatUnderlinedIcon fontSize="small" /></Button>
+        <Button size="small" variant="text" onMouseDown={runHighlight} sx={{ minWidth: 36 }} title="Highlight"><HighlightIcon fontSize="small" /></Button>
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+        <Button size="small" variant="text" onMouseDown={(e) => runFontSize(e, false)} sx={{ minWidth: 36 }} title="Decrease text size">A-</Button>
+        <Button size="small" variant="text" onMouseDown={(e) => runFontSize(e, true)} sx={{ minWidth: 36 }} title="Increase text size">A+</Button>
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+        <Button size="small" variant="text" onMouseDown={(e) => runCommand(e, 'foreColor', '#000000')} sx={{ minWidth: 36 }} title="Black">A</Button>
+        <Button size="small" variant="text" onMouseDown={(e) => runForeColor(e, '#b91c1c')} sx={{ minWidth: 36, color: '#b91c1c' }} title="Red">A</Button>
+        <Button size="small" variant="text" onMouseDown={(e) => runForeColor(e, '#0d47a1')} sx={{ minWidth: 36, color: '#0d47a1' }} title="Blue">A</Button>
+        <Button size="small" variant="text" onMouseDown={(e) => runForeColor(e, '#15803d')} sx={{ minWidth: 36, color: '#15803d' }} title="Green">A</Button>
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+        <Button size="small" variant="text" onMouseDown={(e) => runCommand(e, 'insertUnorderedList')} sx={{ minWidth: 36 }} title="Bullet list"><FormatListBulletedIcon fontSize="small" /></Button>
+        <Button size="small" variant="text" onMouseDown={(e) => runCommand(e, 'insertOrderedList')} sx={{ minWidth: 36 }} title="Numbered list"><FormatListNumberedIcon fontSize="small" /></Button>
+      </Box>
+      <Box
+        component="div"
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onKeyUp={saveSelection}
+        onMouseUp={saveSelection}
+        data-placeholder={placeholder}
+        sx={{
+          minHeight,
+          p: 2,
+          outline: 'none',
+          '&:empty::before': { content: 'attr(data-placeholder)', color: 'text.disabled' },
+          '& h1': { fontSize: '1.75rem', fontWeight: 700, mb: 1 },
+          '& h2': { fontSize: '1.35rem', fontWeight: 600, mb: 1 },
+          '& h3': { fontSize: '1.15rem', fontWeight: 600, mb: 0.5 },
+          '& ul, & ol': { pl: 3, my: 0.5 },
+          '& a': { color: 'primary.main', textDecoration: 'underline' },
+        }}
+      />
+    </Box>
+  );
+};
 
 // ============================================
 // ANIMATIONS
@@ -290,6 +460,7 @@ const Blogs: React.FC = () => {
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
   const [writeDialogOpen, setWriteDialogOpen] = useState(false);
   const [coverImage, setCoverImage] = useState<string | null>(null);
+  const [coverImageError, setCoverImageError] = useState<string | null>(null);
   const [savedBlogs, setSavedBlogs] = useState<Set<string>>(new Set());
   const [likedBlogs, setLikedBlogs] = useState<Set<string>>(new Set());
   const [shareMenuAnchor, setShareMenuAnchor] = useState<null | HTMLElement>(null);
@@ -623,9 +794,18 @@ const Blogs: React.FC = () => {
     setShareMenuAnchor(null);
   };
 
+  const MAX_COVER_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      if (file.size > MAX_COVER_IMAGE_SIZE_BYTES) {
+        setCoverImageError('Image size must be less than 5MB');
+        setCoverImage(null);
+        event.target.value = '';
+        return;
+      }
+      setCoverImageError(null);
       const reader = new FileReader();
       reader.onloadend = () => {
         setCoverImage(reader.result as string);
@@ -636,6 +816,7 @@ const Blogs: React.FC = () => {
 
   const handleRemoveImage = () => {
     setCoverImage(null);
+    setCoverImageError(null);
   };
 
   const handleCloseDialog = () => {
@@ -644,6 +825,7 @@ const Blogs: React.FC = () => {
     setBlogCategory('');
     setBlogTags('');
     setCoverImage(null);
+    setCoverImageError(null);
     setEditingBlogId(null);
     setWriteDialogOpen(false);
   };
@@ -654,6 +836,7 @@ const Blogs: React.FC = () => {
     setBlogCategory('');
     setBlogTags('');
     setCoverImage(null);
+    setCoverImageError(null);
     setEditingBlogId(null);
     setWriteDialogOpen(true);
   };
@@ -671,6 +854,7 @@ const Blogs: React.FC = () => {
         setBlogTags(stripSystemTags(fullBlog.tags || []).join(', '));
         setBlogContent(fullBlog.content || '');
         setCoverImage(fullBlog.cover_image || blog.coverImage);
+        setCoverImageError(null);
         setWriteDialogOpen(true);
       } else {
         console.error('Failed to fetch blog details');
@@ -931,6 +1115,35 @@ const Blogs: React.FC = () => {
     } catch (err) {
       console.error('Follow author failed:', err);
       alert('Failed to follow author.');
+    } finally {
+      setFollowLoadingAuthorId(null);
+    }
+  };
+
+  const handleUnfollowAuthor = async (author: Author) => {
+    const authorId = String(author.id || '');
+    if (!authorId || !followedAuthorIds.has(authorId)) return;
+    try {
+      setFollowLoadingAuthorId(authorId);
+      const response = await fetchWithAuth(getApiUrl(`/network/follow/${authorId}`), { method: 'DELETE' });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        alert(errData?.detail || 'Failed to unfollow author.');
+        return;
+      }
+      setFollowedAuthorIds((prev) => {
+        const next = new Set(prev);
+        next.delete(authorId);
+        return next;
+      });
+      setTopAuthors((prev) =>
+        prev.map((a) => (String(a.id) === authorId ? { ...a, followers: Math.max(0, Number(a.followers || 0) - 1) } : a))
+      );
+      await fetchFollowingAuthors();
+      await fetchTopAuthors();
+    } catch (err) {
+      console.error('Unfollow author failed:', err);
+      alert('Failed to unfollow author.');
     } finally {
       setFollowLoadingAuthorId(null);
     }
@@ -1385,19 +1598,28 @@ const Blogs: React.FC = () => {
                     />
                     <Button
                       size="small"
-                      variant="outlined"
-                      disabled={followLoadingAuthorId === String(author.id) || followedAuthorIds.has(String(author.id))}
-                      onClick={() => handleFollowAuthor(author)}
+                      variant={followedAuthorIds.has(String(author.id)) ? 'contained' : 'outlined'}
+                      disabled={followLoadingAuthorId === String(author.id)}
+                      onClick={() => followedAuthorIds.has(String(author.id)) ? handleUnfollowAuthor(author) : handleFollowAuthor(author)}
                       sx={{
                         borderRadius: 2,
                         textTransform: 'none',
                         borderColor: colors.primary,
-                        color: colors.primary,
+                        color: followedAuthorIds.has(String(author.id)) ? 'white' : colors.primary,
+                        bgcolor: followedAuthorIds.has(String(author.id)) ? colors.primary : 'transparent',
                         minWidth: 'auto',
                         px: 2,
+                        '&:hover': {
+                          borderColor: colors.primary,
+                          bgcolor: followedAuthorIds.has(String(author.id)) ? colors.primaryDark : alpha(colors.primary, 0.08),
+                        },
                       }}
                     >
-                      {followedAuthorIds.has(String(author.id)) ? 'Following' : (followLoadingAuthorId === String(author.id) ? '...' : 'Follow')}
+                      {followLoadingAuthorId === String(author.id)
+                        ? '...'
+                        : followedAuthorIds.has(String(author.id))
+                          ? 'Unfollow'
+                          : 'Follow'}
                     </Button>
                   </ListItem>
                 ))}
@@ -1558,7 +1780,7 @@ const Blogs: React.FC = () => {
                   height: 200,
                   borderRadius: 3,
                   overflow: 'hidden',
-                  border: `2px solid ${alpha(colors.primary, 0.2)}`,
+                  border: `2px solid ${coverImageError ? colors.error : alpha(colors.primary, 0.2)}`,
                 }}
               >
                 <img
@@ -1594,14 +1816,14 @@ const Blogs: React.FC = () => {
                   justifyContent: 'center',
                   width: '100%',
                   height: 160,
-                  border: `2px dashed ${alpha(colors.primary, 0.3)}`,
+                  border: `2px dashed ${coverImageError ? colors.error : alpha(colors.primary, 0.3)}`,
                   borderRadius: 3,
-                  bgcolor: alpha(colors.primary, 0.03),
+                  bgcolor: coverImageError ? alpha(colors.error, 0.04) : alpha(colors.primary, 0.03),
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
                   '&:hover': {
-                    borderColor: colors.primary,
-                    bgcolor: alpha(colors.primary, 0.08),
+                    borderColor: coverImageError ? colors.error : colors.primary,
+                    bgcolor: coverImageError ? alpha(colors.error, 0.08) : alpha(colors.primary, 0.08),
                   },
                 }}
               >
@@ -1611,14 +1833,19 @@ const Blogs: React.FC = () => {
                   onChange={handleImageUpload}
                   style={{ display: 'none' }}
                 />
-                <CloudUploadIcon sx={{ fontSize: 48, color: colors.primary, mb: 1, opacity: 0.7 }} />
-                <Typography variant="body2" sx={{ color: colors.primary, fontWeight: 500 }}>
+                <CloudUploadIcon sx={{ fontSize: 48, color: coverImageError ? colors.error : colors.primary, mb: 1, opacity: 0.7 }} />
+                <Typography variant="body2" sx={{ color: coverImageError ? colors.error : colors.primary, fontWeight: 500 }}>
                   Click to upload cover image
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   PNG, JPG, GIF up to 5MB
                 </Typography>
               </Box>
+            )}
+            {coverImageError && (
+              <Typography variant="caption" sx={{ color: colors.error, mt: 0.5, display: 'block' }}>
+                {coverImageError}
+              </Typography>
             )}
           </Box>
 
@@ -1659,18 +1886,17 @@ const Blogs: React.FC = () => {
             sx={{ mb: 3 }}
           />
 
-          <TextField
-            fullWidth
-            label="Content"
-            placeholder="Write your blog content here... (Supports Markdown)"
-            multiline
-            rows={8}
+          <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: colors.text }}>
+            Content
+          </Typography>
+          <RichTextEditor
             value={blogContent}
-            onChange={(e) => setBlogContent(e.target.value)}
-            sx={{ mb: 2 }}
+            onChange={setBlogContent}
+            placeholder="Write your blog content here... Use toolbar for bold, highlight, underline, italic, text size, text color, and lists."
+            minHeight={280}
           />
-          <Typography variant="caption" color="text.secondary">
-            💡 Tip: Use Markdown formatting for better readability. Add code blocks, links, and images.
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            Use toolbar formatting: bold, italic, underline, highlight, text size increase/decrease, text color, bullet and numbered lists.
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
@@ -1719,9 +1945,18 @@ const Blogs: React.FC = () => {
                 <Chip size="small" label={selectedBlogDetail?.category || 'General'} />
                 <Chip size="small" icon={<TimeIcon fontSize="small" />} label={`${selectedBlogDetail?.readTime || 1} min read`} />
               </Box>
-              <Typography sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, mb: 3 }}>
-                {selectedBlogDetail?.content || selectedBlogDetail?.excerpt || 'No content available.'}
-              </Typography>
+              <Box
+                sx={{
+                  lineHeight: 1.8,
+                  mb: 3,
+                  '& p': { my: 1 },
+                  '& ul, & ol': { pl: 3, my: 1 },
+                  '& a': { color: colors.primary, textDecoration: 'underline' },
+                }}
+                dangerouslySetInnerHTML={{
+                  __html: selectedBlogDetail?.content || selectedBlogDetail?.excerpt || '<p>No content available.</p>',
+                }}
+              />
 
               <Divider sx={{ mb: 2 }} />
               <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>

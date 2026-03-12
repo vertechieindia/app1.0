@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { jobService, applicationService, userService, getHRUserInfo, Candidate } from '../../../services/jobPortalService';
 import { Job, Application } from '../../../types/jobPortal';
 import {
@@ -13,7 +13,7 @@ import {
   Grid, InputAdornment, Avatar, Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Select, MenuItem, Menu, Checkbox, FormControlLabel,
   FormGroup, Divider, Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, Paper, LinearProgress, Snackbar, Alert, Tabs, Tab, Switch, Tooltip, List, Autocomplete, FormHelperText,
+  TableRow, Paper, LinearProgress, CircularProgress, Snackbar, Alert, Tabs, Tab, Switch, Tooltip, List, Autocomplete, FormHelperText,
 } from '@mui/material';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
@@ -105,12 +105,41 @@ interface DisplayJob {
   status: string;
   posted: string;
   experience?: string;
+  experienceLevel?: string;
   description?: string;
   responsibilities?: string;
   skills?: string[];
+  requiredSkills?: string[];
   screeningQuestions?: Array<{ id: string; question: string; type?: string; required?: boolean; options?: string[] }>;
-  salaryMin?: number;  // Raw salary value for edit form
-  salaryMax?: number;  // Raw salary value for edit form
+  salaryMin?: number;
+  salaryMax?: number;
+}
+
+/** Split combined description (from create flow) into description and responsibilities. */
+function parseDescriptionAndResponsibilities(combined: string | undefined): { description: string; responsibilities: string } {
+  if (!combined || !combined.trim()) return { description: '', responsibilities: '' };
+  const sep = '\n\nResponsibilities:\n';
+  const i = combined.indexOf(sep);
+  if (i === -1) return { description: combined.trim(), responsibilities: '' };
+  return {
+    description: combined.slice(0, i).trim(),
+    responsibilities: combined.slice(i + sep.length).trim(),
+  };
+}
+
+/** Normalize screening questions from API (handles snake_case and various question keys). */
+function normalizeScreeningQuestions(
+  raw: unknown,
+  parseRequired: (v: unknown) => boolean
+): { id: string; question: string; type: 'text' | 'yesno' | 'multiple' | 'number'; required: boolean; options?: string[] }[] {
+  const list = Array.isArray(raw) ? raw : [];
+  return list.map((q: any, idx: number) => ({
+    id: q.id || `q-${idx}-${Date.now()}`,
+    question: (q.question ?? q.question_text ?? q.title ?? '').toString().trim(),
+    type: (q.type === 'yesno' || q.type === 'multiple' || q.type === 'number' ? q.type : 'text') as 'text' | 'yesno' | 'multiple' | 'number',
+    required: parseRequired(q.required),
+    options: Array.isArray(q.options) ? q.options : [],
+  }));
 }
 
 // Display applicant interface
@@ -132,6 +161,7 @@ interface DisplayApplicant {
 
 const JobPostingsPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [jobs, setJobs] = useState<DisplayJob[]>([]);
   const [applicants, setApplicants] = useState<DisplayApplicant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,35 +191,37 @@ const JobPostingsPage: React.FC = () => {
         
         // Transform to display format WITHOUT fetching applications for each job
         // Applications will be fetched only when "View Applicants" dialog is opened
-        const displayJobs: DisplayJob[] = apiJobs.map((job) => ({
-          id: job.id,
-          title: job.title,
-          department: job.companyName || 'Company',
-          location: job.location || 'Remote',
-          type: job.jobType === 'full-time' ? 'Full-time' : job.jobType || 'Full-time',
-          // Show real salary
-          salary: job.salary_min && job.salary_max 
-            ? `$${job.salary_min.toLocaleString()} - $${job.salary_max.toLocaleString()}` 
-            : job.salary_min 
-              ? `From $${job.salary_min.toLocaleString()}`
-              : job.salary_max
-                ? `Up to $${job.salary_max.toLocaleString()}`
-                : 'Not specified',
-          applicants: job.applicantCount || 0,
-          newApplicants: 0, // Will be calculated when viewing applicants
-          views: job.views_count || 0, // Real count, no dummy random values
-          status: job.status || 'active',
-          posted: formatTimeAgo(job.createdAt),
-          // Store additional job data for edit dialog
-          description: job.description,
-          experienceLevel: job.experienceLevel,
-          requiredSkills: job.requiredSkills,
-          screeningQuestions: job.screeningQuestions,
-          responsibilities: job.responsibilities,
-          // Store raw salary values for edit form
-          salaryMin: job.salary_min,
-          salaryMax: job.salary_max,
-        }));
+        const displayJobs: DisplayJob[] = apiJobs.map((job) => {
+          const { description: desc, responsibilities: resp } = parseDescriptionAndResponsibilities(job.description);
+          return {
+            id: job.id,
+            title: job.title,
+            department: job.companyName || 'Company',
+            location: job.location || 'Remote',
+            type: job.jobType === 'full-time' ? 'Full-time' : job.jobType || 'Full-time',
+            salary: job.salary_min && job.salary_max
+              ? `$${job.salary_min.toLocaleString()} - $${job.salary_max.toLocaleString()}`
+              : job.salary_min
+                ? `From $${job.salary_min.toLocaleString()}`
+                : job.salary_max
+                  ? `Up to $${job.salary_max.toLocaleString()}`
+                  : 'Not specified',
+            applicants: job.applicantCount || 0,
+            newApplicants: 0,
+            views: job.views_count || 0,
+            status: job.status || 'active',
+            posted: formatTimeAgo(job.createdAt),
+            description: desc || job.description,
+            responsibilities: resp || (job as any).responsibilities || '',
+            experience: job.experienceLevel,
+            experienceLevel: job.experienceLevel,
+            skills: job.requiredSkills || [],
+            requiredSkills: job.requiredSkills || [],
+            screeningQuestions: (job as any).screening_questions ?? job.screeningQuestions ?? [],
+            salaryMin: job.salary_min,
+            salaryMax: job.salary_max,
+          };
+        });
         
         setJobs(displayJobs);
       } catch (error) {
@@ -205,6 +237,16 @@ const JobPostingsPage: React.FC = () => {
   // Create Job Dialog
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createTab, setCreateTab] = useState(0);
+
+  // Open Create Job dialog when navigating from ATS "Create New Job Post" button
+  useEffect(() => {
+    if (searchParams.get('openCreate') === '1') {
+      setCreateDialogOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('openCreate');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const [newJob, setNewJob] = useState({
     title: '', department: '', location: '', type: '', experience: '', 
     salaryMin: '', salaryMax: '', description: '', responsibilities: '',
@@ -252,8 +294,8 @@ const JobPostingsPage: React.FC = () => {
     }
   };
   
-  // Skills state for create dialog
-  const [skills, setSkills] = useState<string[]>(['JavaScript', 'React', 'Node.js']);
+  // Skills state for create dialog (no default selection; HR chooses required skills)
+  const [skills, setSkills] = useState<string[]>([]);
   const [newSkill, setNewSkill] = useState('');
   
   // Screening Questions state for create dialog
@@ -485,6 +527,7 @@ const JobPostingsPage: React.FC = () => {
   // Edit Dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<any>(null);
+  const [editDialogLoading, setEditDialogLoading] = useState(false);
   const [editJobErrors, setEditJobErrors] = useState<Record<string, boolean>>({});
   const [editSkillsFieldError, setEditSkillsFieldError] = useState(false);
   const [editTab, setEditTab] = useState(0);
@@ -538,21 +581,25 @@ const JobPostingsPage: React.FC = () => {
       const userId = hrUser?.id || localStorage.getItem('userId') || 'ats-user';
       const companyName = hrUser?.companyName || localStorage.getItem('current_company') || 'Company';
       
-      // Map experience level to expected format
+      // Map experience level to expected format (API: entry | mid | senior | lead)
       const experienceLevelMap: Record<string, 'entry' | 'mid' | 'senior' | 'lead'> = {
-        'entry': 'entry',
-        'mid': 'mid',
-        'senior': 'senior',
-        'lead': 'lead',
-        'executive': 'lead',
+        'college_fresh': 'entry',
+        '0_2': 'entry',
+        '2_5': 'mid',
+        '5_8': 'senior',
+        '8_10': 'senior',
+        '10_12': 'lead',
+        '12_leadership': 'lead',
       };
 
-      // Map job type to expected format
+      // Map job type to expected format (API: full-time | part-time | contract | internship)
       const jobTypeMap: Record<string, 'full-time' | 'internship' | 'part-time' | 'contract'> = {
         'fulltime': 'full-time',
         'parttime': 'part-time',
-        'contract': 'contract',
-        'internship': 'internship',
+        'w2contract': 'contract',
+        'corp2corp': 'contract',
+        'unpaid_internship': 'internship',
+        'paid_internship': 'internship',
         'freelance': 'contract',
       };
 
@@ -604,10 +651,13 @@ const JobPostingsPage: React.FC = () => {
         title: createdJob.title,
         department: departmentDisplay,
         location: createdJob.location || 'Remote',
-        type: newJob.type === 'fulltime' ? 'Full-time' : 
-              newJob.type === 'parttime' ? 'Part-time' :
-              newJob.type === 'contract' ? 'Contract' :
-              newJob.type === 'internship' ? 'Internship' : 'Full-time',
+        type: newJob.type === 'fulltime' ? 'Full-Time' :
+              newJob.type === 'parttime' ? 'Part-Time' :
+              newJob.type === 'w2contract' ? 'W2 - Contract' :
+              newJob.type === 'corp2corp' ? 'Corp-to-Corp' :
+              newJob.type === 'unpaid_internship' ? 'Unpaid Internship' :
+              newJob.type === 'paid_internship' ? 'Paid Internship' :
+              newJob.type === 'freelance' ? 'Freelance' : 'Full-Time',
         salary: salaryDisplay,
         applicants: 0,
         newApplicants: 0,
@@ -622,7 +672,7 @@ const JobPostingsPage: React.FC = () => {
       // Reset form
       setNewJob({ title: '', department: '', location: '', type: '', experience: '', salaryMin: '', salaryMax: '', description: '', responsibilities: '' });
       setNewJobErrors({});
-      setSkills(['JavaScript', 'React', 'Node.js']);
+      setSkills([]);
       setSkillsFieldError(false);
       setQuestions([
         { id: '1', question: 'How many years of experience do you have in this field?', type: 'number', required: true },
@@ -644,20 +694,25 @@ const JobPostingsPage: React.FC = () => {
     if (!editingJob) return;
     
     try {
-      // Map job type
+      // Map job type (form value -> API)
       const jobTypeMap: Record<string, 'full-time' | 'part-time' | 'contract' | 'internship'> = {
-        'Full-time': 'full-time',
-        'Part-time': 'part-time',
-        'Contract': 'contract',
-        'Internship': 'internship',
+        'fulltime': 'full-time',
+        'parttime': 'part-time',
+        'w2contract': 'contract',
+        'corp2corp': 'contract',
+        'unpaid_internship': 'internship',
+        'paid_internship': 'internship',
+        'freelance': 'contract',
       };
-      
-      // Map experience level
+      // Map experience level (form value -> API)
       const expMap: Record<string, 'entry' | 'mid' | 'senior' | 'lead'> = {
-        'Entry Level': 'entry',
-        'Mid Level': 'mid',
-        'Senior Level': 'senior',
-        'Lead/Principal': 'lead',
+        'college_fresh': 'entry',
+        '0_2': 'entry',
+        '2_5': 'mid',
+        '5_8': 'senior',
+        '8_10': 'senior',
+        '10_12': 'lead',
+        '12_leadership': 'lead',
       };
       
       // Update via API
@@ -665,10 +720,10 @@ const JobPostingsPage: React.FC = () => {
         title: editingJob.title,
         description: editingJob.description || '',
         location: editingJob.location,
-        jobType: jobTypeMap[editingJob.type] || 'full-time',
+        jobType: jobTypeMap[editingJob.type as string] || 'full-time',
         companyName: getHRUserInfo()?.companyName || 'Company',
         requiredSkills: editSkills,
-        experienceLevel: expMap[editingJob.experience] || 'mid',
+        experienceLevel: expMap[editingJob.experience as string] || 'mid',
         codingQuestions: editQuestions.map(q => ({
           id: q.id,
           question: q.question,
@@ -753,19 +808,73 @@ const JobPostingsPage: React.FC = () => {
     }
   };
 
-  const openEditDialog = (job: DisplayJob) => {
-    setEditingJob({ 
-      ...job,
-      experience: (job as any).experience || 'Mid Level',
-      description: (job as any).description || '',
-      responsibilities: (job as any).responsibilities || '',
+  const typeToForm: Record<string, string> = {
+    'full-time': 'fulltime', fulltime: 'fulltime',
+    'part-time': 'parttime', parttime: 'parttime',
+    'w2-contract': 'w2contract', w2contract: 'w2contract',
+    'corp-to-corp': 'corp2corp', corp2corp: 'corp2corp',
+    unpaidinternship: 'unpaid_internship', unpaid_internship: 'unpaid_internship',
+    paidinternship: 'paid_internship', paid_internship: 'paid_internship',
+    freelance: 'freelance', contract: 'w2contract', internship: 'paid_internship',
+  };
+  const expToForm: Record<string, string> = {
+    entry: '0_2', mid: '2_5', senior: '5_8', lead: '12_leadership',
+    college_fresh: 'college_fresh', '0_2': '0_2', '2_5': '2_5', '5_8': '5_8',
+    '8_10': '8_10', '10_12': '10_12', '12_leadership': '12_leadership',
+  };
+  const applyFormState = (fullJob: DisplayJob) => {
+    const j = fullJob as any;
+    const rawType = (j.type || '').toString().toLowerCase().replace(/\s+/g, '');
+    const rawExp = (j.experience || j.experienceLevel || '').toString().toLowerCase();
+    const formType = typeToForm[rawType] || 'fulltime';
+    const formExp = expToForm[rawExp] || (rawExp.includes('entry') || rawExp.includes('0-2') ? '0_2' : rawExp.includes('mid') || rawExp.includes('2-5') ? '2_5' : rawExp.includes('senior') || rawExp.includes('5-8') ? '5_8' : rawExp.includes('lead') || rawExp.includes('8+') ? '12_leadership' : '2_5');
+    const skills = j.requiredSkills || j.skills || [];
+    let screeningQuestionsRaw: unknown = j.screeningQuestions ?? j.screening_questions ?? [];
+    if (typeof screeningQuestionsRaw === 'string') {
+      try { screeningQuestionsRaw = JSON.parse(screeningQuestionsRaw); } catch { screeningQuestionsRaw = []; }
+    }
+    if (!Array.isArray(screeningQuestionsRaw)) screeningQuestionsRaw = [];
+    const screeningQuestions = normalizeScreeningQuestions(screeningQuestionsRaw, parseQuestionRequired);
+    setEditingJob({
+      ...fullJob,
+      type: formType,
+      experience: formExp,
+      description: j.description ?? '',
+      responsibilities: j.responsibilities ?? '',
+      department: j.department || fullJob.department || 'Company',
+      salaryMin: j.salaryMin ?? fullJob.salaryMin,
+      salaryMax: j.salaryMax ?? fullJob.salaryMax,
     } as any);
-    setEditSkills((job as any).skills || []);
-    setEditQuestions(((job as any).screeningQuestions || []).map((q: any) => ({
-      ...q,
-      type: q.type || 'text',
-      required: parseQuestionRequired(q.required),
-    })));
+    setEditSkills(Array.isArray(skills) ? [...skills] : []);
+    setEditQuestions(screeningQuestions);
+  };
+
+  const openEditDialog = async (job: DisplayJob) => {
+    const { description: desc, responsibilities: resp } = parseDescriptionAndResponsibilities(job.description ?? '');
+    const listJob = { ...job, description: desc, responsibilities: resp } as any;
+    const rawType = (listJob.type || '').toString().toLowerCase().replace(/\s+/g, '');
+    const rawExp = (listJob.experience || listJob.experienceLevel || '').toString().toLowerCase();
+    const formType = typeToForm[rawType] || 'fulltime';
+    const formExp = expToForm[rawExp] || '2_5';
+    const listSkills = listJob.requiredSkills || listJob.skills || [];
+    let listQuestionsRaw: unknown = (listJob as any).screening_questions ?? listJob.screeningQuestions ?? [];
+    if (typeof listQuestionsRaw === 'string') {
+      try { listQuestionsRaw = JSON.parse(listQuestionsRaw); } catch { listQuestionsRaw = []; }
+    }
+    if (!Array.isArray(listQuestionsRaw)) listQuestionsRaw = [];
+    const listQuestions = normalizeScreeningQuestions(listQuestionsRaw, parseQuestionRequired);
+    setEditingJob({
+      ...listJob,
+      type: formType,
+      experience: formExp,
+      description: desc ?? '',
+      responsibilities: resp ?? '',
+      department: listJob.department || 'Company',
+      salaryMin: listJob.salaryMin ?? listJob.salary_min,
+      salaryMax: listJob.salaryMax ?? listJob.salary_max,
+    } as any);
+    setEditSkills(Array.isArray(listSkills) ? [...listSkills] : []);
+    setEditQuestions(listQuestions);
     setEditTab(0);
     setEditNewSkill('');
     setEditNewQuestion('');
@@ -773,6 +882,36 @@ const JobPostingsPage: React.FC = () => {
     setEditQuestionRequired(true);
     setEditQuestionOptions(['']);
     setEditDialogOpen(true);
+    setEditDialogLoading(true);
+    try {
+      const fetched = await jobService.getJobById(job.id);
+      if (fetched) {
+        const { description: d, responsibilities: r } = parseDescriptionAndResponsibilities(fetched.description ?? '');
+        const fullJob: DisplayJob = {
+          ...job,
+          title: fetched.title,
+          department: fetched.companyName || job.department || 'Company',
+          location: fetched.location || job.location || 'Remote',
+          type: fetched.jobType || job.type,
+          experience: fetched.experienceLevel,
+          experienceLevel: fetched.experienceLevel,
+          description: d,
+          responsibilities: r,
+          skills: fetched.requiredSkills || [],
+          requiredSkills: fetched.requiredSkills || [],
+          screeningQuestions: (fetched as any).screening_questions ?? fetched.screeningQuestions ?? [],
+          salaryMin: fetched.salary_min ?? job.salaryMin,
+          salaryMax: fetched.salary_max ?? job.salaryMax,
+          status: fetched.status || job.status,
+        } as DisplayJob;
+        applyFormState(fullJob);
+      }
+    } catch (err) {
+      console.error('Error loading full job for edit:', err);
+      setSnackbar({ open: true, message: 'Showing cached data. Some details may be outdated.', severity: 'warning' });
+    } finally {
+      setEditDialogLoading(false);
+    }
   };
   
   // Edit dialog skill handlers
@@ -808,6 +947,17 @@ const JobPostingsPage: React.FC = () => {
   const handleRemoveEditQuestion = (id: string) => {
     setEditQuestions(editQuestions.filter((q) => q.id !== id));
   };
+
+  // When Edit dialog is on Screening Questions tab and editQuestions is empty but job has questions, sync from editingJob so they become visible and editable
+  useEffect(() => {
+    if (!editDialogOpen || editTab !== 2 || !editingJob || editQuestions.length > 0) return;
+    const raw = (editingJob as any).screening_questions ?? editingJob.screeningQuestions;
+    if (!raw || (Array.isArray(raw) && raw.length === 0)) return;
+    const arr = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : (Array.isArray(raw) ? raw : []);
+    if (arr.length > 0) {
+      setEditQuestions(normalizeScreeningQuestions(arr, parseQuestionRequired));
+    }
+  }, [editDialogOpen, editTab, editingJob, editQuestions.length]);
 
   // Open applicants dialog and fetch applicants from API
   const openApplicantsDialog = async (job: DisplayJob) => {
@@ -1238,10 +1388,12 @@ const JobPostingsPage: React.FC = () => {
                     displayEmpty
                   >
                     <MenuItem value="" disabled>Select Type</MenuItem>
-                    <MenuItem value="fulltime">Full-time</MenuItem>
-                    <MenuItem value="parttime">Part-time</MenuItem>
-                    <MenuItem value="contract">Contract</MenuItem>
-                    <MenuItem value="internship">Internship</MenuItem>
+                    <MenuItem value="fulltime">Full-Time</MenuItem>
+                    <MenuItem value="parttime">Part-Time</MenuItem>
+                    <MenuItem value="w2contract">W2 - Contract</MenuItem>
+                    <MenuItem value="corp2corp">Corp-to-Corp</MenuItem>
+                    <MenuItem value="unpaid_internship">Unpaid Internship</MenuItem>
+                    <MenuItem value="paid_internship">Paid Internship</MenuItem>
                     <MenuItem value="freelance">Freelance</MenuItem>
                   </Select>
                   {newJobErrors.type && <FormHelperText>Employment Type is required</FormHelperText>}
@@ -1257,11 +1409,13 @@ const JobPostingsPage: React.FC = () => {
                     displayEmpty
                   >
                     <MenuItem value="" disabled>Select Level</MenuItem>
-                    <MenuItem value="entry">Entry Level (0-2 years)</MenuItem>
-                    <MenuItem value="mid">Mid Level (2-5 years)</MenuItem>
-                    <MenuItem value="senior">Senior Level (5-8 years)</MenuItem>
-                    <MenuItem value="lead">Lead/Principal (8+ years)</MenuItem>
-                    <MenuItem value="executive">Executive</MenuItem>
+                    <MenuItem value="college_fresh">College fresh grads</MenuItem>
+                    <MenuItem value="0_2">0 to 2+ years</MenuItem>
+                    <MenuItem value="2_5">2 to 5+ years</MenuItem>
+                    <MenuItem value="5_8">5 to 8 years</MenuItem>
+                    <MenuItem value="8_10">8 to 10 years</MenuItem>
+                    <MenuItem value="10_12">10 to 12+</MenuItem>
+                    <MenuItem value="12_leadership">12 to leadership</MenuItem>
                   </Select>
                   {newJobErrors.experience && <FormHelperText>Experience Level is required</FormHelperText>}
                 </FormControl>
@@ -1306,6 +1460,7 @@ const JobPostingsPage: React.FC = () => {
                   onChange={(e) => { setNewJob({ ...newJob, description: e.target.value }); setNewJobErrors({ ...newJobErrors, description: false }); }}
                   placeholder="Describe the role and what the candidate will be doing..."
                   InputLabelProps={{ shrink: true }}
+                  InputProps={{ inputProps: { 'data-allow-paste': 'true' } as any }}
                   required
                   error={!!newJobErrors.description}
                   helperText={newJobErrors.description ? "Job Description is required" : ""}
@@ -1321,6 +1476,7 @@ const JobPostingsPage: React.FC = () => {
                   onChange={(e) => { setNewJob({ ...newJob, responsibilities: e.target.value }); setNewJobErrors({ ...newJobErrors, responsibilities: false }); }}
                   placeholder="List the main responsibilities (one per line)..."
                   InputLabelProps={{ shrink: true }}
+                  InputProps={{ inputProps: { 'data-allow-paste': 'true' } as any }}
                   required
                   error={!!newJobErrors.responsibilities}
                   helperText={newJobErrors.responsibilities ? "Key Responsibilities are required" : ""}
@@ -1606,7 +1762,7 @@ const JobPostingsPage: React.FC = () => {
       </Dialog>
 
       {/* Edit Job Dialog - Same structure as Create Job */}
-      <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={editDialogOpen} onClose={() => { if (!editDialogLoading) setEditDialogOpen(false); }} maxWidth="md" fullWidth>
         <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid #eee' }}>
           Edit Job
         </DialogTitle>
@@ -1622,7 +1778,25 @@ const JobPostingsPage: React.FC = () => {
           <Tab label="Screening Questions" />
         </Tabs>
         
-        <DialogContent sx={{ pt: 3, minHeight: 400 }}>
+        <DialogContent sx={{ pt: 3, minHeight: 400, position: 'relative' }}>
+          {editDialogLoading && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: 'rgba(255,255,255,0.85)',
+                zIndex: 10,
+              }}
+            >
+              <CircularProgress />
+            </Box>
+          )}
           {editingJob && (
             <>
               {/* Tab 0: Job Details */}
@@ -1644,18 +1818,24 @@ const JobPostingsPage: React.FC = () => {
                     <FormControl fullWidth required error={!!editJobErrors.department}>
                       <InputLabel shrink>Department</InputLabel>
                       <Select
-                        value={editingJob.department}
+                        value={editingJob.department || ''}
                         label="Department"
                         onChange={(e) => { setEditingJob({ ...editingJob, department: e.target.value }); setEditJobErrors({ ...editJobErrors, department: false }); }}
+                        displayEmpty
                       >
-                        <MenuItem value="Engineering">Engineering</MenuItem>
-                        <MenuItem value="Product">Product</MenuItem>
-                        <MenuItem value="Design">Design</MenuItem>
-                        <MenuItem value="Marketing">Marketing</MenuItem>
-                        <MenuItem value="Sales">Sales</MenuItem>
-                        <MenuItem value="HR">HR</MenuItem>
-                        <MenuItem value="Finance">Finance</MenuItem>
-                        <MenuItem value="Operations">Operations</MenuItem>
+                        <MenuItem value="" disabled>Select Department</MenuItem>
+                        <MenuItem value="engineering">Engineering</MenuItem>
+                        <MenuItem value="design">Design</MenuItem>
+                        <MenuItem value="marketing">Marketing</MenuItem>
+                        <MenuItem value="sales">Sales</MenuItem>
+                        <MenuItem value="hr">Human Resources</MenuItem>
+                        <MenuItem value="finance">Finance</MenuItem>
+                        <MenuItem value="operations">Operations</MenuItem>
+                        <MenuItem value="product">Product</MenuItem>
+                        <MenuItem value="data">Data Science</MenuItem>
+                        {editingJob.department && !['engineering', 'design', 'marketing', 'sales', 'hr', 'finance', 'operations', 'product', 'data'].includes(String(editingJob.department).toLowerCase()) && (
+                          <MenuItem value={editingJob.department}>{editingJob.department}</MenuItem>
+                        )}
                       </Select>
                       {editJobErrors.department && <FormHelperText>Department is required</FormHelperText>}
                     </FormControl>
@@ -1707,10 +1887,13 @@ const JobPostingsPage: React.FC = () => {
                         label="Employment Type"
                         onChange={(e) => { setEditingJob({ ...editingJob, type: e.target.value }); setEditJobErrors({ ...editJobErrors, type: false }); }}
                       >
-                        <MenuItem value="Full-time">Full-time</MenuItem>
-                        <MenuItem value="Part-time">Part-time</MenuItem>
-                        <MenuItem value="Contract">Contract</MenuItem>
-                        <MenuItem value="Internship">Internship</MenuItem>
+                        <MenuItem value="fulltime">Full-Time</MenuItem>
+                        <MenuItem value="parttime">Part-Time</MenuItem>
+                        <MenuItem value="w2contract">W2 - Contract</MenuItem>
+                        <MenuItem value="corp2corp">Corp-to-Corp</MenuItem>
+                        <MenuItem value="unpaid_internship">Unpaid Internship</MenuItem>
+                        <MenuItem value="paid_internship">Paid Internship</MenuItem>
+                        <MenuItem value="freelance">Freelance</MenuItem>
                       </Select>
                       {editJobErrors.type && <FormHelperText>Employment Type is required</FormHelperText>}
                     </FormControl>
@@ -1719,14 +1902,17 @@ const JobPostingsPage: React.FC = () => {
                     <FormControl fullWidth required error={!!editJobErrors.experience}>
                       <InputLabel shrink>Experience Level</InputLabel>
                       <Select
-                        value={editingJob.experience || 'Mid Level'}
+                        value={editingJob.experience || ''}
                         label="Experience Level"
                         onChange={(e) => { setEditingJob({ ...editingJob, experience: e.target.value }); setEditJobErrors({ ...editJobErrors, experience: false }); }}
                       >
-                        <MenuItem value="Entry Level">Entry Level</MenuItem>
-                        <MenuItem value="Mid Level">Mid Level</MenuItem>
-                        <MenuItem value="Senior Level">Senior Level</MenuItem>
-                        <MenuItem value="Lead/Principal">Lead/Principal</MenuItem>
+                        <MenuItem value="college_fresh">College fresh grads</MenuItem>
+                        <MenuItem value="0_2">0 to 2+ years</MenuItem>
+                        <MenuItem value="2_5">2 to 5+ years</MenuItem>
+                        <MenuItem value="5_8">5 to 8 years</MenuItem>
+                        <MenuItem value="8_10">8 to 10 years</MenuItem>
+                        <MenuItem value="10_12">10 to 12+</MenuItem>
+                        <MenuItem value="12_leadership">12 to leadership</MenuItem>
                       </Select>
                       {editJobErrors.experience && <FormHelperText>Experience Level is required</FormHelperText>}
                     </FormControl>
@@ -1735,7 +1921,7 @@ const JobPostingsPage: React.FC = () => {
                     <TextField
                       fullWidth
                       label="Min Salary (Annual)"
-                      value={editingJob.salaryMin || ''}
+                      value={editingJob.salaryMin != null && editingJob.salaryMin !== '' ? String(editingJob.salaryMin) : ''}
                       onChange={(e) => { setEditingJob({ ...editingJob, salaryMin: e.target.value }); setEditJobErrors({ ...editJobErrors, salaryMin: false }); }}
                       placeholder="e.g., 60000"
                       type="number"
@@ -1749,7 +1935,7 @@ const JobPostingsPage: React.FC = () => {
                     <TextField
                       fullWidth
                       label="Max Salary (Annual)"
-                      value={editingJob.salaryMax || ''}
+                      value={editingJob.salaryMax != null && editingJob.salaryMax !== '' ? String(editingJob.salaryMax) : ''}
                       onChange={(e) => { setEditingJob({ ...editingJob, salaryMax: e.target.value }); setEditJobErrors({ ...editJobErrors, salaryMax: false }); }}
                       placeholder="e.g., 120000"
                       type="number"
@@ -1769,6 +1955,7 @@ const JobPostingsPage: React.FC = () => {
                       rows={4}
                       placeholder="Describe the role, responsibilities, and what you're looking for..."
                       InputLabelProps={{ shrink: true }}
+                      InputProps={{ inputProps: { 'data-allow-paste': 'true' } as any }}
                       required
                       error={!!editJobErrors.description}
                       helperText={editJobErrors.description ? "Job Description is required" : ""}
@@ -1784,6 +1971,7 @@ const JobPostingsPage: React.FC = () => {
                       rows={3}
                       placeholder="List key responsibilities (one per line)"
                       InputLabelProps={{ shrink: true }}
+                      InputProps={{ inputProps: { 'data-allow-paste': 'true' } as any }}
                       required
                       error={!!editJobErrors.responsibilities}
                       helperText={editJobErrors.responsibilities ? "Key Responsibilities are required" : ""}

@@ -40,6 +40,7 @@ const CompanySignupFlow: React.FC<CompanySignupFlowProps> = ({
     firstName: '',
     middleName: '',
     lastName: '',
+    profileName: '',
     dateOfBirth: '',
     visaStatus: '',
     email: '',
