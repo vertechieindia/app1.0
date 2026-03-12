@@ -16,6 +16,7 @@ class UserBase(BaseModel):
     first_name: str
     last_name: str
     middle_name: Optional[str] = None
+    profile_name: Optional[str] = None
     phone: Optional[str] = None
     mobile_number: Optional[str] = None
     dob: Optional[date] = None
@@ -35,6 +36,7 @@ class UserUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     middle_name: Optional[str] = None
+    profile_name: Optional[str] = None
     phone: Optional[str] = None
     mobile_number: Optional[str] = None
     dob: Optional[date] = None

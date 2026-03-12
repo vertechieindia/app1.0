@@ -299,6 +299,7 @@ export const API_ENDPOINTS = {
         POSTS: '/community/posts',
         CREATE_POST: '/community/posts',
         LIKE_POST: (id: string) => `/community/posts/${id}/like`,
+        REPOST_POST: (id: string) => `/community/posts/${id}/repost`,
         COMMENTS: (postId: string) => `/community/posts/${postId}/comments`,
         ADD_COMMENT: (postId: string) => `/community/posts/${postId}/comments`,
         EVENTS: '/community/events',

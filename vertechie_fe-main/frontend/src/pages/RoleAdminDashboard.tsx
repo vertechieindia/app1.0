@@ -35,6 +35,7 @@ import {
   Tab,
   Tooltip,
   CircularProgress,
+  TablePagination,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
@@ -55,6 +56,7 @@ import {
   Settings,
   LockReset,
   Block as BlockIcon,
+  FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl, API_ENDPOINTS } from '../config/api';
@@ -100,8 +102,12 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0, total: 0 });
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // '' = All (show all statuses by default)
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [totalCount, setTotalCount] = useState(0);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState(false);
@@ -111,6 +117,16 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedApproval, setSelectedApproval] = useState<any>(null);
   const [rejectReason, setRejectReason] = useState('');
+
+  // Block/Unblock dialogs - reason required
+  const [blockDialogOpen, setBlockDialogOpen] = useState(false);
+  const [blockReason, setBlockReason] = useState('');
+  const [approvalToBlock, setApprovalToBlock] = useState<any>(null);
+  const [blockingInProgress, setBlockingInProgress] = useState(false);
+  const [unblockDialogOpen, setUnblockDialogOpen] = useState(false);
+  const [unblockReason, setUnblockReason] = useState('');
+  const [approvalToUnblock, setApprovalToUnblock] = useState<any>(null);
+  const [unblockingInProgress, setUnblockingInProgress] = useState(false);
 
   // Create user wizard (for "Create Tech Professional" etc.)
   const [createWizardOpen, setCreateWizardOpen] = useState(false);
@@ -125,6 +141,8 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   const [reviewUserId, setReviewUserId] = useState<string | null>(null);
   const [reviewData, setReviewData] = useState<any>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
+  // Loading for Verify actions (only after button click): 'org' | `exp-${id}` | `edu-${id}`
+  const [reviewVerifyLoading, setReviewVerifyLoading] = useState<string | null>(null);
 
   // Reset password (send reset email to user)
   const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
@@ -149,8 +167,16 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
         return;
       }
 
-      const apiStatus = ['pending', 'approved', 'rejected'].includes(statusFilter) ? statusFilter : '';
-      const url = `${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}?user_type=${userType}&status=${apiStatus}`;
+      const apiStatus = ['pending', 'approved', 'rejected', 'suspended'].includes(statusFilter) ? statusFilter : '';
+      const skip = page * rowsPerPage;
+      const params = new URLSearchParams({
+        user_type: userType,
+        status: apiStatus,
+        skip: String(skip),
+        limit: String(rowsPerPage),
+      });
+      if (searchQuery.trim()) params.set('search', searchQuery.trim());
+      const url = `${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}?${params.toString()}`;
       const response = await fetch(url, {
         headers: {
           'Content-Type': 'application/json',
@@ -161,6 +187,9 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
       if (response.ok) {
         const data = await response.json();
         const approvals = Array.isArray(data) ? data : (data.results ?? []);
+        const total = typeof data?.total === 'number' ? data.total : approvals.length;
+        setTotalCount(total);
+        if (total > 0 && skip >= total) setPage(0);
 
         // Additional client-side filtering for techie_admin to ensure only techies are shown
         if (userType === 'techie') {
@@ -246,11 +275,25 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
     } finally {
       setLoading(false);
     }
-  }, [userType, statusFilter, navigate]);
+  }, [userType, statusFilter, page, rowsPerPage, searchQuery, navigate]);
 
   useEffect(() => {
     fetchApprovals();
   }, [fetchApprovals]);
+
+  // Debounce search: update searchQuery 400ms after user stops typing
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearchQuery(searchInput.trim());
+      setPage(0);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Reset to first page when status filter changes
+  useEffect(() => {
+    setPage(0);
+  }, [statusFilter]);
 
   // Handle approve
   const handleApprove = async (approvalId: string) => {
@@ -271,7 +314,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
         await fetchApprovals();
       } else {
         const error = await response.json();
-        setSnackbar({ open: true, message: error.error || 'Failed to approve', severity: 'error' });
+        setSnackbar({ open: true, message: error.detail || error.error || 'Failed to approve', severity: 'error' });
       }
     } catch (error) {
       setSnackbar({ open: true, message: 'Error approving user', severity: 'error' });
@@ -304,7 +347,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
         await fetchApprovals();
       } else {
         const error = await response.json();
-        setSnackbar({ open: true, message: error.error || 'Failed to reject', severity: 'error' });
+        setSnackbar({ open: true, message: error.detail || error.error || 'Failed to reject', severity: 'error' });
       }
     } catch (error) {
       setSnackbar({ open: true, message: 'Error rejecting user', severity: 'error' });
@@ -313,40 +356,72 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
     }
   };
 
-  // Toggle block/unblock for approved/suspended users
-  const handleToggleSuspend = async (approval: any) => {
+  // Open block or unblock dialog (reason required before action)
+  const handleToggleSuspend = (approval: any) => {
     if (!approval?.id) return;
-    setSuspendingId(String(approval.id));
     const isSuspended = String(approval.status || '').toLowerCase() === 'suspended';
-    const action = isSuspended ? 'unblock' : 'block';
+    if (isSuspended) {
+      setApprovalToUnblock(approval);
+      setUnblockReason('');
+      setUnblockDialogOpen(true);
+    } else {
+      setApprovalToBlock(approval);
+      setBlockReason('');
+      setBlockDialogOpen(true);
+    }
+  };
+
+  const handleBlockWithReason = async () => {
+    if (!approvalToBlock || blockReason.trim().length < 10) return;
+    setBlockingInProgress(true);
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${approval.id}/${action}`), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
+      const url = `${getApiUrl(`${API_ENDPOINTS.USERS}${approvalToBlock.id}/block`)}?reason=${encodeURIComponent(blockReason.trim())}`;
+      const response = await fetch(url, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
       if (response.ok) {
-        setPendingApprovals((prev) => prev.map((item) => (
-          String(item.id) === String(approval.id)
-            ? { ...item, status: isSuspended ? 'approved' : 'suspended' }
-            : item
-        )));
-        setSnackbar({
-          open: true,
-          message: `User ${isSuspended ? 'unblocked' : 'blocked'} successfully`,
-          severity: 'success'
-        });
+        setPendingApprovals((prev) => prev.map((item) =>
+          String(item.id) === String(approvalToBlock.id) ? { ...item, status: 'suspended' } : item
+        ));
+        setSnackbar({ open: true, message: 'User blocked successfully', severity: 'success' });
+        setBlockDialogOpen(false);
+        setApprovalToBlock(null);
+        setBlockReason('');
       } else {
         const err = await response.json().catch(() => ({}));
-        setSnackbar({ open: true, message: err.detail || err.error || `Failed to ${action} user`, severity: 'error' });
+        setSnackbar({ open: true, message: err.detail || err.error || 'Failed to block user', severity: 'error' });
       }
     } catch {
-      setSnackbar({ open: true, message: `Error trying to ${action} user`, severity: 'error' });
+      setSnackbar({ open: true, message: 'Error blocking user', severity: 'error' });
     } finally {
-      setSuspendingId(null);
+      setBlockingInProgress(false);
+    }
+  };
+
+  const handleUnblockWithReason = async () => {
+    if (!approvalToUnblock || unblockReason.trim().length < 10) return;
+    setUnblockingInProgress(true);
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${approvalToUnblock.id}/unblock`), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        setPendingApprovals((prev) => prev.map((item) =>
+          String(item.id) === String(approvalToUnblock.id) ? { ...item, status: 'approved' } : item
+        ));
+        setSnackbar({ open: true, message: 'User unblocked successfully', severity: 'success' });
+        setUnblockDialogOpen(false);
+        setApprovalToUnblock(null);
+        setUnblockReason('');
+      } else {
+        const err = await response.json().catch(() => ({}));
+        setSnackbar({ open: true, message: err.detail || err.error || 'Failed to unblock user', severity: 'error' });
+      }
+    } catch {
+      setSnackbar({ open: true, message: 'Error unblocking user', severity: 'error' });
+    } finally {
+      setUnblockingInProgress(false);
     }
   };
 
@@ -438,31 +513,16 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
     }
   };
 
-  // Filter approvals
+  // Client-side filter: only for techie admin to exclude non-techies (server already filters by search/status)
   const filteredApprovals = pendingApprovals.filter((approval) => {
-    // For techie admin, ensure we only show techies
     if (userType === 'techie') {
       const isTechie = !approval.user_type ||
-        approval.user_type.toLowerCase() === 'techie' ||
-        approval.user_type.toLowerCase() === 'tech professional';
+        String(approval.user_type).toLowerCase() === 'techie' ||
+        String(approval.user_type).toLowerCase() === 'tech professional';
       const hasAdminRoles = approval.admin_roles && approval.admin_roles.length > 0;
-
-      if (!isTechie || hasAdminRoles) {
-        return false;
-      }
+      if (!isTechie || hasAdminRoles) return false;
     }
-
-    if (statusFilter && String(approval.status || '').toLowerCase() !== statusFilter.toLowerCase()) {
-      return false;
-    }
-
-    // Apply search filter
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      approval.user_full_name?.toLowerCase().includes(query) ||
-      approval.user_email?.toLowerCase().includes(query)
-    );
+    return true;
   });
 
   const getUserTypeLabel = () => {
@@ -473,6 +533,28 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
       case 'school': return 'Educational Institution';
       default: return userType;
     }
+  };
+
+  // Export filtered list to CSV
+  const handleExportCSV = () => {
+    const headers = ['Name', 'Email', 'VID', 'Country', 'Type', 'Submitted', 'Status'];
+    const rows = filteredApprovals.map((a: any) => [
+      a.user_full_name ?? '',
+      a.user_email ?? '',
+      a.vertechie_id ?? '',
+      a.country ?? '',
+      getUserTypeLabel(),
+      a.created_at ? new Date(a.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '',
+      (a.status ?? '').charAt(0).toUpperCase() + (a.status ?? '').slice(1).toLowerCase(),
+    ]);
+    const csvContent = [headers.join(','), ...rows.map((r: string[]) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `techie-admin-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    setSnackbar({ open: true, message: 'Export downloaded', severity: 'success' });
   };
 
   const innerContent = (
@@ -488,17 +570,11 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <FormControl size="small" sx={{ minWidth: 140 }}>
-              <InputLabel>User Type</InputLabel>
-              <Select value={userType} label="User Type" disabled>
-                <MenuItem value="techie">Tech Professional</MenuItem>
-                <MenuItem value="hr">Hiring Manager</MenuItem>
-                <MenuItem value="company">Company</MenuItem>
-                <MenuItem value="school">Educational Institution</MenuItem>
-              </Select>
-            </FormControl>
             <Button variant="outlined" startIcon={<Refresh />} onClick={fetchApprovals} size="medium">
               Refresh
+            </Button>
+            <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={handleExportCSV} size="medium" disabled={filteredApprovals.length === 0}>
+              Export
             </Button>
             <Button variant="contained" startIcon={<PersonAdd />} onClick={() => setCreateWizardOpen(true)} size="medium">
               Create {getUserTypeLabel()}
@@ -537,10 +613,10 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
         {/* Search + Status filter */}
         <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
           <TextField
-            placeholder="Search by name or email..."
+            placeholder="Search by name, email or VID..."
             size="small"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             sx={{ flex: 1, minWidth: 200 }}
             InputProps={{
               startAdornment: (
@@ -585,11 +661,14 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
             </Typography>
           </Paper>
         ) : (
-          <TableContainer component={Paper} elevation={0} sx={{ borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <Table>
+          <>
+          <TableContainer component={Paper} elevation={0} sx={{ borderTopLeftRadius: 12, borderTopRightRadius: 12, border: '1px solid #e2e8f0', borderBottom: 'none', overflowX: 'auto' }}>
+            <Table sx={{ minWidth: 700 }}>
               <TableHead>
                 <TableRow sx={{ bgcolor: '#f8fafc' }}>
                   <TableCell sx={{ fontWeight: 600 }}>User</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>VID</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Country</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Submitted</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
@@ -612,6 +691,14 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                           <Typography variant="caption" color="text.secondary">{approval.user_email}</Typography>
                         </Box>
                       </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: '#15803d', fontWeight: 600 }}>
+                        {approval.vertechie_id || '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">{approval.country || '—'}</Typography>
                     </TableCell>
                     <TableCell>
                       <Chip label={getUserTypeLabel()} size="small" sx={{ bgcolor: '#f3e8ff', color: '#7c3aed', fontWeight: 600 }} />
@@ -660,7 +747,6 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                             <IconButton
                               size="small"
                               onClick={() => handleToggleSuspend(approval)}
-                              disabled={suspendingId !== null}
                               sx={{
                                 color: approval.status === 'suspended' ? '#2563eb' : '#b91c1c',
                                 transition: 'all 0.3s ease',
@@ -668,14 +754,9 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                                   bgcolor: approval.status === 'suspended' ? 'rgba(37, 99, 235, 0.1)' : 'rgba(185, 28, 28, 0.1)',
                                   transform: 'scale(1.15)'
                                 },
-                                '&.Mui-disabled': { color: approval.status === 'suspended' ? '#2563eb' : '#b91c1c', opacity: 0.7 }
                               }}
                             >
-                              {suspendingId === String(approval.id) ? (
-                                <CircularProgress size={16} color="inherit" />
-                              ) : (
-                                approval.status === 'suspended' ? <LockReset fontSize="small" /> : <BlockIcon fontSize="small" />
-                              )}
+                              {approval.status === 'suspended' ? <LockReset fontSize="small" /> : <BlockIcon fontSize="small" />}
                             </IconButton>
                           </Tooltip>
                         )}
@@ -740,12 +821,77 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
               </TableBody>
             </Table>
           </TableContainer>
+          <Box sx={{ overflowX: 'auto', width: '100%', border: '1px solid #e2e8f0', borderTop: '1px solid #e2e8f0', borderBottomLeftRadius: 12, borderBottomRightRadius: 12, bgcolor: 'background.paper' }}>
+            <TablePagination
+              component="div"
+              count={totalCount}
+              page={page}
+              onPageChange={(_, newPage) => setPage(newPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+              rowsPerPageOptions={[10, 20, 50, 100]}
+              labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : to}`}
+              labelRowsPerPage="Rows:"
+              sx={{ borderTop: 'none' }}
+            />
+          </Box>
+          </>
         )}
       </Box>
     </>
   );
   const rest = (
     <>
+      {/* Block User Dialog - reason required */}
+      <Dialog open={blockDialogOpen} onClose={() => !blockingInProgress && (setBlockDialogOpen(false), setApprovalToBlock(null), setBlockReason(''))} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700, color: '#dc2626' }}>Block User</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            You are about to block <strong>{approvalToBlock?.user_full_name}</strong>. Please provide a reason (required).
+          </Typography>
+          <TextField
+            fullWidth
+            label="Reason for blocking *"
+            multiline
+            rows={3}
+            value={blockReason}
+            onChange={(e) => setBlockReason(e.target.value)}
+            helperText="Minimum 10 characters required"
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => { setBlockDialogOpen(false); setApprovalToBlock(null); setBlockReason(''); }} disabled={blockingInProgress}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleBlockWithReason} disabled={blockReason.trim().length < 10 || blockingInProgress} startIcon={blockingInProgress ? <CircularProgress size={16} color="inherit" /> : null}>
+            {blockingInProgress ? 'Blocking...' : 'Block User'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Unblock User Dialog - reason required */}
+      <Dialog open={unblockDialogOpen} onClose={() => setUnblockDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Unblock User</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            You are about to unblock <strong>{approvalToUnblock?.user_full_name}</strong>. Please provide a reason (required).
+          </Typography>
+          <TextField
+            fullWidth
+            label="Reason for unblocking *"
+            multiline
+            rows={3}
+            value={unblockReason}
+            onChange={(e) => setUnblockReason(e.target.value)}
+            helperText="Minimum 10 characters required"
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => { setUnblockDialogOpen(false); setApprovalToUnblock(null); setUnblockReason(''); }} disabled={unblockingInProgress}>Cancel</Button>
+          <Button variant="contained" color="primary" onClick={handleUnblockWithReason} disabled={unblockReason.trim().length < 10 || unblockingInProgress} startIcon={unblockingInProgress ? <CircularProgress size={16} color="inherit" /> : null}>
+            {unblockingInProgress ? 'Unblocking...' : 'Unblock User'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Reject Dialog */}
       <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700, color: '#dc2626' }}>
@@ -961,9 +1107,12 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                               size="small"
                               variant="contained"
                               color="primary"
+                              disabled={reviewVerifyLoading !== null}
+                              startIcon={reviewVerifyLoading === 'org' ? <CircularProgress size={14} color="inherit" /> : null}
                               onClick={async () => {
                                 const token = localStorage.getItem('authToken');
                                 if (!token) return;
+                                setReviewVerifyLoading('org');
                                 try {
                                   const res = await fetch(
                                     getApiUrl(`/users/${reviewUserId}/verify-organization`),
@@ -984,10 +1133,12 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                                   }
                                 } catch {
                                   setSnackbar({ open: true, message: 'Error verifying company', severity: 'error' });
+                                } finally {
+                                  setReviewVerifyLoading(null);
                                 }
                               }}
                             >
-                              Verify Company
+                              {reviewVerifyLoading === 'org' ? 'Verifying...' : 'Verify Company'}
                             </Button>
                           )}
                         </Grid>
@@ -1036,9 +1187,12 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                             size="small"
                             variant={exp.is_verified ? 'outlined' : 'contained'}
                             color={exp.is_verified ? 'secondary' : 'primary'}
+                            disabled={reviewVerifyLoading !== null}
+                            startIcon={reviewVerifyLoading === `exp-${exp.id}` ? <CircularProgress size={14} color="inherit" /> : null}
                             onClick={async () => {
                               const token = localStorage.getItem('authToken');
                               if (!token) return;
+                              setReviewVerifyLoading(`exp-${exp.id}`);
                               try {
                                 const res = await fetch(
                                   getApiUrl(`/users/${reviewUserId}/experiences/${exp.id}/verify`),
@@ -1059,10 +1213,12 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                                 }
                               } catch {
                                 setSnackbar({ open: true, message: 'Error updating work experience status', severity: 'error' });
+                              } finally {
+                                setReviewVerifyLoading(null);
                               }
                             }}
                           >
-                            {exp.is_verified ? 'Unverify' : 'Verify'}
+                            {reviewVerifyLoading === `exp-${exp.id}` ? 'Updating...' : (exp.is_verified ? 'Unverify' : 'Verify')}
                           </Button>
                         )}
                       </Box>
@@ -1110,9 +1266,12 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                             size="small"
                             variant={edu.is_verified ? 'outlined' : 'contained'}
                             color={edu.is_verified ? 'secondary' : 'primary'}
+                            disabled={reviewVerifyLoading !== null}
+                            startIcon={reviewVerifyLoading === `edu-${edu.id}` ? <CircularProgress size={14} color="inherit" /> : null}
                             onClick={async () => {
                               const token = localStorage.getItem('authToken');
                               if (!token) return;
+                              setReviewVerifyLoading(`edu-${edu.id}`);
                               try {
                                 const res = await fetch(
                                   getApiUrl(`/users/${reviewUserId}/educations/${edu.id}/verify`),
@@ -1133,10 +1292,12 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                                 }
                               } catch {
                                 setSnackbar({ open: true, message: 'Error updating education status', severity: 'error' });
+                              } finally {
+                                setReviewVerifyLoading(null);
                               }
                             }}
                           >
-                            {edu.is_verified ? 'Unverify' : 'Verify'}
+                            {reviewVerifyLoading === `edu-${edu.id}` ? 'Updating...' : (edu.is_verified ? 'Unverify' : 'Verify')}
                           </Button>
                         )}
                       </Box>
@@ -1196,14 +1357,14 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
             const isTechie = userType === 'techie';
             const isHR = userType === 'hr' || userType === 'company';
             const techieCanApproveReject = isTechie && allEducationVerified && allExperienceVerified;
-            const hrCanApproveReject = isHR && (!reviewData.organization || reviewData.organization.verified === true);
-            const canApproveReject = techieCanApproveReject || hrCanApproveReject || (userType === 'school' && (!reviewData.organization || reviewData.organization.verified === true));
+            const hrCanApproveReject = isHR && !!reviewData.organization && reviewData.organization.verified === true;
+            const canApproveReject = techieCanApproveReject || hrCanApproveReject || (userType === 'school' && !!reviewData.organization && reviewData.organization.verified === true);
             if (!canApproveReject) {
               return (
                 <Typography variant="body2" color="text.secondary" sx={{ mr: 2, alignSelf: 'center' }}>
                   {isTechie && (!allEducationVerified || !allExperienceVerified) &&
                     'Verify all Education entries and all Work Experience entries (if any) before you can Approve or Reject.'}
-                  {(isHR || userType === 'school') && reviewData.organization && reviewData.organization.verified !== true &&
+                  {(isHR || userType === 'school') && (!reviewData.organization || reviewData.organization.verified !== true) &&
                     'Verify the Company/Organization above before you can Approve or Reject.'}
                 </Typography>
               );
@@ -1407,5 +1568,3 @@ export const MultiRoleAdminDashboard: React.FC = () => {
 };
 
 export default RoleAdminDashboard;
-
-

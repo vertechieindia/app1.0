@@ -78,6 +78,13 @@ async def register(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
+
+    profile_name = (user_in.profile_name or "").strip()
+    if not profile_name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="profile_name is required"
+        )
     
     # Normalize gov_id to last 4 only (any length -> last 4 for VerTechie ID and storage)
     gov_id_stored, last_four = _normalize_gov_id_last_four(user_in.gov_id, user_in.gov_id_last_four)
@@ -100,6 +107,7 @@ async def register(
         first_name=user_in.first_name,
         last_name=user_in.last_name,
         middle_name=user_in.middle_name,
+        profile_name=profile_name,
         phone=user_in.phone,
         mobile_number=user_in.mobile_number,
         dob=user_in.dob,
@@ -278,6 +286,7 @@ async def register(
         "first_name": user.first_name,
         "last_name": user.last_name,
         "middle_name": user.middle_name,
+        "profile_name": user.profile_name,
         "username": user.username,
         "vertechie_id": user.vertechie_id,
         "is_active": user.is_active,
@@ -359,6 +368,7 @@ async def login(
         "first_name": user.first_name,
         "last_name": user.last_name,
         "middle_name": user.middle_name,
+        "profile_name": user.profile_name,
         "username": user.username,
         "vertechie_id": user.vertechie_id,
         "is_active": user.is_active,

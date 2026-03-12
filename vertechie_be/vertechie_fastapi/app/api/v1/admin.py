@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator
-from sqlalchemy import select, func, and_, or_, cast, String, text
+from sqlalchemy import select, func, and_, or_, cast, String, text, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -378,6 +378,7 @@ class PendingApprovalResponse(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     country: Optional[str] = None
+    vertechie_id: Optional[str] = None
     verification_status: str
     created_at: Optional[datetime] = None
     # Fields expected by frontend
@@ -385,6 +386,12 @@ class PendingApprovalResponse(BaseModel):
     user_full_name: Optional[str] = None
     user_email: Optional[str] = None
     status: str = "pending"
+
+
+class PendingApprovalListResponse(BaseModel):
+    """Paginated list of pending approvals with total count."""
+    results: List[PendingApprovalResponse] = []
+    total: int = 0
 
 
 class ApprovalStatsResponse(BaseModel):
@@ -754,13 +761,17 @@ async def unblock_blocked_profile(
     }
 
 
-@router.get("/pending-approvals/", response_model=List[PendingApprovalResponse])
+@router.get("/pending-approvals/", response_model=PendingApprovalListResponse)
 async def list_pending_approvals(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     status: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None),
     user_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, description="Search by name, email, or vertechie_id"),
+    education_verification: Optional[str] = Query(None, description="Filter by education verification: all, pending, verified"),
+    experience_verification: Optional[str] = Query(None, description="Filter by experience verification: all, pending, verified"),
+    company_verification: Optional[str] = Query(None, description="Filter by company verification (HR/School): all, pending, verified"),
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ) -> Any:
@@ -774,7 +785,7 @@ async def list_pending_approvals(
     - School Admin: sees only school_admin users
     """
     try:
-        logger.info(f"[PENDING_APPROVALS] Starting request - user_type={user_type}, status={status}, status_filter={status_filter}, skip={skip}, limit={limit}")
+        logger.info(f"[PENDING_APPROVALS] Starting request - user_type={user_type}, status={status}, status_filter={status_filter}, search={search!r}, skip={skip}, limit={limit}")
         logger.info(f"[PENDING_APPROVALS] Current admin: {current_admin.email}, admin_roles={current_admin.admin_roles}, is_superuser={current_admin.is_superuser}")
         
         from sqlalchemy.orm import selectinload
@@ -834,17 +845,58 @@ async def list_pending_approvals(
         # Build base query with role loading
         query = select(User).options(selectinload(User.roles))
         
-        # Filter by status: "all" or empty = no filter (return all statuses); otherwise filter by that status
+        # Filter by status: "all" or empty = no filter; "suspended" = blocked users; else verification_status
         if filter_status and filter_status != "all":
-            if filter_status in status_map:
+            if filter_status == "suspended":
+                query = query.where(User.is_blocked == True)
+                logger.info(f"[PENDING_APPROVALS] Filtering by suspended (blocked) users")
+            elif filter_status in status_map:
                 status_enum = status_map[filter_status]
                 query = query.where(User.verification_status == status_enum.value)
                 logger.info(f"[PENDING_APPROVALS] Filtering by status: {filter_status}")
             else:
-                # Invalid status, show all
                 logger.info(f"[PENDING_APPROVALS] Invalid status '{filter_status}', showing all statuses")
         else:
             logger.info(f"[PENDING_APPROVALS] Showing all statuses (all/empty)")
+        
+        # Search by name, email, or vertechie_id
+        if search and search.strip():
+            search_pattern = f"%{search.strip()}%"
+            query = query.where(
+                or_(
+                    User.first_name.ilike(search_pattern),
+                    User.last_name.ilike(search_pattern),
+                    User.email.ilike(search_pattern),
+                    User.vertechie_id.ilike(search_pattern),
+                )
+            )
+            logger.info(f"[PENDING_APPROVALS] Search filter: {search.strip()!r}")
+        
+        # Education verification filter: pending = has at least one unverified; verified = has at least one and all verified
+        edu_verif = (education_verification or "").strip().lower() if education_verification else ""
+        if edu_verif == "pending":
+            query = query.where(
+                exists(select(1).select_from(Education).where(Education.user_id == User.id, Education.is_verified == False))
+            )
+            logger.info("[PENDING_APPROVALS] Filtering by education verification: pending")
+        elif edu_verif == "verified":
+            has_edu = exists(select(1).select_from(Education).where(Education.user_id == User.id))
+            no_pending = ~exists(select(1).select_from(Education).where(Education.user_id == User.id, Education.is_verified == False))
+            query = query.where(has_edu, no_pending)
+            logger.info("[PENDING_APPROVALS] Filtering by education verification: verified")
+        
+        # Experience verification filter
+        exp_verif = (experience_verification or "").strip().lower() if experience_verification else ""
+        if exp_verif == "pending":
+            query = query.where(
+                exists(select(1).select_from(Experience).where(Experience.user_id == User.id, Experience.is_verified == False))
+            )
+            logger.info("[PENDING_APPROVALS] Filtering by experience verification: pending")
+        elif exp_verif == "verified":
+            has_exp = exists(select(1).select_from(Experience).where(Experience.user_id == User.id))
+            no_pending_exp = ~exists(select(1).select_from(Experience).where(Experience.user_id == User.id, Experience.is_verified == False))
+            query = query.where(has_exp, no_pending_exp)
+            logger.info("[PENDING_APPROVALS] Filtering by experience verification: verified")
         
         query = query.order_by(User.created_at.asc())
         logger.info(f"[PENDING_APPROVALS] Query built, executing...")
@@ -916,6 +968,17 @@ async def list_pending_approvals(
                 logger.error(f"[PENDING_APPROVALS] Traceback: {traceback.format_exc()}")
                 continue
         
+        # Company verification filter (HR/Company/School only): filter by hr_company_verified_at
+        company_verif = (company_verification or "").strip().lower() if company_verification else ""
+        hr_school_roles = {RoleType.HIRING_MANAGER, RoleType.COMPANY_ADMIN, RoleType.SCHOOL_ADMIN}
+        if company_verif and query_role_type in hr_school_roles:
+            if company_verif == "pending":
+                filtered_users = [(u, rt) for u, rt in filtered_users if getattr(u, "hr_company_verified_at", None) is None]
+                logger.info(f"[PENDING_APPROVALS] After company verification pending filter: {len(filtered_users)} users")
+            elif company_verif == "verified":
+                filtered_users = [(u, rt) for u, rt in filtered_users if getattr(u, "hr_company_verified_at", None) is not None]
+                logger.info(f"[PENDING_APPROVALS] After company verification verified filter: {len(filtered_users)} users")
+        
         logger.info(f"[PENDING_APPROVALS] After role filtering: {len(filtered_users)} users")
         
         # Apply pagination after filtering
@@ -943,6 +1006,8 @@ async def list_pending_approvals(
                     )
                     if not isinstance(verification_status_str, str):
                         verification_status_str = str(verification_status_str)
+                # When user is blocked, show status as suspended for frontend
+                display_status = "suspended" if getattr(user, "is_blocked", False) else verification_status_str.lower()
                 result_list.append(
                     PendingApprovalResponse(
                         id=user.id,
@@ -950,13 +1015,14 @@ async def list_pending_approvals(
                         first_name=user.first_name,
                         last_name=user.last_name,
                         country=user.country,
+                        vertechie_id=getattr(user, "vertechie_id", None),
                         verification_status=verification_status_str,
                         created_at=user.created_at,
                         # Frontend expected fields
                         user_type=role_to_user_type_map.get(user_role_type, "techie"),
                         user_full_name=f"{user.first_name or ''} {user.last_name or ''}".strip() or (user.email or ""),
                         user_email=user.email or "",
-                        status=verification_status_str.lower()
+                        status=display_status
                     )
                 )
             except Exception as e:
@@ -964,8 +1030,9 @@ async def list_pending_approvals(
                 logger.error(f"[PENDING_APPROVALS] Traceback: {traceback.format_exc()}")
                 continue
         
-        logger.info(f"[PENDING_APPROVALS] Returning {len(result_list)} approvals")
-        return result_list
+        total_count = len(filtered_users)
+        logger.info(f"[PENDING_APPROVALS] Returning {len(result_list)} approvals (total={total_count})")
+        return PendingApprovalListResponse(results=result_list, total=total_count)
         
     except Exception as e:
         logger.error(f"[PENDING_APPROVALS] ERROR: {str(e)}")
@@ -1106,6 +1173,51 @@ class RejectRequest(BaseModel):
     rejection_reason: Optional[str] = None
 
 
+async def _get_profile_finalize_block_reason(db: AsyncSession, user: User) -> Optional[str]:
+    """Return a blocking reason when profile cannot be approved/rejected yet."""
+    role_result = await db.execute(
+        select(UserRole.role_type).where(UserRole.user_id == user.id)
+    )
+    role_values = {
+        (getattr(row[0], "value", row[0]) or "").lower()
+        for row in role_result.all()
+        if row and row[0] is not None
+    }
+
+    # Treat users without explicit roles as techies for safety.
+    is_techie = not role_values or RoleType.TECHIE.value in role_values
+    if is_techie:
+        unverified_edu_result = await db.execute(
+            select(func.count(Education.id)).where(
+                Education.user_id == user.id,
+                Education.is_verified.is_not(True)
+            )
+        )
+        unverified_exp_result = await db.execute(
+            select(func.count(Experience.id)).where(
+                Experience.user_id == user.id,
+                Experience.is_verified.is_not(True)
+            )
+        )
+        unverified_edu = int(unverified_edu_result.scalar() or 0)
+        unverified_exp = int(unverified_exp_result.scalar() or 0)
+        if unverified_edu > 0 or unverified_exp > 0:
+            return "Verify all Education and Work Experience entries before Approve/Reject."
+
+    needs_org_verification = any(
+        role in role_values
+        for role in [
+            RoleType.HIRING_MANAGER.value,
+            RoleType.COMPANY_ADMIN.value,
+            RoleType.SCHOOL_ADMIN.value,
+        ]
+    )
+    if needs_org_verification and user.hr_company_verified_at is None:
+        return "Verify Company/Organization details before Approve/Reject."
+
+    return None
+
+
 @router.post("/pending-approvals/{user_id}/approve/")
 async def approve_user(
     user_id: UUID,
@@ -1126,6 +1238,10 @@ async def approve_user(
             status_code=400,
             detail="Only pending users can be approved. Use block/unblock for already approved users."
         )
+
+    block_reason = await _get_profile_finalize_block_reason(db, user)
+    if block_reason:
+        raise HTTPException(status_code=400, detail=block_reason)
     
     # Update verification status
     user.verification_status = VerificationStatus.APPROVED
@@ -1169,6 +1285,10 @@ async def reject_user(
             status_code=400,
             detail="Only pending users can be rejected. Use block/unblock for already approved users."
         )
+
+    block_reason = await _get_profile_finalize_block_reason(db, user)
+    if block_reason:
+        raise HTTPException(status_code=400, detail=block_reason)
     
     # Determine final rejection reason (support both `reason` and `rejection_reason`)
     final_reason = reject_data.reason or (reject_data.rejection_reason or "")

@@ -1,7 +1,7 @@
-import { Box, Container, Typography, Button, useTheme, Divider, Paper } from '@mui/material';
+import { Box, Container, Typography, Button, useTheme, Divider, Paper, CircularProgress } from '@mui/material';
 import { styled, keyframes } from '@mui/material/styles';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Hero from '../components/landing/Hero';
 import Mission from '../components/landing/Mission';
@@ -98,29 +98,51 @@ const FloatingImage = styled(Box)({
 const Home = () => {
   const theme = useTheme();
   const navigate = useNavigate();
+  // Don't show landing until we know user is not authenticated (avoids flash for logged-in users)
+  const [authResolved, setAuthResolved] = useState<boolean>(() => !localStorage.getItem('authToken'));
 
-  // Redirect authenticated users: re-fetch user from API for fresh approval status
+  // Redirect authenticated users: use cached userData for immediate redirect, then refresh from API
   useEffect(() => {
     const authToken = localStorage.getItem('authToken');
-    if (!authToken) return;
+    if (!authToken) {
+      setAuthResolved(true);
+      return;
+    }
+
+    const cachedUserData = localStorage.getItem('userData');
+    if (cachedUserData) {
+      try {
+        const userData = JSON.parse(cachedUserData);
+        const path = getRedirectPathForUser(userData);
+        if (path) {
+          navigate(path, { replace: true });
+          return;
+        }
+      } catch {
+        // invalid cache, fetch below
+      }
+    }
 
     let cancelled = false;
+    setAuthResolved(false);
+
     const run = async () => {
       try {
         const response = await fetch(getApiUrl('/users/me'), {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${authToken}`,
-            },
-          }
-        );
-        if (cancelled || !response.ok) {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+        });
+        if (cancelled) return;
+        if (!response.ok) {
           if (response.status === 401) {
             localStorage.removeItem('authToken');
             localStorage.removeItem('refreshToken');
             localStorage.removeItem('userData');
           }
+          setAuthResolved(true);
           return;
         }
         const userData = await response.json();
@@ -128,6 +150,7 @@ const Home = () => {
         localStorage.setItem('userData', JSON.stringify(userData));
         const path = getRedirectPathForUser(userData);
         if (path) navigate(path, { replace: true });
+        else setAuthResolved(true);
       } catch {
         if (!cancelled) {
           const userDataString = localStorage.getItem('userData');
@@ -135,17 +158,38 @@ const Home = () => {
             try {
               const userData = JSON.parse(userDataString);
               const path = getRedirectPathForUser(userData);
-              if (path) navigate(path, { replace: true });
+              if (path) {
+                navigate(path, { replace: true });
+                return;
+              }
             } catch {
-              // stay on home
+              // fall through to show landing
             }
           }
+          setAuthResolved(true);
         }
       }
     };
     run();
     return () => { cancelled = true; };
   }, [navigate]);
+
+  // Logged-in user: show loading until redirect (never show public landing)
+  if (!authResolved) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '60vh',
+          background: theme.palette.background?.gradient || 'linear-gradient(135deg, #f5f9ff 0%, #ebf5ff 100%)',
+        }}
+      >
+        <CircularProgress size={48} sx={{ color: 'primary.main' }} />
+      </Box>
+    );
+  }
 
   return (
     <>

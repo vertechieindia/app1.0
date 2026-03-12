@@ -871,6 +871,36 @@ async def vote_on_poll(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid option index. Poll has {len(options)} options."
             )
+
+        # Enforce poll close time (if configured)
+        poll_end_raw = post.poll_data.get("end_date")
+        poll_end_at: Optional[datetime] = None
+        if isinstance(poll_end_raw, str):
+            poll_end_text = poll_end_raw.strip()
+            if poll_end_text:
+                try:
+                    if "T" not in poll_end_text and len(poll_end_text) == 10:
+                        # Date-only format: treat as end of that UTC day
+                        poll_end_at = datetime.fromisoformat(f"{poll_end_text}T23:59:59+00:00")
+                    else:
+                        normalized = (
+                            poll_end_text[:-1] + "+00:00"
+                            if poll_end_text.endswith("Z")
+                            else poll_end_text
+                        )
+                        poll_end_at = datetime.fromisoformat(normalized)
+                except ValueError:
+                    poll_end_at = None
+
+        if poll_end_at:
+            if poll_end_at.tzinfo is None:
+                poll_end_at = poll_end_at.replace(tzinfo=timezone.utc)
+            now_utc = datetime.now(timezone.utc)
+            if now_utc >= poll_end_at.astimezone(timezone.utc):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Poll is closed"
+                )
         
         # Check if user already voted
         result = await db.execute(
@@ -935,6 +965,58 @@ async def vote_on_poll(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to record vote: {str(e)}"
         )
+
+
+@router.post("/posts/{post_id}/repost", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
+async def repost_post(
+    post_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Repost an existing post to the current user's feed."""
+
+    result = await db.execute(
+        select(Post).where(
+            Post.id == post_id,
+            Post.is_published == True
+        )
+    )
+    source_post = result.scalar_one_or_none()
+
+    if not source_post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post not found"
+        )
+
+    repost = Post(
+        author_id=current_user.id,
+        post_type=source_post.post_type,
+        content=source_post.content,
+        content_html=source_post.content_html,
+        media=source_post.media or [],
+        link_url=source_post.link_url,
+        link_preview=source_post.link_preview,
+        poll_data=source_post.poll_data.copy() if isinstance(source_post.poll_data, dict) else source_post.poll_data,
+        tags=source_post.tags or [],
+        mentions=[],
+        visibility="public",
+        is_published=True,
+    )
+    db.add(repost)
+
+    source_post.shares_count = (source_post.shares_count or 0) + 1
+
+    result = await db.execute(
+        select(UserProfile).where(UserProfile.user_id == current_user.id)
+    )
+    profile = result.scalar_one_or_none()
+    if profile:
+        profile.posts_count = (profile.posts_count or 0) + 1
+
+    await db.commit()
+    await db.refresh(repost)
+    return repost
 
 
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)

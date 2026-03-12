@@ -83,6 +83,17 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
         setErrors({ lastName: 'Enter valid last name (e.g. K, K., Kumar)' });
         return;
       }
+      if (!formData.profileName || formData.profileName.trim() === '') {
+        setErrors({ profileName: 'Profile name is required' });
+        setTimeout(() => {
+          const profileNameField = document.querySelector('[name="profileName"]');
+          if (profileNameField) {
+            (profileNameField as HTMLElement).focus();
+            (profileNameField as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 100);
+        return;
+      }
 
       // Step 1: Check email first
       if (!formData.email || formData.email.trim() === '') {
@@ -429,6 +440,7 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
           email: formData.email || '',
           first_name: formData.firstName || '',
           last_name: formData.lastName || '',
+          profile_name: formData.profileName || '',
           dob: dob, // Format: YYYY-MM-DD (API expects this format)
           username: formData.email || '', // Same as email
           password: formData.password || '',

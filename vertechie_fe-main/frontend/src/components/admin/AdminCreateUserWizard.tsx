@@ -29,6 +29,7 @@ import {
   Slider,
   Paper,
   Tooltip,
+  FormHelperText,
 } from '@mui/material';
 import { styled, keyframes } from '@mui/material/styles';
 import {
@@ -318,6 +319,9 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
   const [currentExperience, setCurrentExperience] = useState<Experience | null>(null);
   const [currentEducation, setCurrentEducation] = useState<Education | null>(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [educationFormErrors, setEducationFormErrors] = useState<Record<string, string>>({});
+  const [educationStepError, setEducationStepError] = useState('');
   
   // Company search and invite state
   const [companySearchResults, setCompanySearchResults] = useState<Array<{id: string, name: string}>>([]);
@@ -350,6 +354,26 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
   // Job description warning state
   const [showJobDescriptionWarning, setShowJobDescriptionWarning] = useState(false);
   const [jobDescriptionAcknowledged, setJobDescriptionAcknowledged] = useState(false);
+
+  const clearFieldError = (key: string) => {
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const clearEducationFormError = (key: string) => {
+    setEducationFormErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const isValidPan = (pan: string) => /^[A-Z]{5}[0-9]{4}[A-Z]$/.test((pan || '').trim().toUpperCase());
 
   // Get steps based on role
   const getSteps = () => {
@@ -402,6 +426,9 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
     });
     setExperiences([]);
     setEducations([]);
+    setFieldErrors({});
+    setEducationFormErrors({});
+    setEducationStepError('');
   };
 
   // Handle close
@@ -464,6 +491,8 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
 
   // Add education
   const handleAddEducation = () => {
+    setEducationStepError('');
+    setEducationFormErrors({});
     setCurrentEducation({
       id: Date.now().toString(),
       institution_name: '',
@@ -529,6 +558,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
           projects: [...currentEducation.projects, currentProject]
         });
       }
+      clearEducationFormError('projects');
     }
     setShowProjectForm(false);
     setCurrentProject(null);
@@ -596,35 +626,20 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
 
   const handleSaveEducation = () => {
     if (currentEducation) {
-      // Validate all required fields
-      if (!currentEducation.institution_name) {
-        onError('Institution name is required');
+      const nextErrors: Record<string, string> = {};
+      if (!currentEducation.institution_name?.trim()) nextErrors.institution_name = 'Institution name is required';
+      if (!currentEducation.level_of_education?.trim()) nextErrors.level_of_education = 'Level of education is required';
+      if (!currentEducation.field_of_study?.trim()) nextErrors.field_of_study = 'Field of study is required';
+      if (!currentEducation.from_date) nextErrors.from_date = 'From date is required';
+      if (!currentEducation.to_date) nextErrors.to_date = 'To date is required';
+      if (!currentEducation.gpa_score?.trim()) nextErrors.gpa_score = 'GPA/Score is required';
+      if (!currentEducation.projects || currentEducation.projects.length === 0) nextErrors.projects = 'At least one project is required';
+      if (Object.keys(nextErrors).length > 0) {
+        setEducationFormErrors(nextErrors);
+        onError(Object.values(nextErrors)[0]);
         return;
       }
-      if (!currentEducation.level_of_education) {
-        onError('Level of education is required');
-        return;
-      }
-      if (!currentEducation.field_of_study) {
-        onError('Field of study is required');
-        return;
-      }
-      if (!currentEducation.from_date) {
-        onError('From date is required');
-        return;
-      }
-      if (!currentEducation.to_date) {
-        onError('To date is required');
-        return;
-      }
-      if (!currentEducation.gpa_score) {
-        onError('GPA/Score is required');
-        return;
-      }
-      if (!currentEducation.projects || currentEducation.projects.length === 0) {
-        onError('At least one project is required');
-        return;
-      }
+      setEducationFormErrors({});
       
       const exists = educations.find(e => e.id === currentEducation.id);
       if (exists) {
@@ -632,17 +647,21 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
       } else {
         setEducations([...educations, currentEducation]);
       }
+      setEducationStepError('');
       setShowEducationForm(false);
       setCurrentEducation(null);
     }
   };
 
   const handleDeleteEducation = (id: string) => {
-    setEducations(educations.filter(e => e.id !== id));
+    const next = educations.filter(e => e.id !== id);
+    setEducations(next);
+    if (next.length > 0) setEducationStepError('');
   };
 
   // Edit education
   const handleEditEducation = (edu: Education) => {
+    setEducationFormErrors({});
     setCurrentEducation({ ...edu, projects: edu.projects || [] });
     setShowEducationForm(true);
   };
@@ -650,25 +669,34 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
   // Validate current step
   const validateStep = (): string | null => {
     if (activeStep === 1) {
-      // Basic information validation - ALL FIELDS MANDATORY
-      if (!formData.email) return 'Email is required';
-      if (!formData.email.includes('@')) return 'Please enter a valid email address';
-      if (!formData.mobile_number) return 'Mobile number is required';
-      if (!formData.first_name) return 'First name is required';
-      if (!formData.last_name) return 'Last name is required';
-      if (!formData.dob) return 'Date of birth is required';
-      if (!formData.country) return 'Country is required';
-      if (!formData.gov_id) return `${getGovIdLabel()} is required`;
-      if (!formData.address) return 'Address is required';
-      if (!formData.password) return 'Password is required';
-      if (formData.password.length < 8) return 'Password must be at least 8 characters';
-      if (formData.password !== formData.confirmPassword) return 'Passwords do not match';
-      
-      // Role-specific validation
-      if (selectedRole === 'techie') {
-        if (!formData.work_authorization) return 'Work authorization is required';
-        if (!formData.profile) return 'Profile summary is required';
+      const nextErrors: Record<string, string> = {};
+      if (!formData.email) nextErrors.email = 'Email is required';
+      else if (!formData.email.includes('@')) nextErrors.email = 'Please enter a valid email address';
+      if (!formData.mobile_number) nextErrors.mobile_number = 'Mobile number is required';
+      if (!formData.first_name) nextErrors.first_name = 'First name is required';
+      if (!formData.last_name) nextErrors.last_name = 'Last name is required';
+      if (!formData.dob) nextErrors.dob = 'Date of birth is required';
+      if (!formData.country) nextErrors.country = 'Country is required';
+      if (!formData.gov_id) nextErrors.gov_id = `${getGovIdLabel()} is required`;
+      if (formData.country === 'India' && formData.gov_id && !isValidPan(formData.gov_id)) {
+        nextErrors.gov_id = 'Enter a valid PAN format (ABCDE1234F)';
       }
+      if (!formData.address) nextErrors.address = 'Address is required';
+      if (!formData.password) nextErrors.password = 'Password is required';
+      else if (formData.password.length < 8) nextErrors.password = 'Password must be at least 8 characters';
+      if (!formData.confirmPassword) nextErrors.confirmPassword = 'Confirm password is required';
+      else if (formData.password !== formData.confirmPassword) nextErrors.confirmPassword = 'Passwords do not match';
+
+      if (selectedRole === 'techie') {
+        if (!formData.work_authorization) nextErrors.work_authorization = 'Work authorization is required';
+        if (!formData.profile) nextErrors.profile = 'Profile summary is required';
+      }
+
+      if (Object.keys(nextErrors).length > 0) {
+        setFieldErrors(nextErrors);
+        return Object.values(nextErrors)[0];
+      }
+      setFieldErrors({});
     }
     if (activeStep === 2 && selectedRole === 'hr') {
       if (!formData.company_name?.trim()) return 'Company name is required for Hiring Manager';
@@ -682,6 +710,13 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
     if (activeStep === 2 && selectedRole === 'school') {
       if (!formData.school_name?.trim()) return 'School name is required';
     }
+    if (activeStep === 3 && selectedRole === 'techie') {
+      if (educations.length === 0) {
+        setEducationStepError('Add at least one education entry before proceeding.');
+        return 'Education details are required';
+      }
+      setEducationStepError('');
+    }
     return null;
   };
 
@@ -689,7 +724,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
   const getGovIdLabel = () => {
     const labels: Record<string, string> = {
       'usa': 'SSN (Last 4 digits)',
-      'india': 'PAN (Last 4 characters)',
+      'india': 'PAN Card Number',
       'uk': 'National Insurance Number (Last 4)',
       'canada': 'SIN (Last 4 digits)',
       'germany': 'Sozialversicherungsnummer (Last 4)',
@@ -898,7 +933,12 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                   label="Email"
                   type="email"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, email: e.target.value });
+                    clearFieldError('email');
+                  }}
+                  error={!!fieldErrors.email}
+                  helperText={fieldErrors.email || ''}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
                 />
               </Grid>
@@ -908,7 +948,12 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                   required
                   label="Mobile Number"
                   value={formData.mobile_number}
-                  onChange={(e) => setFormData({ ...formData, mobile_number: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, mobile_number: e.target.value });
+                    clearFieldError('mobile_number');
+                  }}
+                  error={!!fieldErrors.mobile_number}
+                  helperText={fieldErrors.mobile_number || ''}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
                 />
               </Grid>
@@ -918,7 +963,12 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                   required
                   label="First Name"
                   value={formData.first_name}
-                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, first_name: e.target.value });
+                    clearFieldError('first_name');
+                  }}
+                  error={!!fieldErrors.first_name}
+                  helperText={fieldErrors.first_name || ''}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
                 />
               </Grid>
@@ -937,23 +987,33 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                   required
                   label="Last Name"
                   value={formData.last_name}
-                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, last_name: e.target.value });
+                    clearFieldError('last_name');
+                  }}
+                  error={!!fieldErrors.last_name}
+                  helperText={fieldErrors.last_name || ''}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
-                <FormControl fullWidth required>
+                <FormControl fullWidth required error={!!fieldErrors.country}>
                   <InputLabel>Country *</InputLabel>
                   <Select
                     value={formData.country}
                     label="Country *"
-                    onChange={(e) => setFormData({ ...formData, country: e.target.value, gov_id: '', work_authorization: '' })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, country: e.target.value, gov_id: '', work_authorization: '' });
+                      clearFieldError('country');
+                      clearFieldError('gov_id');
+                    }}
                     sx={{ borderRadius: '12px' }}
                   >
                     {Object.entries(COUNTRY_CONFIG).map(([key, config]) => (
                       <MenuItem key={key} value={key}>{config.label}</MenuItem>
                     ))}
                   </Select>
+                  {fieldErrors.country && <FormHelperText>{fieldErrors.country}</FormHelperText>}
                 </FormControl>
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -963,10 +1023,14 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                   label="Date of Birth"
                   type="date"
                   value={formData.dob}
-                  onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, dob: e.target.value });
+                    clearFieldError('dob');
+                  }}
                   InputLabelProps={{ shrink: true }}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
-                  helperText={`Format: ${countryConfig.dateFormat}`}
+                  error={!!fieldErrors.dob}
+                  helperText={fieldErrors.dob || `Format: ${countryConfig.dateFormat}`}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -976,19 +1040,30 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                   label={countryConfig.idLabel}
                   placeholder={countryConfig.idPlaceholder}
                   value={formData.gov_id}
-                  onChange={(e) => setFormData({ ...formData, gov_id: e.target.value.slice(0, countryConfig.idMaxLength) })}
+                  onChange={(e) => {
+                    const rawValue = e.target.value.slice(0, countryConfig.idMaxLength);
+                    const normalizedValue = formData.country === 'India' ? rawValue.toUpperCase() : rawValue;
+                    setFormData({ ...formData, gov_id: normalizedValue });
+                    clearFieldError('gov_id');
+                  }}
                   inputProps={{ maxLength: countryConfig.idMaxLength }}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
-                  helperText={`Country-specific ID for ${countryConfig.label} (Required)`}
+                  error={!!fieldErrors.gov_id}
+                  helperText={fieldErrors.gov_id || `Country-specific ID for ${countryConfig.label} (Required)`}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <AddressAutocomplete
                   value={formData.address}
-                  onChange={(address) => setFormData({ ...formData, address })}
+                  onChange={(address) => {
+                    setFormData({ ...formData, address });
+                    clearFieldError('address');
+                  }}
                   label="Address *"
                   placeholder="Start typing your address..."
                   required
+                  error={!!fieldErrors.address}
+                  helperText={fieldErrors.address || ''}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -998,8 +1073,13 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                   label="Password"
                   type={showPassword ? 'text' : 'password'}
                   value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, password: e.target.value });
+                    clearFieldError('password');
+                  }}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
+                  error={!!fieldErrors.password}
+                  helperText={fieldErrors.password || ''}
                   InputProps={{
                     endAdornment: (
                       <InputAdornment position="end">
@@ -1018,10 +1098,16 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                   label="Confirm Password"
                   type={showPassword ? 'text' : 'password'}
                   value={formData.confirmPassword}
-                  onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, confirmPassword: e.target.value });
+                    clearFieldError('confirmPassword');
+                  }}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
-                  error={formData.confirmPassword !== '' && formData.password !== formData.confirmPassword}
-                  helperText={formData.confirmPassword !== '' && formData.password !== formData.confirmPassword ? 'Passwords do not match' : ''}
+                  error={!!fieldErrors.confirmPassword || (formData.confirmPassword !== '' && formData.password !== formData.confirmPassword)}
+                  helperText={
+                    fieldErrors.confirmPassword ||
+                    (formData.confirmPassword !== '' && formData.password !== formData.confirmPassword ? 'Passwords do not match' : '')
+                  }
                 />
               </Grid>
               
@@ -1035,12 +1121,15 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                     </Typography>
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <FormControl fullWidth required>
+                    <FormControl fullWidth required error={!!fieldErrors.work_authorization}>
                       <InputLabel>Work Authorization *</InputLabel>
                       <Select
                         value={formData.work_authorization}
                         label="Work Authorization *"
-                        onChange={(e) => setFormData({ ...formData, work_authorization: e.target.value })}
+                        onChange={(e) => {
+                          setFormData({ ...formData, work_authorization: e.target.value });
+                          clearFieldError('work_authorization');
+                        }}
                         sx={{ borderRadius: '12px' }}
                       >
                         <MenuItem value="">Select...</MenuItem>
@@ -1048,6 +1137,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                           <MenuItem key={option} value={option}>{option}</MenuItem>
                         ))}
                       </Select>
+                      {fieldErrors.work_authorization && <FormHelperText>{fieldErrors.work_authorization}</FormHelperText>}
                     </FormControl>
                   </Grid>
                   <Grid item xs={12}>
@@ -1058,12 +1148,16 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                       multiline
                       rows={3}
                       value={formData.profile}
-                      onChange={(e) => setFormData({ ...formData, profile: e.target.value })}
+                      onChange={(e) => {
+                        setFormData({ ...formData, profile: e.target.value });
+                        clearFieldError('profile');
+                      }}
                       onPaste={(e) => e.preventDefault()}
                       onDrop={(e) => e.preventDefault()}
                       onDragOver={(e) => e.preventDefault()}
                       sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
-                      helperText="Please type your profile summary manually (copy-paste disabled) - Required"
+                      error={!!fieldErrors.profile}
+                      helperText={fieldErrors.profile || "Please type your profile summary manually (copy-paste disabled) - Required"}
                       inputProps={{
                         autoComplete: 'off',
                         'data-gramm': 'false',
@@ -1655,12 +1749,14 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                       <TextField
                         fullWidth
                         label="Company Phone *"
-                        placeholder="+1 (555) 123-4567"
+                        placeholder="9876543210"
                         value={companyInvite.phone}
                         onChange={(e) => {
-                          setCompanyInvite(prev => ({...prev, phone: e.target.value}));
+                          const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                          setCompanyInvite(prev => ({...prev, phone: digits}));
                           if (companyInviteErrors.phone) setCompanyInviteErrors(prev => ({ ...prev, phone: '' }));
                         }}
+                        inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', maxLength: 10 }}
                         error={!!companyInviteErrors.phone}
                         helperText={companyInviteErrors.phone}
                       />
@@ -1678,6 +1774,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                       const address = companyInvite.address.trim();
                       const email = companyInvite.email.trim();
                       const phone = companyInvite.phone.trim();
+                      const phoneDigits = phone.replace(/\D/g, '');
                       const err: Record<string, string> = {};
                       if (!name) err.company_name = 'Company name is required';
                       else if (name.length < 2) err.company_name = 'Company name must be at least 2 characters';
@@ -1686,7 +1783,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                       if (!email) err.email = 'Company email is required';
                       else if (!isValidEmail(email)) err.email = 'Enter a valid email address';
                       if (!phone) err.phone = 'Company phone is required';
-                      else if (!isValidPhone(phone)) err.phone = 'Enter a valid phone number (at least 10 digits)';
+                      else if (phoneDigits.length !== 10) err.phone = 'Enter a valid 10-digit phone number';
                       setCompanyInviteErrors(err);
                       if (Object.keys(err).length > 0) return;
                       setIsSubmitting(true);
@@ -1702,7 +1799,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                             company_name: name,
                             address: address || undefined,
                             emails: email ? [email] : [],
-                            phone_numbers: phone ? [phone] : [],
+                            phone_numbers: phoneDigits ? [phoneDigits] : [],
                           }),
                         });
                         if (response.ok) {
@@ -1944,8 +2041,8 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
               </Box>
               
               {educations.length === 0 ? (
-                <Alert severity="info" sx={{ borderRadius: '12px' }}>
-                  No education added yet. Click "Add Education" to add your educational background.
+                <Alert severity={educationStepError ? "error" : "info"} sx={{ borderRadius: '12px' }}>
+                  {educationStepError || 'No education added yet. Click "Add Education" to add your educational background.'}
                 </Alert>
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -2010,14 +2107,18 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                         onChange={(e) => {
                           const value = e.target.value;
                           setCurrentEducation(prev => prev ? {...prev, institution_name: value} : null);
+                          clearEducationFormError('institution_name');
                           // TODO: Search registered schools
                           if (value.length >= 2) {
                             // Simulated search - replace with actual API call
                             setSchoolSearchResults([]);
                           }
                         }}
+                        error={!!educationFormErrors.institution_name}
                         helperText={
-                          schoolSearchResults.length === 0 && (currentEducation?.institution_name?.length || 0) >= 2 ? (
+                          educationFormErrors.institution_name ? (
+                            educationFormErrors.institution_name
+                          ) : schoolSearchResults.length === 0 && (currentEducation?.institution_name?.length || 0) >= 2 ? (
                             <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                               <span>Institution not found.</span>
                               <Button 
@@ -2036,17 +2137,21 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                       />
                     </Grid>
                     <Grid item xs={12} sm={6}>
-                      <FormControl fullWidth required>
+                      <FormControl fullWidth required error={!!educationFormErrors.level_of_education}>
                         <InputLabel>Level of Education *</InputLabel>
                         <Select
                           value={currentEducation?.level_of_education || 'BACHELORS'}
                           label="Level of Education *"
-                          onChange={(e) => setCurrentEducation(prev => prev ? {...prev, level_of_education: e.target.value} : null)}
+                          onChange={(e) => {
+                            setCurrentEducation(prev => prev ? {...prev, level_of_education: e.target.value} : null);
+                            clearEducationFormError('level_of_education');
+                          }}
                         >
                           {EDUCATION_LEVELS.map((level) => (
                             <MenuItem key={level.value} value={level.value}>{level.label}</MenuItem>
                           ))}
                         </Select>
+                        {educationFormErrors.level_of_education && <FormHelperText>{educationFormErrors.level_of_education}</FormHelperText>}
                       </FormControl>
                     </Grid>
                     <Grid item xs={12} sm={6}>
@@ -2055,7 +2160,12 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                         required
                         label="Field of Study"
                         value={currentEducation?.field_of_study || ''}
-                        onChange={(e) => setCurrentEducation(prev => prev ? {...prev, field_of_study: e.target.value} : null)}
+                        onChange={(e) => {
+                          setCurrentEducation(prev => prev ? {...prev, field_of_study: e.target.value} : null);
+                          clearEducationFormError('field_of_study');
+                        }}
+                        error={!!educationFormErrors.field_of_study}
+                        helperText={educationFormErrors.field_of_study || ''}
                       />
                     </Grid>
                     <Grid item xs={12} sm={4}>
@@ -2065,8 +2175,13 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                         label="From Date"
                         type="date"
                         value={currentEducation?.from_date || ''}
-                        onChange={(e) => setCurrentEducation(prev => prev ? {...prev, from_date: e.target.value} : null)}
+                        onChange={(e) => {
+                          setCurrentEducation(prev => prev ? {...prev, from_date: e.target.value} : null);
+                          clearEducationFormError('from_date');
+                        }}
                         InputLabelProps={{ shrink: true }}
+                        error={!!educationFormErrors.from_date}
+                        helperText={educationFormErrors.from_date || ''}
                       />
                     </Grid>
                     <Grid item xs={12} sm={4}>
@@ -2076,8 +2191,13 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                         label="To Date"
                         type="date"
                         value={currentEducation?.to_date || ''}
-                        onChange={(e) => setCurrentEducation(prev => prev ? {...prev, to_date: e.target.value} : null)}
+                        onChange={(e) => {
+                          setCurrentEducation(prev => prev ? {...prev, to_date: e.target.value} : null);
+                          clearEducationFormError('to_date');
+                        }}
                         InputLabelProps={{ shrink: true }}
+                        error={!!educationFormErrors.to_date}
+                        helperText={educationFormErrors.to_date || ''}
                       />
                     </Grid>
                     <Grid item xs={12} sm={4}>
@@ -2086,7 +2206,12 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                         required
                         label="GPA/Score"
                         value={currentEducation?.gpa_score || ''}
-                        onChange={(e) => setCurrentEducation(prev => prev ? {...prev, gpa_score: e.target.value} : null)}
+                        onChange={(e) => {
+                          setCurrentEducation(prev => prev ? {...prev, gpa_score: e.target.value} : null);
+                          clearEducationFormError('gpa_score');
+                        }}
+                        error={!!educationFormErrors.gpa_score}
+                        helperText={educationFormErrors.gpa_score || ''}
                       />
                     </Grid>
 
@@ -2147,8 +2272,12 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                       )}
 
                       {(!currentEducation?.projects || currentEducation.projects.length === 0) && (
-                        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
-                          No projects added yet. Click "Add Project" to add your projects during education.
+                        <Typography
+                          variant="body2"
+                          color={educationFormErrors.projects ? 'error.main' : 'text.secondary'}
+                          sx={{ textAlign: 'center', py: 2 }}
+                        >
+                          {educationFormErrors.projects || 'No projects added yet. Click "Add Project" to add your projects during education.'}
                         </Typography>
                       )}
                     </Grid>
@@ -2878,4 +3007,3 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
 };
 
 export default AdminCreateUserWizard;
-

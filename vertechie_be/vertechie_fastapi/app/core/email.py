@@ -149,7 +149,8 @@ async def send_password_reset_email(email: str, token: str, user_name: str = "Us
     </head>
     <body>
         <div class="header">
-            <h1>🔐 Password Reset</h1>
+            <img src="https://www.vertechie.com/favicon.ico" alt="VerTechie Logo" style="width: 100px; height: 100px;">
+            <h1> Password Reset</h1>
         </div>
         <div class="content">
             <p>Hi {user_name},</p>
@@ -169,7 +170,7 @@ async def send_password_reset_email(email: str, token: str, user_name: str = "Us
             <p>Best regards,<br><strong>The VerTechie Team</strong></p>
         </div>
         <div class="footer">
-            <p>© 2024 VerTechie. All rights reserved.</p>
+            <p>© 2026 VerTechie. All rights reserved.</p>
             <p>Built on Trust. Driven by Technology.</p>
         </div>
     </body>

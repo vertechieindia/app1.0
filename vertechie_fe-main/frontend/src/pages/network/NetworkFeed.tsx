@@ -16,7 +16,7 @@ import {
   EmojiEmotions, Poll, Videocam, Article, Close,
   ThumbUp, ThumbUpOutlined, Celebration, Lightbulb, 
   SentimentVerySatisfied, Whatshot, LocalFireDepartment,
-  Refresh, ContentCopy,
+  Refresh, ContentCopy, Repeat,
   ContentPaste,
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
@@ -86,6 +86,8 @@ interface Post {
     vote_counts?: Record<number, number>;  // {0: 5, 1: 3} means option 0 has 5 votes, option 1 has 3 votes
     total_votes?: number;
     user_vote?: number;  // Index of option user voted for
+    end_date?: string;
+    is_closed?: boolean;
   };
   link_url?: string;
 }
@@ -125,6 +127,16 @@ const isVideoMedia = (media: { url: string; type?: string; thumbnail?: string })
   const type = String(media.type || '').toLowerCase();
   if (type.startsWith('video')) return true;
   return /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(media.url);
+};
+
+const parsePollEndDate = (value?: string): Date | null => {
+  if (!value || typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text) return null;
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(text);
+  const normalized = dateOnly ? `${text}T23:59:59Z` : text;
+  const parsed = parseApiDate(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
 const getCurrentUserId = (): string => {
@@ -527,6 +539,7 @@ const NetworkFeed: React.FC = () => {
 
   // Vote on poll
   const handleVotePoll = async (postId: string, optionIndex: number, optionText: string) => {
+    const previousVote = posts.find((p) => p.id === postId)?.poll_data?.user_vote;
     try {
       // Call the vote endpoint with option_index as query parameter
       const response: any = await api.post(
@@ -552,9 +565,14 @@ const NetworkFeed: React.FC = () => {
       // Refresh feed to get updated vote counts from server
       await fetchFeed();
       
+      const voteMessage = previousVote === undefined || previousVote === null
+        ? `You voted for: ${optionText}`
+        : previousVote === optionIndex
+          ? `Vote unchanged: ${optionText}`
+          : `Vote changed to: ${optionText}`;
       setSnackbar({ 
         open: true, 
-        message: `You voted for: ${optionText}`, 
+        message: voteMessage, 
         severity: 'success' 
       });
     } catch (err: any) {
@@ -565,6 +583,17 @@ const NetworkFeed: React.FC = () => {
         message: errorMessage, 
         severity: 'error' 
       });
+    }
+  };
+
+  const handleRepost = async (postId: string) => {
+    try {
+      await communityService.repostPost(postId);
+      await fetchFeed();
+      setSnackbar({ open: true, message: 'Post reposted to your feed.', severity: 'success' });
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.detail || err?.message || 'Failed to repost. Please try again.';
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     }
   };
 
@@ -914,9 +943,11 @@ const NetworkFeed: React.FC = () => {
                     const totalVotes = post.poll_data?.total_votes || 0;
                     const percentage = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
                     const userVote = post.poll_data?.user_vote;
+                    const pollEndDate = parsePollEndDate(post.poll_data?.end_date);
+                    const isClosedByDate = pollEndDate ? pollEndDate.getTime() <= Date.now() : false;
+                    const isPollClosed = Boolean(post.poll_data?.is_closed) || isClosedByDate;
                     const isUserVote = userVote === index;
-                    // Only disable if user has voted for a different option
-                    const isDisabled = userVote !== undefined && userVote !== null && userVote !== index;
+                    const isDisabled = isPollClosed;
                     
                     return (
                       <Button
@@ -980,12 +1011,17 @@ const NetworkFeed: React.FC = () => {
                     );
                   })}
                 </Box>
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                  {post.poll_data?.total_votes 
-                    ? `${post.poll_data.total_votes} ${post.poll_data.total_votes === 1 ? 'vote' : 'votes'}`
-                    : (post.poll_data?.user_vote !== undefined && post.poll_data?.user_vote !== null)
-                      ? 'You have already voted'
-                      : 'Click an option to vote'}
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  {(() => {
+                    const pollEndDate = parsePollEndDate(post.poll_data?.end_date);
+                    const isClosedByDate = pollEndDate ? pollEndDate.getTime() <= Date.now() : false;
+                    const isPollClosed = Boolean(post.poll_data?.is_closed) || isClosedByDate;
+                    const votesText = post.poll_data?.total_votes
+                      ? `${post.poll_data.total_votes} ${post.poll_data.total_votes === 1 ? 'vote' : 'votes'}`
+                      : 'No votes yet';
+                    if (isPollClosed) return `${votesText} • Poll closed`;
+                    return `${votesText} • You can change your vote until poll closes`;
+                  })()}
                 </Typography>
               </Box>
             )}
@@ -1086,6 +1122,13 @@ const NetworkFeed: React.FC = () => {
                 onClick={(e) => { setShareAnchor(e.currentTarget); setSharePostId(post.id); }}
               >
                 Share
+              </Button>
+              <Button
+                color="inherit"
+                startIcon={<Repeat />}
+                onClick={() => handleRepost(post.id)}
+              >
+                Repost
               </Button>
               <IconButton onClick={() => handleSavePost(post.id)}>
                 {post.is_saved ? <Bookmark color="primary" /> : <BookmarkBorder />}

@@ -70,6 +70,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     first_name = Column(String(100), nullable=True)
     middle_name = Column(String(150), nullable=True)
     last_name = Column(String(100), nullable=True)
+    profile_name = Column(String(150), nullable=True)
     username = Column(String(50), unique=True, index=True, nullable=True)
     phone = Column(String(20), nullable=True)
     mobile_number = Column(String(20), nullable=True)
@@ -131,6 +132,8 @@ class User(Base, UUIDMixin, TimestampMixin):
     @property
     def full_name(self) -> str:
         """Get full name."""
+        if self.profile_name and self.profile_name.strip():
+            return self.profile_name.strip()
         if self.first_name and self.last_name:
             return f"{self.first_name} {self.last_name}"
         return self.first_name or self.last_name or self.email.split("@")[0]

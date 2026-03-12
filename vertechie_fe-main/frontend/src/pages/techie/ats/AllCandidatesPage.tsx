@@ -371,8 +371,8 @@ const AllCandidatesPage: React.FC = () => {
           </Typography>
         </Box>
       ) : (
-        <TableContainer component={Paper} variant="outlined">
-          <Table>
+        <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+          <Table sx={{ minWidth: 640 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: alpha('#0d47a1', 0.03) }}>
                 <TableCell padding="checkbox">
@@ -431,11 +431,30 @@ const AllCandidatesPage: React.FC = () => {
       )}
 
       {totalPages > 1 && (
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3 }}>
-          <Typography variant="body2" color="text.secondary">
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
+            justifyContent: 'space-between',
+            alignItems: { xs: 'stretch', sm: 'center' },
+            gap: 2,
+            mt: 3,
+            overflowX: 'auto',
+          }}
+        >
+          <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
             Showing {((page - 1) * itemsPerPage) + 1} - {Math.min(page * itemsPerPage, filteredCandidates.length)} of {filteredCandidates.length} candidates
           </Typography>
-          <Pagination count={totalPages} page={page} onChange={(_, value) => setPage(value)} color="primary" />
+          <Pagination
+            count={totalPages}
+            page={page}
+            onChange={(_, value) => setPage(value)}
+            color="primary"
+            size="small"
+            showFirstButton
+            showLastButton
+            sx={{ '& .MuiPagination-ul': { flexWrap: 'wrap', justifyContent: { xs: 'center', sm: 'flex-end' } } }}
+          />
         </Box>
       )}
 

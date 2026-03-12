@@ -20,8 +20,11 @@ from app.models.school import (
 )
 from app.models.user import User
 from app.core.security import get_current_user, get_current_admin_user, get_optional_user
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from datetime import datetime
+import re
+from app.core.email import send_email
+from app.core.config import settings
 
 router = APIRouter(tags=["Schools"])
 
@@ -224,13 +227,20 @@ async def get_school_by_slug(
 class InstitutionInviteRequestCreate(BaseModel):
     """Request to invite an institution to the platform (when not yet registered)."""
     institution_name: str
+    email: EmailStr
+    address: str
+    phone: str
 
 
 class InstitutionInviteRequestResponse(BaseModel):
     id: UUID
     institution_name: str
+    email: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
     status: str
     created_at: datetime
+    sent_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -244,19 +254,91 @@ async def create_institution_invite_request(
 ):
     """Create an invite request for an institution not yet on the platform. No auth required."""
     name = (body.institution_name or "").strip()
+    email = (body.email or "").strip().lower()
+    address = (body.address or "").strip()
+    phone = (body.phone or "").strip()
     if not name or len(name) < 2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Institution name must be at least 2 characters",
         )
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="School email is required",
+        )
+    if not address or len(address) < 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="School address must be at least 5 characters",
+        )
+    phone_digits = re.sub(r"\D", "", phone)
+    if len(phone_digits) != 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="School phone must contain exactly 10 digits",
+        )
+
     request_obj = InstitutionInviteRequest(
         institution_name=name,
+        email=email,
+        address=address,
+        phone=phone_digits,
         requested_by_id=current_user.id if current_user else None,
         status=InviteStatus.PENDING,
     )
     db.add(request_obj)
     await db.commit()
     await db.refresh(request_obj)
+
+    invite_link = f"{settings.FRONTEND_URL}/schools/register?invite={request_obj.id}"
+    subject = f"Invitation to Join VerTechie - {name}"
+    html_content = f"""
+    <p>Dear School Team,</p>
+    <p>You have been invited to register your institution "<strong>{name}</strong>" on VerTechie.</p>
+    <p>VerTechie is a trusted platform connecting verified tech professionals, schools, and companies.</p>
+    <p><strong>School details provided by the requester:</strong></p>
+    <ul>
+      <li>Address: {address}</li>
+      <li>Phone: {phone}</li>
+      <li>Email: {email}</li>
+    </ul>
+    <p>To register your institution, please visit:</p>
+    <p><a href="{invite_link}">{invite_link}</a></p>
+    <p><strong>Benefits of joining VerTechie:</strong></p>
+    <ul>
+      <li>Verified student and alumni profiles</li>
+      <li>Placement and hiring collaboration with companies</li>
+      <li>Institution branding and visibility</li>
+      <li>Centralized school-community engagement</li>
+    </ul>
+    <p>If you have any questions, please contact us at support@vertechie.com.</p>
+    <p>Best regards,<br/>The VerTechie Team</p>
+    """
+    text_content = (
+        f"Dear School Team,\n\n"
+        f'You have been invited to register your institution "{name}" on VerTechie.\n\n'
+        f"VerTechie is a trusted platform connecting verified tech professionals, schools, and companies.\n\n"
+        f"School details provided by the requester:\n"
+        f"- Address: {address}\n"
+        f"- Phone: {phone}\n"
+        f"- Email: {email}\n\n"
+        f"To register your institution, please visit:\n{invite_link}\n\n"
+        f"Benefits of joining VerTechie:\n"
+        f"- Verified student and alumni profiles\n"
+        f"- Placement and hiring collaboration with companies\n"
+        f"- Institution branding and visibility\n"
+        f"- Centralized school-community engagement\n\n"
+        f"If you have any questions, please contact us at support@vertechie.com.\n\n"
+        f"Best regards,\nThe VerTechie Team"
+    )
+    email_sent = await send_email(email, subject, html_content, text_content)
+    if email_sent:
+        request_obj.status = InviteStatus.SENT
+        request_obj.sent_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(request_obj)
+
     return request_obj
 
 
@@ -1152,4 +1234,3 @@ async def admin_suspend_school(
     await db.commit()
     
     return {"status": "suspended"}
-

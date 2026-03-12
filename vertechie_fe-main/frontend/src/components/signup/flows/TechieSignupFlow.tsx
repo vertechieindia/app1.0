@@ -40,6 +40,7 @@ const TechieSignupFlow: React.FC<TechieSignupFlowProps> = ({
     firstName: '',
     middleName: '',
     lastName: '',
+    profileName: '',
     dateOfBirth: '',
     visaStatus: '',
     email: '',

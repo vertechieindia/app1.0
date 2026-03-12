@@ -11,6 +11,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { fetchWithAuth } from '../../utils/apiInterceptor';
+import { getApiUrl } from '../../config/api';
 import {
   Box,
   Typography,
@@ -173,11 +175,61 @@ const MeetingLobby: React.FC = () => {
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const [userName, setUserName] = useState('John Doe');
 
-  // Meeting info from URL params
+  // Meeting info from URL params (fallbacks until API loads)
   const meetingType = searchParams.get('type') || 'meeting';
-  const meetingTitle = searchParams.get('title') || 'Technical Interview';
-  const meetingTime = searchParams.get('time') || '2:00 PM';
-  const hostName = searchParams.get('host') || 'Jane Smith';
+  const titleFromUrl = searchParams.get('title') ? decodeURIComponent(searchParams.get('title')!) : '';
+  const [meetingTitle, setMeetingTitle] = useState(titleFromUrl || 'Meeting');
+  const [meetingTime, setMeetingTime] = useState(searchParams.get('time') || '');
+  const [candidateName, setCandidateName] = useState<string | null>(null);
+  const [jobTitle, setJobTitle] = useState<string | null>(null);
+  const [interviewTypeLabel, setInterviewTypeLabel] = useState<string | null>(null);
+
+  const interviewId = searchParams.get('interviewId') || roomId || '';
+  const isUuidInterviewId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(interviewId);
+
+  // Set title from URL on mount (API may override)
+  useEffect(() => {
+    if (titleFromUrl) setMeetingTitle(titleFromUrl);
+  }, [titleFromUrl]);
+
+  // Fetch real interview details when joining from ATS
+  useEffect(() => {
+    if (!interviewId || !isUuidInterviewId || meetingType !== 'interview') return;
+    const fetchInterview = async () => {
+      try {
+        const response = await fetchWithAuth(getApiUrl(`/hiring/interviews/${interviewId}`));
+        if (response.ok) {
+          const data = await response.json();
+          const candidate = data.candidate_name || 'Candidate';
+          const job = data.job_title || null;
+          const typeVal = data.interview_type;
+          const label = typeVal ? String(typeVal).replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) : null;
+          setMeetingTitle(`${label || 'Interview'} - ${candidate}`);
+          setCandidateName(candidate);
+          setJobTitle(job);
+          setInterviewTypeLabel(label);
+          if (data.scheduled_at) {
+            try {
+              let dateStr = data.scheduled_at;
+              if (typeof dateStr === 'string' && !dateStr.includes('Z') && !dateStr.includes('+')) {
+                dateStr = dateStr.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
+              }
+              const d = new Date(dateStr);
+              if (!Number.isNaN(d.getTime())) {
+                setMeetingTime(d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+              }
+            } catch {
+              setMeetingTime('');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching interview details:', err);
+        if (titleFromUrl) setMeetingTitle(titleFromUrl);
+      }
+    };
+    fetchInterview();
+  }, [interviewId, isUuidInterviewId, meetingType, titleFromUrl]);
 
   // Initialize media devices
   useEffect(() => {
@@ -313,6 +365,9 @@ const MeetingLobby: React.FC = () => {
     params.set('type', meetingType);
     if (!params.has('interviewId') && roomId) {
       params.set('interviewId', roomId);
+    }
+    if (meetingTitle && !params.has('title')) {
+      params.set('title', encodeURIComponent(meetingTitle));
     }
     setTimeout(() => {
       navigate(`/techie/meet/${roomId}?${params.toString()}`);
@@ -565,24 +620,38 @@ const MeetingLobby: React.FC = () => {
                 </Typography>
 
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <EventIcon sx={{ color: 'rgba(255,255,255,0.5)' }} />
-                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                      Today at {meetingTime}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <PersonIcon sx={{ color: 'rgba(255,255,255,0.5)' }} />
-                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                      Host: {hostName}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <GroupsIcon sx={{ color: 'rgba(255,255,255,0.5)' }} />
-                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                      2 participants expected
-                    </Typography>
-                  </Box>
+                  {meetingTime && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <EventIcon sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                      <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                        Today at {meetingTime}
+                      </Typography>
+                    </Box>
+                  )}
+                  {candidateName && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <PersonIcon sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                      <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                        Candidate: {candidateName}
+                      </Typography>
+                    </Box>
+                  )}
+                  {jobTitle && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <GroupsIcon sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                      <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                        Role: {jobTitle}
+                      </Typography>
+                    </Box>
+                  )}
+                  {!candidateName && !jobTitle && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <GroupsIcon sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                      <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                        2 participants expected
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
 
                 <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.1)' }} />
@@ -594,9 +663,9 @@ const MeetingLobby: React.FC = () => {
                     size="small"
                     sx={{ bgcolor: 'rgba(0, 255, 136, 0.1)', color: '#00ff88' }}
                   />
-                  {meetingType === 'interview' && (
+                  {(meetingType === 'interview' || interviewTypeLabel) && (
                     <Chip
-                      label="Interview Mode"
+                      label={interviewTypeLabel || 'Interview Mode'}
                       size="small"
                       sx={{ bgcolor: 'rgba(255, 193, 7, 0.2)', color: '#ffc107' }}
                     />

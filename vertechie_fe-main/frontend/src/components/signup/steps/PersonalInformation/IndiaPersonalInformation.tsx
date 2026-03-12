@@ -291,16 +291,18 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
           <TextField
             fullWidth
             label={(role === 'company' || role === 'school') ? "Admin Middle Name" : "Middle Name"}
+            name="middleName"
             value={formData.middleName || ''}
             onChange={handleChange('middleName')}
           />
         </Grid>
 
-        {/* Row 2: Last Name and Date of Birth */}
+        {/* Row 2: Last Name and Profile Name */}
         <Grid item xs={12} md={6}>
           <TextField
             fullWidth
             label={(role === 'company' || role === 'school') ? "Admin Last Name *" : "Last Name *"}
+            name="lastName"
             value={formData.lastName || ''}
             onChange={handleChange('lastName')}
             error={!!errors.lastName}
@@ -322,7 +324,21 @@ const IndiaPersonalInformation: React.FC<StepComponentProps> = ({
         <Grid item xs={12} md={6}>
           <TextField
             fullWidth
+            label="Profile Name *"
+            name="profileName"
+            value={formData.profileName || ''}
+            onChange={handleChange('profileName')}
+            error={!!errors.profileName}
+            helperText={errors.profileName || 'This name will be shown on your profile'}
+            required
+          />
+        </Grid>
+        {/* Row 3: Date of Birth */}
+        <Grid item xs={12} md={6}>
+          <TextField
+            fullWidth
             label="Date of Birth *"
+            name="dateOfBirth"
             type="text"
             placeholder="DD/MM/YYYY"
             value={

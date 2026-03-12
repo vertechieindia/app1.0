@@ -468,17 +468,14 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
             </Typography>
           </Box>
         </Box>
-        {/* <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadAtsStats}>Sync Data</Button>
-          <Button 
-            variant="contained" 
-            startIcon={<AddIcon />} 
-            sx={{ bgcolor: '#0d47a1' }}
-            onClick={() => setOpenJobDialog(true)}
-          >
-            Post New Job
-          </Button>
-        </Box> */}
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          sx={{ bgcolor: '#0d47a1', textTransform: 'none', fontWeight: 600 }}
+          onClick={() => navigate('/techie/ats/jobpostings?openCreate=1')}
+        >
+          Create New Job Post
+        </Button>
       </Box>
 
       {/* Stats Cards */}

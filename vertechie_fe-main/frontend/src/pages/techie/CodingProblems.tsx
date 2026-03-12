@@ -420,8 +420,8 @@ const CodingProblems: React.FC = () => {
             </Box>
           ) : (
             <>
-              <TableContainer>
-                <Table>
+              <TableContainer sx={{ overflowX: 'auto' }}>
+                <Table sx={{ minWidth: 560 }}>
                   <TableHead>
                     <TableRow sx={{ bgcolor: alpha('#6366f1', 0.05) }}>
                       <TableCell width={50}>Status</TableCell>
@@ -498,18 +498,23 @@ const CodingProblems: React.FC = () => {
                   </TableBody>
                 </Table>
               </TableContainer>
-              <TablePagination
-                rowsPerPageOptions={[25, 50, 100]}
-                component="div"
-                count={totalCount}
-                rowsPerPage={rowsPerPage}
-                page={page}
-                onPageChange={(_, newPage) => setPage(newPage)}
-                onRowsPerPageChange={(e) => {
-                  setRowsPerPage(parseInt(e.target.value, 10));
-                  setPage(0);
-                }}
-              />
+              <Box sx={{ overflowX: 'auto', width: '100%' }}>
+                <TablePagination
+                  rowsPerPageOptions={[25, 50, 100]}
+                  component="div"
+                  count={totalCount}
+                  rowsPerPage={rowsPerPage}
+                  page={page}
+                  onPageChange={(_, newPage) => setPage(newPage)}
+                  onRowsPerPageChange={(e) => {
+                    setRowsPerPage(parseInt(e.target.value, 10));
+                    setPage(0);
+                  }}
+                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : `${to}`}`}
+                  labelRowsPerPage="Rows:"
+                  sx={{ flexWrap: 'wrap', overflow: 'visible' }}
+                />
+              </Box>
             </>
           )}
         </Paper>

@@ -194,6 +194,13 @@ export const communityService = {
   },
 
   /**
+   * Repost an existing post to current user's feed
+   */
+  repostPost: async (postId: string): Promise<{ id: string }> => {
+    return api.post(API_ENDPOINTS.COMMUNITY.REPOST_POST(postId));
+  },
+
+  /**
    * Get comments on a post
    */
   getComments: async (postId: string, params?: { skip?: number; limit?: number }): Promise<Comment[]> => {

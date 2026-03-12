@@ -25,6 +25,7 @@ from typing import Any
 import aiosmtplib
 from email.message import EmailMessage
 from email.utils import formataddr
+import re
 from app.core.config import get_settings
 
 router = APIRouter(tags=["Companies"])
@@ -532,6 +533,18 @@ async def create_company_invite(
 ) -> Any:
     """Create a company invite request (no authentication required)."""
     user_id = current_user.id if current_user else None
+    normalized_phone_numbers: List[str] = []
+    for raw_phone in (invite.phone_numbers or []):
+        cleaned_phone = (raw_phone or "").strip()
+        if not cleaned_phone:
+            continue
+        phone_digits = re.sub(r"\D", "", cleaned_phone)
+        if len(phone_digits) != 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Company phone must contain exactly 10 digits",
+            )
+        normalized_phone_numbers.append(phone_digits)
 
     # Create the invite record
     db_invite = CompanyInvite(
@@ -541,7 +554,7 @@ async def create_company_invite(
         contact_person_name=invite.contact_person_name,
         contact_person_role=invite.contact_person_role,
         emails=invite.emails,
-        phone_numbers=invite.phone_numbers,
+        phone_numbers=normalized_phone_numbers,
         requested_by_id=user_id,
         status=InviteStatus.PENDING
     )
@@ -1488,4 +1501,3 @@ async def verify_experience(
     
     await db.commit()
     return {"message": "Success", "experience_id": str(exp.id)}
-
