@@ -785,7 +785,7 @@ async def list_pending_approvals(
     - School Admin: sees only school_admin users
     """
     try:
-        logger.info(f"[PENDING_APPROVALS] Starting request - user_type={user_type}, status={status}, status_filter={status_filter}, search={search!r}, skip={skip}, limit={limit}")
+        logger.info(f"[PENDING_APPROVALS] Starting request - user_type={user_type}, status={status}, status_filter={status_filter}, search={search!r}, education_verification={education_verification}, experience_verification={experience_verification}, company_verification={company_verification}, skip={skip}, limit={limit}")
         logger.info(f"[PENDING_APPROVALS] Current admin: {current_admin.email}, admin_roles={current_admin.admin_roles}, is_superuser={current_admin.is_superuser}")
         
         from sqlalchemy.orm import selectinload

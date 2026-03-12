@@ -105,6 +105,9 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // '' = All (show all statuses by default)
+  const [educationVerificationFilter, setEducationVerificationFilter] = useState(''); // '' | 'pending' | 'verified'
+  const [experienceVerificationFilter, setExperienceVerificationFilter] = useState(''); // '' | 'pending' | 'verified'
+  const [companyVerificationFilter, setCompanyVerificationFilter] = useState(''); // '' | 'pending' | 'verified'
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [totalCount, setTotalCount] = useState(0);
@@ -176,6 +179,13 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
         limit: String(rowsPerPage),
       });
       if (searchQuery.trim()) params.set('search', searchQuery.trim());
+      if (userType === 'techie') {
+        if (educationVerificationFilter && educationVerificationFilter !== 'all') params.set('education_verification', educationVerificationFilter);
+        if (experienceVerificationFilter && experienceVerificationFilter !== 'all') params.set('experience_verification', experienceVerificationFilter);
+      }
+      if (['hr', 'company', 'school'].includes(userType) && companyVerificationFilter && companyVerificationFilter !== 'all') {
+        params.set('company_verification', companyVerificationFilter);
+      }
       const url = `${getApiUrl(API_ENDPOINTS.PENDING_APPROVALS)}?${params.toString()}`;
       const response = await fetch(url, {
         headers: {
@@ -275,7 +285,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
     } finally {
       setLoading(false);
     }
-  }, [userType, statusFilter, page, rowsPerPage, searchQuery, navigate]);
+  }, [userType, statusFilter, educationVerificationFilter, experienceVerificationFilter, companyVerificationFilter, page, rowsPerPage, searchQuery, navigate]);
 
   useEffect(() => {
     fetchApprovals();
@@ -290,10 +300,17 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // Reset to first page when status filter changes
+  // Reset to first page when status or verification filters change
   useEffect(() => {
     setPage(0);
-  }, [statusFilter]);
+  }, [statusFilter, educationVerificationFilter, experienceVerificationFilter, companyVerificationFilter]);
+
+  // Reset verification filters when switching user type so the right tab shows "All"
+  useEffect(() => {
+    setEducationVerificationFilter('');
+    setExperienceVerificationFilter('');
+    setCompanyVerificationFilter('');
+  }, [userType]);
 
   // Handle approve
   const handleApprove = async (approvalId: string) => {
@@ -636,6 +653,36 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
               <MenuItem value="rejected">Rejected</MenuItem>
             </Select>
           </FormControl>
+          {userType === 'techie' && (
+            <>
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel>Education</InputLabel>
+                <Select value={educationVerificationFilter || 'all'} label="Education" onChange={(e) => setEducationVerificationFilter(e.target.value === 'all' ? '' : e.target.value)}>
+                  <MenuItem value="all">All</MenuItem>
+                  <MenuItem value="pending">Pending verification</MenuItem>
+                  <MenuItem value="verified">Verified</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel>Experience</InputLabel>
+                <Select value={experienceVerificationFilter || 'all'} label="Experience" onChange={(e) => setExperienceVerificationFilter(e.target.value === 'all' ? '' : e.target.value)}>
+                  <MenuItem value="all">All</MenuItem>
+                  <MenuItem value="pending">Pending verification</MenuItem>
+                  <MenuItem value="verified">Verified</MenuItem>
+                </Select>
+              </FormControl>
+            </>
+          )}
+          {['hr', 'company', 'school'].includes(userType) && (
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel>Company details</InputLabel>
+              <Select value={companyVerificationFilter || 'all'} label="Company details" onChange={(e) => setCompanyVerificationFilter(e.target.value === 'all' ? '' : e.target.value)}>
+                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="pending">Pending verification</MenuItem>
+                <MenuItem value="verified">Verified</MenuItem>
+              </Select>
+            </FormControl>
+          )}
         </Box>
 
         {/* Table */}
