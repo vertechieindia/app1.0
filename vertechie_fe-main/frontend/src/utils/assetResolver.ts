@@ -1,19 +1,11 @@
 /**
- * Utility to resolve asset paths correctly in both development and production environments
- * This is needed because in production the app is served from /web-app/ but in development it's served from /
+ * Utility to resolve asset paths correctly in both development and production environments.
+ * Uses Vite's BASE_URL so assets work when the app is deployed at root (/) or a subpath (e.g. /web-app/).
  */
 export const resolveAssetPath = (path: string): string => {
-  // Remove leading slash if present
   const normalizedPath = path.startsWith('/') ? path.substring(1) : path;
-  
-  // In development, we serve assets from the root
-  if (import.meta.env.DEV) {
-    return `/${normalizedPath}`;
-  }
-  
-  // In production, assets are served from the root
-  // Cloudflare Pages serves from the root path
-  return `/${normalizedPath}`;
+  const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '';
+  return `${base}/${normalizedPath}`;
 };
 
 /**

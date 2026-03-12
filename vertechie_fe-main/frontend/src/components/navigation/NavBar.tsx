@@ -40,6 +40,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ImportContactsIcon from '@mui/icons-material/ImportContacts';
 import { Link as RouterLink, useLocation, LinkProps } from 'react-router-dom';
+import resolveAssetPath from '../../utils/assetResolver';
 
 // Define interfaces for component props
 interface NavLinkProps extends ButtonProps {
@@ -330,7 +331,7 @@ const NavBar: React.FC<NavBarProps> = ({
             <Toolbar sx={{ padding: { xs: 1, sm: 2 } }}>
               {/* Logo */}
               <LogoContainer to="/">
-                <Logo src="/images/logo/vertechie-logo.svg" alt="VerTechie" />
+                <Logo src={resolveAssetPath('images/logo/vertechie-logo.svg')} alt="VerTechie" />
                 <LogoText variant="h6">VerTechie</LogoText>
               </LogoContainer>
               
