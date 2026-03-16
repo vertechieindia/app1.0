@@ -223,6 +223,9 @@ async def send_stage_change_notification(
         elif request.new_stage == 'New Applicants':
             stage_message = "Your application status has been updated. Our team will review your profile shortly."
             emoji = "📝"
+        elif request.new_stage == 'Rejected':
+            stage_message = "We regret to inform you that we have decided not to move forward with your application at this time. We appreciate your interest and encourage you to apply for other positions that may be a better fit."
+            emoji = "📋"
         else:
             stage_message = f"Your application status has been updated to: {request.new_stage}."
             emoji = "📬"

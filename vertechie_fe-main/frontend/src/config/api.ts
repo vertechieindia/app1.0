@@ -229,13 +229,25 @@ export const API_ENDPOINTS = {
     CALENDAR: {
         MEETING_TYPES: '/calendar/meeting-types',
         CREATE_MEETING_TYPE: '/calendar/meeting-types',
+        MEETING_TYPE_BY_ID: (id: string) => `/calendar/meeting-types/${id}`,
         SCHEDULING_LINKS: '/calendar/scheduling-links',
         CREATE_SCHEDULING_LINK: '/calendar/scheduling-links',
+        SCHEDULING_LINK_BY_ID: (id: string) => `/calendar/scheduling-links/${id}`,
         BOOKINGS: '/calendar/bookings',
         CONFIRM_BOOKING: (id: string) => `/calendar/bookings/${id}/confirm`,
         CANCEL_BOOKING: (id: string) => `/calendar/bookings/${id}/cancel`,
         PUBLIC_SCHEDULE: (token: string) => `/calendar/public/${token}`,
         BOOK_PUBLIC: (token: string) => `/calendar/public/${token}/book`,
+    },
+    CALENDAR_SYNC: {
+        CONNECT_GOOGLE: '/calendar/connect/google',
+        CONNECT_MICROSOFT: '/calendar/connect/microsoft',
+        CALLBACK_GOOGLE: '/calendar/callback/google',
+        CALLBACK_MICROSOFT: '/calendar/callback/microsoft',
+        CONNECTIONS: '/calendar/connections',
+        SYNC_STATUS: '/calendar/sync/status',
+        SYNC_NOW: '/calendar/sync/now',
+        DISCONNECT: (id: string) => `/calendar/connections/${id}`,
     },
 
     // ============================================

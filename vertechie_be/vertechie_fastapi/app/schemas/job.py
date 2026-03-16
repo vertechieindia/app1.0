@@ -45,6 +45,16 @@ class JobCreate(BaseModel):
     coding_questions: List[dict] = []
     screening_questions: List[dict] = []
     
+    # Hiring countries: job visible only to techies from these countries (e.g. ["US", "IN", "GB", "CA"])
+    hiring_countries: List[str] = []
+    # When USA in hiring_countries: accepted work authorizations for this role
+    work_authorizations: List[str] = []
+    # Is this role open for sponsorship?
+    open_for_sponsorship: Optional[bool] = None
+    
+    # Collect applicant location at apply time (ask permission, then capture coords + IP snapshot)
+    collect_applicant_location: bool = False
+    
     # Allow setting status on creation (default to published for immediate visibility)
     status: str = "published"
 
@@ -68,6 +78,10 @@ class JobUpdate(BaseModel):
     is_featured: Optional[bool] = None
     coding_questions: Optional[List[dict]] = None
     screening_questions: Optional[List[dict]] = None
+    hiring_countries: Optional[List[str]] = None
+    work_authorizations: Optional[List[str]] = None
+    open_for_sponsorship: Optional[bool] = None
+    collect_applicant_location: Optional[bool] = None
 
 
 class JobResponse(BaseModel):
@@ -98,6 +112,10 @@ class JobResponse(BaseModel):
     benefits: List[str] = []
     coding_questions: List[dict] = []
     screening_questions: List[dict] = []
+    hiring_countries: List[str] = []
+    work_authorizations: List[str] = []
+    open_for_sponsorship: Optional[bool] = None
+    collect_applicant_location: bool = False
     
     status: str
     is_featured: bool = False
@@ -122,6 +140,9 @@ class JobApplicationCreate(BaseModel):
     expected_salary: Optional[int] = None
     available_from: Optional[date] = None
     referral_source: Optional[str] = None
+    # Only when job.collect_applicant_location and user consented; backend adds IP snapshot
+    applicant_location_lat: Optional[float] = None
+    applicant_location_lng: Optional[float] = None
 
 
 class JobApplicationResponse(BaseModel):
@@ -140,6 +161,12 @@ class JobApplicationResponse(BaseModel):
     match_score: Optional[int] = None  # Percentage 0-100
     matched_skills: List[str] = []  # Skills that matched
     missing_skills: List[str] = []  # Required skills applicant lacks
+    
+    # Applicant location (read-only; captured at submission if job collected it and user consented)
+    applicant_location_lat: Optional[float] = None
+    applicant_location_lng: Optional[float] = None
+    applicant_location_ip_snapshot: Optional[dict] = None
+    applicant_location_consent_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -186,6 +213,12 @@ class JobApplicationWithApplicant(BaseModel):
     match_score: Optional[int] = None  # Percentage 0-100
     matched_skills: List[str] = []  # Skills that matched
     missing_skills: List[str] = []  # Required skills applicant lacks
+    
+    # Applicant location (read-only)
+    applicant_location_lat: Optional[float] = None
+    applicant_location_lng: Optional[float] = None
+    applicant_location_ip_snapshot: Optional[dict] = None
+    applicant_location_consent_at: Optional[datetime] = None
     
     # Nested applicant info
     applicant: Optional[ApplicantInfo] = None

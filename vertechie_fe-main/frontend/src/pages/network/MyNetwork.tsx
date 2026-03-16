@@ -52,6 +52,7 @@ interface User {
   avatar?: string;
   title?: string;
   company?: string;
+  location?: string;
   mutual_connections?: number;
   is_verified?: boolean;
   skills?: string[];
@@ -81,6 +82,18 @@ const MyNetwork: React.FC = () => {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [pendingRequests, setPendingRequests] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  // Find people to connect (search + filters)
+  const [findName, setFindName] = useState('');
+  const [findCountry, setFindCountry] = useState('');
+  const [findLocation, setFindLocation] = useState('');
+  const [findCompany, setFindCompany] = useState('');
+  const [findJobTitle, setFindJobTitle] = useState('');
+  const [findResults, setFindResults] = useState<User[]>([]);
+  const [findLoading, setFindLoading] = useState(false);
+  const [findSearched, setFindSearched] = useState(false);
+  const [hasMoreFindPeople, setHasMoreFindPeople] = useState(true);
+  const [loadingMoreFindPeople, setLoadingMoreFindPeople] = useState(false);
+  const [sendingRequestId, setSendingRequestId] = useState<string | null>(null);
   const [stats, setStats] = useState({
     connections: 0,
     followers: 0,
@@ -202,6 +215,68 @@ const MyNetwork: React.FC = () => {
     setLoading(false);
   }, []);
 
+  const FIND_PEOPLE_PAGE_SIZE = 8;
+
+  // Fetch people to connect (search/filter or initial like-minded)
+  const fetchFindPeople = useCallback(async (opts?: { append?: boolean }) => {
+    const append = opts?.append ?? false;
+    if (append) {
+      setLoadingMoreFindPeople(true);
+    } else {
+      setFindLoading(true);
+    }
+    try {
+      const params: Record<string, string | number> = {
+        limit: FIND_PEOPLE_PAGE_SIZE,
+        offset: append ? findResults.length : 0,
+      };
+      if (findName.trim()) params.name = findName.trim();
+      if (findCountry.trim()) params.country = findCountry.trim();
+      if (findLocation.trim()) params.location = findLocation.trim();
+      if (findCompany.trim()) params.company = findCompany.trim();
+      if (findJobTitle.trim()) params.job_title = findJobTitle.trim();
+      const data = await api.get<any[]>(API_ENDPOINTS.UNIFIED_NETWORK.SUGGESTIONS_PEOPLE, { params });
+      const list = Array.isArray(data) ? data : [];
+      setHasMoreFindPeople(list.length >= FIND_PEOPLE_PAGE_SIZE);
+      const mapped: User[] = list.map((item: any) => ({
+        id: item.id,
+        name: item.name || 'User',
+        avatar: item.avatar_url || '',
+        title: item.title || '',
+        company: item.company || '',
+        location: item.location || '',
+        mutual_connections: item.mutual_connections ?? 0,
+        is_verified: !!item.is_verified,
+        skills: item.skills || [],
+      }));
+      if (append) {
+        setFindResults(prev => {
+          const seen = new Set(prev.map(p => p.id));
+          const added = mapped.filter(p => !seen.has(p.id));
+          return [...prev, ...added];
+        });
+      } else {
+        setFindResults(mapped);
+      }
+      setFindSearched(true);
+    } catch (err) {
+      console.error('Error fetching find people:', err);
+      if (!append) setFindResults([]);
+      setSnackbar({ open: true, message: 'Failed to load people', severity: 'error' });
+    } finally {
+      if (append) {
+        setLoadingMoreFindPeople(false);
+      } else {
+        setFindLoading(false);
+      }
+    }
+  }, [findName, findCountry, findLocation, findCompany, findJobTitle, findResults.length]);
+
+  // Load initial like-minded people on mount
+  useEffect(() => {
+    fetchFindPeople();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount with current (empty) filters
+
   useEffect(() => {
     fetchStats();
     fetchConnections();
@@ -274,6 +349,23 @@ const MyNetwork: React.FC = () => {
     }
   };
 
+  const handleConnectFromFind = (userId: string) => {
+    setSendingRequestId(userId);
+    api.post(API_ENDPOINTS.NETWORK.SEND_REQUEST, {
+      receiver_id: userId,
+      message: "Hi! I'd like to connect with you on VerTechie.",
+    })
+      .then(() => {
+        setFindResults(prev => prev.filter(p => p.id !== userId));
+        setSnackbar({ open: true, message: 'Connection request sent', severity: 'success' });
+        fetchStats();
+      })
+      .catch((error: any) => {
+        setSnackbar({ open: true, message: error?.message || 'Failed to send connection request', severity: 'error' });
+      })
+      .finally(() => setSendingRequestId(null));
+  };
+
   // Filter connections based on search
   const filteredConnections = connections.filter(conn =>
     conn.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -299,58 +391,9 @@ const MyNetwork: React.FC = () => {
           {loadError}
         </Alert>
       )}
-      {/* Pending Requests */}
-      {pendingRequests.length > 0 && (
-        <StyledCard sx={{ mb: 3 }} id="pending-requests" ref={pendingSectionRef}>
-          <CardContent>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Badge badgeContent={pendingRequests.length} color="error">
-                <PersonAdd />
-              </Badge>
-              Pending Invitations
-            </Typography>
-            
-            {pendingRequests.map(user => (
-              <Box key={user.request_id || user.id} sx={{ display: 'flex', alignItems: 'center', py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                <Avatar sx={{ bgcolor: 'primary.main', width: 56, height: 56, mr: 2 }}>
-                  {user.name.charAt(0)}
-                </Avatar>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    {user.name}
-                    {user.is_verified && <Verified sx={{ fontSize: 16, color: 'primary.main' }} />}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">{user.title}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {user.mutual_connections} mutual connections
-                  </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button 
-                    variant="contained" 
-                    size="small" 
-                    sx={{ borderRadius: 2 }}
-                    onClick={() => user.request_id && handleAcceptRequest(user.request_id)}
-                  >
-                    Accept
-                  </Button>
-                  <Button 
-                    variant="outlined" 
-                    size="small" 
-                    sx={{ borderRadius: 2 }}
-                    onClick={() => user.request_id && handleDeclineRequest(user.request_id)}
-                  >
-                    Ignore
-                  </Button>
-                </Box>
-              </Box>
-            ))}
-          </CardContent>
-        </StyledCard>
-      )}
 
-      {/* Connections List */}
-      <StyledCard>
+      {/* Connections List — show first (your connections count + search + list) */}
+      <StyledCard sx={{ mb: 3 }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
@@ -419,6 +462,221 @@ const MyNetwork: React.FC = () => {
           )}
         </CardContent>
       </StyledCard>
+
+      {/* Find people to connect — filters + connect cards (show after Connections) */}
+      <StyledCard sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ fontWeight: 600, mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Search />
+            Find people to connect
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Search by name and filter by country, location, company, or job title.
+          </Typography>
+
+          {/* One row of filters */}
+          <Grid container spacing={2} sx={{ mb: 3 }} alignItems="center">
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                size="small"
+                fullWidth
+                label="Name"
+                placeholder="First or last name"
+                value={findName}
+                onChange={(e) => setFindName(e.target.value)}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                size="small"
+                fullWidth
+                label="Country"
+                placeholder="e.g. USA, India"
+                value={findCountry}
+                onChange={(e) => setFindCountry(e.target.value)}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                size="small"
+                fullWidth
+                label="Location"
+                placeholder="City or region"
+                value={findLocation}
+                onChange={(e) => setFindLocation(e.target.value)}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                size="small"
+                fullWidth
+                label="Company"
+                placeholder="Company name"
+                value={findCompany}
+                onChange={(e) => setFindCompany(e.target.value)}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                size="small"
+                fullWidth
+                label="Job title"
+                placeholder="e.g. Engineer, PM"
+                value={findJobTitle}
+                onChange={(e) => setFindJobTitle(e.target.value)}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2} sx={{ display: 'flex', alignItems: 'center' }}>
+              <Button
+                variant="contained"
+                onClick={() => fetchFindPeople()}
+                disabled={findLoading}
+                startIcon={findLoading ? <CircularProgress size={18} color="inherit" /> : <Search />}
+                sx={{ borderRadius: 2 }}
+              >
+                {findLoading ? 'Searching...' : 'Search'}
+              </Button>
+            </Grid>
+          </Grid>
+
+          {findLoading && findResults.length === 0 && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+              <CircularProgress size={32} />
+            </Box>
+          )}
+
+          {!findLoading && findResults.length > 0 && (
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
+              {findSearched ? 'People you can connect with' : 'Like-minded people'}
+            </Typography>
+          )}
+          {/* 2 profiles per row */}
+          {!findLoading && findResults.length > 0 && (
+            <Grid container spacing={2}>
+              {findResults.map((person) => (
+                <Grid item xs={12} sm={6} key={person.id}>
+                  <ConnectionCard>
+                    <Avatar
+                      src={person.avatar && person.avatar.trim() ? person.avatar : undefined}
+                      sx={{ bgcolor: 'primary.main', width: 48, height: 48 }}
+                    >
+                      {(!person.avatar || !person.avatar.trim()) ? person.name.charAt(0) : null}
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        {person.name}
+                        {person.is_verified && <Verified sx={{ fontSize: 14, color: 'primary.main' }} />}
+                      </Typography>
+                      {person.title && (
+                        <Typography variant="body2" color="text.secondary" noWrap>{person.title}</Typography>
+                      )}
+                      {person.company && (
+                        <Typography variant="caption" color="text.secondary" display="block">{person.company}</Typography>
+                      )}
+                      {person.location && (
+                        <Typography variant="caption" color="text.secondary" display="block">{person.location}</Typography>
+                      )}
+                      {person.mutual_connections != null && person.mutual_connections > 0 && (
+                        <Typography variant="caption" color="text.secondary">
+                          {person.mutual_connections} mutual connection{person.mutual_connections !== 1 ? 's' : ''}
+                        </Typography>
+                      )}
+                    </Box>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      sx={{ borderRadius: 2 }}
+                      disabled={sendingRequestId === person.id}
+                      onClick={() => handleConnectFromFind(person.id)}
+                      startIcon={sendingRequestId === person.id ? <CircularProgress size={14} color="inherit" /> : <PersonAdd />}
+                    >
+                      {sendingRequestId === person.id ? 'Sending...' : 'Connect'}
+                    </Button>
+                  </ConnectionCard>
+                </Grid>
+              ))}
+            </Grid>
+          )}
+
+          {/* See more button */}
+          {!findLoading && findResults.length > 0 && hasMoreFindPeople && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+              <Button
+                variant="outlined"
+                onClick={() => fetchFindPeople({ append: true })}
+                disabled={loadingMoreFindPeople}
+                startIcon={loadingMoreFindPeople ? <CircularProgress size={18} color="inherit" /> : null}
+                sx={{ borderRadius: 2 }}
+              >
+                {loadingMoreFindPeople ? 'Loading...' : 'See more'}
+              </Button>
+            </Box>
+          )}
+
+          {!findLoading && findSearched && findResults.length === 0 && (
+            <Box sx={{ textAlign: 'center', py: 3 }}>
+              <Typography variant="body2" color="text.secondary">
+                No people found matching your search. Try different filters.
+              </Typography>
+            </Box>
+          )}
+        </CardContent>
+      </StyledCard>
+
+      {/* Pending Requests */}
+      {pendingRequests.length > 0 && (
+        <StyledCard sx={{ mb: 3 }} id="pending-requests" ref={pendingSectionRef}>
+          <CardContent>
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Badge badgeContent={pendingRequests.length} color="error">
+                <PersonAdd />
+              </Badge>
+              Pending Invitations
+            </Typography>
+            
+            {pendingRequests.map(user => (
+              <Box key={user.request_id || user.id} sx={{ display: 'flex', alignItems: 'center', py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <Avatar sx={{ bgcolor: 'primary.main', width: 56, height: 56, mr: 2 }}>
+                  {user.name.charAt(0)}
+                </Avatar>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    {user.name}
+                    {user.is_verified && <Verified sx={{ fontSize: 16, color: 'primary.main' }} />}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">{user.title}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {user.mutual_connections} mutual connections
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button 
+                    variant="contained" 
+                    size="small" 
+                    sx={{ borderRadius: 2 }}
+                    onClick={() => user.request_id && handleAcceptRequest(user.request_id)}
+                  >
+                    Accept
+                  </Button>
+                  <Button 
+                    variant="outlined" 
+                    size="small" 
+                    sx={{ borderRadius: 2 }}
+                    onClick={() => user.request_id && handleDeclineRequest(user.request_id)}
+                  >
+                    Ignore
+                  </Button>
+                </Box>
+              </Box>
+            ))}
+          </CardContent>
+        </StyledCard>
+      )}
 
       {/* Snackbar */}
       <Snackbar

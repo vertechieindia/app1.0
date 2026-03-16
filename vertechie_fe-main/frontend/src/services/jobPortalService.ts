@@ -230,6 +230,7 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
     jobType: (backendJob.job_type || backendJob.jobType || 'full-time').replace('_', '-'),
     codingQuestions: backendJob.coding_questions || backendJob.codingQuestions || [],
     screeningQuestions: backendJob.screening_questions || backendJob.screeningQuestions || [],
+    collect_applicant_location: Boolean(backendJob.collect_applicant_location ?? backendJob.collectApplicantLocation ?? false),
     status: backendJob.status === 'published' ? 'active' : (backendJob.status || 'active'),
     createdBy: backendJob.posted_by_id || backendJob.createdBy,
     createdAt: normalizeBackendTimestamp(backendJob.created_at || backendJob.createdAt),
@@ -299,7 +300,12 @@ const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
     is_remote: frontendJob.location?.toLowerCase().includes('remote') || false,
     salary_min: frontendJob.salaryMin || null,
     salary_max: frontendJob.salaryMax || null,
-    coding_questions: frontendJob.codingQuestions || [],
+    collect_applicant_location: Boolean(frontendJob.collect_applicant_location ?? frontendJob.collectApplicantLocation),
+    hiring_countries: frontendJob.hiringCountries ?? [],
+    work_authorizations: frontendJob.workAuthorizations ?? [],
+    open_for_sponsorship: frontendJob.openForSponsorship ?? undefined,
+    // Keep a single source of truth to avoid duplicate questions on user side.
+    coding_questions: [],
     screening_questions: screeningQuestions,
     status: 'published',
   };
@@ -314,7 +320,8 @@ export const applicationService = {
     userId: string,
     candidateName: string,
     candidateEmail: string,
-    codingAnswers: CodingAnswer[]
+    codingAnswers: CodingAnswer[],
+    applicantLocation?: { lat: number; lng: number } | null
   ): Promise<Application> => {
     void userId;
     void candidateName;
@@ -330,6 +337,8 @@ export const applicationService = {
         cover_letter: '',
         resume_url: '',
         answers: answersDict,
+        applicant_location_lat: applicantLocation?.lat ?? null,
+        applicant_location_lng: applicantLocation?.lng ?? null,
       }),
     });
     if (!response.ok) {
@@ -365,15 +374,16 @@ export const applicationService = {
     applicationId: string,
     status: ApplicationStatus
   ): Promise<Application | null> => {
-    const response = await apiRequest(`/jobs/applications/${applicationId}/status`, {
+    const response = await apiRequest(`/jobs/applications/${applicationId}/status?new_status=${encodeURIComponent(status)}`, {
       method: 'PUT',
-      body: JSON.stringify({ new_status: status }),
     });
     if (response.status === 404) return null;
     if (!response.ok) {
       throw new Error(await parseApiError(response, 'Failed to update application status'));
     }
     const data = await response.json();
+    // Some endpoints return only {"message": "..."} after status update.
+    if (!data || typeof data !== 'object' || !('id' in data)) return null;
     return mapBackendApplicationToFrontend(data);
   },
 
@@ -552,6 +562,7 @@ export interface Candidate {
   userId?: string; // User ID (for profile navigation)
   name: string;
   email: string;
+  phone?: string;
   avatar?: string;
   title?: string;
   experience?: string;
@@ -610,6 +621,7 @@ export const userService = {
         ? `${app.applicant.first_name} ${app.applicant.last_name || ''}`.trim()
         : app.applicant_name || 'Applicant',
       email: app.applicant?.email || app.applicant_email || '',
+      phone: app.applicant?.phone || app.applicant?.mobile_number || '',
       avatar: app.applicant?.avatar_url || undefined,
       title: app.applicant?.title || app.applicant?.headline || '',
       experience: app.applicant?.total_experience || '',
@@ -660,4 +672,3 @@ const mapApplicationStatus = (status: string): Candidate['status'] => {
   };
   return statusMap[status?.toLowerCase()] || 'new';
 };
-

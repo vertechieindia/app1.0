@@ -24,6 +24,7 @@ export interface SchedulingLink {
   id: string;
   token: string;
   name: string | null;
+  meeting_type_id?: string | null;
   duration_minutes: number;
   available_days: number[];
   start_date: string | null;
@@ -32,6 +33,7 @@ export interface SchedulingLink {
   end_time?: string | null;
   max_bookings: number | null;
   bookings_count: number;
+  requires_approval?: boolean;
   is_active: boolean;
   created_at: string;
 }
@@ -74,9 +76,11 @@ export interface CreateMeetingTypeData {
   duration_minutes?: number;
   location_type?: string;
   color?: string;
+  is_public?: boolean;
 }
 
 export interface CreateSchedulingLinkData {
+  meeting_type_id?: string;
   title?: string;
   duration_minutes?: number;
   start_date?: string;
@@ -117,8 +121,24 @@ export const calendarService = {
   /**
    * Create a new meeting type
    */
-  createMeetingType: async (data: CreateMeetingTypeData): Promise<{ id: string; message: string }> => {
-    return api.post(API_ENDPOINTS.CALENDAR.CREATE_MEETING_TYPE, data);
+  createMeetingType: async (data: CreateMeetingTypeData): Promise<MeetingType> => {
+    const res = await api.post<MeetingType>(API_ENDPOINTS.CALENDAR.CREATE_MEETING_TYPE, data);
+    return res.data ?? res;
+  },
+
+  /**
+   * Update a meeting type
+   */
+  updateMeetingType: async (id: string, data: Partial<CreateMeetingTypeData>): Promise<MeetingType> => {
+    const res = await api.put<MeetingType>(API_ENDPOINTS.CALENDAR.MEETING_TYPE_BY_ID(id), data);
+    return res.data ?? res;
+  },
+
+  /**
+   * Delete a meeting type
+   */
+  deleteMeetingType: async (id: string): Promise<void> => {
+    await api.delete(API_ENDPOINTS.CALENDAR.MEETING_TYPE_BY_ID(id));
   },
 
   /**
@@ -131,8 +151,17 @@ export const calendarService = {
   /**
    * Create a new scheduling link
    */
-  createSchedulingLink: async (data: CreateSchedulingLinkData): Promise<{ token: string; message: string }> => {
-    return api.post(API_ENDPOINTS.CALENDAR.CREATE_SCHEDULING_LINK, data);
+  createSchedulingLink: async (data: CreateSchedulingLinkData): Promise<{ token: string; message: string } & SchedulingLink> => {
+    const res = await api.post(API_ENDPOINTS.CALENDAR.CREATE_SCHEDULING_LINK, data);
+    return res.data ?? res;
+  },
+
+  /**
+   * Update a scheduling link
+   */
+  updateSchedulingLink: async (id: string, data: Partial<CreateSchedulingLinkData>): Promise<SchedulingLink> => {
+    const res = await api.put<SchedulingLink>(API_ENDPOINTS.CALENDAR.SCHEDULING_LINK_BY_ID(id), data);
+    return res.data ?? res;
   },
 
   /**

@@ -240,6 +240,7 @@ const AppHeader = () => {
       setNotifications(data.unread_count || 0);
     } catch (error) {
       console.error('Failed to fetch notification count:', error);
+      setNotifications(0);
     }
   };
 
@@ -249,6 +250,7 @@ const AppHeader = () => {
       setMessages(data.unread_count || 0);
     } catch (error) {
       console.error('Failed to fetch message count:', error);
+      setMessages(0);
     }
   };
 

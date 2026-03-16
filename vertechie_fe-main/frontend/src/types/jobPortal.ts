@@ -43,6 +43,7 @@ export interface Job {
   screeningQuestions?: ScreeningQuestion[];
   responsibilities?: string;
   is_remote?: boolean;
+  collect_applicant_location?: boolean;
 }
 
 export interface ScreeningQuestion {
@@ -69,10 +70,16 @@ export interface JobFormData {
   salaryMax?: number;
   // Status field
   status?: 'active' | 'closed' | 'draft';
+  collect_applicant_location?: boolean;
+  collectApplicantLocation?: boolean;
+  // Hiring restrictions (passed to backend as hiring_countries, work_authorizations, open_for_sponsorship)
+  hiringCountries?: string[];
+  workAuthorizations?: string[];
+  openForSponsorship?: boolean;
 }
 
 // Application Types
-export type ApplicationStatus = 'applied' | 'submitted' | 'under_review' | 'shortlisted' | 'interview' | 'offered' | 'rejected' | 'hired' | 'withdrawn';
+export type ApplicationStatus = 'applied' | 'submitted' | 'under_review' | 'shortlisted' | 'interview' | 'offered' | 'onboarding' | 'rejected' | 'hired' | 'withdrawn';
 
 export interface CodingAnswer {
   questionId: string;
@@ -128,6 +135,7 @@ export interface JobFilters {
   jobType?: string;
   experienceLevel?: string;
   location?: string;
+  dateRange?: string;
 }
 
 export interface ApplicantFilters {
@@ -159,6 +167,7 @@ export const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
   shortlisted: 'Shortlisted',
   interview: 'Interview',
   offered: 'Offered',
+  onboarding: 'Onboarding',
   rejected: 'Rejected',
   hired: 'Hired',
   withdrawn: 'Withdrawn',
@@ -170,5 +179,3 @@ export const DIFFICULTY_LABELS: Record<string, string> = {
   medium: 'Medium',
   hard: 'Hard',
 };
-
-

@@ -79,8 +79,9 @@ from app.models.activity import UserActivity, ActivityType
 
 # Calendar Models
 from app.models.calendar import (
-    CalendarConnection, AvailabilitySchedule, 
-    MeetingType, Booking, SchedulingLink
+    CalendarConnection, CalendarBlock, CalendarSyncMapping,
+    CalendarProvider, CalendarEventSource,
+    AvailabilitySchedule, MeetingType, Booking, SchedulingLink
 )
 
 # Chat Models
@@ -163,8 +164,9 @@ __all__ = [
     "UserActivity", "ActivityType",
     
     # Calendar
-    "CalendarConnection", "AvailabilitySchedule",
-    "MeetingType", "Booking", "SchedulingLink",
+    "CalendarConnection", "CalendarBlock", "CalendarSyncMapping",
+    "CalendarProvider", "CalendarEventSource",
+    "AvailabilitySchedule", "MeetingType", "Booking", "SchedulingLink",
     
     # Chat
     "Conversation", "Message", "ChatMember",

@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 # Import all route modules
 from app.api.v1 import (
-    auth, users, jobs, courses, calendar, 
+    auth, users, jobs, courses, calendar, calendar_sync,
     chat, network, community, unified_network,
     companies, schools, practice, hiring, blog, ide,
     notifications, places
@@ -22,6 +22,7 @@ api_router.include_router(users.router, prefix="/users", tags=["Users"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
 api_router.include_router(courses.router, prefix="/courses", tags=["Courses"])
 api_router.include_router(calendar.router, prefix="/calendar", tags=["Calendar"])
+api_router.include_router(calendar_sync.router, prefix="/calendar", tags=["Calendar Sync"])
 api_router.include_router(chat.router, prefix="/chat", tags=["Chat"])
 api_router.include_router(network.router, prefix="/network", tags=["Network"])
 api_router.include_router(community.router, prefix="/community", tags=["Community"])

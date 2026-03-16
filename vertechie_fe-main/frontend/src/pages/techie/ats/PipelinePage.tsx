@@ -1,7 +1,7 @@
 /**
  * PipelinePage - Kanban-style Candidate Pipeline
- * Candidates can be moved forward/backward between 5 stages
- * Email notifications are sent on stage changes
+ * Stages: New Applicants → Shortlisted for Screening → Interview → Offer Stage → Hired | Rejected
+ * Proceed/Reject from New; move forward/backward; email notifications on stage changes
  */
 
 import React, { useState, useEffect } from 'react';
@@ -26,6 +26,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PersonIcon from '@mui/icons-material/Person';
 import EmailIcon from '@mui/icons-material/Email';
 import ScheduleIcon from '@mui/icons-material/Schedule';
+import CancelIcon from '@mui/icons-material/Cancel';
 import Grid from '@mui/material/Grid';
 import ATSLayout from './ATSLayout';
 import ScheduleInterviewModal from '../../../components/ats/ScheduleInterviewModal';
@@ -103,13 +104,15 @@ const StageButton = styled(IconButton)<{ buttontype: 'forward' | 'backward' }>((
   },
 }));
 
-// 5 Pipeline Stages
+// 7 Pipeline Stages (including Rejected)
 const stages = [
   { id: 'new', label: 'New Applicants', color: '#0d47a1', index: 0 },
-  { id: 'screening', label: 'Screening', color: '#FF9500', index: 1 },
+  { id: 'screening', label: 'Shortlisted for Screening', color: '#FF9500', index: 1 },
   { id: 'interview', label: 'Interview', color: '#5856D6', index: 2 },
   { id: 'offer', label: 'Offer Stage', color: '#34C759', index: 3 },
-  { id: 'hired', label: 'Hired', color: '#00C853', index: 4 },
+  { id: 'onboarding', label: 'Onboarding', color: '#00BCD4', index: 4 },
+  { id: 'hired', label: 'Hired', color: '#00C853', index: 5 },
+  { id: 'rejected', label: 'Rejected', color: '#FF3B30', index: 6 },
 ];
 
 interface Candidate {
@@ -193,7 +196,7 @@ const PipelinePage: React.FC = () => {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
     open: false, message: '', severity: 'info'
   });
-  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; action: 'forward' | 'backward' | null; candidate: Candidate | null }>({
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; action: 'forward' | 'backward' | 'reject' | null; candidate: Candidate | null }>({
     open: false, action: null, candidate: null
   });
   const [searchQuery, setSearchQuery] = useState('');
@@ -333,7 +336,7 @@ const PipelinePage: React.FC = () => {
           old_stage: getStageLabel(oldStage),
           new_stage: getStageLabel(newStage),
           hr_name: `${hrUser.first_name || ''} ${hrUser.last_name || ''}`.trim() || 'HR Team',
-          job_title: candidate.role,
+          job_title: candidate.jobTitle || candidate.role,
         }),
       });
       
@@ -344,15 +347,21 @@ const PipelinePage: React.FC = () => {
     }
   };
 
-  // Move candidate to next stage
+  // Forward path: new -> screening -> interview -> offer -> onboarding -> hired (rejected is separate)
+  const getNextStageId = (stage: string): string | null => {
+    const path = ['new', 'screening', 'interview', 'offer', 'onboarding', 'hired'];
+    const idx = path.indexOf(stage);
+    if (idx < 0 || idx >= path.length - 1) return null;
+    return path[idx + 1];
+  };
+
+  // Move candidate to next stage (Proceed: New -> Screening -> Interview -> Offer -> Onboarding -> Hired)
   const moveToNextStage = async (candidate: Candidate) => {
-    const currentStageIndex = stages.findIndex(s => s.id === candidate.stage);
-    if (currentStageIndex >= stages.length - 1) {
+    const newStage = getNextStageId(candidate.stage);
+    if (!newStage) {
       setSnackbar({ open: true, message: 'Candidate is already at the final stage', severity: 'info' });
       return;
     }
-    
-    const newStage = stages[currentStageIndex + 1].id;
     const oldStage = candidate.stage;
     
     try {
@@ -401,15 +410,13 @@ const PipelinePage: React.FC = () => {
     setMenuAnchor(null);
   };
 
-  // Move candidate to previous stage
+  // Move candidate to previous stage (from Rejected: Restore to New)
   const moveToPreviousStage = async (candidate: Candidate) => {
-    const currentStageIndex = stages.findIndex(s => s.id === candidate.stage);
-    if (currentStageIndex <= 0) {
+    if (candidate.stage === 'new') {
       setSnackbar({ open: true, message: 'Candidate is already at the first stage', severity: 'info' });
       return;
     }
-    
-    const newStage = stages[currentStageIndex - 1].id;
+    const newStage = candidate.stage === 'rejected' ? 'new' : stages[getStageIndex(candidate.stage) - 1].id;
     const oldStage = candidate.stage;
     
     try {
@@ -454,6 +461,40 @@ const PipelinePage: React.FC = () => {
       });
     }
     
+    setConfirmDialog({ open: false, action: null, candidate: null });
+    setMenuAnchor(null);
+  };
+
+  // Reject applicant (move to Rejected stage and send email)
+  const rejectCandidate = async (candidate: Candidate) => {
+    const oldStage = candidate.stage;
+    try {
+      const token = localStorage.getItem('authToken');
+      const applicationId = candidate.applicationId || candidate.id;
+      const response = await fetch(
+        getApiUrl(API_ENDPOINTS.HIRING.UPDATE_APPLICATION_STAGE(applicationId)) + '?stage=rejected',
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      if (!response.ok) throw new Error('Failed to reject');
+      setCandidates(prev => prev.map(c =>
+        c.id === candidate.id ? { ...c, stage: 'rejected' } : c
+      ));
+      const emailSent = await sendStageChangeEmail(candidate, oldStage, 'rejected');
+      setSnackbar({
+        open: true,
+        message: `${candidate.name} has been rejected${emailSent ? ' - Email notification sent' : ''}`,
+        severity: 'success',
+      });
+    } catch (error) {
+      console.error('Error rejecting candidate:', error);
+      setSnackbar({ open: true, message: 'Failed to reject candidate. Please try again.', severity: 'error' });
+    }
     setConfirmDialog({ open: false, action: null, candidate: null });
     setMenuAnchor(null);
   };
@@ -696,33 +737,33 @@ const PipelinePage: React.FC = () => {
                   }}>
                     {/* Stage Navigation */}
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      <Tooltip title={getStageIndex(candidate.stage) > 0 ? `← ${getStageLabel(stages[getStageIndex(candidate.stage) - 1]?.id)}` : 'First stage'}>
+                      <Tooltip title={candidate.stage === 'new' ? 'First stage' : candidate.stage === 'rejected' ? 'Restore to New Applicants' : `← ${getStageLabel(stages[getStageIndex(candidate.stage) - 1]?.id)}`}>
                         <span>
                           <StageButton 
                             buttontype="backward"
                             size="small" 
-                            disabled={getStageIndex(candidate.stage) <= 0}
+                            disabled={candidate.stage === 'new'}
                             onClick={(e) => {
                               e.stopPropagation();
                               setConfirmDialog({ open: true, action: 'backward', candidate });
                             }}
                           >
-                            <ArrowBackIcon sx={{ fontSize: 16, color: getStageIndex(candidate.stage) > 0 ? '#FF9500' : '#bbb' }} />
+                            <ArrowBackIcon sx={{ fontSize: 16, color: candidate.stage !== 'new' ? '#FF9500' : '#bbb' }} />
                           </StageButton>
                         </span>
                       </Tooltip>
-                      <Tooltip title={getStageIndex(candidate.stage) < stages.length - 1 ? `→ ${getStageLabel(stages[getStageIndex(candidate.stage) + 1]?.id)}` : 'Final stage'}>
+                      <Tooltip title={getNextStageId(candidate.stage) ? `Proceed → ${getStageLabel(getNextStageId(candidate.stage)!)}` : 'Final stage'}>
                         <span>
                           <StageButton 
                             buttontype="forward"
                             size="small"
-                            disabled={getStageIndex(candidate.stage) >= stages.length - 1}
+                            disabled={!getNextStageId(candidate.stage)}
                             onClick={(e) => {
                               e.stopPropagation();
                               setConfirmDialog({ open: true, action: 'forward', candidate });
                             }}
                           >
-                            <ArrowForwardIcon sx={{ fontSize: 16, color: getStageIndex(candidate.stage) < stages.length - 1 ? '#34C759' : '#bbb' }} />
+                            <ArrowForwardIcon sx={{ fontSize: 16, color: getNextStageId(candidate.stage) ? '#34C759' : '#bbb' }} />
                           </StageButton>
                         </span>
                       </Tooltip>
@@ -840,10 +881,10 @@ const PipelinePage: React.FC = () => {
             }
             setMenuAnchor(null);
           }}
-          disabled={selectedCandidate ? getStageIndex(selectedCandidate.stage) >= stages.length - 1 : true}
+          disabled={selectedCandidate ? !getNextStageId(selectedCandidate.stage) : true}
         >
           <ArrowForwardIcon fontSize="small" sx={{ mr: 1 }} />
-          Move Forward
+          Proceed to next stage
         </MenuItem>
         <MenuItem 
           onClick={() => {
@@ -852,10 +893,23 @@ const PipelinePage: React.FC = () => {
             }
             setMenuAnchor(null);
           }}
-          disabled={selectedCandidate ? getStageIndex(selectedCandidate.stage) <= 0 : true}
+          disabled={selectedCandidate ? selectedCandidate.stage === 'new' : true}
         >
           <ArrowBackIcon fontSize="small" sx={{ mr: 1 }} />
           Move Backward
+        </MenuItem>
+        <MenuItem 
+          onClick={() => {
+            if (selectedCandidate) {
+              setConfirmDialog({ open: true, action: 'reject', candidate: selectedCandidate });
+            }
+            setMenuAnchor(null);
+          }}
+          disabled={selectedCandidate ? selectedCandidate.stage === 'rejected' || selectedCandidate.stage === 'hired' : true}
+          sx={{ color: 'error.main' }}
+        >
+          <CancelIcon fontSize="small" sx={{ mr: 1 }} />
+          Reject
         </MenuItem>
       </Menu>
 
@@ -865,7 +919,11 @@ const PipelinePage: React.FC = () => {
         onClose={() => setConfirmDialog({ open: false, action: null, candidate: null })}
       >
         <DialogTitle>
-          {confirmDialog.action === 'forward' ? 'Move Candidate Forward' : 'Move Candidate Backward'}
+          {confirmDialog.action === 'reject'
+            ? 'Reject Applicant'
+            : confirmDialog.action === 'forward'
+              ? 'Proceed to next stage'
+              : 'Move Candidate Backward'}
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
@@ -873,18 +931,34 @@ const PipelinePage: React.FC = () => {
               <>
                 Move <strong>{confirmDialog.candidate.name}</strong> from{' '}
                 <strong>{getStageLabel(confirmDialog.candidate.stage)}</strong> to{' '}
-                <strong>{getStageLabel(stages[getStageIndex(confirmDialog.candidate.stage) + 1]?.id)}</strong>?
+                <strong>{getNextStageId(confirmDialog.candidate.stage) && getStageLabel(getNextStageId(confirmDialog.candidate.stage)!)}</strong>?
                 <br /><br />
                 An email notification will be sent to the candidate.
               </>
             )}
             {confirmDialog.candidate && confirmDialog.action === 'backward' && (
               <>
+                {confirmDialog.candidate.stage === 'rejected' ? (
+                  <>
+                Restore <strong>{confirmDialog.candidate.name}</strong> to <strong>New Applicants</strong>?
+                <br /><br />
+                An email notification will be sent to the candidate.
+                  </>
+                ) : (
+                  <>
                 Move <strong>{confirmDialog.candidate.name}</strong> back from{' '}
                 <strong>{getStageLabel(confirmDialog.candidate.stage)}</strong> to{' '}
                 <strong>{getStageLabel(stages[getStageIndex(confirmDialog.candidate.stage) - 1]?.id)}</strong>?
                 <br /><br />
                 An email notification will be sent to the candidate.
+                  </>
+                )}
+              </>
+            )}
+            {confirmDialog.candidate && confirmDialog.action === 'reject' && (
+              <>
+                Reject <strong>{confirmDialog.candidate.name}</strong>? They will be moved to <strong>Rejected</strong> and
+                an email notification will be sent.
               </>
             )}
           </DialogContentText>
@@ -895,17 +969,20 @@ const PipelinePage: React.FC = () => {
           </Button>
           <Button 
             variant="contained"
+            color={confirmDialog.action === 'reject' ? 'error' : 'primary'}
             onClick={() => {
               if (confirmDialog.candidate) {
                 if (confirmDialog.action === 'forward') {
                   moveToNextStage(confirmDialog.candidate);
-                } else {
+                } else if (confirmDialog.action === 'backward') {
                   moveToPreviousStage(confirmDialog.candidate);
+                } else if (confirmDialog.action === 'reject') {
+                  rejectCandidate(confirmDialog.candidate);
                 }
               }
             }}
           >
-            Confirm & Send Email
+            {confirmDialog.action === 'reject' ? 'Reject & Send Email' : 'Confirm & Send Email'}
           </Button>
         </DialogActions>
       </Dialog>

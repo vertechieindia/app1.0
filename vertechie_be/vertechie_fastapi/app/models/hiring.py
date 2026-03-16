@@ -55,6 +55,7 @@ class StageType(str, enum.Enum):
     INTERVIEW = "interview"
     ONSITE = "onsite"
     OFFER = "offer"
+    ONBOARDING = "onboarding"
     HIRED = "hired"
     REJECTED = "rejected"
 

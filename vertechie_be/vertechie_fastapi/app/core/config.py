@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_CALENDAR_REDIRECT_URI: Optional[str] = None  # e.g. http://localhost:5173/calendar/callback/google
+    MICROSOFT_CLIENT_ID: Optional[str] = None
+    MICROSOFT_CLIENT_SECRET: Optional[str] = None
+    MICROSOFT_CALENDAR_REDIRECT_URI: Optional[str] = None  # e.g. http://localhost:5173/calendar/callback/microsoft
     LINKEDIN_CLIENT_ID: Optional[str] = None
     LINKEDIN_CLIENT_SECRET: Optional[str] = None
     GITHUB_CLIENT_ID: Optional[str] = None

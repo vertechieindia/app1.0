@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 from uuid import UUID, uuid4
 from datetime import datetime, date, time, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from slugify import slugify
@@ -18,14 +18,51 @@ from app.models.calendar import (
 )
 from app.models.user import User
 from app.schemas.calendar import (
-    MeetingTypeCreate, MeetingTypeResponse,
+    MeetingTypeCreate, MeetingTypeUpdate, MeetingTypeResponse,
     BookingCreate, BookingResponse,
-    SchedulingLinkCreate, SchedulingLinkResponse,
+    SchedulingLinkCreate, SchedulingLinkUpdate, SchedulingLinkResponse,
     AvailableTimesResponse, AvailabilitySlot
 )
 from app.core.security import get_current_user
+from app.core.email import send_email
+from app.models.user import User
 
 router = APIRouter()
+
+
+async def _send_booking_confirmation_email(
+    to_email: str,
+    invitee_name: str,
+    host_name: str,
+    start_time_utc: datetime,
+    duration_minutes: int,
+    video_link: Optional[str] = None,
+) -> None:
+    """Send booking confirmation to invitee (run in background)."""
+    # Format time for email (use UTC and mention it, or could use invitee timezone later)
+    start_str = start_time_utc.strftime("%Y-%m-%d %H:%M") + " UTC"
+    end_minutes = start_time_utc.minute + duration_minutes
+    end_h = start_time_utc.hour + (end_minutes // 60)
+    end_m = end_minutes % 60
+    end_time_utc = start_time_utc.replace(hour=end_h % 24, minute=end_m)
+    end_str = end_time_utc.strftime("%H:%M") + " UTC"
+    subject = "Your meeting is confirmed - VerTechie"
+    join_line = ""
+    if video_link:
+        join_line = f'<p><strong>Join meeting:</strong> <a href="{video_link}">{video_link}</a></p>'
+    html = f"""
+    <p>Hi {invitee_name},</p>
+    <p>Your meeting with <strong>{host_name}</strong> is confirmed.</p>
+    <p><strong>Date & time:</strong> {start_str} – {end_str} ({duration_minutes} min)</p>
+    {join_line}
+    <p>Add this to your calendar and join at the scheduled time.</p>
+    <p>— VerTechie</p>
+    """
+    text = f"Hi {invitee_name},\n\nYour meeting with {host_name} is confirmed.\nDate & time: {start_str} – {end_str} ({duration_minutes} min).\n"
+    if video_link:
+        text += f"Join meeting: {video_link}\n"
+    text += "\n— VerTechie"
+    await send_email(to_email, subject, html, text)
 
 
 # ============= Meeting Types =============
@@ -89,6 +126,38 @@ async def get_meeting_type(
     return meeting_type
 
 
+@router.put("/meeting-types/{meeting_id}", response_model=MeetingTypeResponse)
+async def update_meeting_type(
+    meeting_id: UUID,
+    meeting_in: MeetingTypeUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Update a meeting type."""
+    
+    result = await db.execute(
+        select(MeetingType).where(
+            MeetingType.id == meeting_id,
+            MeetingType.user_id == current_user.id
+        )
+    )
+    meeting_type = result.scalar_one_or_none()
+    
+    if not meeting_type:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Meeting type not found"
+        )
+    
+    update_data = meeting_in.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(meeting_type, key, value)
+    
+    await db.commit()
+    await db.refresh(meeting_type)
+    return meeting_type
+
+
 @router.delete("/meeting-types/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_meeting_type(
     meeting_id: UUID,
@@ -144,9 +213,10 @@ async def list_bookings(
 @router.post("/bookings", response_model=BookingResponse, status_code=status.HTTP_201_CREATED)
 async def create_booking(
     booking_in: BookingCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ) -> Any:
-    """Create a new booking (public endpoint)."""
+    """Create a new booking (public endpoint). Sends confirmation email to invitee."""
     
     # Get meeting type
     result = await db.execute(
@@ -168,13 +238,13 @@ async def create_booking(
     # Calculate end time
     end_time = start_time + timedelta(minutes=meeting_type.duration_minutes)
     
-    # Check for conflicts
+    # Check for conflicts (use naive UTC start_time, not booking_in.start_time, to avoid naive/aware mismatch)
     result = await db.execute(
         select(Booking).where(
             Booking.host_id == meeting_type.user_id,
             Booking.status.in_([BookingStatus.PENDING, BookingStatus.CONFIRMED]),
             Booking.start_time < end_time,
-            Booking.end_time > booking_in.start_time
+            Booking.end_time > start_time
         )
     )
     if result.scalar_one_or_none():
@@ -201,6 +271,22 @@ async def create_booking(
     db.add(booking)
     await db.commit()
     await db.refresh(booking)
+    
+    # Get host name for confirmation email
+    host_result = await db.execute(select(User).where(User.id == meeting_type.user_id))
+    host_user = host_result.scalar_one_or_none()
+    host_name = (host_user.full_name or host_user.email or "Host") if host_user else "Host"
+    
+    # Send confirmation email to invitee (so they get intimation and meeting link)
+    background_tasks.add_task(
+        _send_booking_confirmation_email,
+        to_email=booking_in.invitee_email,
+        invitee_name=booking_in.invitee_name or "Guest",
+        host_name=host_name,
+        start_time_utc=start_time,
+        duration_minutes=meeting_type.duration_minutes,
+        video_link=meeting_type.video_link,
+    )
     
     return booking
 
@@ -384,6 +470,38 @@ async def get_scheduling_link_by_token(
         "bookings_count": link.bookings_count,
         "requires_approval": link.requires_approval,
     }
+
+
+@router.put("/scheduling-links/{link_id}", response_model=SchedulingLinkResponse)
+async def update_scheduling_link(
+    link_id: UUID,
+    link_in: SchedulingLinkUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """Update a scheduling link."""
+    
+    result = await db.execute(
+        select(SchedulingLink).where(
+            SchedulingLink.id == link_id,
+            SchedulingLink.user_id == current_user.id
+        )
+    )
+    link = result.scalar_one_or_none()
+    
+    if not link:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scheduling link not found"
+        )
+    
+    update_data = link_in.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(link, key, value)
+    
+    await db.commit()
+    await db.refresh(link)
+    return link
 
 
 @router.delete("/scheduling-links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)

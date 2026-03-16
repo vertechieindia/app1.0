@@ -50,7 +50,7 @@ interface CandidateRow {
   avatar?: string;
 }
 
-const STAGES = ['new', 'screening', 'interview', 'offer', 'hired', 'rejected'] as const;
+const STAGES = ['new', 'screening', 'interview', 'offer', 'onboarding', 'hired', 'rejected'] as const;
 type StageType = typeof STAGES[number];
 
 const statusToStage = (status?: string): StageType => {
@@ -58,6 +58,7 @@ const statusToStage = (status?: string): StageType => {
   if (s === 'under_review' || s === 'shortlisted') return 'screening';
   if (s === 'interview') return 'interview';
   if (s === 'offered') return 'offer';
+  if (s === 'onboarding') return 'onboarding';
   if (s === 'hired') return 'hired';
   if (s === 'rejected') return 'rejected';
   return 'new';
@@ -75,6 +76,8 @@ const getStageColor = (stage: string) => {
       return { bg: alpha('#5856D6', 0.1), text: '#5856D6' };
     case 'offer':
       return { bg: alpha('#34C759', 0.1), text: '#34C759' };
+    case 'onboarding':
+      return { bg: alpha('#00BCD4', 0.1), text: '#00BCD4' };
     case 'hired':
       return { bg: alpha('#00C853', 0.1), text: '#00C853' };
     case 'rejected':

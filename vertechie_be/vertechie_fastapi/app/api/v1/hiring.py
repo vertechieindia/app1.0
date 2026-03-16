@@ -3,7 +3,7 @@ Hiring/ATS API Routes
 Pipeline, Assessments, Interviews, and Offers
 """
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
@@ -38,6 +38,37 @@ import logging
 router = APIRouter(tags=["Hiring/ATS"])
 logger = logging.getLogger(__name__)
 
+PIPELINE_STAGE_TO_STATUS: Dict[str, ApplicationStatus] = {
+    "new": ApplicationStatus.SUBMITTED,
+    "screening": ApplicationStatus.SHORTLISTED,
+    "interview": ApplicationStatus.INTERVIEW,
+    "offer": ApplicationStatus.OFFERED,
+    "onboarding": ApplicationStatus.ONBOARDING,
+    "hired": ApplicationStatus.HIRED,
+    "rejected": ApplicationStatus.REJECTED,
+}
+
+STATUS_TO_PIPELINE_STAGE: Dict[str, str] = {
+    ApplicationStatus.SUBMITTED.value: "new",
+    ApplicationStatus.UNDER_REVIEW.value: "screening",
+    ApplicationStatus.SHORTLISTED.value: "screening",
+    ApplicationStatus.INTERVIEW.value: "interview",
+    ApplicationStatus.OFFERED.value: "offer",
+    ApplicationStatus.ONBOARDING.value: "onboarding",
+    ApplicationStatus.HIRED.value: "hired",
+    ApplicationStatus.REJECTED.value: "rejected",
+}
+
+ALLOWED_STAGE_TRANSITIONS: Dict[str, set[str]] = {
+    "new": {"screening", "rejected"},
+    "screening": {"interview", "rejected"},
+    "interview": {"offer", "rejected"},
+    "offer": {"onboarding", "rejected"},
+    "onboarding": {"hired", "rejected"},
+    "hired": set(),
+    "rejected": {"new"},
+}
+
 
 def _to_utc_datetime(value: Optional[datetime]) -> Optional[datetime]:
     """Normalize datetimes to UTC while preserving absolute time."""
@@ -57,17 +88,52 @@ def _normalize_meeting_link(raw_link: Optional[str]) -> Optional[str]:
 
     link = raw_link.strip()
     frontend_base = (getattr(settings, "FRONTEND_URL", None) or "http://localhost:5173").rstrip("/")
+    if link.startswith("/lobby/") or link.startswith("/meet/"):
+        link = f"/techie{link}"
 
     if link.startswith("/"):
         return f"{frontend_base}{link}"
 
     parsed = urlparse(link)
     if parsed.scheme in {"http", "https"} and parsed.hostname in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        path = parsed.path
+        if path.startswith("/lobby/") or path.startswith("/meet/"):
+            path = f"/techie{path}"
         query = f"?{parsed.query}" if parsed.query else ""
         fragment = f"#{parsed.fragment}" if parsed.fragment else ""
-        return f"{frontend_base}{parsed.path}{query}{fragment}"
+        return f"{frontend_base}{path}{query}{fragment}"
 
     return link
+
+
+def _status_to_stage(application: JobApplication) -> str:
+    current_status = application.status.value if hasattr(application.status, "value") else str(application.status)
+    return STATUS_TO_PIPELINE_STAGE.get(current_status, "new")
+
+
+def _apply_stage_transition_or_400(application: JobApplication, requested_stage: str) -> ApplicationStatus:
+    stage = (requested_stage or "").strip().lower()
+    if stage not in PIPELINE_STAGE_TO_STATUS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid stage. Allowed values: "
+                "new, screening, interview, offer, onboarding, hired, rejected"
+            ),
+        )
+
+    current_stage = _status_to_stage(application)
+    if stage == current_stage:
+        return PIPELINE_STAGE_TO_STATUS[stage]
+
+    allowed_targets = ALLOWED_STAGE_TRANSITIONS.get(current_stage, set())
+    if stage not in allowed_targets:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid stage transition: {current_stage} -> {stage}",
+        )
+
+    return PIPELINE_STAGE_TO_STATUS[stage]
 
 
 def _is_user_interviewer(interview: Interview, user_id: UUID) -> bool:
@@ -269,7 +335,8 @@ async def create_pipeline(
         {"name": "Screening", "stage_type": StageType.SCREENING, "order": 1},
         {"name": "Interview", "stage_type": StageType.INTERVIEW, "order": 2},
         {"name": "Offer", "stage_type": StageType.OFFER, "order": 3},
-        {"name": "Hired", "stage_type": StageType.HIRED, "order": 4},
+        {"name": "Onboarding", "stage_type": StageType.ONBOARDING, "order": 4},
+        {"name": "Hired", "stage_type": StageType.HIRED, "order": 5},
     ]
     for stage_data in default_stages:
         stage = PipelineStage(pipeline_id=db_pipeline.id, **stage_data)
@@ -367,15 +434,7 @@ async def get_pipeline_candidates(
     
     # Get default pipeline stages (or create mapping)
     # Map application status to pipeline stages
-    status_to_stage = {
-        ApplicationStatus.SUBMITTED.value: 'new',
-        ApplicationStatus.UNDER_REVIEW.value: 'screening',
-        ApplicationStatus.SHORTLISTED.value: 'screening',
-        ApplicationStatus.INTERVIEW.value: 'interview',
-        ApplicationStatus.OFFERED.value: 'offer',
-        ApplicationStatus.HIRED.value: 'hired',
-        ApplicationStatus.REJECTED.value: 'rejected',
-    }
+    status_to_stage = STATUS_TO_PIPELINE_STAGE
     
     def _normalize_skills(values) -> List[str]:
         if not values:
@@ -540,7 +599,7 @@ async def move_candidate(
 @router.put("/applications/{application_id}/stage")
 async def update_application_stage(
     application_id: UUID,
-    stage: str = Query(..., description="Pipeline stage: new, screening, interview, offer, hired"),
+    stage: str = Query(..., description="Pipeline stage: new, screening, interview, offer, onboarding, hired, rejected"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -563,23 +622,13 @@ async def update_application_stage(
     if application.job.posted_by_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Map stage to ApplicationStatus enum
-    stage_to_status = {
-        'new': ApplicationStatus.SUBMITTED,
-        'screening': ApplicationStatus.SHORTLISTED,
-        'interview': ApplicationStatus.INTERVIEW,
-        'offer': ApplicationStatus.OFFERED,
-        'hired': ApplicationStatus.HIRED,
-        'rejected': ApplicationStatus.REJECTED,
-    }
-    
-    new_status = stage_to_status.get(stage.lower(), ApplicationStatus.SUBMITTED)
+    new_status = _apply_stage_transition_or_400(application, stage)
     application.status = new_status
     
     application.reviewed_at = datetime.utcnow()
     await db.commit()
     
-    return {"status": "updated", "stage": stage, "application_status": new_status.value}
+    return {"status": "updated", "stage": stage.lower(), "application_status": new_status.value}
 
 
 # ============= Assessments =============
@@ -729,51 +778,6 @@ async def move_candidate(
     
     await db.commit()
     return {"status": "moved"}
-
-
-@router.put("/applications/{application_id}/stage")
-async def update_application_stage(
-    application_id: UUID,
-    stage: str = Query(..., description="Pipeline stage: new, screening, interview, offer, hired"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Update application stage (simplified pipeline management).
-    Maps to application status.
-    """
-    # Get application
-    app_result = await db.execute(
-        select(JobApplication)
-        .options(selectinload(JobApplication.job))
-        .where(JobApplication.id == application_id)
-    )
-    application = app_result.scalar_one_or_none()
-    
-    if not application:
-        raise HTTPException(status_code=404, detail="Application not found")
-    
-    # Verify user owns the job
-    if application.job.posted_by_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    # Map stage to ApplicationStatus enum
-    stage_to_status = {
-        'new': ApplicationStatus.SUBMITTED,
-        'screening': ApplicationStatus.SHORTLISTED,
-        'interview': ApplicationStatus.INTERVIEW,
-        'offer': ApplicationStatus.OFFERED,
-        'hired': ApplicationStatus.HIRED,
-        'rejected': ApplicationStatus.REJECTED,
-    }
-    
-    new_status = stage_to_status.get(stage.lower(), ApplicationStatus.SUBMITTED)
-    application.status = new_status
-    
-    application.reviewed_at = datetime.utcnow()
-    await db.commit()
-    
-    return {"status": "updated", "stage": stage, "application_status": new_status.value}
 
 
 # ============= Assessments =============
@@ -1683,6 +1687,14 @@ async def respond_to_offer(
     offer.status = OfferStatus.ACCEPTED if accept else OfferStatus.DECLINED
     offer.responded_at = datetime.utcnow()
     offer.response_notes = notes
+
+    app_result = await db.execute(
+        select(JobApplication).where(JobApplication.id == offer.application_id)
+    )
+    application = app_result.scalar_one_or_none()
+    if application:
+        application.status = ApplicationStatus.ONBOARDING if accept else ApplicationStatus.REJECTED
+        application.reviewed_at = datetime.utcnow()
     await db.commit()
     
     return {"status": "accepted" if accept else "declined"}
@@ -2005,6 +2017,7 @@ async def get_hiring_analytics(
         'shortlisted': 0,
         'interview': 0,
         'offered': 0,
+        'onboarding': 0,
         'hired': 0,
         'rejected': 0,
     }
@@ -2022,6 +2035,7 @@ async def get_hiring_analytics(
         {'stage': 'Screening', 'count': status_counts['under_review'] + status_counts['shortlisted'], 'percentage': round((status_counts['under_review'] + status_counts['shortlisted']) / total * 100)},
         {'stage': 'Interview', 'count': status_counts['interview'], 'percentage': round(status_counts['interview'] / total * 100)},
         {'stage': 'Offer', 'count': status_counts['offered'], 'percentage': round(status_counts['offered'] / total * 100)},
+        {'stage': 'Onboarding', 'count': status_counts['onboarding'], 'percentage': round(status_counts['onboarding'] / total * 100)},
         {'stage': 'Hired', 'count': status_counts['hired'], 'percentage': round(status_counts['hired'] / total * 100)},
     ]
     
@@ -2033,7 +2047,7 @@ async def get_hiring_analytics(
             'title': job.title,
             'applicants': len(job_apps),
             'interviews': len([a for a in job_apps if a.status and a.status.value.lower() == 'interview']),
-            'offers': len([a for a in job_apps if a.status and a.status.value.lower() in ['offered', 'hired']]),
+            'offers': len([a for a in job_apps if a.status and a.status.value.lower() in ['offered', 'onboarding', 'hired']]),
             'status': 'active' if job.status == 'published' else job.status,
         })
     
@@ -2050,7 +2064,7 @@ async def get_hiring_analytics(
     return AnalyticsResponse(
         total_applicants=len(applications),
         interviews_scheduled=status_counts['interview'],
-        offers_made=status_counts['offered'] + status_counts['hired'],
+        offers_made=status_counts['offered'] + status_counts['onboarding'] + status_counts['hired'],
         active_jobs=len([j for j in hm_jobs if j.status == 'published']),
         pipeline_metrics=pipeline_metrics,
         job_performance=job_performance,
@@ -2147,18 +2161,15 @@ async def bulk_update_application_stage(
     current_user: User = Depends(get_current_user)
 ):
     """Update stage for multiple applications at once."""
-    from sqlalchemy import update
-    
-    # Map stage to ApplicationStatus
-    stage_to_status = {
-        'new': ApplicationStatus.SUBMITTED,
-        'screening': ApplicationStatus.SHORTLISTED,
-        'interview': ApplicationStatus.INTERVIEW,
-        'offer': ApplicationStatus.OFFERED,
-        'hired': ApplicationStatus.HIRED,
-        'rejected': ApplicationStatus.REJECTED,
-    }
-    new_status = stage_to_status.get(bulk_data.stage.lower(), ApplicationStatus.SUBMITTED)
+    normalized_stage = (bulk_data.stage or "").strip().lower()
+    if normalized_stage not in PIPELINE_STAGE_TO_STATUS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid stage. Allowed values: "
+                "new, screening, interview, offer, onboarding, hired, rejected"
+            ),
+        )
     
     # Only update applications belonging to jobs posted by current user
     # First, find IDs of jobs posted by current user
@@ -2167,29 +2178,44 @@ async def bulk_update_application_stage(
     )
     my_job_ids = [row[0] for row in jobs_result.fetchall()]
     
-    # Perform bulk update
-    query = (
-        update(JobApplication)
+    applications_result = await db.execute(
+        select(JobApplication)
         .where(JobApplication.id.in_(bulk_data.application_ids))
         .where(JobApplication.job_id.in_(my_job_ids))
-        .values(status=new_status, reviewed_at=datetime.utcnow())
     )
-    
-    result = await db.execute(query)
-    if result.rowcount and result.rowcount > 0:
+    applications = applications_result.scalars().all()
+
+    updated_count = 0
+    skipped_count = 0
+    for application in applications:
+        try:
+            new_status = _apply_stage_transition_or_400(application, normalized_stage)
+        except HTTPException:
+            skipped_count += 1
+            continue
+        application.status = new_status
+        application.reviewed_at = datetime.utcnow()
+        updated_count += 1
+
+    if updated_count > 0:
         await activity_service.log_activity(
             db=db,
             user_id=current_user.id,
             activity_type=ActivityType.PROJECT,
             data={
                 "action": "bulk_stage_update",
-                "stage": bulk_data.stage,
-                "count": int(result.rowcount),
+                "stage": normalized_stage,
+                "count": int(updated_count),
             },
         )
     await db.commit()
     
-    return {"status": "bulk_updated", "count": result.rowcount}
+    return {
+        "status": "bulk_updated",
+        "count": updated_count,
+        "skipped": skipped_count,
+        "stage": normalized_stage,
+    }
 
 
 @router.post("/applications/bulk-delete")
@@ -2226,4 +2252,3 @@ async def bulk_delete_applications(
     await db.commit()
     
     return {"status": "bulk_deleted", "count": result.rowcount}
-

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, Outlet, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Outlet, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { ThemeProvider, CssBaseline, Box, Snackbar, Alert } from '@mui/material';
 import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/Footer';
@@ -87,6 +87,7 @@ import MyInterviews from './pages/techie/MyInterviews';
 import ProfileCompletion from './pages/techie/ProfileCompletion';
 import GitHubCallback from './pages/GitHubCallback';
 import GitLabCallback from './pages/GitLabCallback';
+import CalendarCallback from './pages/CalendarCallback';
 
 // ATS Pages (Separate Routes)
 import {
@@ -177,31 +178,46 @@ const PublicLayout: React.FC = () => {
 const HEADER_HEIGHT = 64;
 const BOTTOM_NAV_HEIGHT = 80;
 
-const AuthenticatedLayout: React.FC = () => (
-  <Box sx={{
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: '100vh',
-    width: '100%',
-    maxWidth: '100vw',
-    overflowX: 'hidden',
-    background: 'linear-gradient(180deg, #f0f4f8 0%, #e8eef5 100%)',
-    bgcolor: '#f0f4f8',
-  }}>
-    <AppHeader />
-    <Box component="main" sx={{
-      flexGrow: 1,
+const AuthenticatedLayout: React.FC = () => {
+  const location = useLocation();
+  const isMeetingPage =
+    location.pathname.startsWith('/techie/lobby/') ||
+    location.pathname.startsWith('/techie/meet/');
+
+  if (isMeetingPage) {
+    return (
+      <Box sx={{ width: '100%', minHeight: '100vh', overflow: 'hidden', bgcolor: '#0a0a0f' }}>
+        <Outlet />
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: '100vh',
       width: '100%',
       maxWidth: '100vw',
       overflowX: 'hidden',
-      pt: `${HEADER_HEIGHT + 16}px`, // 80px - Account for fixed header (64px) + spacing (16px)
-      pb: `${BOTTOM_NAV_HEIGHT + 16}px`, // 96px - Account for fixed bottom nav (80px) + spacing (16px)
+      background: 'linear-gradient(180deg, #f0f4f8 0%, #e8eef5 100%)',
+      bgcolor: '#f0f4f8',
     }}>
-      <Outlet />
+      <AppHeader />
+      <Box component="main" sx={{
+        flexGrow: 1,
+        width: '100%',
+        maxWidth: '100vw',
+        overflowX: 'hidden',
+        pt: `${HEADER_HEIGHT + 16}px`, // 80px - Account for fixed header (64px) + spacing (16px)
+        pb: `${BOTTOM_NAV_HEIGHT + 16}px`, // 96px - Account for fixed bottom nav (80px) + spacing (16px)
+      }}>
+        <Outlet />
+      </Box>
+      <BottomNav />
     </Box>
-    <BottomNav />
-  </Box>
-);
+  );
+};
 
 // Cross-tab password reset listener component
 const PasswordResetListener: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -844,6 +860,16 @@ const AppRoutes: React.FC = () => {
             <Route path="/techie/ats/calendar" element={
               <ProtectedRoute requiredRole="user">
                 <ATSCalendarPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/calendar/callback/google" element={
+              <ProtectedRoute requiredRole="user">
+                <CalendarCallback provider="google" />
+              </ProtectedRoute>
+            } />
+            <Route path="/calendar/callback/microsoft" element={
+              <ProtectedRoute requiredRole="user">
+                <CalendarCallback provider="microsoft" />
               </ProtectedRoute>
             } />
             <Route path="/techie/ats/analytics" element={

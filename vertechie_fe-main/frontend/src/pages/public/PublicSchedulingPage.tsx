@@ -186,6 +186,7 @@ const PublicSchedulingPage: React.FC = () => {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
+  const [confirmedBookingDetails, setConfirmedBookingDetails] = useState<{ video_link?: string | null; start_time?: string; end_time?: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -402,6 +403,17 @@ const PublicSchedulingPage: React.FC = () => {
     return `${displayHour}:${min.toString().padStart(2, '0')} ${ampm}`;
   };
 
+  // Parse YYYY-MM-DD (or ISO with time) as local midnight so range comparison includes the whole day
+  const parseLocalDate = (dateStr: string): Date => {
+    const dateOnly = typeof dateStr === 'string' && dateStr.includes('T') ? dateStr.slice(0, 10) : dateStr;
+    const parts = dateOnly.split('-').map((p) => parseInt(p, 10));
+    const y = parts[0];
+    const m = (parts[1] || 1) - 1;
+    const d = parts[2] || 1;
+    if (Number.isNaN(y) || Number.isNaN(m + 1) || Number.isNaN(d)) return new Date(0);
+    return new Date(y, m, d);
+  };
+
   // Check if a date is available based on constraints
   const isDateAvailable = (date: Date): boolean => {
     if (!linkData) return false;
@@ -409,34 +421,35 @@ const PublicSchedulingPage: React.FC = () => {
     const { constraints } = linkData;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const dateMidnight = new Date(date.getFullYear(), date.getMonth(), date.getDate());
 
-    // Check if date is in the past
-    if (date < today) return false;
+    // Check if date is in the past (before today)
+    if (dateMidnight.getTime() < today.getTime()) return false;
 
-    // Check if it's today (usually not bookable)
-    if (date.toDateString() === today.toDateString()) return false;
+    // Allow today if it's within the availability window (no longer exclude today)
 
-    // Check date range constraints
+    // Check date range constraints using date-only so 3/10–3/17 includes both 10 and 17
     if (constraints.start_date) {
-      const startDate = new Date(constraints.start_date);
-      if (date < startDate) return false;
+      const startDate = parseLocalDate(constraints.start_date);
+      if (dateMidnight.getTime() < startDate.getTime()) return false;
     }
 
     if (constraints.end_date) {
-      const endDate = new Date(constraints.end_date);
-      if (date > endDate) return false;
+      const endDate = parseLocalDate(constraints.end_date);
+      if (dateMidnight.getTime() > endDate.getTime()) return false;
     }
 
     // Check expires_at
     if (constraints.expires_at) {
       const expiresAt = new Date(constraints.expires_at);
-      if (date > expiresAt) return false;
+      if (dateMidnight > expiresAt) return false;
     }
 
-    // Check available days (0=Sun, 1=Mon, etc.)
+    // Check available days (0=Sun, 1=Mon, etc.) — compare as numbers in case API returns strings
     if (constraints.available_days && constraints.available_days.length > 0) {
-      const dayOfWeek = date.getDay();
-      if (!constraints.available_days.includes(dayOfWeek)) return false;
+      const dayOfWeek = (date.getDay() + 6) % 7;
+      const allowed = constraints.available_days.map((d: number | string) => Number(d));
+      if (!allowed.includes(dayOfWeek)) return false;
     }
 
     // Check if there are remaining bookings
@@ -540,6 +553,12 @@ const PublicSchedulingPage: React.FC = () => {
         return;
       }
 
+      const created = await response.json();
+      setConfirmedBookingDetails({
+        video_link: created.video_link ?? null,
+        start_time: created.start_time,
+        end_time: created.end_time,
+      });
       setShowBookingForm(false);
       setBookingConfirmed(true);
     } catch (err) {
@@ -630,7 +649,7 @@ const PublicSchedulingPage: React.FC = () => {
             <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
               {constraints.requires_approval 
                 ? 'Your booking request has been sent. You\'ll receive a confirmation email once approved.'
-                : 'A calendar invitation has been sent to your email.'}
+                : 'A confirmation email has been sent to your inbox with the meeting link. On the scheduled date, use the link below or in the email to join.'}
             </Typography>
             <Paper sx={{ p: 3, bgcolor: alpha(branding.primary_color, 0.03), mb: 3 }}>
               <Typography variant="h6" fontWeight={600} sx={{ mb: 1 }}>{meeting.name}</Typography>
@@ -649,8 +668,26 @@ const PublicSchedulingPage: React.FC = () => {
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 with {host.name}
               </Typography>
+              {confirmedBookingDetails?.video_link && (
+                <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Join meeting (on the scheduled date)</Typography>
+                  <Button
+                    variant="contained"
+                    fullWidth
+                    href={confirmedBookingDetails.video_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    sx={{ bgcolor: branding.primary_color }}
+                  >
+                    Join meeting link
+                  </Button>
+                  <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                    Save this link — you and {host.name} will use it to connect at the booked time.
+                  </Typography>
+                </Box>
+              )}
             </Paper>
-            <Button variant="contained" sx={{ bgcolor: branding.primary_color }} onClick={() => window.location.reload()}>
+            <Button variant="outlined" sx={{ borderColor: branding.primary_color, color: branding.primary_color }} onClick={() => window.location.reload()}>
               Schedule Another Meeting
             </Button>
           </Paper>

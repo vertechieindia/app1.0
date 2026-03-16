@@ -61,6 +61,10 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Background/polling requests: do not redirect to login on 401 so header/nav polling doesn't kick user out
+const isBackgroundPollingRequest = (url?: string) =>
+  !!url && (url.includes('unread-count') || url.includes('notifications/unread-count'));
+
 // Response interceptor - Handle errors and token refresh
 apiClient.interceptors.response.use(
   (response) => response,
@@ -73,6 +77,7 @@ apiClient.interceptors.response.use(
 
       // Check if this is a job creation/update request - handle differently
       const isJobRequest = originalRequest.url?.includes('/jobs');
+      const isPolling = isBackgroundPollingRequest(originalRequest.url);
       
       try {
         const refreshToken = getRefreshToken();
@@ -95,11 +100,12 @@ apiClient.interceptors.response.use(
           clearTokens();
           
           if (isJobRequest) {
-            // Return error instead of redirecting - let the component handle it
             return Promise.reject(new Error('Session expired. Please refresh the page and try again.'));
           }
+          if (isPolling) {
+            return Promise.reject(new Error('Authentication required'));
+          }
           
-          // For other requests, redirect to login
           window.location.href = '/login';
           return Promise.reject(new Error('Authentication required'));
         }
@@ -108,11 +114,12 @@ apiClient.interceptors.response.use(
         clearTokens();
         
         if (isJobRequest) {
-          // Return error instead of redirecting - let the component handle it
           return Promise.reject(new Error('Session expired. Please refresh the page and try again.'));
         }
+        if (isPolling) {
+          return Promise.reject(refreshError);
+        }
         
-        // For other requests, redirect to login
         window.location.href = '/login';
         return Promise.reject(refreshError);
       }

@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 from uuid import UUID, uuid4
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 from sqlalchemy.orm import selectinload
@@ -20,9 +20,63 @@ from app.schemas.job import (
     JobApplicationCreate, JobApplicationResponse,
     SavedJobCreate, ApplicantInfo, JobApplicationWithApplicant
 )
-from app.core.security import get_current_user, get_current_admin_user
+from app.core.security import get_current_user, get_optional_user, get_current_admin_user
 
 router = APIRouter()
+
+# Map user-facing country names to codes used in hiring_countries
+_COUNTRY_TO_CODE = {
+    "us": "US", "usa": "US", "united states": "US", "united states of america": "US",
+    "in": "IN", "india": "IN",
+    "gb": "GB", "uk": "GB", "united kingdom": "GB", "great britain": "GB",
+    "ca": "CA", "canada": "CA",
+}
+
+
+def _user_country_code(country: Optional[str]) -> Optional[str]:
+    if not country or not str(country).strip():
+        return None
+    key = str(country).strip().lower()
+    return _COUNTRY_TO_CODE.get(key) or (key.upper() if len(key) == 2 else None)
+
+
+def _job_visible_to_user(job: Job, user_country_code: Optional[str], user_work_auth: Optional[str]) -> bool:
+    """True if job's hiring_countries/work_authorizations allow this user to see it."""
+    hc = getattr(job, "hiring_countries", None) or []
+    if not hc or not isinstance(hc, list):
+        return True  # no restriction
+    codes = []
+    for c in hc:
+        s = str(c).strip()
+        codes.append(s.upper() if len(s) == 2 else _COUNTRY_TO_CODE.get(s.lower()))
+    codes = [c for c in codes if c]
+    if not codes:
+        return True
+    if user_country_code and user_country_code not in codes:
+        return False
+    wa = getattr(job, "work_authorizations", None) or []
+    if "US" in codes and wa and isinstance(wa, list):
+        if not user_work_auth or user_work_auth.strip() not in [str(x).strip() for x in wa]:
+            return False
+    return True
+
+
+def _allowed_application_status_transition(current_status: ApplicationStatus, requested_status: ApplicationStatus) -> bool:
+    if requested_status == current_status:
+        return True
+
+    allowed: dict[ApplicationStatus, set[ApplicationStatus]] = {
+        ApplicationStatus.SUBMITTED: {ApplicationStatus.UNDER_REVIEW, ApplicationStatus.SHORTLISTED, ApplicationStatus.REJECTED},
+        ApplicationStatus.UNDER_REVIEW: {ApplicationStatus.SHORTLISTED, ApplicationStatus.REJECTED},
+        ApplicationStatus.SHORTLISTED: {ApplicationStatus.INTERVIEW, ApplicationStatus.REJECTED},
+        ApplicationStatus.INTERVIEW: {ApplicationStatus.OFFERED, ApplicationStatus.REJECTED},
+        ApplicationStatus.OFFERED: {ApplicationStatus.ONBOARDING, ApplicationStatus.REJECTED},
+        ApplicationStatus.ONBOARDING: {ApplicationStatus.HIRED, ApplicationStatus.REJECTED},
+        ApplicationStatus.REJECTED: {ApplicationStatus.SHORTLISTED},
+        ApplicationStatus.HIRED: set(),
+        ApplicationStatus.WITHDRAWN: set(),
+    }
+    return requested_status in allowed.get(current_status, set())
 
 
 @router.get("/", response_model=List[JobResponse])
@@ -37,8 +91,9 @@ async def list_jobs(
     location: Optional[str] = Query(None),
     company_id: Optional[UUID] = Query(None),
     posted_by: Optional[UUID] = Query(None),
+    current_user: Optional[User] = Depends(get_optional_user),
 ) -> Any:
-    """List published jobs."""
+    """List published jobs. When user is authenticated, filters by hiring_countries and work_authorizations (USA)."""
     
     if posted_by:
         query = select(Job).where(Job.posted_by_id == posted_by)
@@ -70,8 +125,18 @@ async def list_jobs(
         query = query.where(Job.company_id == company_id)
 
     query = query.order_by(Job.is_featured.desc(), Job.published_at.desc())
-    query = query.offset(skip).limit(limit)
+
+    if current_user is not None and not posted_by:
+        # Fetch more to allow filtering by hiring_countries/work_authorizations, then paginate
+        query = query.offset(0).limit(500)
+        result = await db.execute(query)
+        rows = list(result.scalars().all())
+        user_country_code = _user_country_code(getattr(current_user, "country", None))
+        user_work_auth = (getattr(current_user, "work_authorization", None) or "").strip() or None
+        filtered = [job for job in rows if _job_visible_to_user(job, user_country_code, user_work_auth)]
+        return filtered[skip : skip + limit]
     
+    query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -113,6 +178,7 @@ async def create_job(
 async def apply_to_job(
     job_id: UUID,
     application_in: JobApplicationCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
@@ -212,6 +278,22 @@ async def apply_to_job(
         match_score = 100
     
     # ============= CREATE APPLICATION =============
+    applicant_location_lat = None
+    applicant_location_lng = None
+    applicant_location_ip_snapshot = None
+    applicant_location_consent_at = None
+    if job.collect_applicant_location:
+        lat = application_in.applicant_location_lat
+        lng = application_in.applicant_location_lng
+        if lat is not None and lng is not None:
+            applicant_location_lat = lat
+            applicant_location_lng = lng
+            applicant_location_consent_at = datetime.utcnow()
+            applicant_location_ip_snapshot = {
+                "ip": request.client.host if request.client else None,
+                "captured_at": applicant_location_consent_at.isoformat(),
+            }
+
     application = JobApplication(
         job_id=job_id,
         applicant_id=current_user.id,
@@ -225,6 +307,10 @@ async def apply_to_job(
         match_score=match_score,
         matched_skills=matched_skills,
         missing_skills=missing_skills,
+        applicant_location_lat=applicant_location_lat,
+        applicant_location_lng=applicant_location_lng,
+        applicant_location_ip_snapshot=applicant_location_ip_snapshot,
+        applicant_location_consent_at=applicant_location_consent_at,
     )
     
     db.add(application)
@@ -421,7 +507,22 @@ async def update_application_status(
             detail="Not authorized"
         )
     
-    application.status = ApplicationStatus(new_status)
+    try:
+        requested_status = ApplicationStatus(new_status)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid application status: {new_status}"
+        )
+
+    current_status = application.status or ApplicationStatus.SUBMITTED
+    if not _allowed_application_status_transition(current_status, requested_status):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status transition: {current_status.value} -> {requested_status.value}"
+        )
+
+    application.status = requested_status
     application.reviewed_by_id = current_user.id
     application.reviewed_at = datetime.utcnow()
     if notes:
@@ -676,4 +777,3 @@ async def publish_job(
     await db.commit()
     
     return {"message": "Job published successfully"}
-

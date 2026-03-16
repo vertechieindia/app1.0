@@ -140,15 +140,36 @@ const MyInterviews: React.FC = () => {
     fetchInterviews();
   }, []);
 
+  const resolveInternalMeetingPath = (rawLink: string): string | null => {
+    const link = String(rawLink || '').trim();
+    if (!link) return null;
+    const normalizePath = (path: string) => {
+      if (path.startsWith('/techie/lobby/') || path.startsWith('/techie/meet/')) return path;
+      if (path.startsWith('/lobby/') || path.startsWith('/meet/')) return `/techie${path}`;
+      return '';
+    };
+    try {
+      const url = new URL(link, window.location.origin);
+      const normalizedPath = normalizePath(url.pathname);
+      if (!normalizedPath) return null;
+      return `${normalizedPath}${url.search}${url.hash}`;
+    } catch {
+      const normalizedPath = normalizePath(link);
+      if (normalizedPath) return normalizedPath;
+      return null;
+    }
+  };
+
   const handleJoinInterview = (interview: Interview, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (interview.meeting_link) {
-      // Extract room ID from meeting link and navigate to lobby
-      if (interview.meeting_link.includes('/techie/lobby/')) {
-        window.location.href = interview.meeting_link;
-      } else {
-        window.open(interview.meeting_link, '_blank');
+    const link = String(interview.meeting_link || '').trim();
+    if (link) {
+      const internalPath = resolveInternalMeetingPath(link);
+      if (internalPath) {
+        navigate(internalPath);
+        return;
       }
+      window.open(link, '_blank', 'noopener,noreferrer');
     }
   };
 
