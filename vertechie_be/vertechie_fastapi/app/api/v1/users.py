@@ -6,6 +6,7 @@ from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func, update
 from pydantic import BaseModel
@@ -826,7 +827,8 @@ async def get_my_company(
     company = companies[0] if companies else None
     
     if not company:
-        return None
+        # Return 200 with null so frontend always gets valid JSON (avoids 204 and 404 confusion)
+        return JSONResponse(status_code=200, content=None)
     
     return {
         "id": str(company.id),
@@ -923,7 +925,8 @@ async def get_my_school(
         await db.refresh(school)
         return _school_to_response(school)
 
-    return None
+    # Return 200 with null so frontend always gets valid JSON (avoids 204 and 404 confusion)
+    return JSONResponse(status_code=200, content=None)
 
 
 # ============= Gamification & Activity =============
