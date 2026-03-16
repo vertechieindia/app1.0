@@ -122,16 +122,14 @@ export const calendarService = {
    * Create a new meeting type
    */
   createMeetingType: async (data: CreateMeetingTypeData): Promise<MeetingType> => {
-    const res = await api.post<MeetingType>(API_ENDPOINTS.CALENDAR.CREATE_MEETING_TYPE, data);
-    return res.data ?? res;
+    return api.post<MeetingType>(API_ENDPOINTS.CALENDAR.CREATE_MEETING_TYPE, data);
   },
 
   /**
    * Update a meeting type
    */
   updateMeetingType: async (id: string, data: Partial<CreateMeetingTypeData>): Promise<MeetingType> => {
-    const res = await api.put<MeetingType>(API_ENDPOINTS.CALENDAR.MEETING_TYPE_BY_ID(id), data);
-    return res.data ?? res;
+    return api.put<MeetingType>(API_ENDPOINTS.CALENDAR.MEETING_TYPE_BY_ID(id), data);
   },
 
   /**
@@ -152,16 +150,14 @@ export const calendarService = {
    * Create a new scheduling link
    */
   createSchedulingLink: async (data: CreateSchedulingLinkData): Promise<{ token: string; message: string } & SchedulingLink> => {
-    const res = await api.post(API_ENDPOINTS.CALENDAR.CREATE_SCHEDULING_LINK, data);
-    return res.data ?? res;
+    return api.post<{ token: string; message: string } & SchedulingLink>(API_ENDPOINTS.CALENDAR.CREATE_SCHEDULING_LINK, data);
   },
 
   /**
    * Update a scheduling link
    */
   updateSchedulingLink: async (id: string, data: Partial<CreateSchedulingLinkData>): Promise<SchedulingLink> => {
-    const res = await api.put<SchedulingLink>(API_ENDPOINTS.CALENDAR.SCHEDULING_LINK_BY_ID(id), data);
-    return res.data ?? res;
+    return api.put<SchedulingLink>(API_ENDPOINTS.CALENDAR.SCHEDULING_LINK_BY_ID(id), data);
   },
 
   /**
