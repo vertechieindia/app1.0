@@ -4,6 +4,7 @@
  */
 
 import { API_BASE_URL } from '../config/api';
+import { api } from './apiClient';
 
 // Types
 export interface InterviewCreate {
@@ -193,10 +194,15 @@ export const notificationService = {
   },
 
   /**
-   * Get unread notification count
+   * Get unread notification count (uses shared api client for auth and base URL consistency).
+   * Returns { unread_count: 0 } on 404/error so header/nav never break.
    */
   getUnreadCount: async (): Promise<{ unread_count: number }> => {
-    return apiRequest('/hiring/notifications/unread-count');
+    try {
+      return await api.get<{ unread_count: number }>('/hiring/notifications/unread-count');
+    } catch {
+      return { unread_count: 0 };
+    }
   },
 
   /**

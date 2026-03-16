@@ -98,8 +98,14 @@ const Login = () => {
           },
         });
         if (cancelled || !response.ok) return;
-        const userData = await response.json();
-        if (cancelled || !isUserVerified(userData)) return;
+        const text = await response.text();
+        let userData: any;
+        try {
+          userData = text ? JSON.parse(text) : null;
+        } catch {
+          return;
+        }
+        if (cancelled || !userData || !isUserVerified(userData)) return;
         localStorage.setItem('userData', JSON.stringify(userData));
         if (safeNextPath) {
           navigate(safeNextPath, { replace: true });
@@ -140,13 +146,31 @@ const Login = () => {
         }),
       });
 
-      const data: any = await response.json();
+      let data: any;
+      const contentType = response.headers.get('content-type') || '';
+      try {
+        const text = await response.text();
+        if (contentType.includes('application/json') && text) {
+          data = JSON.parse(text);
+        } else if (!response.ok && text) {
+          data = { detail: response.status === 404 ? 'Login endpoint not found. Is the backend running?' : 'Request failed.' };
+        } else {
+          data = {};
+        }
+      } catch {
+        data = {};
+        if (response.status === 404) {
+          setError('Login service unavailable (404). Please ensure the backend is running.');
+          setLoading(false);
+          return;
+        }
+      }
 
       if (!response.ok) {
-        const errorMessage = 
-          data.detail || 
-          data.message || 
-          data.error || 
+        const errorMessage =
+          data.detail ||
+          data.message ||
+          data.error ||
           (typeof data === 'string' ? data : 'Login failed. Please check your credentials.');
         Logger.apiError('TOKEN', response.status, data, 'Login');
         setError(errorMessage);

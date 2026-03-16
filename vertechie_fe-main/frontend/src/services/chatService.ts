@@ -117,10 +117,15 @@ export const chatService = {
   },
 
   /**
-   * Get total unread message count across all conversations
+   * Get total unread message count across all conversations.
+   * Returns { unread_count: 0 } on error so header/nav never break (avoids 404 surfacing).
    */
   getUnreadCount: async (): Promise<{ unread_count: number }> => {
-    return api.get(API_ENDPOINTS.CHAT.UNREAD_COUNT);
+    try {
+      return await api.get<{ unread_count: number }>(API_ENDPOINTS.CHAT.UNREAD_COUNT);
+    } catch {
+      return { unread_count: 0 };
+    }
   },
 
   /**
