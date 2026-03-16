@@ -155,8 +155,7 @@ const BottomNav: React.FC = () => {
     try {
       const data = await notificationService.getUnreadCount();
       setNotifications(data.unread_count || 0);
-    } catch (error) {
-      console.error('Failed to fetch notification count:', error);
+    } catch {
       setNotifications(0);
     }
   };
@@ -174,14 +173,10 @@ const BottomNav: React.FC = () => {
       consecutive404.current = 0;
     } catch (error: any) {
       const status = error?.response?.status;
-      console.warn('Failed to fetch message count:', error?.message || error);
       setMessages(0);
       if (status === 404) {
         consecutive404.current += 1;
-        if (consecutive404.current > 3) {
-          setStopMessagePolling(true);
-          console.warn('Stopping unread-count polling after repeated 404s');
-        }
+        if (consecutive404.current > 3) setStopMessagePolling(true);
       }
     }
   };

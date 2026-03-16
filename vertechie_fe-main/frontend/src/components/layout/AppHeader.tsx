@@ -238,8 +238,7 @@ const AppHeader = () => {
     try {
       const data = await notificationService.getUnreadCount();
       setNotifications(data.unread_count || 0);
-    } catch (error) {
-      console.error('Failed to fetch notification count:', error);
+    } catch {
       setNotifications(0);
     }
   };
@@ -248,8 +247,7 @@ const AppHeader = () => {
     try {
       const data = await chatService.getUnreadCount();
       setMessages(data.unread_count || 0);
-    } catch (error) {
-      console.error('Failed to fetch message count:', error);
+    } catch {
       setMessages(0);
     }
   };
