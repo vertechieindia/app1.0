@@ -43,6 +43,7 @@ class UserSuggestion(BaseModel):
     name: str
     title: Optional[str]
     company: Optional[str]
+    location: Optional[str] = None
     avatar_url: Optional[str]
     mutual_connections: int
     is_verified: bool
@@ -188,8 +189,13 @@ async def get_people_suggestions(
     current_user: User = Depends(get_current_user),
     limit: int = Query(10, ge=1, le=50),
     offset: int = Query(0, ge=0),
+    name: Optional[str] = Query(None, description="Search by first or last name"),
+    country: Optional[str] = Query(None, description="Filter by country"),
+    location: Optional[str] = Query(None, description="Filter by location (city/region)"),
+    company: Optional[str] = Query(None, description="Filter by company name"),
+    job_title: Optional[str] = Query(None, description="Filter by job title / headline"),
 ) -> Any:
-    """Get people you may want to connect with."""
+    """Get people you may want to connect with. Supports search by name and filters by country, location, company, job title."""
     
     # Get current connections
     result = await db.execute(
@@ -217,13 +223,33 @@ async def get_people_suggestions(
     # Exclude current user, connections, and blocked
     exclude_ids = [current_user.id] + connected_ids + blocked_ids
     
-    # Find users with similar interests (simplified - would use ML in production)
+    # Find users with similar interests; apply search and filters
     query = select(User, UserProfile).outerjoin(UserProfile, User.id == UserProfile.user_id)
     
     if exclude_ids:
         query = query.where(User.id.notin_(exclude_ids))
     
     query = query.where(User.is_active == True)
+    
+    # Optional filters
+    if name and name.strip():
+        term = f"%{name.strip()}%"
+        query = query.where(or_(
+            User.first_name.ilike(term),
+            User.last_name.ilike(term),
+        ))
+    if country and country.strip():
+        query = query.where(User.country.ilike(f"%{country.strip()}%"))
+    if location and location.strip():
+        query = query.where(UserProfile.location.ilike(f"%{location.strip()}%"))
+    if company and company.strip():
+        query = query.where(UserProfile.current_company.ilike(f"%{company.strip()}%"))
+    if job_title and job_title.strip():
+        query = query.where(or_(
+            UserProfile.headline.ilike(f"%{job_title.strip()}%"),
+            UserProfile.current_position.ilike(f"%{job_title.strip()}%"),
+        ))
+    
     query = query.order_by(desc(User.created_at), desc(User.id))
     query = query.offset(offset)
     query = query.limit(limit)
@@ -252,6 +278,7 @@ async def get_people_suggestions(
             name=f"{user.first_name} {user.last_name}",
             title=profile.headline if profile else None,
             company=profile.current_company if profile else None,
+            location=profile.location if profile else None,
             avatar_url=profile.avatar_url if profile else None,
             mutual_connections=mutual_count,
             is_verified=user.is_verified if hasattr(user, 'is_verified') else False,

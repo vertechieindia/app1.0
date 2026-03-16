@@ -11,8 +11,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { fetchWithAuth } from '../../utils/apiInterceptor';
-import { getApiUrl } from '../../config/api';
+import { api } from '../../services/apiClient';
 import {
   Box,
   Typography,
@@ -173,6 +172,7 @@ const MeetingLobby: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [permissionError, setPermissionError] = useState<'system' | 'user' | 'unknown' | null>(null);
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [userName, setUserName] = useState('John Doe');
 
   // Meeting info from URL params (fallbacks until API loads)
@@ -183,6 +183,7 @@ const MeetingLobby: React.FC = () => {
   const [candidateName, setCandidateName] = useState<string | null>(null);
   const [jobTitle, setJobTitle] = useState<string | null>(null);
   const [interviewTypeLabel, setInterviewTypeLabel] = useState<string | null>(null);
+  const [participantCount, setParticipantCount] = useState<number | null>(null);
 
   const interviewId = searchParams.get('interviewId') || roomId || '';
   const isUuidInterviewId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(interviewId);
@@ -192,35 +193,57 @@ const MeetingLobby: React.FC = () => {
     if (titleFromUrl) setMeetingTitle(titleFromUrl);
   }, [titleFromUrl]);
 
-  // Fetch real interview details when joining from ATS
+  // Load current user display name from localStorage so lobby shows real name
+  useEffect(() => {
+    try {
+      const userDataStr = localStorage.getItem('userData');
+      if (userDataStr) {
+        const user = JSON.parse(userDataStr);
+        const first = user.first_name || '';
+        const last = user.last_name || '';
+        const name = `${first} ${last}`.trim() || user.email?.split('@')[0] || 'You';
+        setUserName(name);
+      }
+    } catch {
+      // keep default
+    }
+  }, []);
+
+  // Fetch real interview details when joining from ATS (uses api client so 401 triggers refresh-token and retry, not immediate redirect to login)
   useEffect(() => {
     if (!interviewId || !isUuidInterviewId || meetingType !== 'interview') return;
     const fetchInterview = async () => {
       try {
-        const response = await fetchWithAuth(getApiUrl(`/hiring/interviews/${interviewId}`));
-        if (response.ok) {
-          const data = await response.json();
-          const candidate = data.candidate_name || 'Candidate';
-          const job = data.job_title || null;
-          const typeVal = data.interview_type;
-          const label = typeVal ? String(typeVal).replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) : null;
-          setMeetingTitle(`${label || 'Interview'} - ${candidate}`);
-          setCandidateName(candidate);
-          setJobTitle(job);
-          setInterviewTypeLabel(label);
-          if (data.scheduled_at) {
-            try {
-              let dateStr = data.scheduled_at;
-              if (typeof dateStr === 'string' && !dateStr.includes('Z') && !dateStr.includes('+')) {
-                dateStr = dateStr.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
-              }
-              const d = new Date(dateStr);
-              if (!Number.isNaN(d.getTime())) {
-                setMeetingTime(d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
-              }
-            } catch {
-              setMeetingTime('');
+        const data = await api.get<{
+          candidate_name?: string;
+          job_title?: string | null;
+          interview_type?: string;
+          scheduled_at?: string;
+          interviewers?: string[];
+        }>(`/hiring/interviews/${interviewId}`);
+        const candidate = data.candidate_name || 'Candidate';
+        const job = data.job_title || null;
+        const typeVal = data.interview_type;
+        const label = typeVal ? String(typeVal).replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) : null;
+        setMeetingTitle(`${label || 'Interview'} - ${candidate}`);
+        setCandidateName(candidate);
+        setJobTitle(job);
+        setInterviewTypeLabel(label);
+        // Real participant count: 1 candidate + number of interviewers
+        const interviewerCount = Array.isArray(data.interviewers) ? data.interviewers.length : 1;
+        setParticipantCount(1 + interviewerCount);
+        if (data.scheduled_at) {
+          try {
+            let dateStr = data.scheduled_at;
+            if (typeof dateStr === 'string' && !dateStr.includes('Z') && !dateStr.includes('+')) {
+              dateStr = dateStr.replace(' ', 'T').replace(/\.000000$/, '') + 'Z';
             }
+            const d = new Date(dateStr);
+            if (!Number.isNaN(d.getTime())) {
+              setMeetingTime(d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+            }
+          } catch {
+            setMeetingTime('');
           }
         }
       } catch (err) {
@@ -345,6 +368,13 @@ const MeetingLobby: React.FC = () => {
     }
     setIsVideoOff(!isVideoOff);
   };
+
+  // When camera is turned back on, the <video> element is re-mounted and needs the stream reattached
+  useEffect(() => {
+    if (!isVideoOff && stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [isVideoOff, stream]);
 
   const testAudio = () => {
     setIsTestingAudio(true);
@@ -520,7 +550,7 @@ const MeetingLobby: React.FC = () => {
                 </ControlButton>
               </Tooltip>
               <Tooltip title="Settings">
-                <ControlButton>
+                <ControlButton onClick={() => setShowSettingsDialog(true)}>
                   <SettingsIcon />
                 </ControlButton>
               </Tooltip>
@@ -578,11 +608,16 @@ const MeetingLobby: React.FC = () => {
               </Grid>
             </Grid>
 
-            {/* Virtual Backgrounds */}
+            {/* Virtual Backgrounds - options with real labels from config */}
             <Box sx={{ mt: 3 }}>
               <Typography variant="subtitle2" sx={{ color: 'rgba(255,255,255,0.7)', mb: 1.5 }}>
                 Virtual Background
               </Typography>
+              {selectedBackground && (
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', mb: 1, display: 'block' }}>
+                  Selected: {virtualBackgrounds.find(b => b.id === selectedBackground)?.label ?? selectedBackground}
+                </Typography>
+              )}
               <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
                 {virtualBackgrounds.map((bg) => (
                   <Tooltip key={bg.id} title={bg.label}>
@@ -644,14 +679,12 @@ const MeetingLobby: React.FC = () => {
                       </Typography>
                     </Box>
                   )}
-                  {!candidateName && !jobTitle && (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <GroupsIcon sx={{ color: 'rgba(255,255,255,0.5)' }} />
-                      <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                        2 participants expected
-                      </Typography>
-                    </Box>
-                  )}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <GroupsIcon sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                      {participantCount != null ? `${participantCount} participants expected` : '2 participants expected'}
+                    </Typography>
+                  </Box>
                 </Box>
 
                 <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.1)' }} />
@@ -784,6 +817,100 @@ const MeetingLobby: React.FC = () => {
             sx={{ borderRadius: 2 }}
           >
             Refresh Page
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Settings Dialog - device selection and permission help */}
+      <Dialog
+        open={showSettingsDialog}
+        onClose={() => setShowSettingsDialog(false)}
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            background: '#1a1a2e',
+            color: 'white',
+            border: '1px solid rgba(255,255,255,0.1)',
+            minWidth: 360
+          }
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SettingsIcon color="primary" />
+          Settings
+        </DialogTitle>
+        <DialogContent dividers sx={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+          <Typography variant="subtitle2" sx={{ color: 'rgba(255,255,255,0.8)', mb: 2 }}>
+            Camera, microphone & speaker
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <DeviceSelect fullWidth size="small">
+                <InputLabel>Microphone</InputLabel>
+                <Select
+                  value={selectedAudioDevice}
+                  onChange={(e) => setSelectedAudioDevice(e.target.value)}
+                  label="Microphone"
+                >
+                  {audioDevices.map((device) => (
+                    <MenuItem key={device.deviceId} value={device.deviceId}>
+                      {device.label || 'Microphone'}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </DeviceSelect>
+            </Grid>
+            <Grid item xs={12}>
+              <DeviceSelect fullWidth size="small">
+                <InputLabel>Camera</InputLabel>
+                <Select
+                  value={selectedVideoDevice}
+                  onChange={(e) => setSelectedVideoDevice(e.target.value)}
+                  label="Camera"
+                >
+                  {videoDevices.map((device) => (
+                    <MenuItem key={device.deviceId} value={device.deviceId}>
+                      {device.label || 'Camera'}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </DeviceSelect>
+            </Grid>
+            <Grid item xs={12}>
+              <DeviceSelect fullWidth size="small">
+                <InputLabel>Speaker</InputLabel>
+                <Select
+                  value={selectedSpeaker}
+                  onChange={(e) => setSelectedSpeaker(e.target.value)}
+                  label="Speaker"
+                >
+                  {speakerDevices.map((device) => (
+                    <MenuItem key={device.deviceId} value={device.deviceId}>
+                      {device.label || 'Speaker'}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </DeviceSelect>
+            </Grid>
+          </Grid>
+          <Box sx={{ mt: 2 }}>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<SecurityIcon />}
+              onClick={() => {
+                setShowSettingsDialog(false);
+                setShowPermissionDialog(true);
+              }}
+              sx={{ color: 'rgba(255,255,255,0.9)', borderColor: 'rgba(255,255,255,0.3)' }}
+            >
+              Troubleshoot camera / microphone
+            </Button>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShowSettingsDialog(false)} sx={{ color: 'white' }}>
+            Close
           </Button>
         </DialogActions>
       </Dialog>

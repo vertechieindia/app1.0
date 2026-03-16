@@ -49,6 +49,7 @@ class ApplicationStatus(str, enum.Enum):
     SHORTLISTED = "shortlisted"
     INTERVIEW = "interview"
     OFFERED = "offered"
+    ONBOARDING = "onboarding"
     HIRED = "hired"
     REJECTED = "rejected"
     WITHDRAWN = "withdrawn"
@@ -105,10 +106,18 @@ class Job(Base, UUIDMixin, TimestampMixin):
     # Visibility
     is_internal = Column(Boolean, default=False)  # Company internal only
     requires_cover_letter = Column(Boolean, default=False)
+    # Hiring: job visible only to techies from these countries (e.g. ["US", "IN"])
+    hiring_countries = Column(JSON, default=list)
+    # When USA in hiring_countries: accepted work authorizations (e.g. ["H1B", "Green Card"])
+    work_authorizations = Column(JSON, default=list)
+    # Is this role open for sponsorship? (Yes/No)
+    open_for_sponsorship = Column(Boolean, nullable=True)
     
     # Application
     external_apply_url = Column(String(500), nullable=True)
     application_deadline = Column(Date, nullable=True)
+    # If True, applicants are asked for permission to share current location at apply time
+    collect_applicant_location = Column(Boolean, default=False)
     
     # Assessment Questions
     coding_questions = Column(JSON, default=list)
@@ -161,6 +170,12 @@ class JobApplication(Base, UUIDMixin, TimestampMixin):
     matched_skills = Column(JSON, default=list)  # Skills that matched
     missing_skills = Column(JSON, default=list)  # Required skills applicant lacks
     
+    # Applicant location (captured only at submission if job.collect_applicant_location and user consented; read-only)
+    applicant_location_lat = Column(Float, nullable=True)
+    applicant_location_lng = Column(Float, nullable=True)
+    applicant_location_ip_snapshot = Column(JSON, nullable=True)  # e.g. {"ip": "...", "captured_at": "ISO"}
+    applicant_location_consent_at = Column(DateTime, nullable=True)
+    
     # Timestamps
     submitted_at = Column(DateTime, default=datetime.utcnow)
     
@@ -183,4 +198,3 @@ class SavedJob(Base, UUIDMixin, TimestampMixin):
     # Relationships
     user = relationship("User", backref="saved_jobs")
     job = relationship("Job", backref="saves")
-

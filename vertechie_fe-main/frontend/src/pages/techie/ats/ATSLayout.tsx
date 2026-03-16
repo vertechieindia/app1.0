@@ -231,7 +231,7 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
             newThisWeek += 1;
           }
           const status = String(app.status || '').toLowerCase();
-          if (status === 'hired' || status === 'offer' || status === 'offered' || status === 'selected') {
+          if (status === 'hired' || status === 'offer' || status === 'offered' || status === 'onboarding' || status === 'selected') {
             offersExtended += 1;
           }
         });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 
 type UserRole = 'superadmin' | 'admin' | 'user' | 'hr' | 'techie';
 
@@ -45,13 +45,16 @@ const hasRole = (userData: UserData, role: string): boolean => {
  * Protects routes based on authentication and user role
  */
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole }) => {
+  const location = useLocation();
   // Check if user is authenticated
   const authToken = localStorage.getItem('authToken');
   const userDataString = localStorage.getItem('userData');
+  const nextUrl = `${location.pathname}${location.search}${location.hash}`;
+  const loginUrl = `/login?next=${encodeURIComponent(nextUrl)}`;
 
   // Not logged in - redirect to login
   if (!authToken || !userDataString) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={loginUrl} replace />;
   }
 
   // Parse user data
@@ -63,7 +66,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole 
     localStorage.removeItem('authToken');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('userData');
-    return <Navigate to="/login" replace />;
+    return <Navigate to={loginUrl} replace />;
   }
 
   // Check role-based access

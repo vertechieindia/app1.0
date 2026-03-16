@@ -266,6 +266,7 @@ interface UserData {
   first_name: string;
   last_name: string;
   middle_name?: string;
+  profile_name?: string;
   username?: string;
   vertechie_id?: string;
   phone?: string;
@@ -642,6 +643,7 @@ const ProfilePage: React.FC = () => {
             first_name: userData.first_name,
             last_name: userData.last_name,
             middle_name: userData.middle_name,
+            profile_name: userData.profile_name,
             username: userData.username,
             vertechie_id: userData.vertechie_id,
             phone: userData.phone,
@@ -683,6 +685,7 @@ const ProfilePage: React.FC = () => {
               first_name: parsedUser.first_name,
               last_name: parsedUser.last_name,
               middle_name: parsedUser.middle_name,
+              profile_name: parsedUser.profile_name,
               username: parsedUser.username,
               vertechie_id: parsedUser.vertechie_id,
               phone: parsedUser.phone,
@@ -904,12 +907,18 @@ const ProfilePage: React.FC = () => {
   };
 
   // Derived data for display
+  const preferredProfileName = user?.profile_name?.trim() || '';
+  const fallbackFirstName = user?.first_name || 'User';
+  const fallbackLastName = user?.last_name || '';
+  const displayNameParts = preferredProfileName
+    ? preferredProfileName.split(/\s+/).filter(Boolean)
+    : [fallbackFirstName, fallbackLastName].filter(Boolean);
   const displayUser = {
     id: user?.id || '',
     username: user?.username || user?.email?.split('@')[0] || 'user',
     vertechieId: user?.vertechie_id || '',
-    firstName: user?.first_name || 'User',
-    lastName: user?.last_name || '',
+    firstName: displayNameParts[0] || 'User',
+    lastName: displayNameParts.slice(1).join(' '),
     title: getDisplayTitle(),
     tagline: profile?.bio || (isHiringManager
       ? `${profile?.current_company ? `@ ${profile.current_company}` : 'Finding great talent'} 💼`

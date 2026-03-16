@@ -324,6 +324,26 @@ const InterviewsPage: React.FC = () => {
     fetchInterviews();
   }, []);
 
+  const resolveInternalMeetingPath = (rawLink?: string): string | null => {
+    const link = String(rawLink || '').trim();
+    if (!link) return null;
+    const normalizePath = (path: string) => {
+      if (path.startsWith('/techie/lobby/') || path.startsWith('/techie/meet/')) return path;
+      if (path.startsWith('/lobby/') || path.startsWith('/meet/')) return `/techie${path}`;
+      return '';
+    };
+    try {
+      const url = new URL(link, window.location.origin);
+      const normalizedPath = normalizePath(url.pathname);
+      if (!normalizedPath) return null;
+      return `${normalizedPath}${url.search}${url.hash}`;
+    } catch {
+      const normalizedPath = normalizePath(link);
+      if (normalizedPath) return normalizedPath;
+      return null;
+    }
+  };
+
   const fetchInterviews = async () => {
     try {
       setLoading(true);
@@ -479,11 +499,12 @@ const InterviewsPage: React.FC = () => {
   const handleJoinMeeting = (interview: any) => {
     const meetingLink = interview.meetingLink || interview.meeting_link;
     if (meetingLink) {
-      if (meetingLink.startsWith('/')) {
-        navigate(meetingLink);
-      } else {
-        window.open(meetingLink, '_blank');
+      const internalPath = resolveInternalMeetingPath(meetingLink);
+      if (internalPath) {
+        navigate(internalPath);
+        return;
       }
+      window.open(meetingLink, '_blank', 'noopener,noreferrer');
     }
   };
 
@@ -849,11 +870,11 @@ const InterviewsPage: React.FC = () => {
                       }}
                       onClick={() => {
                         if (interview.meetingLink) {
-                          // Use navigate for internal VerTechie Meet links
-                          if (interview.meetingLink.startsWith('/')) {
-                            navigate(interview.meetingLink);
+                          const internalPath = resolveInternalMeetingPath(interview.meetingLink);
+                          if (internalPath) {
+                            navigate(internalPath);
                           } else {
-                            window.open(interview.meetingLink, '_blank');
+                            window.open(interview.meetingLink, '_blank', 'noopener,noreferrer');
                           }
                         } else {
                           setSnackbar({ open: true, message: 'No meeting link available', severity: 'info' });

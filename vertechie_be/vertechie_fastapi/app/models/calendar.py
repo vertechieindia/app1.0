@@ -56,9 +56,61 @@ class CalendarConnection(Base, UUIDMixin, TimestampMixin):
     # Sync settings
     sync_enabled = Column(Boolean, default=True)
     last_synced_at = Column(DateTime, nullable=True)
+    sync_status = Column(String(50), nullable=True)  # idle, syncing, error
+    last_sync_error = Column(Text, nullable=True)
+    # Google: sync token for incremental changes
+    sync_token = Column(Text, nullable=True)
+    watch_expires_at = Column(DateTime, nullable=True)
+    # Microsoft: subscription for change notifications
+    subscription_id = Column(String(255), nullable=True)
+    subscription_expires_at = Column(DateTime, nullable=True)
     
     # Relationships
     user = relationship("User", backref="calendar_connections")
+    sync_mappings = relationship("CalendarSyncMapping", back_populates="connection", cascade="all, delete-orphan")
+
+
+class CalendarEventSource(str, enum.Enum):
+    """Who created or last updated the event (loop prevention)."""
+    APP = "app"
+    GOOGLE = "google"
+    MICROSOFT = "microsoft"
+
+
+class CalendarBlock(Base, UUIDMixin, TimestampMixin):
+    """Internal calendar block (blocked slot) - can originate from app or be synced from Google/Microsoft."""
+    __tablename__ = "calendar_blocks"
+    
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    title = Column(String(500), nullable=False, default="Busy")
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    # Loop prevention: source and last updater
+    source = Column(String(20), nullable=False, default="app")  # app, google, microsoft
+    last_updated_by = Column(String(20), nullable=True)  # app, google, microsoft
+    # Version from external provider (etag / changeKey) to skip re-pushing same change
+    external_version = Column(String(255), nullable=True)
+    is_deleted = Column(Boolean, default=False)
+    
+    user = relationship("User", backref="calendar_blocks")
+    sync_mappings = relationship("CalendarSyncMapping", back_populates="internal_event", cascade="all, delete-orphan")
+
+
+class CalendarSyncMapping(Base, TimestampMixin):
+    """Maps internal calendar block to external provider event."""
+    __tablename__ = "calendar_sync_mappings"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    connection_id = Column(UUID(as_uuid=True), ForeignKey("calendar_connections.id"), nullable=False)
+    internal_event_id = Column(UUID(as_uuid=True), ForeignKey("calendar_blocks.id"), nullable=False)
+    provider = Column(Enum(CalendarProvider), nullable=False)
+    external_event_id = Column(String(500), nullable=False, index=True)
+    etag = Column(String(255), nullable=True)  # Google
+    change_key = Column(String(255), nullable=True)  # Microsoft
+    last_synced_at = Column(DateTime, nullable=True)
+    
+    connection = relationship("CalendarConnection", back_populates="sync_mappings")
+    internal_event = relationship("CalendarBlock", back_populates="sync_mappings", foreign_keys=[internal_event_id])
 
 
 class AvailabilitySchedule(Base, UUIDMixin, TimestampMixin):

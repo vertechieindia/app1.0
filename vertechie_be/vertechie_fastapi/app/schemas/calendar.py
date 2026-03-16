@@ -35,6 +35,18 @@ class MeetingTypeCreate(BaseModel):
     custom_questions: List[dict] = []
 
 
+class MeetingTypeUpdate(BaseModel):
+    """Meeting type update (partial)."""
+    
+    name: Optional[str] = None
+    description: Optional[str] = None
+    color: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    location_type: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_public: Optional[bool] = None
+
+
 class MeetingTypeResponse(BaseModel):
     """Meeting type response."""
     
@@ -115,6 +127,23 @@ class SchedulingLinkCreate(BaseModel):
     requires_approval: bool = False
 
 
+class SchedulingLinkUpdate(BaseModel):
+    """Scheduling link update (partial)."""
+    
+    meeting_type_id: Optional[UUID] = None
+    name: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    available_days: Optional[List[int]] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+    buffer_before: Optional[int] = None
+    buffer_after: Optional[int] = None
+    max_bookings: Optional[int] = None
+    requires_approval: Optional[bool] = None
+
+
 class SchedulingLinkResponse(BaseModel):
     """Scheduling link response."""
     
@@ -122,14 +151,18 @@ class SchedulingLinkResponse(BaseModel):
     user_id: UUID
     token: str
     name: Optional[str] = None
+    meeting_type_id: Optional[UUID] = None
     
     duration_minutes: int
     available_days: List[int]
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
     
     max_bookings: Optional[int] = None
     bookings_count: int = 0
+    requires_approval: bool = False
     
     is_active: bool
     

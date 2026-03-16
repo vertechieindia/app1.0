@@ -93,8 +93,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import CancelIcon from '@mui/icons-material/Cancel';
 import LinkIcon from '@mui/icons-material/Link';
-import { fetchWithAuth } from '../../utils/apiInterceptor';
-import { getApiUrl } from '../../config/api';
+import { api } from '../../services/apiClient';
 
 // Animations
 const pulse = keyframes`
@@ -260,6 +259,17 @@ interface InterviewNote {
   category: 'technical' | 'behavioral' | 'general';
 }
 
+type CaptionRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: any) => void) | null;
+  onerror: ((event: any) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
 // Default: just local user until real interview data loads
 const defaultParticipants: Participant[] = [
   { id: '1', name: 'You', isMuted: false, isVideoOff: false, isScreenSharing: false, isSpeaking: false, isHost: true, handRaised: false, role: 'interviewer' },
@@ -275,6 +285,7 @@ const VideoRoom: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const captionRecognitionRef = useRef<CaptionRecognition | null>(null);
 
   const titleFromUrl = searchParams.get('title') ? decodeURIComponent(searchParams.get('title')!) : '';
 
@@ -304,6 +315,17 @@ const VideoRoom: React.FC = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
   const [moreMenuAnchor, setMoreMenuAnchor] = useState<null | HTMLElement>(null);
   const [reactionMenuAnchor, setReactionMenuAnchor] = useState<null | HTMLElement>(null);
+  const [captionsEnabled, setCaptionsEnabled] = useState(false);
+  const [liveCaption, setLiveCaption] = useState('');
+  const [captionError, setCaptionError] = useState('');
+  const [virtualBackground, setVirtualBackground] = useState<'none' | 'blur' | 'dim'>('none');
+  const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
+  const [videoInputs, setVideoInputs] = useState<MediaDeviceInfo[]>([]);
+  const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMic, setSelectedMic] = useState('');
+  const [selectedCam, setSelectedCam] = useState('');
+  const [selectedSpeaker, setSelectedSpeaker] = useState('');
+  const [speakerVolume, setSpeakerVolume] = useState(80);
 
   const meetingType = searchParams.get('type') || 'interview';
   const isInterview = meetingType === 'interview';
@@ -317,53 +339,79 @@ const VideoRoom: React.FC = () => {
     setMeetingTypeLabel(isInterview ? 'Interview' : 'Meeting');
   }, [titleFromUrl, isInterview]);
 
-  // Fetch initial interview details and set real participants, title, type
+  // Fetch initial interview details and set real participants (current user + opposite), title, type
   useEffect(() => {
     const fetchInterviewDetails = async () => {
       if (!interviewId || !isUuidInterviewId) return;
       try {
-        const url = getApiUrl(`/hiring/interviews/${interviewId}`);
-        const response = await fetchWithAuth(url);
-        if (response.ok) {
-          const data = await response.json();
-          const candidateName = data.candidate_name || 'Candidate';
-          const typeLabel = data.interview_type ? formatInterviewType(String(data.interview_type)) : 'Interview';
-          setMeetingTitle(`${typeLabel} - ${candidateName}`);
-          setMeetingTypeLabel(typeLabel);
+        const data = await api.get<{
+          candidate_id?: string;
+          candidate_name?: string;
+          candidate_avatar?: string;
+          interview_type?: string;
+          interviewers?: string[];
+          notes?: string;
+          updated_at?: string;
+          created_at?: string;
+        }>(`/hiring/interviews/${interviewId}`);
 
-          const self: Participant = {
-            id: '1',
-            name: 'You',
-            isMuted: false,
-            isVideoOff: false,
-            isScreenSharing: false,
-            isSpeaking: false,
-            isHost: true,
-            handRaised: false,
-            role: 'interviewer',
-          };
-          const candidate: Participant = {
-            id: data.candidate_id || 'candidate',
-            name: candidateName,
-            avatar: data.candidate_avatar || undefined,
-            isMuted: false,
-            isVideoOff: true,
-            isScreenSharing: false,
-            isSpeaking: false,
-            isHost: false,
-            handRaised: false,
-            role: 'candidate',
-          };
-          setParticipants([self, candidate]);
+        const candidateName = data.candidate_name || 'Candidate';
+        const typeLabel = data.interview_type ? formatInterviewType(String(data.interview_type)) : 'Interview';
+        setMeetingTitle(`${typeLabel} - ${candidateName}`);
+        setMeetingTypeLabel(typeLabel);
 
-          if (data.notes) {
-            setInterviewNotes([{
-              id: 'initial',
-              content: data.notes,
-              timestamp: new Date(data.updated_at || data.created_at),
-              category: 'general'
-            }]);
+        // Current user from localStorage so "You" shows correct name; determine if they're interviewer or candidate
+        let currentUserName = 'You';
+        let isCurrentUserCandidate = false;
+        try {
+          const userDataStr = localStorage.getItem('userData');
+          if (userDataStr) {
+            const userData = JSON.parse(userDataStr);
+            const id = userData.id ?? userData.user_id;
+            const first = userData.first_name || '';
+            const last = userData.last_name || '';
+            currentUserName = `${first} ${last}`.trim() || userData.email?.split('@')[0] || 'You';
+            const currentId = String(id);
+            const candidateId = data.candidate_id ? String(data.candidate_id) : '';
+            const interviewerIds = (data.interviewers || []).map(String);
+            isCurrentUserCandidate = currentId === candidateId;
           }
+        } catch {
+          // keep defaults
+        }
+
+        const self: Participant = {
+          id: 'self',
+          name: currentUserName,
+          isMuted: false,
+          isVideoOff: false,
+          isScreenSharing: false,
+          isSpeaking: false,
+          isHost: true,
+          handRaised: false,
+          role: isCurrentUserCandidate ? 'candidate' : 'interviewer',
+        };
+        const other: Participant = {
+          id: isCurrentUserCandidate ? 'interviewer' : (data.candidate_id || 'candidate'),
+          name: isCurrentUserCandidate ? 'Interviewer' : candidateName,
+          avatar: isCurrentUserCandidate ? undefined : (data.candidate_avatar || undefined),
+          isMuted: false,
+          isVideoOff: true,
+          isScreenSharing: false,
+          isSpeaking: false,
+          isHost: false,
+          handRaised: false,
+          role: isCurrentUserCandidate ? 'interviewer' : 'candidate',
+        };
+        setParticipants([self, other]);
+
+        if (data.notes) {
+          setInterviewNotes([{
+            id: 'initial',
+            content: data.notes,
+            timestamp: new Date(data.updated_at || data.created_at || Date.now()),
+            category: 'general'
+          }]);
         }
       } catch (err) {
         console.error('Error fetching interview details:', err);
@@ -429,6 +477,10 @@ const VideoRoom: React.FC = () => {
 
         if (localVideoRef.current && stream) {
           localVideoRef.current.srcObject = stream;
+          const audioTrack = stream.getAudioTracks()[0];
+          const videoTrack = stream.getVideoTracks()[0];
+          if (audioTrack?.getSettings().deviceId) setSelectedMic(String(audioTrack.getSettings().deviceId));
+          if (videoTrack?.getSettings().deviceId) setSelectedCam(String(videoTrack.getSettings().deviceId));
         }
       } catch (err) {
         console.error('Error accessing media devices:', err);
@@ -438,8 +490,141 @@ const VideoRoom: React.FC = () => {
     initMedia();
   }, []);
 
-  const toggleMute = () => setIsMuted(!isMuted);
-  const toggleVideo = () => setIsVideoOff(!isVideoOff);
+  const applyTrackStates = useCallback((nextMuted: boolean, nextVideoOff: boolean) => {
+    const stream = localVideoRef.current?.srcObject as MediaStream | null;
+    if (!stream) return;
+    stream.getAudioTracks().forEach((track) => { track.enabled = !nextMuted; });
+    stream.getVideoTracks().forEach((track) => { track.enabled = !nextVideoOff; });
+  }, []);
+
+  const toggleMute = () => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    applyTrackStates(nextMuted, isVideoOff);
+  };
+
+  const toggleVideo = () => {
+    const nextVideoOff = !isVideoOff;
+    setIsVideoOff(nextVideoOff);
+    applyTrackStates(isMuted, nextVideoOff);
+  };
+
+  const loadMediaDevices = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices.filter((d) => d.kind === 'audioinput');
+      const cams = devices.filter((d) => d.kind === 'videoinput');
+      const speakers = devices.filter((d) => d.kind === 'audiooutput');
+      setAudioInputs(mics);
+      setVideoInputs(cams);
+      setAudioOutputs(speakers);
+      if (!selectedMic && mics[0]?.deviceId) setSelectedMic(mics[0].deviceId);
+      if (!selectedCam && cams[0]?.deviceId) setSelectedCam(cams[0].deviceId);
+      if (!selectedSpeaker && speakers[0]?.deviceId) setSelectedSpeaker(speakers[0].deviceId);
+    } catch (err) {
+      console.error('Failed to enumerate media devices', err);
+    }
+  }, [selectedCam, selectedMic, selectedSpeaker]);
+
+  useEffect(() => {
+    if (!showSettings) return;
+    loadMediaDevices();
+  }, [showSettings, loadMediaDevices]);
+
+  const applySelectedDevices = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
+        video: selectedCam ? { deviceId: { exact: selectedCam } } : true,
+      });
+
+      const existing = localVideoRef.current?.srcObject as MediaStream | null;
+      existing?.getTracks().forEach((track) => track.stop());
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+
+      applyTrackStates(isMuted, isVideoOff);
+      setSnackbar({ open: true, message: 'Audio and video devices updated' });
+      setShowSettings(false);
+    } catch (err) {
+      console.error('Failed to switch media device', err);
+      setSnackbar({ open: true, message: 'Failed to switch selected media devices' });
+    }
+  };
+
+  const toggleFullscreenMode = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        setIsFullscreen(true);
+      } else {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    } catch (err) {
+      console.error('Fullscreen toggle failed', err);
+      setSnackbar({ open: true, message: 'Fullscreen is not available in this browser' });
+    }
+  };
+
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  const stopCaptions = useCallback(() => {
+    if (captionRecognitionRef.current) {
+      captionRecognitionRef.current.onend = null;
+      captionRecognitionRef.current.stop();
+      captionRecognitionRef.current = null;
+    }
+  }, []);
+
+  const startCaptions = useCallback(() => {
+    const SpeechRecognitionCtor: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      setCaptionError('Captions are not supported in this browser');
+      setCaptionsEnabled(false);
+      return;
+    }
+
+    stopCaptions();
+    const recognition: CaptionRecognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        transcript += event.results[i][0].transcript;
+      }
+      setLiveCaption(transcript.trim());
+    };
+    recognition.onerror = () => {
+      setCaptionError('Could not capture captions from microphone');
+    };
+    recognition.onend = () => {
+      if (captionsEnabled) {
+        try {
+          recognition.start();
+        } catch {
+          // ignore restart errors
+        }
+      }
+    };
+    captionRecognitionRef.current = recognition;
+    recognition.start();
+    setCaptionError('');
+  }, [captionsEnabled, stopCaptions]);
+
+  useEffect(() => {
+    if (captionsEnabled) startCaptions();
+    else stopCaptions();
+    return () => stopCaptions();
+  }, [captionsEnabled, startCaptions, stopCaptions]);
 
   const toggleScreenShare = async () => {
     if (!isScreenSharing) {
@@ -505,17 +690,8 @@ const VideoRoom: React.FC = () => {
       const currentNotes = interviewNotes.map(n => n.content).join('\n\n');
       const updatedNotes = currentNotes ? `${currentNotes}\n\n${noteContent}` : noteContent;
 
-      const response = await fetchWithAuth(getApiUrl(`/hiring/interviews/${interviewId}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes: updatedNotes })
-      });
-
-      if (response.ok) {
-        setSnackbar({ open: true, message: 'Note saved to cloud' });
-      } else {
-        throw new Error('Failed to save note');
-      }
+      await api.put(`/hiring/interviews/${interviewId}`, { notes: updatedNotes });
+      setSnackbar({ open: true, message: 'Note saved to cloud' });
     } catch (err) {
       console.error('Error saving note:', err);
       setSnackbar({ open: true, message: 'Failed to save note to cloud. Kept locally.' });
@@ -527,19 +703,12 @@ const VideoRoom: React.FC = () => {
     if (!interviewId || !isUuidInterviewId) return;
 
     try {
-      const response = await fetchWithAuth(getApiUrl(`/hiring/interviews/${interviewId}/scorecard`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          overall_score: rating,
-          recommendation: rating >= 4 ? 'strong_yes' : rating >= 3 ? 'yes' : 'no',
-          notes: 'Rating submitted during call'
-        })
+      await api.post(`/hiring/interviews/${interviewId}/scorecard`, {
+        overall_score: rating,
+        recommendation: rating >= 4 ? 'strong_yes' : rating >= 3 ? 'yes' : 'no',
+        notes: 'Rating submitted during call'
       });
-
-      if (response.ok) {
-        setSnackbar({ open: true, message: `Candidate rated ${rating} stars` });
-      }
+      setSnackbar({ open: true, message: `Candidate rated ${rating} stars` });
     } catch (err) {
       console.error('Error submitting rating:', err);
     }
@@ -550,13 +719,9 @@ const VideoRoom: React.FC = () => {
     if (!window.confirm("Are you sure you want to CANCEL this interview? This will notify the candidate and end the session.")) return;
 
     try {
-      const response = await fetchWithAuth(getApiUrl(`/hiring/interviews/${interviewId}/cancel`), {
-        method: 'PUT'
-      });
-      if (response.ok) {
-        setSnackbar({ open: true, message: 'Interview cancelled' });
-        setTimeout(() => navigate(returnTo), 2000);
-      }
+      await api.put(`/hiring/interviews/${interviewId}/cancel`);
+      setSnackbar({ open: true, message: 'Interview cancelled' });
+      setTimeout(() => navigate(returnTo), 2000);
     } catch (err) {
       console.error('Error cancelling interview:', err);
     }
@@ -567,6 +732,11 @@ const VideoRoom: React.FC = () => {
     setReactionMenuAnchor(null);
   };
 
+  const selfVideoFilter = virtualBackground === 'blur'
+    ? 'blur(2px)'
+    : virtualBackground === 'dim'
+      ? 'brightness(0.7) saturate(1.1)'
+      : 'none';
 
 
   return (
@@ -650,7 +820,7 @@ const VideoRoom: React.FC = () => {
             isPinned={participant.id === pinnedParticipant}
           >
             {/* Video Element */}
-            {participant.id === '1' ? (
+            {participant.id === 'self' ? (
               <video
                 ref={localVideoRef}
                 autoPlay
@@ -661,6 +831,7 @@ const VideoRoom: React.FC = () => {
                   height: '100%',
                   objectFit: 'cover',
                   display: isVideoOff ? 'none' : 'block',
+                  filter: participant.id === 'self' ? selfVideoFilter : 'none',
                 }}
               />
             ) : (
@@ -696,7 +867,7 @@ const VideoRoom: React.FC = () => {
             )}
 
             {/* Video Off Overlay */}
-            {((participant.id === '1' && isVideoOff) || participant.isVideoOff) && (
+            {((participant.id === 'self' && isVideoOff) || participant.isVideoOff) && (
               <Box
                 sx={{
                   position: 'absolute',
@@ -730,7 +901,7 @@ const VideoRoom: React.FC = () => {
               <Typography variant="body2" sx={{ color: 'white', fontWeight: 500 }}>
                 {participant.name} {participant.isHost && '(Host)'}
               </Typography>
-              {(participant.id === '1' ? isMuted : participant.isMuted) && (
+              {(participant.id === 'self' ? isMuted : participant.isMuted) && (
                 <MicOffIcon sx={{ fontSize: 16, color: '#ff4444' }} />
               )}
               {participant.handRaised && (
@@ -787,6 +958,26 @@ const VideoRoom: React.FC = () => {
           </VideoTile>
         ))}
       </VideoGrid>
+
+      {(captionsEnabled || captionError) && (
+        <Box
+          sx={{
+            px: 2,
+            py: 1,
+            minHeight: 44,
+            bgcolor: 'rgba(0,0,0,0.7)',
+            borderTop: '1px solid rgba(255,255,255,0.12)',
+            borderBottom: '1px solid rgba(255,255,255,0.12)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Typography variant="body2" sx={{ color: 'white', textAlign: 'center' }}>
+            {captionError || liveCaption || 'Listening for captions...'}
+          </Typography>
+        </Box>
+      )}
 
       {/* Control Bar */}
       <ControlBar>
@@ -1032,6 +1223,91 @@ const VideoRoom: React.FC = () => {
         </DialogActions>
       </Dialog>
 
+      {/* Settings Dialog */}
+      <Dialog open={showSettings} onClose={() => setShowSettings(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { bgcolor: '#1a1a2e', color: 'white' } }}>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" fontWeight={700}>Meeting Settings</Typography>
+          <IconButton onClick={() => setShowSettings(false)} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <TextField
+            select
+            fullWidth
+            label="Microphone"
+            value={selectedMic}
+            onChange={(e) => setSelectedMic(e.target.value)}
+            sx={{
+              mt: 1,
+              '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.7)' },
+              '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' } },
+            }}
+          >
+            {audioInputs.map((device) => (
+              <MenuItem key={device.deviceId} value={device.deviceId}>
+                {device.label || 'Microphone'}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <TextField
+            select
+            fullWidth
+            label="Camera"
+            value={selectedCam}
+            onChange={(e) => setSelectedCam(e.target.value)}
+            sx={{
+              mt: 2,
+              '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.7)' },
+              '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' } },
+            }}
+          >
+            {videoInputs.map((device) => (
+              <MenuItem key={device.deviceId} value={device.deviceId}>
+                {device.label || 'Camera'}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <TextField
+            select
+            fullWidth
+            label="Speaker"
+            value={selectedSpeaker}
+            onChange={(e) => setSelectedSpeaker(e.target.value)}
+            sx={{
+              mt: 2,
+              '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.7)' },
+              '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' } },
+            }}
+          >
+            {audioOutputs.map((device) => (
+              <MenuItem key={device.deviceId} value={device.deviceId}>
+                {device.label || 'Speaker'}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <Box sx={{ mt: 3 }}>
+            <Typography variant="body2" sx={{ mb: 1, color: 'rgba(255,255,255,0.8)' }}>
+              Speaker Volume: {speakerVolume}%
+            </Typography>
+            <Slider value={speakerVolume} onChange={(_, value) => setSpeakerVolume(Number(value))} min={0} max={100} />
+          </Box>
+
+          <FormControlLabel
+            sx={{ mt: 1 }}
+            control={<Switch checked={captionsEnabled} onChange={(e) => setCaptionsEnabled(e.target.checked)} />}
+            label="Enable Captions"
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShowSettings(false)} sx={{ color: 'white' }}>Close</Button>
+          <Button variant="contained" onClick={applySelectedDevices}>Apply</Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Reactions Menu */}
       <Menu anchorEl={reactionMenuAnchor} open={Boolean(reactionMenuAnchor)} onClose={() => setReactionMenuAnchor(null)}>
         <Box sx={{ display: 'flex', gap: 1, p: 1 }}>
@@ -1044,7 +1320,7 @@ const VideoRoom: React.FC = () => {
       </Menu>
 
       {/* More Options Menu */}
-      <Menu anchorEl={moreMenuAnchor} open={Boolean(moreMenuAnchor)} onClose={() => setMoreMenuAnchor(null)}>
+        <Menu anchorEl={moreMenuAnchor} open={Boolean(moreMenuAnchor)} onClose={() => setMoreMenuAnchor(null)}>
         {isInterview && (
           <Box>
             <MenuItem onClick={() => { setShowNotes(true); setMoreMenuAnchor(null); }}>
@@ -1059,15 +1335,15 @@ const VideoRoom: React.FC = () => {
         <MenuItem onClick={() => { setShowSettings(true); setMoreMenuAnchor(null); }}>
           <SettingsIcon sx={{ mr: 1 }} /> Settings
         </MenuItem>
-        <MenuItem>
-          <BlurOnIcon sx={{ mr: 1 }} /> Virtual Background
+        <MenuItem onClick={() => { setVirtualBackground((prev) => (prev === 'none' ? 'blur' : prev === 'blur' ? 'dim' : 'none')); setMoreMenuAnchor(null); }}>
+          <BlurOnIcon sx={{ mr: 1 }} /> Virtual Background ({virtualBackground === 'none' ? 'Off' : virtualBackground === 'blur' ? 'Blur' : 'Dim'})
         </MenuItem>
-        <MenuItem>
-          <SubtitlesIcon sx={{ mr: 1 }} /> Enable Captions
+        <MenuItem onClick={() => { setCaptionsEnabled((prev) => !prev); setMoreMenuAnchor(null); }}>
+          <SubtitlesIcon sx={{ mr: 1 }} /> {captionsEnabled ? 'Disable Captions' : 'Enable Captions'}
         </MenuItem>
-        <MenuItem onClick={() => setIsFullscreen(!isFullscreen)}>
+        <MenuItem onClick={() => { toggleFullscreenMode(); setMoreMenuAnchor(null); }}>
           {isFullscreen ? <FullscreenExitIcon sx={{ mr: 1 }} /> : <FullscreenIcon sx={{ mr: 1 }} />}
-          {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+          {isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
         </MenuItem>
       </Menu>
 

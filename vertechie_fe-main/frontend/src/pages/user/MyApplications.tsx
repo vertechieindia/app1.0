@@ -529,11 +529,11 @@ const MyApplications: React.FC = () => {
                           </Box>
                         </Box>
 
-                        {/* Coding Score */}
+                        {/* Match Score (profile/skills match) */}
                         {application.codingScore !== undefined && (
                           <Box sx={{ ml: 9, mb: 1 }}>
                             <Chip
-                              label={`Coding Score: ${application.codingScore}%`}
+                              label={`Match Score: ${application.codingScore}%`}
                               size="small"
                               sx={{
                                 fontWeight: 600,

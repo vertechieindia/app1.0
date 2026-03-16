@@ -79,6 +79,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     vertechie_id = Column(String(50), unique=True, nullable=True, index=True)
     dob = Column(Date, nullable=True)
     country = Column(String(50), nullable=True)
+    work_authorization = Column(String(100), nullable=True)  # e.g. H1B, Green Card (for USA)
     gov_id = Column(String(50), nullable=True)  # Up to 50 characters
     gov_id_last_four = Column(String(4), nullable=True)  # Last 4 of PAN (India) or SSN (USA) for VerTechie ID
     address = Column(Text, nullable=True)

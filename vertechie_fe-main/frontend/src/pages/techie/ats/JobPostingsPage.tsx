@@ -33,13 +33,18 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
 import PersonIcon from '@mui/icons-material/Person';
 import EmailIcon from '@mui/icons-material/Email';
+import SmsIcon from '@mui/icons-material/Sms';
+import LinkIcon from '@mui/icons-material/Link';
 import PhoneIcon from '@mui/icons-material/Phone';
 import WorkIcon from '@mui/icons-material/Work';
 import StarIcon from '@mui/icons-material/Star';
 import ScheduleIcon from '@mui/icons-material/Schedule';
+import ThumbUpIcon from '@mui/icons-material/ThumbUp';
+import CancelIcon from '@mui/icons-material/Cancel';
 import ATSLayout from './ATSLayout';
 import ScheduleInterviewModal, { ScheduleInterviewContext } from '../../../components/ats/ScheduleInterviewModal';
 import { interviewService } from '../../../services/interviewService';
+import { calendarService } from '../../../services/calendarService';
 import { API_ENDPOINTS, getApiUrl } from '../../../config/api';
 import { fetchWithAuth } from '../../../utils/apiInterceptor';
 
@@ -104,6 +109,7 @@ interface DisplayJob {
   views: number;
   status: string;
   posted: string;
+  postedAt?: string;
   experience?: string;
   experienceLevel?: string;
   description?: string;
@@ -113,6 +119,10 @@ interface DisplayJob {
   screeningQuestions?: Array<{ id: string; question: string; type?: string; required?: boolean; options?: string[] }>;
   salaryMin?: number;
   salaryMax?: number;
+  hiringCountries?: string[];
+  workAuthorizations?: string[];
+  openForSponsorship?: boolean | null;
+  collectApplicantLocation?: boolean;
 }
 
 /** Split combined description (from create flow) into description and responsibilities. */
@@ -157,6 +167,10 @@ interface DisplayApplicant {
   skills: string[];
   location?: string;
   avatarUrl?: string;
+  /** Applicant location at apply time (read-only; when job had collect applicant location) */
+  applicantLocationLat?: number | null;
+  applicantLocationLng?: number | null;
+  applicantLocationIpSnapshot?: Record<string, unknown> | null;
 }
 
 const JobPostingsPage: React.FC = () => {
@@ -211,6 +225,7 @@ const JobPostingsPage: React.FC = () => {
             views: job.views_count || 0,
             status: job.status || 'active',
             posted: formatTimeAgo(job.createdAt),
+            postedAt: job.createdAt,
             description: desc || job.description,
             responsibilities: resp || (job as any).responsibilities || '',
             experience: job.experienceLevel,
@@ -220,6 +235,10 @@ const JobPostingsPage: React.FC = () => {
             screeningQuestions: (job as any).screening_questions ?? job.screeningQuestions ?? [],
             salaryMin: job.salary_min,
             salaryMax: job.salary_max,
+            hiringCountries: (job as any).hiringCountries ?? [],
+            workAuthorizations: (job as any).workAuthorizations ?? [],
+            openForSponsorship: (job as any).openForSponsorship ?? null,
+            collectApplicantLocation: (job as any).collectApplicantLocation ?? false,
           };
         });
         
@@ -248,14 +267,33 @@ const JobPostingsPage: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
   const [newJob, setNewJob] = useState({
-    title: '', department: '', location: '', type: '', experience: '', 
+    title: '', department: '', location: '', type: '', experience: '',
     salaryMin: '', salaryMax: '', description: '', responsibilities: '',
   });
+  const [hiringCountries, setHiringCountries] = useState<string[]>([]);
+  const [hiringCountriesSelectOpen, setHiringCountriesSelectOpen] = useState(false);
+  const [workAuthorizations, setWorkAuthorizations] = useState<string[]>([]);
+  const [workAuthorizationsSelectOpen, setWorkAuthorizationsSelectOpen] = useState(false);
+  const [openForSponsorship, setOpenForSponsorship] = useState<boolean | null>(null);
+  const [collectApplicantLocation, setCollectApplicantLocation] = useState(false);
   const [newJobErrors, setNewJobErrors] = useState<Record<string, boolean>>({});
   const [skillsFieldError, setSkillsFieldError] = useState(false);
   
   // Predefined Skills for suggestions
-  const ALL_SKILLS = [
+  // Predefined hiring countries (match backend codes)
+const HIRING_COUNTRIES = [
+  { value: 'US', label: 'United States' },
+  { value: 'IN', label: 'India' },
+  { value: 'GB', label: 'United Kingdom' },
+  { value: 'CA', label: 'Canada' },
+];
+// Work authorization options when USA is selected (match user profile options)
+const USA_WORK_AUTH_OPTIONS = [
+  'US Citizen', 'Green Card', 'GC EAD', 'H1B', 'H4 EAD', 'L1', 'L2 EAD', 'J1', 'J2 EAD',
+  'O1', 'E1', 'E2', 'E3', 'TN', 'OPT EAD', 'STEM OPT EAD', 'CPT', 'F1', 'EB-1/2/3 Pending', 'Asylum EAD', 'Other',
+];
+
+const ALL_SKILLS = [
     'React', 'Angular', 'Vue.js', 'TypeScript', 'JavaScript', 'HTML5', 'CSS3', 'Tailwind CSS', 'Next.js', 'Redux', 'Svelte',
     'Python', 'Node.js', 'Java', 'Go', 'Rust', 'C#', '.NET', 'Ruby', 'PHP', 'Django', 'FastAPI', 'Express.js', 'Spring Boot',
     'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Elasticsearch', 'Oracle', 'SQL Server', 'DynamoDB', 'Cassandra',
@@ -323,8 +361,6 @@ const JobPostingsPage: React.FC = () => {
       { key: 'location', label: 'Location' },
       { key: 'type', label: 'Employment Type' },
       { key: 'experience', label: 'Experience Level' },
-      { key: 'salaryMin', label: 'Minimum Salary' },
-      { key: 'salaryMax', label: 'Maximum Salary' },
       { key: 'description', label: 'Job Description' },
       { key: 'responsibilities', label: 'Key Responsibilities' },
     ];
@@ -338,6 +374,16 @@ const JobPostingsPage: React.FC = () => {
         errors[field.key] = true;
         hasError = true;
       }
+    }
+
+    if (hiringCountries.length === 0) {
+      errors['hiringCountries'] = true;
+      hasError = true;
+    }
+
+    if (openForSponsorship === null) {
+      errors['openForSponsorship'] = true;
+      hasError = true;
     }
 
     const minSalary = Number(newJob.salaryMin);
@@ -408,8 +454,6 @@ const JobPostingsPage: React.FC = () => {
       { key: 'location', label: 'Location' },
       { key: 'type', label: 'Employment Type' },
       { key: 'experience', label: 'Experience Level' },
-      { key: 'salaryMin', label: 'Minimum Salary' },
-      { key: 'salaryMax', label: 'Maximum Salary' },
       { key: 'description', label: 'Job Description' },
       { key: 'responsibilities', label: 'Key Responsibilities' },
     ];
@@ -521,13 +565,18 @@ const JobPostingsPage: React.FC = () => {
   // Filter Menu
   const [filterAnchor, setFilterAnchor] = useState<null | HTMLElement>(null);
   const [filters, setFilters] = useState({
-    active: true, draft: true, closed: true, fulltime: true, parttime: true, contract: true, internship: true,
+    active: true, draft: true, closed: true,
+    fulltime: true, parttime: true, w2contract: true, corp2corp: true, unpaidInternship: true, paidInternship: true, freelance: true,
+    collegeFresh: true, exp0to2: true, exp2to5: true, exp5to8: true, exp8to10: true, exp10to12: true, exp12leadership: true,
+    dateRange: 'all',
   });
   
   // Edit Dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<any>(null);
   const [editDialogLoading, setEditDialogLoading] = useState(false);
+  const [editHiringCountriesSelectOpen, setEditHiringCountriesSelectOpen] = useState(false);
+  const [editWorkAuthorizationsSelectOpen, setEditWorkAuthorizationsSelectOpen] = useState(false);
   const [editJobErrors, setEditJobErrors] = useState<Record<string, boolean>>({});
   const [editSkillsFieldError, setEditSkillsFieldError] = useState(false);
   const [editTab, setEditTab] = useState(0);
@@ -547,6 +596,7 @@ const JobPostingsPage: React.FC = () => {
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [scheduleModalContext, setScheduleModalContext] = useState<ScheduleInterviewContext | null>(null);
   const [scheduledInterviewApplicationIds, setScheduledInterviewApplicationIds] = useState<Set<string>>(new Set());
+  const [hrCalendarLink, setHrCalendarLink] = useState<string | null>(null);
 
   // Load which applications already have a scheduled interview (for Reschedule vs Schedule Interview)
   const loadScheduledInterviewApplicationIds = useCallback(async () => {
@@ -611,7 +661,7 @@ const JobPostingsPage: React.FC = () => {
         difficulty: 'easy' as const,
       }));
       
-      // Create job via API - include salary fields
+      // Create job via API - include salary (optional), hiring countries, work auth, sponsorship
       const createdJob = await jobService.createJob({
         title: newJob.title,
         companyName: companyName,
@@ -628,9 +678,12 @@ const JobPostingsPage: React.FC = () => {
           required: q.required,
           options: q.options || [],
         })),
-        // Include salary values if provided
         salaryMin: newJob.salaryMin ? parseInt(newJob.salaryMin) : undefined,
         salaryMax: newJob.salaryMax ? parseInt(newJob.salaryMax) : undefined,
+        hiringCountries: hiringCountries.length ? hiringCountries : [],
+        workAuthorizations: hiringCountries.includes('US') ? workAuthorizations : [],
+        openForSponsorship: openForSponsorship ?? undefined,
+        collectApplicantLocation,
       }, userId);
       
       // Format salary display
@@ -644,6 +697,14 @@ const JobPostingsPage: React.FC = () => {
 
       // Map department for display
       const departmentDisplay = newJob.department.charAt(0).toUpperCase() + newJob.department.slice(1);
+      const createExperienceLevel =
+        newJob.experience === 'college_fresh' || newJob.experience === '0_2'
+          ? 'entry'
+          : newJob.experience === '2_5'
+            ? 'mid'
+            : newJob.experience === '5_8' || newJob.experience === '8_10'
+              ? 'senior'
+              : 'lead';
       
       // Add to local state
       const displayJob: DisplayJob = {
@@ -664,6 +725,9 @@ const JobPostingsPage: React.FC = () => {
         views: 0,
         status: 'active',
         posted: 'Just now',
+        postedAt: new Date().toISOString(),
+        experience: newJob.experience,
+        experienceLevel: createExperienceLevel,
       };
       
       setJobs([displayJob, ...jobs]);
@@ -671,6 +735,10 @@ const JobPostingsPage: React.FC = () => {
       
       // Reset form
       setNewJob({ title: '', department: '', location: '', type: '', experience: '', salaryMin: '', salaryMax: '', description: '', responsibilities: '' });
+      setHiringCountries([]);
+      setWorkAuthorizations([]);
+      setOpenForSponsorship(null);
+      setCollectApplicantLocation(false);
       setNewJobErrors({});
       setSkills([]);
       setSkillsFieldError(false);
@@ -740,6 +808,10 @@ const JobPostingsPage: React.FC = () => {
         })),
         salaryMin: editingJob.salaryMin ? parseInt(editingJob.salaryMin) : undefined,
         salaryMax: editingJob.salaryMax ? parseInt(editingJob.salaryMax) : undefined,
+        hiringCountries: editingJob.hiringCountries ?? [],
+        workAuthorizations: editingJob.workAuthorizations ?? [],
+        openForSponsorship: editingJob.openForSponsorship ?? undefined,
+        collectApplicantLocation: editingJob.collectApplicantLocation ?? false,
       } as any);
       
       const salaryDisplay = editingJob.salaryMin && editingJob.salaryMax 
@@ -844,6 +916,10 @@ const JobPostingsPage: React.FC = () => {
       department: j.department || fullJob.department || 'Company',
       salaryMin: j.salaryMin ?? fullJob.salaryMin,
       salaryMax: j.salaryMax ?? fullJob.salaryMax,
+      hiringCountries: j.hiringCountries ?? [],
+      workAuthorizations: j.workAuthorizations ?? [],
+      openForSponsorship: j.openForSponsorship ?? null,
+      collectApplicantLocation: j.collectApplicantLocation ?? false,
     } as any);
     setEditSkills(Array.isArray(skills) ? [...skills] : []);
     setEditQuestions(screeningQuestions);
@@ -903,6 +979,10 @@ const JobPostingsPage: React.FC = () => {
           salaryMin: fetched.salary_min ?? job.salaryMin,
           salaryMax: fetched.salary_max ?? job.salaryMax,
           status: fetched.status || job.status,
+          hiringCountries: (fetched as any).hiringCountries ?? job.hiringCountries ?? [],
+          workAuthorizations: (fetched as any).workAuthorizations ?? job.workAuthorizations ?? [],
+          openForSponsorship: (fetched as any).openForSponsorship ?? job.openForSponsorship ?? null,
+          collectApplicantLocation: (fetched as any).collectApplicantLocation ?? job.collectApplicantLocation ?? false,
         } as DisplayJob;
         applyFormState(fullJob);
       }
@@ -963,18 +1043,25 @@ const JobPostingsPage: React.FC = () => {
   const openApplicantsDialog = async (job: DisplayJob) => {
     setSelectedJob(job);
     setApplicantsDialogOpen(true);
+    setHrCalendarLink(null);
     
     try {
-      // First try to get candidates from the userService (API + localStorage)
-      const candidates = await userService.getCandidatesForJob(job.id);
-      
+      const [candidates, links] = await Promise.all([
+        userService.getCandidatesForJob(job.id),
+        calendarService.getSchedulingLinks().catch(() => [] as any[]),
+      ]);
+      const linkUrl = Array.isArray(links) && links.length > 0 && (links[0] as any).token
+        ? `${window.location.origin}/book/${(links[0] as any).token}`
+        : null;
+      setHrCalendarLink(linkUrl);
+
       if (candidates.length > 0) {
         const displayApps: DisplayApplicant[] = candidates.map((candidate) => ({
           id: candidate.applicationId || candidate.id, // APPLICATION ID for interview scheduling
           applicantId: candidate.userId || candidate.id, // User ID for profile navigation
           name: candidate.name || 'Applicant',
           email: candidate.email || '',
-          phone: '',
+          phone: candidate.phone || '',
           title: candidate.title || 'Candidate',
           experience: candidate.experience || 'Not specified',
           matchScore: candidate.matchScore ?? 0,  // Use actual match score from backend
@@ -983,6 +1070,9 @@ const JobPostingsPage: React.FC = () => {
           skills: candidate.skills || [],
           location: candidate.location || '',
           avatarUrl: candidate.avatar || '',
+          applicantLocationLat: (candidate as any).applicantLocationLat ?? null,
+          applicantLocationLng: (candidate as any).applicantLocationLng ?? null,
+          applicantLocationIpSnapshot: (candidate as any).applicantLocationIpSnapshot ?? null,
         }));
         setApplicants(displayApps);
         return;
@@ -1007,6 +1097,9 @@ const JobPostingsPage: React.FC = () => {
           skills: details?.skills || [],
           location: details?.location || '',
           avatarUrl: details?.avatarUrl || '',
+          applicantLocationLat: (app as any).applicantLocationLat ?? null,
+          applicantLocationLng: (app as any).applicantLocationLng ?? null,
+          applicantLocationIpSnapshot: (app as any).applicantLocationIpSnapshot ?? null,
         };
       });
       setApplicants(displayApps);
@@ -1053,12 +1146,51 @@ const JobPostingsPage: React.FC = () => {
   const isNew = (status: string) => ['new', 'applied', 'submitted'].includes(status?.toLowerCase());
   const isReviewed = (status: string) => ['reviewed', 'under_review', 'shortlisted'].includes(status?.toLowerCase());
   const isInterviewed = (status: string) => ['interviewed', 'interview', 'offered', 'hired'].includes(status?.toLowerCase());
+  const isRejected = (status: string) => status?.toLowerCase() === 'rejected';
+
+  // Update applicant stage (Proceed = shortlisted for screening, Reject = rejected) and optionally notify
+  const updateApplicantStage = async (
+    applicationId: string,
+    newStatus: 'shortlisted' | 'rejected',
+    applicant: DisplayApplicant
+  ) => {
+    try {
+      await applicationService.updateApplicationStatus(applicationId, newStatus);
+      setApplicants(prev => prev.map(a => a.id === applicationId ? { ...a, status: newStatus } : a));
+      if (newStatus === 'rejected') {
+        try {
+          const userData = JSON.parse(localStorage.getItem('userData') || '{}');
+          const hrName = [userData.first_name, userData.last_name].filter(Boolean).join(' ').trim() || 'HR Team';
+          await fetchWithAuth(getApiUrl('/notifications/stage-change/'), {
+            method: 'POST',
+            body: JSON.stringify({
+              candidate_email: applicant.email,
+              candidate_name: applicant.name,
+              old_stage: applicant.status?.replace('_', ' ') || 'Application',
+              new_stage: 'Rejected',
+              hr_name: hrName,
+              job_title: selectedJob?.title || 'Position',
+            }),
+          });
+        } catch (_) { /* notification best-effort */ }
+      }
+      setSnackbar({
+        open: true,
+        message: newStatus === 'shortlisted' ? `${applicant.name} moved to Shortlisted for Screening` : `${applicant.name} has been rejected`,
+        severity: 'success',
+      });
+    } catch (error) {
+      console.error('Error updating application status:', error);
+      setSnackbar({ open: true, message: 'Failed to update status. Please try again.', severity: 'error' });
+    }
+  };
 
   const filteredApplicants = applicants.filter(a => {
     if (applicantTab === 0) return true;
     if (applicantTab === 1) return isNew(a.status);
     if (applicantTab === 2) return isReviewed(a.status);
     if (applicantTab === 3) return isInterviewed(a.status);
+    if (applicantTab === 4) return isRejected(a.status);
     return true;
   }).sort((a, b) => b.matchScore - a.matchScore);
 
@@ -1077,12 +1209,68 @@ const JobPostingsPage: React.FC = () => {
     if (!filters.draft && job.status === 'draft') return false;
     if (!filters.closed && job.status === 'closed') return false;
     
-    // job type filters
-    const type = job.type.toLowerCase().replace('-', '');
-    if (!filters.fulltime && type.includes('fulltime')) return false;
-    if (!filters.parttime && type.includes('parttime')) return false;
-    if (!filters.contract && type.includes('contract')) return false;
-    if (!filters.internship && type.includes('internship')) return false;
+    // job type filters (normalize all variants)
+    const rawType = (job.type || '').toString().toLowerCase();
+    const compactType = rawType.replace(/[^a-z0-9]/g, '');
+    const normalizedType =
+      compactType.includes('fulltime')
+        ? 'fulltime'
+        : compactType.includes('parttime')
+          ? 'parttime'
+          : compactType.includes('w2') || (compactType.includes('contract') && !compactType.includes('corp'))
+            ? 'w2contract'
+            : compactType.includes('corp2corp') || compactType.includes('corptocorp')
+              ? 'corp2corp'
+              : compactType.includes('unpaid') && compactType.includes('intern')
+                ? 'unpaidInternship'
+                : compactType.includes('paid') && compactType.includes('intern')
+                  ? 'paidInternship'
+                  : compactType.includes('freelance')
+                    ? 'freelance'
+                    : '';
+    if (normalizedType === 'fulltime' && !filters.fulltime) return false;
+    if (normalizedType === 'parttime' && !filters.parttime) return false;
+    if (normalizedType === 'w2contract' && !filters.w2contract) return false;
+    if (normalizedType === 'corp2corp' && !filters.corp2corp) return false;
+    if (normalizedType === 'unpaidInternship' && !filters.unpaidInternship) return false;
+    if (normalizedType === 'paidInternship' && !filters.paidInternship) return false;
+    if (normalizedType === 'freelance' && !filters.freelance) return false;
+
+    // experience level filters (screenshot categories)
+    const rawExperience = (job.experience || job.experienceLevel || '').toString().toLowerCase();
+    const expCompact = rawExperience.replace(/[^a-z0-9_]/g, '');
+    const normalizedExperience =
+      expCompact.includes('college') || expCompact.includes('fresh')
+        ? 'collegeFresh'
+        : expCompact === '0_2' || expCompact.includes('02') || expCompact === 'entry'
+          ? 'exp0to2'
+          : expCompact === '2_5' || expCompact.includes('25') || expCompact === 'mid'
+            ? 'exp2to5'
+            : expCompact === '5_8' || expCompact.includes('58') || expCompact === 'senior'
+              ? 'exp5to8'
+              : expCompact === '8_10' || expCompact.includes('810')
+                ? 'exp8to10'
+                : expCompact === '10_12' || expCompact.includes('1012')
+                  ? 'exp10to12'
+                  : expCompact === '12_leadership' || expCompact.includes('12lead') || expCompact === 'lead'
+                    ? 'exp12leadership'
+                    : '';
+    if (normalizedExperience === 'collegeFresh' && !filters.collegeFresh) return false;
+    if (normalizedExperience === 'exp0to2' && !filters.exp0to2) return false;
+    if (normalizedExperience === 'exp2to5' && !filters.exp2to5) return false;
+    if (normalizedExperience === 'exp5to8' && !filters.exp5to8) return false;
+    if (normalizedExperience === 'exp8to10' && !filters.exp8to10) return false;
+    if (normalizedExperience === 'exp10to12' && !filters.exp10to12) return false;
+    if (normalizedExperience === 'exp12leadership' && !filters.exp12leadership) return false;
+
+    // posted date filter
+    if (filters.dateRange !== 'all') {
+      const dayWindow = filters.dateRange === 'last7' ? 7 : filters.dateRange === 'last30' ? 30 : 90;
+      const postedTs = job.postedAt ? new Date(job.postedAt).getTime() : NaN;
+      if (!Number.isFinite(postedTs)) return false;
+      const ageInDays = (Date.now() - postedTs) / (1000 * 60 * 60 * 24);
+      if (ageInDays > dayWindow) return false;
+    }
 
     return true;
   });
@@ -1236,7 +1424,7 @@ const JobPostingsPage: React.FC = () => {
         anchorEl={filterAnchor}
         open={Boolean(filterAnchor)}
         onClose={() => setFilterAnchor(null)}
-        PaperProps={{ sx: { width: 250, p: 2 } }}
+        PaperProps={{ sx: { width: 280, p: 2 } }}
       >
         <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Status</Typography>
         <FormGroup>
@@ -1254,25 +1442,82 @@ const JobPostingsPage: React.FC = () => {
           />
         </FormGroup>
         <Divider sx={{ my: 1 }} />
-        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, mt: 1 }}>Job Type</Typography>
+        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, mt: 1 }}>Employment Type</Typography>
         <FormGroup>
           <FormControlLabel 
             control={<Checkbox checked={filters.fulltime} onChange={(e) => setFilters({ ...filters, fulltime: e.target.checked })} />} 
-            label="Full-time" 
+            label="Full-Time" 
           />
           <FormControlLabel 
             control={<Checkbox checked={filters.parttime} onChange={(e) => setFilters({ ...filters, parttime: e.target.checked })} />} 
-            label="Part-time" 
+            label="Part-Time" 
           />
           <FormControlLabel 
-            control={<Checkbox checked={filters.contract} onChange={(e) => setFilters({ ...filters, contract: e.target.checked })} />} 
-            label="Contract" 
+            control={<Checkbox checked={filters.w2contract} onChange={(e) => setFilters({ ...filters, w2contract: e.target.checked })} />} 
+            label="W2 - Contract" 
           />
           <FormControlLabel 
-            control={<Checkbox checked={filters.internship} onChange={(e) => setFilters({ ...filters, internship: e.target.checked })} />} 
-            label="Internship" 
+            control={<Checkbox checked={filters.corp2corp} onChange={(e) => setFilters({ ...filters, corp2corp: e.target.checked })} />} 
+            label="Corp-to-Corp" 
+          />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.unpaidInternship} onChange={(e) => setFilters({ ...filters, unpaidInternship: e.target.checked })} />} 
+            label="Unpaid Internship" 
+          />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.paidInternship} onChange={(e) => setFilters({ ...filters, paidInternship: e.target.checked })} />} 
+            label="Paid Internship" 
+          />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.freelance} onChange={(e) => setFilters({ ...filters, freelance: e.target.checked })} />} 
+            label="Freelance" 
           />
         </FormGroup>
+        <Divider sx={{ my: 1 }} />
+        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, mt: 1 }}>Experience Level</Typography>
+        <FormGroup>
+          <FormControlLabel 
+            control={<Checkbox checked={filters.collegeFresh} onChange={(e) => setFilters({ ...filters, collegeFresh: e.target.checked })} />} 
+            label="College fresh grads" 
+          />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.exp0to2} onChange={(e) => setFilters({ ...filters, exp0to2: e.target.checked })} />} 
+            label="0 to 2+ years" 
+          />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.exp2to5} onChange={(e) => setFilters({ ...filters, exp2to5: e.target.checked })} />} 
+            label="2 to 5+ years" 
+          />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.exp5to8} onChange={(e) => setFilters({ ...filters, exp5to8: e.target.checked })} />} 
+            label="5 to 8 years" 
+          />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.exp8to10} onChange={(e) => setFilters({ ...filters, exp8to10: e.target.checked })} />} 
+            label="8 to 10 years" 
+          />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.exp10to12} onChange={(e) => setFilters({ ...filters, exp10to12: e.target.checked })} />} 
+            label="10 to 12+" 
+          />
+          <FormControlLabel 
+            control={<Checkbox checked={filters.exp12leadership} onChange={(e) => setFilters({ ...filters, exp12leadership: e.target.checked })} />} 
+            label="12 to leadership" 
+          />
+        </FormGroup>
+        <Divider sx={{ my: 1 }} />
+        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, mt: 1 }}>Posted Date</Typography>
+        <FormControl fullWidth size="small">
+          <Select
+            value={filters.dateRange}
+            onChange={(e) => setFilters({ ...filters, dateRange: e.target.value })}
+          >
+            <MenuItem value="all">All Time</MenuItem>
+            <MenuItem value="last7">Last 7 Days</MenuItem>
+            <MenuItem value="last30">Last 30 Days</MenuItem>
+            <MenuItem value="last90">Last 90 Days</MenuItem>
+          </Select>
+        </FormControl>
         <Divider sx={{ my: 1 }} />
         <Button fullWidth variant="outlined" size="small" onClick={() => setFilterAnchor(null)}>
           Apply Filters
@@ -1420,33 +1665,118 @@ const JobPostingsPage: React.FC = () => {
                   {newJobErrors.experience && <FormHelperText>Experience Level is required</FormHelperText>}
                 </FormControl>
               </Grid>
+              <Grid item xs={12}>
+                <FormControl fullWidth required error={!!newJobErrors.hiringCountries}>
+                  <InputLabel shrink>Hiring countries</InputLabel>
+                  <Select
+                    multiple
+                    value={hiringCountries}
+                    label="Hiring countries"
+                    open={hiringCountriesSelectOpen}
+                    onOpen={() => setHiringCountriesSelectOpen(true)}
+                    onClose={() => setHiringCountriesSelectOpen(false)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setHiringCountries(typeof v === 'string' ? v.split(',') : v);
+                      setNewJobErrors({ ...newJobErrors, hiringCountries: false });
+                      setHiringCountriesSelectOpen(false);
+                    }}
+                    renderValue={(selected) => selected.map((code) => HIRING_COUNTRIES.find((c) => c.value === code)?.label || code).join(', ')}
+                  >
+                    {HIRING_COUNTRIES.map((c) => (
+                      <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
+                    ))}
+                  </Select>
+                  <FormHelperText>Job will be visible only to techies from the selected countries.</FormHelperText>
+                  {newJobErrors.hiringCountries && <FormHelperText error>Select at least one country</FormHelperText>}
+                </FormControl>
+              </Grid>
+              {hiringCountries.includes('US') && (
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel shrink>What work authorizations are accepted for this role?</InputLabel>
+                    <Select
+                      multiple
+                      value={workAuthorizations}
+                      label="What work authorizations are accepted for this role?"
+                      open={workAuthorizationsSelectOpen}
+                      onOpen={() => setWorkAuthorizationsSelectOpen(true)}
+                      onClose={() => setWorkAuthorizationsSelectOpen(false)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setWorkAuthorizations(typeof v === 'string' ? v.split(',') : v);
+                        setWorkAuthorizationsSelectOpen(false);
+                      }}
+                      renderValue={(selected) => selected.join(', ')}
+                    >
+                      {USA_WORK_AUTH_OPTIONS.map((opt) => (
+                        <MenuItem key={opt} value={opt}>{opt}</MenuItem>
+                      ))}
+                    </Select>
+                    <FormHelperText>Job will be visible only to users whose work authorization matches.</FormHelperText>
+                  </FormControl>
+                </Grid>
+              )}
+              <Grid item xs={12}>
+                <FormControl fullWidth required error={!!newJobErrors.openForSponsorship}>
+                  <InputLabel shrink>Is this role open for sponsorship?</InputLabel>
+                  <Select
+                    value={openForSponsorship === null ? '' : openForSponsorship ? 'yes' : 'no'}
+                    label="Is this role open for sponsorship?"
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setOpenForSponsorship(v === 'yes' ? true : v === 'no' ? false : null);
+                      setNewJobErrors({ ...newJobErrors, openForSponsorship: false });
+                    }}
+                    displayEmpty
+                  >
+                    <MenuItem value="" disabled>Select</MenuItem>
+                    <MenuItem value="yes">Yes</MenuItem>
+                    <MenuItem value="no">No</MenuItem>
+                  </Select>
+                  {newJobErrors.openForSponsorship && <FormHelperText error>Please select Yes or No</FormHelperText>}
+                </FormControl>
+              </Grid>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={collectApplicantLocation}
+                      onChange={(e) => setCollectApplicantLocation(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label="Collect applicant location"
+                />
+                <FormHelperText sx={{ display: 'block', mt: 0.5 }}>
+                  If enabled, applicants will be asked for permission to share their current location when applying. Location (coordinates and IP snapshot) is captured only at submission and shown to you as read-only.
+                </FormHelperText>
+              </Grid>
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Minimum Salary (Annual)"
+                  label="Minimum Salary (Annual) — optional"
                   value={newJob.salaryMin}
                   onChange={(e) => { setNewJob({ ...newJob, salaryMin: e.target.value }); setNewJobErrors({ ...newJobErrors, salaryMin: false, salaryMax: false }); }}
                   placeholder="e.g., 600000"
                   type="number"
-                  required
                   InputLabelProps={{ shrink: true }}
                   InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
-                  helperText={newJobErrors.salaryMin ? "Valid minimum salary is required" : "Enter annual salary in INR"}
+                  helperText={newJobErrors.salaryMin ? "Valid minimum salary" : ""}
                   error={!!newJobErrors.salaryMin}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Maximum Salary (Annual)"
+                  label="Maximum Salary (Annual) — optional"
                   value={newJob.salaryMax}
                   onChange={(e) => { setNewJob({ ...newJob, salaryMax: e.target.value }); setNewJobErrors({ ...newJobErrors, salaryMin: false, salaryMax: false }); }}
                   placeholder="e.g., 1200000"
                   type="number"
-                  required
                   InputLabelProps={{ shrink: true }}
                   InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
-                  helperText={newJobErrors.salaryMax ? "Valid maximum salary is required" : "Enter annual salary in INR"}
+                  helperText={newJobErrors.salaryMax ? "Valid maximum salary" : ""}
                   error={!!newJobErrors.salaryMax}
                 />
               </Grid>
@@ -1917,10 +2247,92 @@ const JobPostingsPage: React.FC = () => {
                       {editJobErrors.experience && <FormHelperText>Experience Level is required</FormHelperText>}
                     </FormControl>
                   </Grid>
+                  <Grid item xs={12}>
+                    <FormControl fullWidth>
+                      <InputLabel shrink>Hiring countries</InputLabel>
+                      <Select
+                        multiple
+                        value={editingJob.hiringCountries ?? []}
+                        label="Hiring countries"
+                        open={editHiringCountriesSelectOpen}
+                        onOpen={() => setEditHiringCountriesSelectOpen(true)}
+                        onClose={() => setEditHiringCountriesSelectOpen(false)}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setEditingJob({ ...editingJob, hiringCountries: typeof v === 'string' ? v.split(',') : v });
+                          setEditHiringCountriesSelectOpen(false);
+                        }}
+                        renderValue={(selected) => (selected as string[]).map((code) => HIRING_COUNTRIES.find((c) => c.value === code)?.label || code).join(', ')}
+                      >
+                        {HIRING_COUNTRIES.map((c) => (
+                          <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
+                        ))}
+                      </Select>
+                      <FormHelperText>Job visible only to techies from the selected countries.</FormHelperText>
+                    </FormControl>
+                  </Grid>
+                  {(editingJob.hiringCountries ?? []).includes('US') && (
+                    <Grid item xs={12}>
+                      <FormControl fullWidth>
+                        <InputLabel shrink>What work authorizations are accepted for this role?</InputLabel>
+                        <Select
+                          multiple
+                          value={editingJob.workAuthorizations ?? []}
+                          label="What work authorizations are accepted for this role?"
+                          open={editWorkAuthorizationsSelectOpen}
+                          onOpen={() => setEditWorkAuthorizationsSelectOpen(true)}
+                          onClose={() => setEditWorkAuthorizationsSelectOpen(false)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setEditingJob({ ...editingJob, workAuthorizations: typeof v === 'string' ? v.split(',') : v });
+                            setEditWorkAuthorizationsSelectOpen(false);
+                          }}
+                          renderValue={(selected) => (selected as string[]).join(', ')}
+                        >
+                          {USA_WORK_AUTH_OPTIONS.map((opt) => (
+                            <MenuItem key={opt} value={opt}>{opt}</MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  )}
+                  <Grid item xs={12}>
+                    <FormControl fullWidth>
+                      <InputLabel shrink>Is this role open for sponsorship?</InputLabel>
+                      <Select
+                        value={editingJob.openForSponsorship === null || editingJob.openForSponsorship === undefined ? '' : editingJob.openForSponsorship ? 'yes' : 'no'}
+                        label="Is this role open for sponsorship?"
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setEditingJob({ ...editingJob, openForSponsorship: v === 'yes' ? true : v === 'no' ? false : null });
+                        }}
+                        displayEmpty
+                      >
+                        <MenuItem value="">—</MenuItem>
+                        <MenuItem value="yes">Yes</MenuItem>
+                        <MenuItem value="no">No</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={!!editingJob.collectApplicantLocation}
+                          onChange={(e) => setEditingJob({ ...editingJob, collectApplicantLocation: e.target.checked })}
+                          color="primary"
+                        />
+                      }
+                      label="Collect applicant location"
+                    />
+                    <FormHelperText sx={{ display: 'block', mt: 0.5 }}>
+                      If enabled, applicants are asked to share their current location when applying (captured at submission, read-only).
+                    </FormHelperText>
+                  </Grid>
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
-                      label="Min Salary (Annual)"
+                      label="Min Salary (Annual) — optional"
                       value={editingJob.salaryMin != null && editingJob.salaryMin !== '' ? String(editingJob.salaryMin) : ''}
                       onChange={(e) => { setEditingJob({ ...editingJob, salaryMin: e.target.value }); setEditJobErrors({ ...editJobErrors, salaryMin: false }); }}
                       placeholder="e.g., 60000"
@@ -1934,7 +2346,7 @@ const JobPostingsPage: React.FC = () => {
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
-                      label="Max Salary (Annual)"
+                      label="Max Salary (Annual) — optional"
                       value={editingJob.salaryMax != null && editingJob.salaryMax !== '' ? String(editingJob.salaryMax) : ''}
                       onChange={(e) => { setEditingJob({ ...editingJob, salaryMax: e.target.value }); setEditJobErrors({ ...editJobErrors, salaryMax: false }); }}
                       placeholder="e.g., 120000"
@@ -1942,7 +2354,7 @@ const JobPostingsPage: React.FC = () => {
                       InputLabelProps={{ shrink: true }}
                       InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                       error={!!editJobErrors.salaryMax}
-                      helperText={editJobErrors.salaryMax ? "Max salary is required and must be valid" : ""}
+                      helperText={editJobErrors.salaryMax ? "Valid max salary" : "Optional"}
                     />
                   </Grid>
                   <Grid item xs={12}>
@@ -2262,6 +2674,7 @@ const JobPostingsPage: React.FC = () => {
             <Tab label={`New (${applicants.filter(a => isNew(a.status)).length})`} />
             <Tab label={`Reviewed (${applicants.filter(a => isReviewed(a.status)).length})`} />
             <Tab label={`Interviewed (${applicants.filter(a => isInterviewed(a.status)).length})`} />
+            <Tab label={`Rejected (${applicants.filter(a => isRejected(a.status)).length})`} />
           </Tabs>
           
           {applicants.length === 0 ? (
@@ -2289,6 +2702,7 @@ const JobPostingsPage: React.FC = () => {
                   <TableCell sx={{ fontWeight: 600 }}>Experience</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Skills</TableCell>
                   <TableCell sx={{ fontWeight: 600, textAlign: 'center' }}>Match Score</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Location at apply</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
                   <TableCell sx={{ fontWeight: 600, textAlign: 'center' }}>Actions</TableCell>
                 </TableRow>
@@ -2329,6 +2743,27 @@ const JobPostingsPage: React.FC = () => {
                       </MatchBadge>
                     </TableCell>
                     <TableCell>
+                      {applicant.applicantLocationLat != null && applicant.applicantLocationLng != null ? (
+                        <Tooltip
+                          title={
+                            <Box component="span">
+                              <div>Coordinates: {applicant.applicantLocationLat?.toFixed(5)}, {applicant.applicantLocationLng?.toFixed(5)}</div>
+                              {applicant.applicantLocationIpSnapshot && (
+                                <div>IP snapshot: {typeof applicant.applicantLocationIpSnapshot === 'object' && applicant.applicantLocationIpSnapshot !== null && 'ip' in applicant.applicantLocationIpSnapshot
+                                  ? String((applicant.applicantLocationIpSnapshot as any).ip)
+                                  : '—'} (at apply time, read-only)
+                                </div>
+                              )}
+                            </Box>
+                          }
+                        >
+                          <Chip size="small" label="Shared" color="primary" variant="outlined" sx={{ fontWeight: 600 }} />
+                        </Tooltip>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <Chip
                         label={applicant.status.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
                         size="small"
@@ -2340,13 +2775,41 @@ const JobPostingsPage: React.FC = () => {
                       />
                     </TableCell>
                     <TableCell align="center">
-                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                        {isNew(applicant.status) && (
+                          <Tooltip title="Proceed to Shortlisted for Screening">
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="primary"
+                              startIcon={<ThumbUpIcon />}
+                              onClick={() => updateApplicantStage(applicant.id, 'shortlisted', applicant)}
+                              sx={{ minWidth: 0, px: 1 }}
+                            >
+                              Proceed
+                            </Button>
+                          </Tooltip>
+                        )}
+                        {!isRejected(applicant.status) && applicant.status?.toLowerCase() !== 'hired' && (
+                          <Tooltip title="Reject applicant">
+                            <IconButton
+                              size="small"
+                              sx={{ color: 'error.main' }}
+                              onClick={() => {
+                                if (window.confirm(`Reject ${applicant.name}? They will be moved to Rejected and notified by email.`)) {
+                                  updateApplicantStage(applicant.id, 'rejected', applicant);
+                                }
+                              }}
+                            >
+                              <CancelIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         <Tooltip title="View Profile">
                           <IconButton 
                             size="small" 
                             sx={{ color: '#0d47a1' }}
                             onClick={() => {
-                              // Navigate to candidate profile page
                               const candidateId = applicant.applicantId || applicant.id;
                               navigate(`/techie/ats/candidate/${candidateId}`);
                             }}
@@ -2386,6 +2849,42 @@ const JobPostingsPage: React.FC = () => {
                             }}
                           >
                             <EmailIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Text (SMS)">
+                          <IconButton
+                            size="small"
+                            sx={{ color: '#0d47a1' }}
+                            onClick={() => {
+                              const phone = (applicant.phone || '').trim().replace(/\D/g, '');
+                              if (phone) {
+                                window.open(`sms:${phone}`, '_blank');
+                              } else {
+                                setSnackbar({ open: true, message: 'No phone number available for this candidate', severity: 'warning' });
+                              }
+                            }}
+                          >
+                            <SmsIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Share vtCalendar link">
+                          <IconButton
+                            size="small"
+                            sx={{ color: '#00897b' }}
+                            onClick={async () => {
+                              if (hrCalendarLink) {
+                                try {
+                                  await navigator.clipboard.writeText(hrCalendarLink);
+                                  setSnackbar({ open: true, message: 'Calendar link copied to clipboard. Send it to the candidate so they can book a slot.', severity: 'success' });
+                                } catch {
+                                  setSnackbar({ open: true, message: 'Could not copy to clipboard', severity: 'error' });
+                                }
+                              } else {
+                                setSnackbar({ open: true, message: 'Set up your vtCalendar booking link in Calendar & Scheduling first.', severity: 'info' });
+                              }
+                            }}
+                          >
+                            <LinkIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       </Box>

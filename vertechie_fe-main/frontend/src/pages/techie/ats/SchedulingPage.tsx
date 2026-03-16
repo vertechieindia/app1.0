@@ -56,6 +56,7 @@ const WEEK_DAYS = [
 ];
 
 interface LinkSettings {
+  meetingTypeId: string;
   duration: string;
   customDuration: string;
   validityDays: string;
@@ -87,6 +88,11 @@ interface BookingItem {
   date: string;
   time: string;
   meetingTypeId: string;
+  email?: string;
+  notes?: string;
+  status?: string;
+  endTime?: string;
+  video_link?: string | null;
 }
 
 function ATSInterviewCard({
@@ -148,6 +154,7 @@ const SchedulingPage: React.FC = () => {
   const [showLinkSettings, setShowLinkSettings] = useState(false);
   const [showCreateMeeting, setShowCreateMeeting] = useState(false);
   const [linkSettings, setLinkSettings] = useState<LinkSettings>({
+    meetingTypeId: '',
     duration: '30',
     customDuration: '',
     validityDays: '7',
@@ -174,7 +181,21 @@ const SchedulingPage: React.FC = () => {
   const [totalBookings30d, setTotalBookings30d] = useState(0);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [scheduleModalContext, setScheduleModalContext] = useState<ScheduleInterviewContext | null>(null);
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'success' });
+  const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
+  const [deleteMeetingTypeConfirm, setDeleteMeetingTypeConfirm] = useState<MeetingType | null>(null);
+  const [editingMeetingType, setEditingMeetingType] = useState<MeetingType | null>(null);
+  const [meetingTypeForm, setMeetingTypeForm] = useState({
+    name: '',
+    duration_minutes: 30,
+    location_type: 'video',
+    description: '',
+    is_public: true,
+    color: '#0d47a1',
+  });
+  const [creatingMeetingType, setCreatingMeetingType] = useState(false);
+  const [bookingDetailsOpen, setBookingDetailsOpen] = useState(false);
+  const [selectedBookingDetail, setSelectedBookingDetail] = useState<BookingItem | null>(null);
   const navigate = useNavigate();
 
   // ATS interviews (scheduled via ATS – show on this page)
@@ -220,43 +241,6 @@ const SchedulingPage: React.FC = () => {
 
   // Fetch real scheduling data
   useEffect(() => {
-    const fetchSchedulingData = async () => {
-      try {
-        const [types, links, upcoming, allBookings] = await Promise.all([
-          calendarService.getMeetingTypes(),
-          calendarService.getSchedulingLinks(),
-          calendarService.getBookings({ upcoming_only: true }),
-          calendarService.getBookings(),
-        ]);
-
-        setMeetingTypes(types);
-        setSchedulingLinks(links);
-
-        const bookingItems = (upcoming || []).map((booking: Booking) => {
-          const scheduledAt = new Date(booking.start_time);
-          return {
-            id: String(booking.id),
-            name: booking.invitee_name || booking.invitee_email,
-            type: getMeetingTypeNameById(String(booking.meeting_type_id), types),
-            date: scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            time: scheduledAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-            meetingTypeId: String(booking.meeting_type_id),
-          };
-        });
-        setRealBookings(bookingItems);
-
-        const now = new Date();
-        const last30 = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
-        const count30 = (allBookings || []).filter((booking: Booking) => {
-          const createdAt = new Date(booking.created_at);
-          return !Number.isNaN(createdAt.getTime()) && createdAt >= last30 && createdAt <= now;
-        }).length;
-        setTotalBookings30d(count30);
-      } catch (err) {
-        console.warn('Could not fetch scheduling data:', err);
-      }
-    };
-
     fetchSchedulingData();
   }, []);
 
@@ -362,7 +346,7 @@ const SchedulingPage: React.FC = () => {
       ? parseInt(linkSettings.customDuration) 
       : parseInt(linkSettings.duration);
     
-    const requestData = {
+    const requestData: Parameters<typeof calendarService.createSchedulingLink>[0] = {
       duration_minutes: duration,
       start_date: linkSettings.startDate || undefined,
       end_date: linkSettings.endDate || undefined,
@@ -373,25 +357,35 @@ const SchedulingPage: React.FC = () => {
       buffer_after: parseInt(linkSettings.bufferAfter) || 0,
       max_bookings: linkSettings.maxBookings ? parseInt(linkSettings.maxBookings) : undefined,
       requires_approval: linkSettings.requireApproval,
+      meeting_type_id: linkSettings.meetingTypeId || undefined,
     };
 
     try {
-      const data = await calendarService.createSchedulingLink(requestData);
-      const token = (data as any)?.token;
-      if (!token) {
-        throw new Error('Failed to generate link token');
+      if (editingLinkId) {
+        await calendarService.updateSchedulingLink(editingLinkId, requestData);
+        setSnackbar({ open: true, message: 'Link updated', severity: 'success' });
+        setEditingLinkId(null);
+        setShowLinkSettings(false);
+        setGeneratedLink(null);
+        fetchSchedulingData();
+      } else {
+        const data = await calendarService.createSchedulingLink(requestData);
+        const token = (data as any)?.token;
+        if (!token) {
+          throw new Error('Failed to generate link token');
+        }
+        const fullUrl = `${window.location.origin}/book/${token}`;
+        setGeneratedLink({
+          token,
+          url: `/book/${token}`,
+          full_url: fullUrl,
+          expires_at: null,
+        });
+        const latestLinks = await calendarService.getSchedulingLinks();
+        setSchedulingLinks(Array.isArray(latestLinks) ? latestLinks : []);
       }
-      const fullUrl = `${window.location.origin}/book/${token}`;
-      setGeneratedLink({
-        token,
-        url: `/book/${token}`,
-        full_url: fullUrl,
-        expires_at: null,
-      });
-      const latestLinks = await calendarService.getSchedulingLinks();
-      setSchedulingLinks(latestLinks);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to generate link';
+      const message = err instanceof Error ? err.message : 'Failed to save link';
       setError(message);
     }
 
@@ -410,6 +404,87 @@ const SchedulingPage: React.FC = () => {
     setShowLinkSettings(false);
     setGeneratedLink(null);
     setError(null);
+    setEditingLinkId(null);
+  };
+
+  const openEditLinkSettings = (link: SchedulingLink) => {
+    const startTime = link.start_time ? (typeof link.start_time === 'string' ? link.start_time.slice(0, 5) : '09:00') : '09:00';
+    const endTime = link.end_time ? (typeof link.end_time === 'string' ? link.end_time.slice(0, 5) : '17:00') : '17:00';
+    setLinkSettings((prev) => ({
+      ...prev,
+      meetingTypeId: (link as any).meeting_type_id ? String((link as any).meeting_type_id) : '',
+      duration: String(link.duration_minutes || 30),
+      customDuration: '',
+      startDate: link.start_date ? String(link.start_date).slice(0, 10) : new Date().toISOString().split('T')[0],
+      endDate: link.end_date ? String(link.end_date).slice(0, 10) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      startTime,
+      endTime,
+      maxBookings: link.max_bookings != null ? String(link.max_bookings) : '',
+      requireApproval: !!(link as any).requires_approval,
+      availableDays: Array.isArray(link.available_days) ? link.available_days : [1, 2, 3, 4, 5],
+    }));
+    setEditingLinkId(link.id);
+    setShowLinkSettings(true);
+  };
+
+  const openEditMeetingType = (meeting: MeetingType) => {
+    setEditingMeetingType(meeting);
+    setMeetingTypeForm({
+      name: meeting.name,
+      duration_minutes: meeting.duration_minutes ?? 30,
+      location_type: meeting.location_type || 'video',
+      description: (meeting as any).description ?? '',
+      is_public: meeting.is_public !== false,
+      color: meeting.color || '#0d47a1',
+    });
+    setShowCreateMeeting(true);
+  };
+
+  const fetchSchedulingData = async () => {
+    try {
+      const [types, links, upcoming, allBookings] = await Promise.all([
+        calendarService.getMeetingTypes(),
+        calendarService.getSchedulingLinks(),
+        calendarService.getBookings({ upcoming_only: true }),
+        calendarService.getBookings(),
+      ]);
+      setMeetingTypes(Array.isArray(types) ? types : []);
+      setSchedulingLinks(Array.isArray(links) ? links : []);
+
+      const bookingItems = (upcoming || []).map((booking: Booking) => {
+        // Backend returns start_time as UTC (often without Z); treat as UTC so local time displays correctly
+        const rawStart = booking.start_time;
+        const utcStart = typeof rawStart === 'string' && !/Z|[+-]\d{2}:?\d{2}$/.test(rawStart) ? `${rawStart.replace(' ', 'T')}Z` : rawStart;
+        const scheduledAt = new Date(utcStart);
+        const rawEnd = booking.end_time;
+        const utcEnd = typeof rawEnd === 'string' && !/Z|[+-]\d{2}:?\d{2}$/.test(rawEnd) ? `${rawEnd.replace(' ', 'T')}Z` : rawEnd;
+        const endAt = new Date(utcEnd);
+        return {
+          id: String(booking.id),
+          name: booking.invitee_name || booking.invitee_email,
+          type: getMeetingTypeNameById(String(booking.meeting_type_id), Array.isArray(types) ? types : []),
+          date: scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          time: scheduledAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          meetingTypeId: String(booking.meeting_type_id),
+          email: booking.invitee_email,
+          notes: (booking as any).invitee_notes ?? (booking as any).notes ?? undefined,
+          status: booking.status,
+          endTime: endAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          video_link: (booking as any).video_link ?? null,
+        };
+      });
+      setRealBookings(bookingItems);
+
+      const now = new Date();
+      const last30 = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+      const count30 = (allBookings || []).filter((booking: Booking) => {
+        const createdAt = new Date(booking.created_at);
+        return !Number.isNaN(createdAt.getTime()) && createdAt >= last30 && createdAt <= now;
+      }).length;
+      setTotalBookings30d(count30);
+    } catch (err) {
+      console.warn('Could not fetch scheduling data:', err);
+    }
   };
 
   const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -443,7 +518,7 @@ const SchedulingPage: React.FC = () => {
       </Box>
 
       {/* ATS Interviews – Today & Upcoming */}
-      <Paper sx={{ p: 2, mb: 3, bgcolor: alpha('#00897b', 0.04), border: '1px solid rgba(0, 137, 123, 0.2)' }}>
+      {/* <Paper sx={{ p: 2, mb: 3, bgcolor: alpha('#00897b', 0.04), border: '1px solid rgba(0, 137, 123, 0.2)' }}>
         <Typography variant="h6" fontWeight={600} sx={{ mb: 2, color: '#00897b' }}>
           Interview Schedule (ATS)
         </Typography>
@@ -499,7 +574,7 @@ const SchedulingPage: React.FC = () => {
             </Grid>
           </Grid>
         )}
-      </Paper>
+      </Paper> */}
 
       {/* Scheduling Link */}
       <Paper sx={{ p: 2, mb: 3, bgcolor: alpha('#0d47a1', 0.03), border: '1px solid rgba(13, 71, 161, 0.1)' }}>
@@ -566,7 +641,7 @@ const SchedulingPage: React.FC = () => {
         <Grid item xs={12} md={8}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6" fontWeight={600}>Meeting Types</Typography>
-            <Button size="small" startIcon={<AddIcon />}>Add New</Button>
+            <Button size="small" startIcon={<AddIcon />} onClick={() => setShowCreateMeeting(true)}>Add New</Button>
           </Box>
           <Grid container spacing={2}>
             {meetingTypes.map((meeting) => (
@@ -607,9 +682,15 @@ const SchedulingPage: React.FC = () => {
                         {getMeetingTypeBookingsCount(String(meeting.id))} bookings
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        <IconButton size="small"><ContentCopyIcon fontSize="small" /></IconButton>
-                        <IconButton size="small"><EditIcon fontSize="small" /></IconButton>
-                        <IconButton size="small" color="error"><DeleteIcon fontSize="small" /></IconButton>
+                        <Tooltip title="Copy booking link">
+                          <IconButton size="small" onClick={() => { if (publicLink) { navigator.clipboard.writeText(publicLink); setSnackbar({ open: true, message: 'Link copied', severity: 'success' }); } else { setSnackbar({ open: true, message: 'Create a scheduling link first', severity: 'info' }); } }}><ContentCopyIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                        <Tooltip title="Edit">
+                          <IconButton size="small" onClick={() => openEditMeetingType(meeting)}><EditIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete">
+                          <IconButton size="small" color="error" onClick={() => setDeleteMeetingTypeConfirm(meeting)}><DeleteIcon fontSize="small" /></IconButton>
+                        </Tooltip>
                       </Box>
                     </Box>
                   </CardContent>
@@ -625,7 +706,7 @@ const SchedulingPage: React.FC = () => {
           <Paper sx={{ p: 2, mb: 3 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="subtitle1" fontWeight={600}>Availability</Typography>
-              <Button size="small" startIcon={<EditIcon />} disabled={!activeSchedulingLink}>Edit</Button>
+              <Button size="small" startIcon={<EditIcon />} disabled={!activeSchedulingLink} onClick={() => activeSchedulingLink && openEditLinkSettings(activeSchedulingLink)}>Edit</Button>
             </Box>
             {WEEK_DAYS.map((day) => {
               const line = formatAvailabilityLine(day.num);
@@ -675,7 +756,11 @@ const SchedulingPage: React.FC = () => {
                 </Box>
               ) : null}
               {realBookings.map((booking) => (
-                <ListItem key={booking.id} sx={{ px: 0 }}>
+                <ListItem
+                  key={booking.id}
+                  sx={{ px: 0, cursor: 'pointer', borderRadius: 1, '&:hover': { bgcolor: alpha('#0d47a1', 0.04) } }}
+                  onClick={() => { setSelectedBookingDetail(booking); setBookingDetailsOpen(true); }}
+                >
                   <ListItemAvatar>
                     <Avatar sx={{ bgcolor: alpha('#0d47a1', 0.1), color: '#0d47a1', width: 36, height: 36 }}>
                       {booking.name.charAt(0)}
@@ -683,7 +768,7 @@ const SchedulingPage: React.FC = () => {
                   </ListItemAvatar>
                   <ListItemText
                     primary={<Typography variant="body2" fontWeight={500}>{booking.name}</Typography>}
-                    secondary={<Typography variant="caption" color="text.secondary">{booking.type} - {booking.date} at {booking.time}</Typography>}
+                    secondary={<Typography variant="caption" color="text.secondary">{booking.type} • {booking.date} at {booking.time}</Typography>}
                   />
                 </ListItem>
               ))}
@@ -698,9 +783,9 @@ const SchedulingPage: React.FC = () => {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <SettingsIcon sx={{ color: '#0d47a1' }} />
             <Box>
-              <Typography variant="h6" fontWeight={600}>Create Custom Scheduling Link</Typography>
+              <Typography variant="h6" fontWeight={600}>{editingLinkId ? 'Edit availability & time' : 'Create Custom Scheduling Link'}</Typography>
               <Typography variant="body2" color="text.secondary">
-                Generate a unique booking link with specific date, time, and booking constraints
+                {editingLinkId ? 'Update date, time, and booking constraints' : 'Generate a unique booking link with specific date, time, and booking constraints'}
               </Typography>
             </Box>
           </Box>
@@ -713,6 +798,25 @@ const SchedulingPage: React.FC = () => {
           )}
 
           <Grid container spacing={3}>
+            {/* Meeting Type (so bookings work when candidate uses link) */}
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <PersonIcon sx={{ fontSize: 18, color: '#0d47a1' }} /> Meeting type
+              </Typography>
+              <FormControl fullWidth size="small">
+                <Select
+                  value={linkSettings.meetingTypeId}
+                  onChange={(e) => setLinkSettings((s) => ({ ...s, meetingTypeId: e.target.value }))}
+                  displayEmpty
+                >
+                  <MenuItem value="">Select meeting type (required for booking)</MenuItem>
+                  {meetingTypes.map((mt) => (
+                    <MenuItem key={mt.id} value={mt.id}>{mt.name} ({mt.duration_minutes} min)</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
             {/* Meeting Duration */}
             <Grid item xs={12}>
               <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -899,35 +1003,47 @@ const SchedulingPage: React.FC = () => {
             disabled={generating || (linkSettings.duration === 'custom' && !linkSettings.customDuration)}
             startIcon={generating ? <CircularProgress size={16} color="inherit" /> : null}
           >
-            {generating ? 'Generating...' : 'Generate Unique Link'}
+            {generating ? (editingLinkId ? 'Saving...' : 'Generating...') : (editingLinkId ? 'Save changes' : 'Generate Unique Link')}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Create Meeting Type Dialog */}
-      <Dialog open={showCreateMeeting} onClose={() => setShowCreateMeeting(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Create Meeting Type</DialogTitle>
+      {/* Create / Edit Meeting Type Dialog */}
+      <Dialog
+        open={showCreateMeeting}
+        onClose={() => { setShowCreateMeeting(false); setEditingMeetingType(null); setMeetingTypeForm({ name: '', duration_minutes: 30, location_type: 'video', description: '', is_public: true, color: '#0d47a1' }); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>{editingMeetingType ? 'Edit Meeting Type' : 'Create Meeting Type'}</DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2 }}>
-            <TextField 
-              fullWidth 
-              label="Meeting Name" 
-              placeholder="e.g., 30 Minute Consultation" 
-              sx={{ mb: 3 }} 
+            <TextField
+              fullWidth
+              label="Meeting Name"
+              placeholder="e.g., 30 Minute Consultation"
+              value={meetingTypeForm.name}
+              onChange={(e) => setMeetingTypeForm((f) => ({ ...f, name: e.target.value }))}
+              sx={{ mb: 3 }}
             />
-            
+
             <Grid container spacing={2} sx={{ mb: 3 }}>
               <Grid item xs={6}>
-                <TextField 
-                  fullWidth 
-                  label="Duration (minutes)" 
-                  type="number" 
-                  defaultValue={30}
+                <TextField
+                  fullWidth
+                  label="Duration (minutes)"
+                  type="number"
+                  value={meetingTypeForm.duration_minutes}
+                  onChange={(e) => setMeetingTypeForm((f) => ({ ...f, duration_minutes: parseInt(e.target.value, 10) || 30 }))}
                 />
               </Grid>
               <Grid item xs={6}>
                 <FormControl fullWidth>
-                  <Select defaultValue="zoom">
+                  <Select
+                    value={meetingTypeForm.location_type}
+                    onChange={(e) => setMeetingTypeForm((f) => ({ ...f, location_type: e.target.value }))}
+                  >
+                    <MenuItem value="video">Video</MenuItem>
                     <MenuItem value="zoom">Zoom</MenuItem>
                     <MenuItem value="meet">Google Meet</MenuItem>
                     <MenuItem value="teams">Microsoft Teams</MenuItem>
@@ -938,49 +1054,83 @@ const SchedulingPage: React.FC = () => {
               </Grid>
             </Grid>
 
-            <TextField 
-              fullWidth 
-              label="Description" 
-              multiline 
-              rows={3} 
+            <TextField
+              fullWidth
+              label="Description"
+              multiline
+              rows={3}
               placeholder="Add a description for this meeting type..."
+              value={meetingTypeForm.description}
+              onChange={(e) => setMeetingTypeForm((f) => ({ ...f, description: e.target.value }))}
               sx={{ mb: 3 }}
             />
 
-            <Grid container spacing={2} sx={{ mb: 2 }}>
-              <Grid item xs={6}>
-                <FormControl fullWidth>
-                  <Select defaultValue="one-on-one">
-                    <MenuItem value="one-on-one">One-on-One</MenuItem>
-                    <MenuItem value="group">Group Meeting</MenuItem>
-                    <MenuItem value="round-robin">Round Robin</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6}>
-                <FormControl fullWidth>
-                  <Select defaultValue="public">
-                    <MenuItem value="public">Public</MenuItem>
-                    <MenuItem value="private">Private (Link Only)</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={meetingTypeForm.is_public}
+                    onChange={(e) => setMeetingTypeForm((f) => ({ ...f, is_public: e.target.checked }))}
+                  />
+                }
+                label="Public (bookable via link)"
+              />
+            </FormControl>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-              <Box sx={{ width: 40, height: 40, borderRadius: 1, bgcolor: '#0d47a1' }} />
-              <Typography variant="body2" color="text.secondary">Choose a color for this meeting type</Typography>
+              <Box sx={{ width: 40, height: 40, borderRadius: 1, bgcolor: meetingTypeForm.color }} />
+              <Typography variant="body2" color="text.secondary">Color</Typography>
+              <TextField
+                size="small"
+                type="color"
+                value={meetingTypeForm.color}
+                onChange={(e) => setMeetingTypeForm((f) => ({ ...f, color: e.target.value }))}
+                sx={{ width: 60, height: 36, p: 0 }}
+              />
             </Box>
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setShowCreateMeeting(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            onClick={() => setShowCreateMeeting(false)}
+          <Button onClick={() => { setShowCreateMeeting(false); setEditingMeetingType(null); }}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!meetingTypeForm.name.trim() || creatingMeetingType}
             sx={{ bgcolor: '#0d47a1' }}
+            onClick={async () => {
+              setCreatingMeetingType(true);
+              try {
+                if (editingMeetingType) {
+                  await calendarService.updateMeetingType(editingMeetingType.id, {
+                    name: meetingTypeForm.name,
+                    duration_minutes: meetingTypeForm.duration_minutes,
+                    location_type: meetingTypeForm.location_type,
+                    description: meetingTypeForm.description || undefined,
+                    is_public: meetingTypeForm.is_public,
+                    color: meetingTypeForm.color,
+                  });
+                  setSnackbar({ open: true, message: 'Meeting type updated', severity: 'success' });
+                } else {
+                  await calendarService.createMeetingType({
+                    name: meetingTypeForm.name,
+                    duration_minutes: meetingTypeForm.duration_minutes,
+                    location_type: meetingTypeForm.location_type,
+                    description: meetingTypeForm.description || undefined,
+                    color: meetingTypeForm.color,
+                  });
+                  setSnackbar({ open: true, message: 'Meeting type created', severity: 'success' });
+                }
+                setShowCreateMeeting(false);
+                setEditingMeetingType(null);
+                setMeetingTypeForm({ name: '', duration_minutes: 30, location_type: 'video', description: '', is_public: true, color: '#0d47a1' });
+                fetchSchedulingData();
+              } catch (err) {
+                setSnackbar({ open: true, message: err instanceof Error ? err.message : 'Failed to save', severity: 'error' });
+              } finally {
+                setCreatingMeetingType(false);
+              }
+            }}
           >
-            Create Meeting Type
+            {creatingMeetingType ? (editingMeetingType ? 'Saving...' : 'Creating...') : (editingMeetingType ? 'Save changes' : 'Create Meeting Type')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -993,6 +1143,107 @@ const SchedulingPage: React.FC = () => {
         context={scheduleModalContext}
         allowSelectApplication={!scheduleModalContext}
       />
+
+      {/* Booking details popup */}
+      <Dialog open={bookingDetailsOpen} onClose={() => { setBookingDetailsOpen(false); setSelectedBookingDetail(null); }} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ borderBottom: '1px solid rgba(0,0,0,0.08)', pb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AccessTimeIcon sx={{ color: '#0d47a1' }} />
+            <Typography variant="h6" fontWeight={600}>Booking details</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {selectedBookingDetail && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Avatar sx={{ bgcolor: alpha('#0d47a1', 0.15), color: '#0d47a1', width: 48, height: 48 }}>
+                  {selectedBookingDetail.name.charAt(0)}
+                </Avatar>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={600}>{selectedBookingDetail.name}</Typography>
+                  {selectedBookingDetail.email && (
+                    <Typography variant="body2" color="text.secondary">{selectedBookingDetail.email}</Typography>
+                  )}
+                </Box>
+              </Box>
+              <Divider />
+              <Box>
+                <Typography variant="caption" color="text.secondary">Meeting type</Typography>
+                <Typography variant="body2" fontWeight={500}>{selectedBookingDetail.type}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Date & time</Typography>
+                <Typography variant="body2" fontWeight={500}>
+                  {selectedBookingDetail.date} at {selectedBookingDetail.time}
+                  {selectedBookingDetail.endTime && ` – ${selectedBookingDetail.endTime}`}
+                </Typography>
+              </Box>
+              {selectedBookingDetail.status && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Status</Typography>
+                  <Typography variant="body2" fontWeight={500} sx={{ textTransform: 'capitalize' }}>{selectedBookingDetail.status}</Typography>
+                </Box>
+              )}
+              {selectedBookingDetail.notes && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Notes</Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{selectedBookingDetail.notes}</Typography>
+                </Box>
+              )}
+              {selectedBookingDetail.video_link && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Meeting link (use this to connect with the candidate on the booked date)</Typography>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    href={selectedBookingDetail.video_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    sx={{ mt: 0.5 }}
+                  >
+                    Join meeting
+                  </Button>
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+          <Button onClick={() => { setBookingDetailsOpen(false); setSelectedBookingDetail(null); }}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete meeting type confirmation */}
+      <Dialog open={Boolean(deleteMeetingTypeConfirm)} onClose={() => setDeleteMeetingTypeConfirm(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete meeting type?</DialogTitle>
+        <DialogContent>
+          {deleteMeetingTypeConfirm && (
+            <Typography variant="body2" color="text.secondary">
+              Delete &quot;{deleteMeetingTypeConfirm.name}&quot;? This cannot be undone.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteMeetingTypeConfirm(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={async () => {
+              if (!deleteMeetingTypeConfirm) return;
+              try {
+                await calendarService.deleteMeetingType(deleteMeetingTypeConfirm.id);
+                setSnackbar({ open: true, message: 'Meeting type deleted', severity: 'success' });
+                setDeleteMeetingTypeConfirm(null);
+                fetchSchedulingData();
+              } catch (err) {
+                setSnackbar({ open: true, message: err instanceof Error ? err.message : 'Failed to delete', severity: 'error' });
+              }
+            }}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Cancel interview confirmation */}
       <Dialog open={Boolean(cancelConfirmInterview)} onClose={() => setCancelConfirmInterview(null)} maxWidth="xs" fullWidth>

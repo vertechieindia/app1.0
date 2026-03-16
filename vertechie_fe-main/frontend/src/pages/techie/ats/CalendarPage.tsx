@@ -7,9 +7,10 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
   Box, Typography, Paper, Button, IconButton, Chip, FormControl, Select, MenuItem,
   Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemIcon, ListItemText, 
-  ListItemSecondaryAction, Checkbox, Tooltip, TextField, InputLabel, Alert, Avatar, 
+  ListItemSecondaryAction, Checkbox, Tooltip, TextField, InputLabel, Alert, Avatar, FormControlLabel, 
   Badge, Drawer, Tabs, Tab, Switch, Slider, Collapse, Fade, Zoom, Grow, InputAdornment,
   ToggleButton, ToggleButtonGroup, Divider, LinearProgress, AvatarGroup, SpeedDial, SpeedDialAction,
+  Autocomplete, Popover, Snackbar,
 } from '@mui/material';
 import { styled, alpha, keyframes } from '@mui/material/styles';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -65,6 +66,9 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ATSLayout from './ATSLayout';
+import { getApiUrl, API_ENDPOINTS } from '../../../config/api';
+import { fetchWithAuth } from '../../../utils/apiInterceptor';
+import { calendarSyncService, type CalendarConnectionDto, type SyncStatusResponse } from '../../../services/calendarSyncService';
 
 // Animations
 const pulseAnimation = keyframes`
@@ -500,6 +504,9 @@ const CalendarPage: React.FC = () => {
   const [is24Hour, setIs24Hour] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   
+  // Edit mode: when editing an existing event
+  const [editingEventId, setEditingEventId] = useState<number | null>(null);
+
   // New event form state
   const [newEvent, setNewEvent] = useState({
     title: '',
@@ -510,10 +517,47 @@ const CalendarPage: React.FC = () => {
     location: '',
     description: '',
     isRecurring: false,
+    recurrenceType: 'daily' as 'daily' | 'weekly' | 'monthly' | 'weekdays' | 'weekends' | 'custom',
+    recurrenceEndDate: '' as string,
     reminder: 15,
     videoLink: '',
     priority: 'medium' as 'low' | 'medium' | 'high',
   });
+
+  // Location suggestions for event create (same as work location / job postings)
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
+  const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
+  const [keyboardAnchor, setKeyboardAnchor] = useState<HTMLElement | null>(null);
+
+  // Calendar sync (Google / Microsoft)
+  const [showSyncDrawer, setShowSyncDrawer] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  const fetchLocationSuggestions = useCallback(async (query: string) => {
+    if (!query || query.trim().length < 2) {
+      setLocationSuggestions([]);
+      return;
+    }
+    try {
+      const q = encodeURIComponent(query.trim());
+      const countries = ['IN', 'US'];
+      const responses = await Promise.all(
+        countries.map(async (country) => {
+          const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${q}&country=${country}&limit=10`;
+          const response = await fetchWithAuth(url);
+          if (!response.ok) return [];
+          const data = await response.json();
+          return Array.isArray(data) ? data.map((place: any) => place.display_name).filter(Boolean) : [];
+        })
+      );
+      const suggestions = Array.from(new Set(responses.flat())).slice(0, 20);
+      setLocationSuggestions(suggestions);
+    } catch {
+      setLocationSuggestions([]);
+    }
+  }, []);
 
   // Update current time every minute
   useEffect(() => {
@@ -523,6 +567,52 @@ const CalendarPage: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch calendar sync status when sync drawer opens
+  useEffect(() => {
+    if (!showSyncDrawer) return;
+    calendarSyncService.getSyncStatus().then(setSyncStatus).catch(() => setSyncStatus(null));
+  }, [showSyncDrawer]);
+
+  const handleConnectGoogle = async () => {
+    try {
+      const { auth_url } = await calendarSyncService.getConnectGoogleUrl();
+      window.location.href = auth_url;
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.message || 'Google Calendar not configured' });
+    }
+  };
+  const handleConnectMicrosoft = async () => {
+    try {
+      const { auth_url } = await calendarSyncService.getConnectMicrosoftUrl();
+      window.location.href = auth_url;
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.message || 'Microsoft Calendar not configured' });
+    }
+  };
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      await calendarSyncService.syncNow();
+      setSnackbar({ open: true, message: 'Sync started. Status will update shortly.' });
+      const status = await calendarSyncService.getSyncStatus();
+      setSyncStatus(status);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.message || 'Sync failed' });
+    } finally {
+      setSyncing(false);
+    }
+  };
+  const handleDisconnect = async (id: string) => {
+    try {
+      await calendarSyncService.disconnect(id);
+      const status = await calendarSyncService.getSyncStatus();
+      setSyncStatus(status);
+      setSnackbar({ open: true, message: 'Calendar disconnected' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.message || 'Disconnect failed' });
+    }
+  };
+
   // Fetch real interviews and add to calendar
   useEffect(() => {
     const fetchInterviews = async () => {
@@ -530,7 +620,7 @@ const CalendarPage: React.FC = () => {
         const token = localStorage.getItem('authToken');
         if (!token) return;
         
-        const response = await fetch('http://localhost:8000/api/v1/hiring/interviews?upcoming=true', {
+        const response = await fetch(`${getApiUrl('/hiring/interviews')}?upcoming=true`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -640,11 +730,37 @@ const CalendarPage: React.FC = () => {
     });
   }, [events, searchQuery, categoryFilters]);
 
-  // Get events for a specific date
-  const getEventsForDate = useCallback((date: Date) => {
+  // Check if a (possibly recurring) event occurs on a given date
+  const eventOccursOnDate = useCallback((event: CalendarEvent, date: Date): boolean => {
     const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    return filteredEvents.filter(e => e.date === dateStr);
-  }, [filteredEvents]);
+    const [y, m, d] = event.date.split('-').map(Number);
+    const startDate = new Date(y, m - 1, d);
+    if (date < startDate) return false;
+    if (!event.isRecurring || !event.recurrenceRule) {
+      return event.date === dateStr;
+    }
+    const rule = (event.recurrenceRule || '').toUpperCase();
+    const endLimit = new Date(startDate);
+    endLimit.setFullYear(endLimit.getFullYear() + 1);
+    if (date > endLimit) return false;
+    if (rule.includes('FREQ=DAILY')) return date >= startDate;
+    if (rule.includes('FREQ=WEEKLY')) {
+      const dayNum = date.getDay();
+      if (rule.includes('BYDAY=MO,TU,WE,TH,FR')) return date >= startDate && dayNum >= 1 && dayNum <= 5;
+      if (rule.includes('BYDAY=SA,SU')) return date >= startDate && (dayNum === 0 || dayNum === 6);
+      const startDay = startDate.getDay();
+      return date >= startDate && date.getDay() === startDay;
+    }
+    if (rule.includes('FREQ=MONTHLY')) {
+      return date >= startDate && date.getDate() === startDate.getDate();
+    }
+    return event.date === dateStr;
+  }, []);
+
+  // Get events for a specific date (including recurring expansion)
+  const getEventsForDate = useCallback((date: Date) => {
+    return filteredEvents.filter(e => eventOccursOnDate(e, date));
+  }, [filteredEvents, eventOccursOnDate]);
 
   // Get upcoming events
   const upcomingEvents = useMemo(() => {
@@ -693,8 +809,78 @@ const CalendarPage: React.FC = () => {
       time: `${String(hour).padStart(2, '0')}:00`,
     });
     setSelectedEvent(null);
+    setEditingEventId(null);
     setIsCreating(true);
     setShowEventDialog(true);
+  };
+
+  const buildRecurrenceRule = (ev: typeof newEvent): string | undefined => {
+    if (!ev.isRecurring) return undefined;
+    const [y, m, d] = (ev.date || '').split('-').map(Number);
+    if (!ev.date || isNaN(y)) return undefined;
+    const start = new Date(y, m - 1, d);
+    const dayNum = start.getDay();
+    const DAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    const dayStr = DAYS[dayNum];
+    switch (ev.recurrenceType) {
+      case 'daily': return 'FREQ=DAILY';
+      case 'weekly': return `FREQ=WEEKLY;BYDAY=${dayStr}`;
+      case 'monthly': return 'FREQ=MONTHLY';
+      case 'weekdays': return 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR';
+      case 'weekends': return 'FREQ=WEEKLY;BYDAY=SA,SU';
+      case 'custom':
+      default: return 'FREQ=DAILY';
+    }
+  };
+
+  const handleEditClick = () => {
+    if (!selectedEvent) return;
+    setNewEvent({
+      title: selectedEvent.title,
+      date: selectedEvent.date,
+      time: selectedEvent.time,
+      duration: selectedEvent.duration,
+      category: selectedEvent.category,
+      location: selectedEvent.location || '',
+      description: selectedEvent.description || '',
+      isRecurring: selectedEvent.isRecurring || false,
+      recurrenceType: 'daily',
+      recurrenceEndDate: '',
+      reminder: selectedEvent.reminder ?? 15,
+      videoLink: selectedEvent.videoLink || '',
+      priority: (selectedEvent.priority as 'low' | 'medium' | 'high') || 'medium',
+    });
+    setEditingEventId(selectedEvent.id);
+    setIsCreating(true);
+    setSelectedEvent(null);
+  };
+
+  const handleUpdateEvent = () => {
+    if (editingEventId == null) return;
+    let videoLink = newEvent.videoLink;
+    if (!videoLink && ['meeting', 'interview'].includes(newEvent.category)) {
+      videoLink = generateVideoLink();
+    }
+    const recurrenceRule = buildRecurrenceRule(newEvent);
+    setEvents(prev => prev.map(e => e.id === editingEventId ? {
+      ...e,
+      title: newEvent.title,
+      date: newEvent.date,
+      time: newEvent.time,
+      duration: newEvent.duration,
+      category: newEvent.category,
+      location: newEvent.location,
+      description: newEvent.description,
+      isRecurring: newEvent.isRecurring,
+      recurrenceRule,
+      reminder: newEvent.reminder,
+      videoLink: videoLink ?? e.videoLink,
+      priority: newEvent.priority,
+    } : e));
+    setShowEventDialog(false);
+    setEditingEventId(null);
+    setSelectedEvent(null);
+    setNewEvent({ title: '', date: '', time: '09:00', duration: 30, category: 'meeting', location: '', description: '', isRecurring: false, recurrenceType: 'daily', recurrenceEndDate: '', reminder: 15, videoLink: '', priority: 'medium' });
   };
 
   // Generate VerTechie video link
@@ -705,12 +891,11 @@ const CalendarPage: React.FC = () => {
   };
 
   const handleCreateEvent = () => {
-    // Auto-generate video link for meetings and interviews if not already set
     let videoLink = newEvent.videoLink;
     if (!videoLink && ['meeting', 'interview'].includes(newEvent.category)) {
       videoLink = generateVideoLink();
     }
-    
+    const recurrenceRule = newEvent.isRecurring ? buildRecurrenceRule(newEvent) : undefined;
     const event: CalendarEvent = {
       id: Date.now(),
       title: newEvent.title,
@@ -722,12 +907,14 @@ const CalendarPage: React.FC = () => {
       location: newEvent.location,
       description: newEvent.description,
       isRecurring: newEvent.isRecurring,
+      recurrenceRule,
       reminder: newEvent.reminder,
       videoLink: videoLink,
       priority: newEvent.priority,
     };
     setEvents([...events, event]);
     setShowEventDialog(false);
+    setEditingEventId(null);
     setNewEvent({
       title: '',
       date: '',
@@ -737,6 +924,8 @@ const CalendarPage: React.FC = () => {
       location: '',
       description: '',
       isRecurring: false,
+      recurrenceType: 'daily',
+      recurrenceEndDate: '',
       reminder: 15,
       videoLink: '',
       priority: 'medium',
@@ -747,6 +936,13 @@ const CalendarPage: React.FC = () => {
     setEvents(events.filter(e => e.id !== eventId));
     setShowEventDialog(false);
     setSelectedEvent(null);
+    setEditingEventId(null);
+  };
+
+  const closeEventDialog = () => {
+    setShowEventDialog(false);
+    setSelectedEvent(null);
+    setEditingEventId(null);
   };
 
   // Format time
@@ -756,6 +952,40 @@ const CalendarPage: React.FC = () => {
     const period = hours >= 12 ? 'PM' : 'AM';
     const hour12 = hours % 12 || 12;
     return `${hour12}:${String(minutes).padStart(2, '0')} ${period}`;
+  };
+
+  // Toolbar actions: Print, Share, Keyboard shortcuts, Filter
+  const handlePrint = () => {
+    const prevTitle = document.title;
+    document.title = 'Calendar - VerTechie ATS';
+    window.print();
+    document.title = prevTitle;
+  };
+  const handleShare = async () => {
+    const url = window.location.href;
+    const title = 'VerTechie ATS Calendar';
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, url, text: 'View my calendar' });
+        setSnackbar({ open: true, message: 'Calendar shared' });
+      } else {
+        await navigator.clipboard.writeText(url);
+        setSnackbar({ open: true, message: 'Calendar link copied to clipboard' });
+      }
+    } catch {
+      try {
+        await navigator.clipboard.writeText(url);
+        setSnackbar({ open: true, message: 'Calendar link copied to clipboard' });
+      } catch {
+        setSnackbar({ open: true, message: 'Share not available' });
+      }
+    }
+  };
+  const handleKeyboardShortcutsClick = (e: React.MouseEvent<HTMLElement>) => {
+    setKeyboardAnchor(e.currentTarget);
+  };
+  const handleFilterClick = (e: React.MouseEvent<HTMLElement>) => {
+    setFilterAnchor(e.currentTarget);
   };
 
   // Get current time position
@@ -806,13 +1036,16 @@ const CalendarPage: React.FC = () => {
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Tooltip title="Keyboard shortcuts">
-            <IconButton size="small"><KeyboardIcon /></IconButton>
+            <IconButton size="small" onClick={handleKeyboardShortcutsClick}><KeyboardIcon /></IconButton>
           </Tooltip>
           <Tooltip title="Print calendar">
-            <IconButton size="small"><PrintIcon /></IconButton>
+            <IconButton size="small" onClick={handlePrint}><PrintIcon /></IconButton>
           </Tooltip>
           <Tooltip title="Share calendar">
-            <IconButton size="small"><ShareIcon /></IconButton>
+            <IconButton size="small" onClick={handleShare}><ShareIcon /></IconButton>
+          </Tooltip>
+          <Tooltip title="Calendar sync (Google / Microsoft)">
+            <IconButton size="small" onClick={() => setShowSyncDrawer(true)}><SyncIcon /></IconButton>
           </Tooltip>
           <Tooltip title="Settings">
             <IconButton size="small" onClick={() => setShowSettings(true)}><SettingsIcon /></IconButton>
@@ -820,7 +1053,13 @@ const CalendarPage: React.FC = () => {
           <Button 
             variant="contained" 
             startIcon={<AddIcon />} 
-            onClick={() => { setIsCreating(true); setSelectedEvent(null); setShowEventDialog(true); }}
+            onClick={() => {
+              setIsCreating(true);
+              setSelectedEvent(null);
+              setEditingEventId(null);
+              setNewEvent({ title: '', date: '', time: '09:00', duration: 30, category: 'meeting', location: '', description: '', isRecurring: false, recurrenceType: 'daily', recurrenceEndDate: '', reminder: 15, videoLink: '', priority: 'medium' });
+              setShowEventDialog(true);
+            }}
             sx={{ bgcolor: '#0d47a1', borderRadius: 20 }}
           >
             New Event
@@ -996,7 +1235,7 @@ const CalendarPage: React.FC = () => {
                 </ViewToggleButton>
               </ToggleButtonGroup>
 
-              <IconButton onClick={() => setShowFilters(true)} size="small">
+              <IconButton onClick={handleFilterClick} size="small" aria-describedby={filterAnchor ? 'filter-popover' : undefined}>
                 <Badge badgeContent={Object.keys(EVENT_CATEGORIES).length - categoryFilters.length} color="primary">
                   <FilterListIcon />
                 </Badge>
@@ -1371,12 +1610,12 @@ const CalendarPage: React.FC = () => {
       </CalendarContainer>
 
       {/* Event Dialog */}
-      <Dialog open={showEventDialog} onClose={() => setShowEventDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog open={showEventDialog} onClose={closeEventDialog} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ borderBottom: '1px solid rgba(0,0,0,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" fontWeight={600}>
-            {isCreating ? 'Create Event' : selectedEvent?.title}
+            {editingEventId != null ? 'Edit Event' : isCreating ? 'Create Event' : selectedEvent?.title}
           </Typography>
-          <IconButton onClick={() => setShowEventDialog(false)} size="small">
+          <IconButton onClick={closeEventDialog} size="small">
             <CloseIcon />
           </IconButton>
         </DialogTitle>
@@ -1442,14 +1681,29 @@ const CalendarPage: React.FC = () => {
                   </Select>
                 </FormControl>
               </Box>
-              <TextField
-                label="Location"
+              <Autocomplete
+                freeSolo
+                options={locationSuggestions}
                 value={newEvent.location}
-                onChange={(e) => setNewEvent({ ...newEvent, location: e.target.value })}
-                fullWidth
-                InputProps={{
-                  startAdornment: <LocationOnIcon sx={{ color: '#888', mr: 1 }} />,
+                onInputChange={(_, value) => {
+                  setNewEvent(prev => ({ ...prev, location: value }));
+                  fetchLocationSuggestions(value);
                 }}
+                onChange={(_, value) => {
+                  setNewEvent(prev => ({ ...prev, location: typeof value === 'string' ? value : value || '' }));
+                  setLocationSuggestions([]);
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Location"
+                    placeholder="Type to see suggestions (e.g. city, address)"
+                    InputProps={{
+                      ...params.InputProps,
+                      startAdornment: <LocationOnIcon sx={{ color: '#888', mr: 1 }} />,
+                    }}
+                  />
+                )}
               />
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
                 <TextField
@@ -1485,7 +1739,7 @@ const CalendarPage: React.FC = () => {
                 multiline
                 rows={3}
               />
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
                 <FormControl sx={{ minWidth: 120 }}>
                   <InputLabel>Reminder</InputLabel>
                   <Select
@@ -1523,6 +1777,26 @@ const CalendarPage: React.FC = () => {
                   <Typography variant="body2">Recurring</Typography>
                 </Box>
               </Box>
+              {newEvent.isRecurring && (
+                <Box sx={{ pl: 1, borderLeft: '3px solid', borderColor: 'primary.main' }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Repeat</Typography>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Frequency</InputLabel>
+                    <Select
+                      value={newEvent.recurrenceType}
+                      onChange={(e) => setNewEvent({ ...newEvent, recurrenceType: e.target.value as typeof newEvent.recurrenceType })}
+                      label="Frequency"
+                    >
+                      <MenuItem value="daily">Every day</MenuItem>
+                      <MenuItem value="weekly">Same day every week</MenuItem>
+                      <MenuItem value="monthly">Same date every month</MenuItem>
+                      <MenuItem value="weekdays">Every weekday (Mon–Fri)</MenuItem>
+                      <MenuItem value="weekends">Every weekend (Sat–Sun)</MenuItem>
+                      <MenuItem value="custom">Custom (every day)</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Box>
+              )}
             </Box>
           ) : selectedEvent && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1603,13 +1877,24 @@ const CalendarPage: React.FC = () => {
         </DialogContent>
         <DialogActions sx={{ p: 2, borderTop: '1px solid rgba(0,0,0,0.1)', justifyContent: 'space-between' }}>
           {!isCreating && selectedEvent && (
-            <Button color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteEvent(selectedEvent.id)}>
-              Delete
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button color="primary" startIcon={<EditIcon />} onClick={handleEditClick}>
+                Edit
+              </Button>
+              <Button color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteEvent(selectedEvent.id)}>
+                Delete
+              </Button>
+            </Box>
           )}
+          {isCreating && <Box />}
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button onClick={() => setShowEventDialog(false)}>Cancel</Button>
-            {isCreating && (
+            <Button onClick={closeEventDialog}>Cancel</Button>
+            {isCreating && editingEventId != null && (
+              <Button variant="contained" onClick={handleUpdateEvent} disabled={!newEvent.title || !newEvent.date}>
+                Save
+              </Button>
+            )}
+            {isCreating && editingEventId == null && (
               <Button variant="contained" onClick={handleCreateEvent} disabled={!newEvent.title || !newEvent.date}>
                 Create Event
               </Button>
@@ -1617,6 +1902,124 @@ const CalendarPage: React.FC = () => {
           </Box>
         </DialogActions>
       </Dialog>
+
+      {/* Filter Popover */}
+      <Popover
+        id="filter-popover"
+        open={Boolean(filterAnchor)}
+        anchorEl={filterAnchor}
+        onClose={() => setFilterAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+      >
+        <Box sx={{ p: 2, minWidth: 260 }}>
+          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5 }}>Filter by category</Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            {Object.entries(EVENT_CATEGORIES).map(([key, cat]) => (
+              <FormControlLabel
+                key={key}
+                control={
+                  <Checkbox
+                    checked={categoryFilters.includes(key)}
+                    onChange={() => {
+                      if (categoryFilters.includes(key)) {
+                        setCategoryFilters(categoryFilters.filter(c => c !== key));
+                      } else {
+                        setCategoryFilters([...categoryFilters, key]);
+                      }
+                    }}
+                    size="small"
+                  />
+                }
+                label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Box sx={{ width: 10, height: 10, borderRadius: 1, bgcolor: cat.color }} /><Typography variant="body2">{cat.label}</Typography></Box>}
+              />
+            ))}
+          </Box>
+          <Button size="small" onClick={() => setFilterAnchor(null)} sx={{ mt: 1 }}>Close</Button>
+        </Box>
+      </Popover>
+
+      {/* Keyboard shortcuts Popover */}
+      <Popover
+        open={Boolean(keyboardAnchor)}
+        anchorEl={keyboardAnchor}
+        onClose={() => setKeyboardAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+      >
+        <Box sx={{ p: 2, minWidth: 240 }}>
+          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5 }}>Keyboard shortcuts</Typography>
+          <List dense disablePadding>
+            <ListItem sx={{ py: 0.25 }}><ListItemText primary="N" secondary="New event" primaryTypographyProps={{ fontFamily: 'monospace' }} /></ListItem>
+            <ListItem sx={{ py: 0.25 }}><ListItemText primary="T" secondary="Go to today" primaryTypographyProps={{ fontFamily: 'monospace' }} /></ListItem>
+            <ListItem sx={{ py: 0.25 }}><ListItemText primary="1–5" secondary="Day / Week / Month / Agenda / Schedule" primaryTypographyProps={{ fontFamily: 'monospace' }} /></ListItem>
+            <ListItem sx={{ py: 0.25 }}><ListItemText primary="Esc" secondary="Close dialog" primaryTypographyProps={{ fontFamily: 'monospace' }} /></ListItem>
+          </List>
+          <Button size="small" onClick={() => setKeyboardAnchor(null)} sx={{ mt: 1 }}>Close</Button>
+        </Box>
+      </Popover>
+
+      {/* Calendar Sync Drawer (Google / Microsoft) */}
+      <Drawer anchor="right" open={showSyncDrawer} onClose={() => setShowSyncDrawer(false)} PaperProps={{ sx: { width: 360 } }}>
+        <Box sx={{ p: 2 }}>
+          <Typography variant="h6" sx={{ mb: 2 }}>Calendar sync</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Block time in the app and in Google/Microsoft stay in sync both ways.
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 2 }}>
+            <Button variant="outlined" startIcon={<GoogleIcon />} onClick={handleConnectGoogle} fullWidth sx={{ textTransform: 'none' }}>
+              Connect Google Calendar
+            </Button>
+            <Button variant="outlined" startIcon={<MicrosoftIcon />} onClick={handleConnectMicrosoft} fullWidth sx={{ textTransform: 'none' }}>
+              Connect Microsoft Calendar
+            </Button>
+          </Box>
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>Connected calendars</Typography>
+          {syncStatus?.connections?.length ? (
+            <List dense>
+              {syncStatus.connections.map((c: CalendarConnectionDto) => (
+                <ListItem key={c.id} secondaryAction={
+                  <IconButton size="small" onClick={() => handleDisconnect(c.id)}><CloseIcon /></IconButton>
+                }>
+                  <ListItemIcon>{c.provider === 'google' ? <GoogleIcon /> : <MicrosoftIcon />}</ListItemIcon>
+                  <ListItemText
+                    primary={c.calendar_name || c.provider}
+                    secondary={
+                      c.sync_status === 'syncing'
+                        ? 'Syncing…'
+                        : c.sync_status === 'error'
+                          ? (c.last_sync_error || 'Error')
+                          : c.last_synced_at
+                            ? `Last sync: ${new Date(c.last_synced_at).toLocaleString()}`
+                            : 'Not synced yet'
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          ) : (
+            <Typography variant="body2" color="text.secondary">No calendars connected.</Typography>
+          )}
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>Sync status</Typography>
+            {syncStatus?.last_sync_at && (
+              <Typography variant="body2" color="text.secondary">Last sync: {new Date(syncStatus.last_sync_at).toLocaleString()}</Typography>
+            )}
+            <Button variant="contained" startIcon={<SyncIcon />} onClick={handleSyncNow} disabled={syncing || syncStatus?.sync_in_progress} fullWidth sx={{ mt: 1 }}>
+              {syncing || syncStatus?.sync_in_progress ? 'Syncing…' : 'Re-sync now'}
+            </Button>
+          </Box>
+        </Box>
+      </Drawer>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        message={snackbar.message}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
 
       {/* Settings Dialog */}
       <Dialog open={showSettings} onClose={() => setShowSettings(false)} maxWidth="sm" fullWidth>

@@ -185,6 +185,7 @@ interface Job {
   location: string;
   requiredSkills: string[];
   experienceLevel: string;
+  collectApplicantLocation: boolean;
 }
 
 const JobApply: React.FC = () => {
@@ -198,6 +199,8 @@ const JobApply: React.FC = () => {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [questionErrors, setQuestionErrors] = useState<Record<string, string>>({});
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [locationConsent, setLocationConsent] = useState(false);
+  const [locationError, setLocationError] = useState('');
   
   // Job data from API
   const [job, setJob] = useState<Job>({
@@ -207,6 +210,7 @@ const JobApply: React.FC = () => {
     location: '',
     requiredSkills: [],
     experienceLevel: '',
+    collectApplicantLocation: false,
   });
   
   // User profile from localStorage
@@ -322,6 +326,39 @@ const JobApply: React.FC = () => {
     return '';
   };
 
+  const requestApplicantLocation = async (): Promise<{ lat: number; lng: number } | null> => {
+    if (!job.collectApplicantLocation) return null;
+    if (!locationConsent) {
+      throw new Error('Please allow location sharing to apply for this job.');
+    }
+    if (!navigator.geolocation) {
+      throw new Error('Location access is not supported in this browser.');
+    }
+
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        (error) => {
+          if (error.code === error.PERMISSION_DENIED) {
+            reject(new Error('Location permission was denied. Please enable it and try again.'));
+            return;
+          }
+          reject(new Error('Unable to capture your current location. Please try again.'));
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        }
+      );
+    });
+  };
+
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -336,26 +373,27 @@ const JobApply: React.FC = () => {
               location: jobData.location || '',
               requiredSkills: jobData.requiredSkills || [],
               experienceLevel: jobData.experienceLevel || '',
+              collectApplicantLocation: Boolean(jobData.collect_applicant_location),
             });
-            // Prefer screening questions; fallback to coding questions for backward compatibility
-            const jobQuestions = (jobData.screeningQuestions && jobData.screeningQuestions.length > 0)
-              ? jobData.screeningQuestions
-              : (jobData.codingQuestions || []).map((q: any, idx: number) => ({
-                  id: q.id || String(idx + 1),
-                  question: q.question,
-                  type: 'text',
-                  required: true,
-                  options: [],
-                }));
-
-            if (jobQuestions.length > 0) {
-              setQuestions(jobQuestions.map((q: any, idx: number) => ({
-                id: String(q.id || idx + 1),
-                question: q.question,
-                type: parseQuestionType(q.type),
-                required: parseQuestionRequired(q.required),
-                options: Array.isArray(q.options) ? q.options : [],
-              })));
+            // Single source of truth: use screening questions only.
+            const screeningQuestions = Array.isArray(jobData.screeningQuestions) ? jobData.screeningQuestions : [];
+            if (screeningQuestions.length > 0) {
+              setQuestions(screeningQuestions
+                .map((q: any, idx: number) => {
+                  const questionText = String(q.question || '').trim();
+                  return {
+                    id: String(q.id || idx + 1),
+                    question: questionText,
+                    type: parseQuestionType(q.type),
+                    required: parseQuestionRequired(q.required),
+                    options: Array.isArray(q.options) ? q.options : [],
+                  };
+                })
+                .filter((q) => q.question.length > 0)
+              );
+            } else {
+              // If no screening questions are configured, show nothing.
+              setQuestions([]);
             }
           }
         }
@@ -522,6 +560,7 @@ const JobApply: React.FC = () => {
     }
     
     setSubmitting(true);
+    setLocationError('');
     
     try {
       // Get user info from localStorage (using 'userData' key set by login)
@@ -542,13 +581,16 @@ const JobApply: React.FC = () => {
         submittedAt: new Date().toISOString(),
       }));
 
+      const applicantLocation = await requestApplicantLocation();
+
       // Submit application to database via API
       await applicationService.applyForJob(
         job.id,
         user.id || user.user_id,
         user.name || `${user.first_name} ${user.last_name}`,
         user.email,
-        screeningAnswers
+        screeningAnswers,
+        applicantLocation
       );
       
       setSubmitting(false);
@@ -556,6 +598,9 @@ const JobApply: React.FC = () => {
       setSnackbar({ open: true, message: 'Application submitted successfully!', severity: 'success' });
     } catch (error: any) {
       setSubmitting(false);
+      if (job.collectApplicantLocation && /location/i.test(String(error?.message || ''))) {
+        setLocationError(error.message || 'Failed to capture your location.');
+      }
       setSnackbar({ 
         open: true, 
         message: error.message || 'Failed to submit application', 
@@ -776,6 +821,40 @@ const JobApply: React.FC = () => {
                   </QuestionCard>
                 ))}
 
+                {job.collectApplicantLocation && (
+                  <QuestionCard elevation={0}>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1 }}>
+                      <LocationOnIcon sx={{ color: colors.primary, mt: 0.2 }} />
+                      <Box>
+                        <Typography variant="subtitle1" fontWeight={600}>
+                          Share your current location
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          This job requires your consent to capture your current location when you submit the application.
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={locationConsent}
+                          onChange={(e) => {
+                            setLocationConsent(e.target.checked);
+                            if (e.target.checked) setLocationError('');
+                          }}
+                          sx={{ '&.Mui-checked': { color: colors.primary } }}
+                        />
+                      }
+                      label="I agree to share my current location for this application."
+                    />
+                    {locationError && (
+                      <Typography variant="caption" sx={{ color: colors.error, display: 'block', mt: 1 }}>
+                        {locationError}
+                      </Typography>
+                    )}
+                  </QuestionCard>
+                )}
+
                 <Divider sx={{ my: 4 }} />
 
                 <Box sx={{ display: 'flex', justifyContent: questions.length > 0 ? 'space-between' : 'flex-end', alignItems: 'center' }}>
@@ -786,7 +865,7 @@ const JobApply: React.FC = () => {
                   )}
                   <SubmitButton
                     onClick={handleSubmit}
-                    disabled={!allRequiredAnswered || submitting}
+                    disabled={!allRequiredAnswered || submitting || (job.collectApplicantLocation && !locationConsent)}
                     startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
                   >
                     {submitting ? 'Submitting...' : 'Submit Application'}
@@ -954,4 +1033,3 @@ const JobApply: React.FC = () => {
 };
 
 export default JobApply;
-

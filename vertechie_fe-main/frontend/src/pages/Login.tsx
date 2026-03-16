@@ -66,6 +66,8 @@ const Login = () => {
   const [idleLogoutMessage, setIdleLogoutMessage] = useState('');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const nextPath = searchParams.get('next');
+  const safeNextPath = nextPath && nextPath.startsWith('/') ? nextPath : null;
 
   // Check if user was logged out due to inactivity or session expiry
   useEffect(() => {
@@ -99,6 +101,10 @@ const Login = () => {
         const userData = await response.json();
         if (cancelled || !isUserVerified(userData)) return;
         localStorage.setItem('userData', JSON.stringify(userData));
+        if (safeNextPath) {
+          navigate(safeNextPath, { replace: true });
+          return;
+        }
         const path = getRedirectPathForUser(userData);
         if (path) navigate(path, { replace: true });
       } catch {
@@ -107,7 +113,7 @@ const Login = () => {
     };
     checkSession();
     return () => { cancelled = true; };
-  }, [navigate]);
+  }, [navigate, safeNextPath]);
 
   // Forgot Password states
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
@@ -211,6 +217,10 @@ const Login = () => {
       }
 
       // Redirect using centralized logic (respects verification_status APPROVED and is_verified)
+      if (safeNextPath) {
+        navigate(safeNextPath, { replace: true });
+        return;
+      }
       const path = getRedirectPathForUser(userData);
       if (path) navigate(path);
     } catch (err: any) {
