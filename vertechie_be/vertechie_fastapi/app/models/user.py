@@ -9,7 +9,7 @@ import uuid
 
 from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum, Date,
-    Text, JSON, ForeignKey, Table, Integer, Float
+    Text, JSON, ForeignKey, Table, Integer, Float, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -142,13 +142,25 @@ class User(Base, UUIDMixin, TimestampMixin):
 
 class UserRole(Base, UUIDMixin, TimestampMixin):
     """User role model."""
-    
+
     __tablename__ = "user_role"
-    
-    name = Column(String(50), unique=True, nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "role_type",
+            "permission_signature",
+            name="uq_user_role_type_perm_sig",
+        ),
+    )
+
+    # Opaque unique slug (not the primary UI label; use display_label for that)
+    name = Column(String(64), unique=True, nullable=False, index=True)
     role_type = Column(Enum(RoleType), nullable=False)
     description = Column(Text, nullable=True)
     permissions = Column(JSON, default=list)
+    # SHA-256 hex of sorted unique permission codenames (dedupe identity with role_type)
+    permission_signature = Column(String(64), nullable=False, index=True)
+    # Auto-generated or migration backfill from legacy name — shown in Super Admin UI
+    display_label = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     
     # Relationships

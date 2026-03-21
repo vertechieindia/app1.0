@@ -1,2 +1,7 @@
 # Uploaded post images (served under /uploads)
 uploads/
+
+# Logs
+logs/
+app.log
+*.log

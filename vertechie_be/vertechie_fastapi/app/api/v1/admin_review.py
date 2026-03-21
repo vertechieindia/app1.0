@@ -276,9 +276,9 @@ async def get_review_stats(
 ) -> Any:
     """Get dashboard statistics for admin review."""
     
-    # Get techie role
+    # Any TECHIE UserRole row (multiple access templates may exist)
     role_result = await db.execute(
-        select(UserRole).where(UserRole.role_type == RoleType.TECHIE)
+        select(UserRole).where(UserRole.role_type == RoleType.TECHIE).limit(1)
     )
     techie_role = role_result.scalar_one_or_none()
     

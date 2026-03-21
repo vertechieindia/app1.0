@@ -29,6 +29,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app.db.session import AsyncSessionLocal
 from app.models.user import User, UserProfile, UserRole, RoleType, VerificationStatus, user_roles
 from app.core.security import get_password_hash
+from app.core.access_role_utils import (
+    build_display_label,
+    compute_permission_signature,
+    generate_internal_name,
+    sorted_unique_permission_codes,
+)
+from app.core.role_mapping import default_permissions_for_role_type
 
 
 def validate_password(password: str) -> tuple[bool, str]:
@@ -142,17 +149,28 @@ async def create_superadmin(email: str, password: str, first_name: str = None, l
             db.add(profile)
             await db.flush()
             
-            # Get or create SUPER_ADMIN role
+            # Get or create SUPER_ADMIN access role (same permission set as seed)
+            perms = sorted_unique_permission_codes(
+                default_permissions_for_role_type(RoleType.SUPER_ADMIN)
+            )
+            sig = compute_permission_signature(perms)
             result = await db.execute(
-                select(UserRole).where(UserRole.role_type == RoleType.SUPER_ADMIN)
+                select(UserRole).where(
+                    UserRole.role_type == RoleType.SUPER_ADMIN,
+                    UserRole.permission_signature == sig,
+                )
             )
             role = result.scalar_one_or_none()
-            
+
             if not role:
                 role = UserRole(
-                    name="Super Admin",
+                    name=generate_internal_name(),
                     role_type=RoleType.SUPER_ADMIN,
                     description="Full system access super administrator",
+                    permissions=perms,
+                    permission_signature=sig,
+                    display_label=build_display_label(RoleType.SUPER_ADMIN, perms),
+                    is_active=True,
                 )
                 db.add(role)
                 await db.flush()

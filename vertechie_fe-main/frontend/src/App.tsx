@@ -1,108 +1,105 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Outlet, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { ThemeProvider, CssBaseline, Box, Snackbar, Alert } from '@mui/material';
 import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/Footer';
 import AppHeader from './components/layout/AppHeader';
 import BottomNav from './components/layout/BottomNav';
-import Home from './pages/Home';
-import About from './pages/About';
-import HR from './pages/HR';
-import SuperAdmin from './pages/SuperAdmin';
-import { TechieAdminDashboard, HMAdminDashboard, CompanyAdminDashboard, SchoolAdminDashboard, MultiRoleAdminDashboard } from './pages/RoleAdminDashboard';
-import BDMAdminDashboard from './pages/BDMAdminDashboard';
 import ProtectedRoute from './components/auth/ProtectedRoute';
-import Networking from './pages/Networking';
-import NetworkFeed from './pages/network/NetworkFeed';
-import MyNetwork from './pages/network/MyNetwork';
-import NetworkGroups from './pages/network/NetworkGroups';
-import NetworkEvents from './pages/network/NetworkEvents';
-import Combinator from './pages/network/Combinator';
-import Companies from './pages/Companies';
-import Contact from './pages/Contact';
-import Services from './pages/Services';
-import ServiceDetail from './pages/ServiceDetail';
-import Login from './pages/Login';
-import Signup from './pages/Signup';
-import TechieSignup from './components/auth/TechieSignup';
-import SignupSuccess from './pages/SignupSuccess';
-import Verification from './pages/Verification';
-import PostJob from './pages/companies/PostJob';
-import TalentSearch from './pages/companies/TalentSearch';
-import Advertise from './pages/companies/Advertise';
-import Enterprise from './pages/companies/Enterprise';
-import ContactSales from './pages/companies/ContactSales';
-import Pricing from './pages/Pricing';
-import Support from './pages/Support';
-import Accessibility from './pages/Accessibility';
-import CookiePolicy from './pages/CookiePolicy';
-import PrivacyPolicy from './pages/PrivacyPolicy';
-import TermsOfService from './pages/TermsOfService';
 import theme from './styles/theme';
 import ScrollToTop from './components/layout/ScrollToTop';
 import { getRedirectPathForUser } from './utils/authRedirect';
 import './index.css';
-import Terms from './components/pages/Terms';
-import Privacy from './components/pages/Privacy';
-import Cookies from './components/pages/Cookies';
-import StatusProcessing from './pages/StatusProcessing';
-import StatusAccepted from './pages/StatusAccepted';
-import StatusRejected from './pages/StatusRejected';
-import ResetPassword from './pages/ResetPassword';
-import CompleteProfile from './pages/CompleteProfile';
-import Admin from './pages/Admin';
 import IdleTimeoutProvider from './components/auth/IdleTimeoutProvider';
-
-// HR Pages
-import HRDashboard from './pages/hr/HRDashboard';
-import CreateJobPost from './pages/hr/CreateJobPost';
-import ViewApplicants from './pages/hr/ViewApplicants';
-
-// Admin Pages
-import CourseManagement from './pages/admin/CourseManagement';
-import LearnAdmin from './pages/admin/LearnAdmin';
-
-// User/Techie Pages
-import JobListings from './pages/user/JobListings';
-import JobDetails from './pages/user/JobDetails';
-import CodingTest from './pages/user/CodingTest';
-import JobApply from './pages/user/JobApply';
-import MyApplications from './pages/user/MyApplications';
-
-// Techie Platform Pages (Phase 1-4)
-import { TechieDashboard, CodingProblems, ProblemDetail, ProblemsPage, IDEPage, Chat, CompanyPageManagement, SchoolPageManagement, ATSPage, SchedulingPage, CalendarView } from './pages/techie';
-import SuperAdminChat from './pages/superadmin/SuperAdminChat';
-import ProfilePage from './pages/techie/ProfilePage';
-import Learn from './pages/techie/Learn';
-import Blogs from './pages/techie/Blogs';
-import SearchResults from './pages/techie/SearchResults';
-import Notifications from './pages/techie/Notifications';
-import CourseDetail from './pages/techie/CourseDetail';
-import TutorialPage from './pages/techie/TutorialPage';
-import QuizPage from './pages/techie/QuizPage';
-import VideoRoom from './pages/techie/VideoRoom';
-import MeetingLobby from './pages/techie/MeetingLobby';
-import ScheduleInterview from './pages/techie/ScheduleInterview';
-import MyInterviews from './pages/techie/MyInterviews';
-import ProfileCompletion from './pages/techie/ProfileCompletion';
-import GitHubCallback from './pages/GitHubCallback';
-import GitLabCallback from './pages/GitLabCallback';
-import CalendarCallback from './pages/CalendarCallback';
-
-// ATS Pages (Separate Routes)
 import {
+  RouteFallback,
+  Home,
+  About,
+  HR,
+  SuperAdmin,
+  TechieAdminDashboard,
+  HMAdminDashboard,
+  CompanyAdminDashboard,
+  SchoolAdminDashboard,
+  MultiRoleAdminDashboard,
+  BDMAdminDashboard,
+  Networking,
+  NetworkFeed,
+  MyNetwork,
+  NetworkGroups,
+  NetworkEvents,
+  Combinator,
+  Companies,
+  Contact,
+  Services,
+  ServiceDetail,
+  Login,
+  Signup,
+  TechieSignup,
+  SignupSuccess,
+  Verification,
+  PostJob,
+  TalentSearch,
+  Advertise,
+  Enterprise,
+  ContactSales,
+  Pricing,
+  Support,
+  Accessibility,
+  CookiePolicy,
+  PrivacyPolicy,
+  TermsOfService,
+  Terms,
+  Privacy,
+  Cookies,
+  StatusProcessing,
+  StatusAccepted,
+  StatusRejected,
+  ResetPassword,
+  CompleteProfile,
+  Admin,
+  GitHubCallback,
+  GitLabCallback,
+  CalendarCallback,
+  SuperAdminChat,
+  CourseManagement,
+  LearnAdmin,
+  HRDashboard,
+  CreateJobPost,
+  ViewApplicants,
+  JobListings,
+  JobDetails,
+  JobApply,
+  MyApplications,
+  TechieDashboard,
+  CodingProblems,
+  ProblemDetail,
+  ProblemsPage,
+  IDEPage,
+  Chat,
+  SchedulingPage,
+  CalendarView,
+  ProfilePage,
+  Learn,
+  Blogs,
+  SearchResults,
+  Notifications,
+  CourseDetail,
+  TutorialPage,
+  QuizPage,
+  VideoRoom,
+  MeetingLobby,
+  ScheduleInterview,
+  MyInterviews,
+  ProfileCompletion,
   PipelinePage,
   JobPostingsPage,
   AllCandidatesPage,
   CandidateProfilePage,
   InterviewsPage,
-  SchedulingPage as ATSSchedulingPage,
-  CalendarPage as ATSCalendarPage,
+  ATSSchedulingPage,
+  ATSCalendarPage,
   AnalyticsPage,
-} from './pages/techie/ats';
-
-// SMS (School Management System) Pages
-import {
   SMSPosts,
   SMSAlumni,
   SMSPrograms,
@@ -110,22 +107,16 @@ import {
   SMSPageAdmins,
   SMSAnalytics,
   SMSSettings,
-} from './pages/techie/sms';
-
-// CMS (Company Management System) Pages
-import {
   CMSPosts,
   CMSEmployees,
-  CMSPageAdmins as CMSAdmins,
+  CMSAdmins,
   CMSJobs,
   CMSAnalytics,
   CMSSettings,
   CMSMedia,
   CMSSnippets,
-} from './pages/techie/cms';
-
-// Public Pages
-import PublicSchedulingPage from './pages/public/PublicSchedulingPage';
+  PublicSchedulingPage,
+} from './routing/lazyPages';
 
 /**
  * PublicLayout - For unauthenticated pages (Home, About, Login, etc.)
@@ -340,6 +331,7 @@ const AppRoutes: React.FC = () => {
     <PasswordResetListener>
       <IdleTimeoutProvider>
         <ScrollToTop />
+        <Suspense fallback={<RouteFallback />}>
         <Routes>
           {/* ========== PUBLIC ROUTES ========== */}
           <Route element={<PublicLayout />}>
@@ -357,6 +349,8 @@ const AppRoutes: React.FC = () => {
             <Route path="/signup-success" element={<SignupSuccess />} />
             <Route path="/verification" element={<Verification />} />
             <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/cookies" element={<Cookies />} />
 
             {/* Status Routes */}
             <Route path="/status/processing" element={<StatusProcessing />} />
@@ -1090,6 +1084,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/schedule/:username" element={<PublicSchedulingPage />} />
           <Route path="/book/:linkId" element={<PublicSchedulingPage />} />
         </Routes>
+        </Suspense>
       </IdleTimeoutProvider>
     </PasswordResetListener>
   );

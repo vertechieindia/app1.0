@@ -142,6 +142,8 @@ export const API_ENDPOINTS = {
     // Additional top-level endpoints used across the app
     GROUPS: '/groups/',
     PERMISSIONS: '/permissions/',
+    /** GET: resolved permission codenames for current admin (legacy manage_* expanded) */
+    MY_EFFECTIVE_PERMISSIONS: '/my-effective-permissions/',
     BLOCKED_PROFILES: '/blocked-profiles/',
     PENDING_APPROVALS: '/pending-approvals/',
     ADMINS: '/admins/',

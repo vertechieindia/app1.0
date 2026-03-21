@@ -6,13 +6,14 @@ Provides endpoints for admin panel functionality.
 import logging
 import json
 import traceback
+from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, field_validator
-from sqlalchemy import select, func, and_, or_, cast, String, text, exists
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select, func, and_, or_, cast, String, text, exists, delete, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -20,7 +21,23 @@ from app.models.user import User, UserRole, RoleType, VerificationStatus, UserPr
 from app.models.company import Company, CompanyAdmin
 from app.models.school import School, SchoolAdmin, InstitutionInviteRequest
 from app.core.security import get_current_admin_user
+from app.core.role_mapping import (
+    ASSIGNABLE_ADMIN_ROLE_TYPES,
+    admin_role_code_from_user_role,
+    admin_role_code_to_role_type,
+    is_assignable_admin_user_role,
+)
+from app.core.permissions import collect_effective_permission_codes, user_has_permission
+from app.core.permissions_catalog import PERMISSION_DEFINITIONS
 from app.core.config import get_settings
+from app.core.access_role_utils import (
+    sorted_unique_permission_codes,
+    compute_permission_signature,
+    build_display_label,
+    build_permission_summary,
+    generate_internal_name,
+    get_or_create_empty_permission_role,
+)
 from sqlalchemy.orm import selectinload
 
 import aiosmtplib
@@ -349,13 +366,15 @@ class PermissionResponse(BaseModel):
 class GroupResponse(BaseModel):
     """User role/group response."""
     id: UUID
-    name: str
+    name: str  # Internal unique slug (opaque); prefer display_label in UI
+    display_label: str  # Short title from admin type; detail in permission_summary
+    permission_summary: str  # Catalog names joined for subtitle
     role_type: str
     description: Optional[str] = None
     is_active: bool = True
     user_count: int = 0
     permissions: List[PermissionResponse] = []  # Add permissions field
-    
+
     class Config:
         from_attributes = True
 
@@ -417,18 +436,15 @@ class AdminStatsResponse(BaseModel):
 # ============= Endpoints =============
 
 def _available_permissions() -> List[PermissionResponse]:
-    """Static permissions list used by role-management endpoints."""
+    """Fine-grained + legacy permissions from central catalog."""
     return [
-        PermissionResponse(id="1", name="View Users", codename="view_users", description="Can view all users"),
-        PermissionResponse(id="2", name="Edit Users", codename="edit_users", description="Can edit user details"),
-        PermissionResponse(id="3", name="Delete Users", codename="delete_users", description="Can delete users"),
-        PermissionResponse(id="4", name="Block Users", codename="block_users", description="Can block/unblock users"),
-        PermissionResponse(id="5", name="Verify Profiles", codename="verify_profiles", description="Can approve/reject profiles"),
-        PermissionResponse(id="6", name="Manage Companies", codename="manage_companies", description="Can manage companies"),
-        PermissionResponse(id="7", name="Manage Schools", codename="manage_schools", description="Can manage schools"),
-        PermissionResponse(id="8", name="Manage Jobs", codename="manage_jobs", description="Can manage job postings"),
-        PermissionResponse(id="9", name="View Reports", codename="view_reports", description="Can view analytics"),
-        PermissionResponse(id="10", name="System Settings", codename="system_settings", description="Can change system settings"),
+        PermissionResponse(
+            id=p.id,
+            name=p.name,
+            codename=p.codename,
+            description=p.description + (" (deprecated)" if p.deprecated else ""),
+        )
+        for p in PERMISSION_DEFINITIONS
     ]
 
 
@@ -473,18 +489,34 @@ def _infer_role_type_from_name(name: str) -> Optional[RoleType]:
     return mapping.get(key)
 
 
+# Allowed RoleType values (UserRole.role_type) — must match app.models.user.RoleType
+_VALID_ROLE_TYPE_VALUES = (
+    "super_admin",
+    "company_admin",
+    "school_admin",
+    "hiring_manager",
+    "techie",
+    "bdm_admin",
+)
+
+
 class GroupCreateRequest(BaseModel):
-    name: str
-    role_type: Optional[str] = None
+    """Create Access Role: label is auto-generated from admin type + permissions (no duplicate type+permission set)."""
+
+    role_type: str = Field(
+        ...,
+        min_length=1,
+        description="One of: super_admin, company_admin, school_admin, hiring_manager, techie, bdm_admin",
+    )
     description: Optional[str] = None
     permission_ids: List[Any] = []
 
 
 class GroupUpdateRequest(BaseModel):
-    name: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
     permission_ids: Optional[List[Any]] = None
+    role_type: Optional[str] = None
 
 
 def _serialize_permissions(codes: Optional[List[Any]]) -> List[PermissionResponse]:
@@ -504,6 +536,28 @@ def _serialize_permissions(codes: Optional[List[Any]]) -> List[PermissionRespons
                 description=None,
             ))
     return out
+
+
+def _to_group_response(role: UserRole, user_count: int) -> GroupResponse:
+    """API shape: labels derived from role_type + permissions (not stale DB display_label)."""
+    if role.role_type is not None:
+        rt_enum = role.role_type
+        rt = rt_enum.value
+    else:
+        rt = "unknown"
+        rt_enum = RoleType.TECHIE
+    return GroupResponse(
+        id=role.id,
+        name=role.name,
+        display_label=build_display_label(rt_enum, role.permissions),
+        permission_summary=build_permission_summary(role.permissions),
+        role_type=rt,
+        description=role.description,
+        is_active=role.is_active,
+        user_count=user_count,
+        permissions=_serialize_permissions(role.permissions),
+    )
+
 
 @router.get("/groups/", response_model=List[GroupResponse])
 async def list_groups(
@@ -525,17 +579,7 @@ async def list_groups(
         )
         user_count = count_result.scalar() or 0
         
-        role_permissions = _serialize_permissions(role.permissions)
-        
-        groups.append(GroupResponse(
-            id=role.id,
-            name=role.name,
-            role_type=role.role_type.value if role.role_type else "unknown",
-            description=role.description,
-            is_active=role.is_active,
-            user_count=user_count,
-            permissions=role_permissions  # Include permissions
-        ))
+        groups.append(_to_group_response(role, user_count))
     
     return groups
 
@@ -547,49 +591,50 @@ async def create_group(
     current_admin: User = Depends(get_current_admin_user),
 ) -> Any:
     """Create a role/group used in Access Roles tab."""
-    name = (body.name or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Role name is required")
-
     normalized_permissions = _normalize_permission_codes(body.permission_ids or [])
-    role_type: Optional[RoleType] = None
-    if body.role_type:
-        try:
-            role_type = RoleType(str(body.role_type).strip().lower())
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid role_type")
-    if role_type is None:
-        role_type = _infer_role_type_from_name(name)
-    if role_type is None:
+    stored_codes = sorted_unique_permission_codes(normalized_permissions)
+    if not stored_codes:
         raise HTTPException(
             status_code=400,
-            detail="Role type not recognized. Use a standard admin role name (superadmin, company_admin, hm_admin, techie_admin, school_admin, bdm_admin).",
+            detail="Select at least one permission for this access role.",
         )
 
-    exists = await db.execute(select(UserRole).where(func.lower(UserRole.name) == name.lower()))
-    if exists.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Role already exists")
+    raw_rt = str(body.role_type).strip().lower()
+    try:
+        role_type = RoleType(raw_rt)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role_type '{body.role_type}'. Use one of: {', '.join(_VALID_ROLE_TYPE_VALUES)}",
+        )
+
+    sig = compute_permission_signature(stored_codes)
+    dup = await db.execute(
+        select(UserRole.id).where(
+            UserRole.role_type == role_type,
+            UserRole.permission_signature == sig,
+        )
+    )
+    if dup.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail="This permission set already exists for the selected admin type.",
+        )
 
     role = UserRole(
-        name=name,
+        name=generate_internal_name(),
         role_type=role_type,
         description=body.description,
-        permissions=normalized_permissions,
+        permissions=stored_codes,
+        permission_signature=sig,
+        display_label=build_display_label(role_type, stored_codes),
         is_active=True,
     )
     db.add(role)
     await db.commit()
     await db.refresh(role)
 
-    return GroupResponse(
-        id=role.id,
-        name=role.name,
-        role_type=role.role_type.value if role.role_type else "unknown",
-        description=role.description,
-        is_active=role.is_active,
-        user_count=0,
-        permissions=_serialize_permissions(role.permissions),
-    )
+    return _to_group_response(role, 0)
 
 
 @router.put("/groups/{group_id}/", response_model=GroupResponse)
@@ -605,17 +650,52 @@ async def update_group(
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
 
-    if body.name is not None:
-        new_name = body.name.strip()
-        if not new_name:
-            raise HTTPException(status_code=400, detail="Role name cannot be empty")
-        role.name = new_name
     if body.description is not None:
         role.description = body.description
     if body.is_active is not None:
         role.is_active = body.is_active
+    if body.role_type is not None:
+        raw_rt = str(body.role_type).strip().lower()
+        try:
+            role.role_type = RoleType(raw_rt)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid role_type. Use one of: {', '.join(_VALID_ROLE_TYPE_VALUES)}",
+            )
     if body.permission_ids is not None:
-        role.permissions = _normalize_permission_codes(body.permission_ids)
+        stored_codes = sorted_unique_permission_codes(
+            _normalize_permission_codes(body.permission_ids)
+        )
+        if not stored_codes:
+            raise HTTPException(
+                status_code=400,
+                detail="Select at least one permission for this access role.",
+            )
+        role.permissions = stored_codes
+
+    if body.role_type is not None or body.permission_ids is not None:
+        stored_codes = sorted_unique_permission_codes(role.permissions or [])
+        if not stored_codes:
+            raise HTTPException(
+                status_code=400,
+                detail="Select at least one permission for this access role.",
+            )
+        sig = compute_permission_signature(stored_codes)
+        dup = await db.execute(
+            select(UserRole.id).where(
+                UserRole.role_type == role.role_type,
+                UserRole.permission_signature == sig,
+                UserRole.id != role.id,
+            )
+        )
+        if dup.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409,
+                detail="This permission set already exists for the selected admin type.",
+            )
+        role.permission_signature = sig
+        role.display_label = build_display_label(role.role_type, stored_codes)
 
     await db.commit()
     await db.refresh(role)
@@ -625,15 +705,7 @@ async def update_group(
     )
     user_count = count_result.scalar() or 0
 
-    return GroupResponse(
-        id=role.id,
-        name=role.name,
-        role_type=role.role_type.value if role.role_type else "unknown",
-        description=role.description,
-        is_active=role.is_active,
-        user_count=user_count,
-        permissions=_serialize_permissions(role.permissions),
-    )
+    return _to_group_response(role, user_count)
 
 
 @router.delete("/groups/{group_id}/", status_code=status.HTTP_200_OK)
@@ -658,6 +730,13 @@ async def delete_group(
             detail="Cannot delete role that is assigned to users",
         )
 
+    eff = await collect_effective_permission_codes(db, current_admin)
+    if not current_admin.is_superuser and not user_has_permission(eff, "system_settings"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing permission: system_settings",
+        )
+
     await db.delete(role)
     await db.commit()
     return {"success": True, "message": "Role deleted"}
@@ -668,8 +747,17 @@ async def list_permissions(
     current_admin: User = Depends(get_current_admin_user)
 ) -> Any:
     """List all available permissions."""
-    
     return _available_permissions()
+
+
+@router.get("/my-effective-permissions/")
+async def my_effective_permissions(
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user),
+) -> Any:
+    """Resolved permission codenames for the current admin (legacy manage_* expanded)."""
+    codes = await collect_effective_permission_codes(db, current_admin)
+    return {"permissions": sorted(codes)}
 
 
 @router.get("/blocked-profiles/", response_model=List[BlockedProfileResponse])
@@ -1845,6 +1933,8 @@ async def update_admin_notes(
 class UpdateAdminRolesRequest(BaseModel):
     """Request body for updating a user's admin roles."""
     admin_roles: List[str] = []
+    # Option 1: set from Access Roles row (preferred when present)
+    role_id: Optional[UUID] = None
 
 
 @router.patch("/users/{user_id}/update-admin-roles/", status_code=status.HTTP_200_OK)
@@ -1860,6 +1950,25 @@ async def update_admin_roles(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if body.role_id is not None:
+        ur_result = await db.execute(select(UserRole).where(UserRole.id == body.role_id))
+        ur = ur_result.scalar_one_or_none()
+        if not ur:
+            raise HTTPException(status_code=404, detail="Role not found")
+        if not is_assignable_admin_user_role(ur):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="This role cannot be assigned to platform admins",
+            )
+        roles = [admin_role_code_from_user_role(ur)]
+        user.admin_roles = roles
+        user.is_superuser = "superadmin" in [r.lower() for r in roles if r]
+        await db.execute(delete(user_roles).where(user_roles.c.user_id == user.id))
+        await db.execute(insert(user_roles).values(user_id=user.id, role_id=ur.id))
+        await db.commit()
+        return {"success": True, "message": "Admin roles updated", "admin_roles": user.admin_roles}
+
     roles = body.admin_roles or []
     if len(roles) > 1:
         raise HTTPException(
@@ -1868,6 +1977,13 @@ async def update_admin_roles(
         )
     user.admin_roles = roles
     user.is_superuser = "superadmin" in [r.lower() for r in roles if r]
+    # Learn Admin (legacy): sync user_roles to TECHIE association only
+    if roles and str(roles[0]).lower() == "learn_admin":
+        await db.execute(delete(user_roles).where(user_roles.c.user_id == user.id))
+        ur = await get_or_create_empty_permission_role(
+            db, RoleType.TECHIE, description="techie user role"
+        )
+        await db.execute(insert(user_roles).values(user_id=user.id, role_id=ur.id))
     await db.commit()
     return {"success": True, "message": "Admin roles updated", "admin_roles": user.admin_roles}
 
@@ -1882,6 +1998,8 @@ class AdminUserResponse(BaseModel):
     last_name: Optional[str] = None
     full_name: str
     admin_roles: List[str] = []
+    access_role_id: Optional[str] = None
+    """Linked UserRole id (Option 1). Needed when several Access Roles share the same admin_roles code."""
     is_active: bool = True
     is_blocked: bool = False
     is_staff: bool = True
@@ -1889,6 +2007,51 @@ class AdminUserResponse(BaseModel):
     date_joined: Optional[str] = None
     last_login: Optional[str] = None
     created_at: Optional[str] = None
+
+
+def _access_role_id_from_user_and_roles(
+    user: User,
+    urs: List[UserRole],
+) -> Optional[str]:
+    """Pick UserRole id for staff admin; same rules as former per-row query (in-memory)."""
+    ar = user.admin_roles or []
+    if ar and str(ar[0]).lower().strip() == "learn_admin":
+        return None
+    if not urs:
+        return None
+    want = ar[0] if ar else None
+    rt = admin_role_code_to_role_type(str(want)) if want else None
+    if rt is not None:
+        matched = [ur for ur in urs if ur.role_type == rt]
+        if not matched:
+            matched = list(urs)
+    else:
+        matched = list(urs)
+    if len(matched) == 1:
+        return str(matched[0].id)
+    matched.sort(key=lambda u: (u.updated_at or u.created_at or u.id), reverse=True)
+    return str(matched[0].id)
+
+
+async def _load_assignable_user_roles_by_user_ids(
+    db: AsyncSession,
+    user_ids: List[UUID],
+) -> Dict[UUID, List[UserRole]]:
+    """One query: all assignable UserRole rows linked to these users (avoids N+1 on /admins/)."""
+    if not user_ids:
+        return {}
+    result = await db.execute(
+        select(user_roles.c.user_id, UserRole)
+        .join(UserRole, user_roles.c.role_id == UserRole.id)
+        .where(
+            user_roles.c.user_id.in_(user_ids),
+            UserRole.role_type.in_(ASSIGNABLE_ADMIN_ROLE_TYPES),
+        )
+    )
+    by_uid: Dict[UUID, List[UserRole]] = defaultdict(list)
+    for uid, ur in result.all():
+        by_uid[uid].append(ur)
+    return by_uid
 
 
 @router.get("/admins/", response_model=List[AdminUserResponse])
@@ -1914,19 +2077,31 @@ async def list_admin_users(
         .limit(limit)
     )
     users = result.scalars().all()
-    
-    # Filter out users with empty admin_roles if not superuser
-    admin_users = []
-    for user in users:
-        if user.is_superuser or (user.admin_roles and len(user.admin_roles) > 0):
-            full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
-            admin_users.append(AdminUserResponse(
+
+    admin_candidates = [
+        u
+        for u in users
+        if u.is_superuser or (u.admin_roles and len(u.admin_roles) > 0)
+    ]
+    role_rows_by_user = await _load_assignable_user_roles_by_user_ids(
+        db, [u.id for u in admin_candidates]
+    )
+
+    admin_users: List[AdminUserResponse] = []
+    for user in admin_candidates:
+        full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
+        access_rid = _access_role_id_from_user_and_roles(
+            user, role_rows_by_user.get(user.id, [])
+        )
+        admin_users.append(
+            AdminUserResponse(
                 id=str(user.id),
                 email=user.email,
                 first_name=user.first_name,
                 last_name=user.last_name,
                 full_name=full_name,
                 admin_roles=user.admin_roles or [],
+                access_role_id=access_rid,
                 is_active=user.is_active,
                 is_blocked=user.is_blocked or False,
                 is_staff=True,  # All admins are staff
@@ -1934,6 +2109,7 @@ async def list_admin_users(
                 date_joined=user.created_at.isoformat() if user.created_at else None,
                 last_login=user.last_login.isoformat() if user.last_login else None,
                 created_at=user.created_at.isoformat() if user.created_at else None,
-            ))
-    
+            )
+        )
+
     return admin_users

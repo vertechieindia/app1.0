@@ -7,7 +7,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box, Typography, Paper, Button, IconButton, Chip, Grid, List, ListItemText, Collapse, Drawer, useMediaQuery, useTheme,
   Tooltip, TextField, Dialog, DialogTitle, DialogContent,
-  DialogActions, Radio, RadioGroup, FormControlLabel, FormControl,
+  DialogActions, Radio, RadioGroup, FormControlLabel, FormControl, CircularProgress,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -35,7 +35,7 @@ import { getTutorialBySlug, Tutorial, Chapter, Lesson } from '../../data/curricu
 
 
 import { PageContainer, Sidebar, SidebarToggle, MainContent, LessonContent, ChapterItem, LessonItem, CodeEditor, TryItEditor, EditorHeader, ResultFrame, NavigationBar, ProgressBar } from './TutorialPage.styles';
-import { getLessonContent } from './lessons/getLessonContent';
+import { getLessonContentAsync, type LessonContentPayload } from './lessons/getLessonContent';
 
 const getCurrentUserScope = (): string => {
   try {
@@ -269,6 +269,30 @@ const TutorialPage: React.FC = () => {
   // Check if all lessons completed and generate certificate
   const totalLessons = tutorial?.chapters.reduce((sum, ch) => sum + ch.lessons.length, 0) || 0;
   const currentLessonSlug = lessonSlug || tutorial?.chapters[0]?.lessons[0]?.slug || 'home';
+
+  const [lessonContent, setLessonContent] = useState<LessonContentPayload>({
+    title: '',
+    content: '',
+    tryItCode: '',
+  });
+  const [lessonLoading, setLessonLoading] = useState(true);
+
+  useEffect(() => {
+    // Load lesson body from dynamically imported per-track modules (code-split).
+    const slug = tutorialSlug || '';
+    let cancelled = false;
+    setLessonLoading(true);
+    getLessonContentAsync(slug, currentLessonSlug).then((c) => {
+      if (!cancelled) {
+        setLessonContent(c);
+        setLessonLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tutorialSlug, currentLessonSlug]);
+
   const orderedLessons = useMemo(
     () => (tutorial ? tutorial.chapters.flatMap((chapter) => chapter.lessons) : []),
     [tutorial]
@@ -305,7 +329,6 @@ const TutorialPage: React.FC = () => {
   };
 
   const currentLessonData = getCurrentLesson();
-  const lessonContent = getLessonContent(tutorialSlug || '', currentLessonSlug);
 
   // Initialize editor code and reset result when lesson changes
   useEffect(() => {
@@ -394,7 +417,7 @@ const TutorialPage: React.FC = () => {
   };
 
   const handleResetCode = () => {
-    setEditorCode(lessonContent.tryItCode);
+    setEditorCode(lessonContent.tryItCode ?? '');
   };
 
   const markComplete = () => {
@@ -624,6 +647,12 @@ const TutorialPage: React.FC = () => {
             </Typography>
           </Box>
 
+          {lessonLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 320, py: 4 }}>
+              <CircularProgress sx={{ color: tutorial.color }} />
+            </Box>
+          ) : (
+            <>
           {/* Lesson Title */}
           <Typography
             variant="h3"
@@ -832,6 +861,8 @@ const TutorialPage: React.FC = () => {
                 Start Quiz
               </Button>
             </Paper>
+          )}
+            </>
           )}
         </LessonContent>
 

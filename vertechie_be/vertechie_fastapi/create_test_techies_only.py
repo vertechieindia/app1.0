@@ -48,22 +48,26 @@ async def create_test_techies() -> None:
     async with AsyncSessionLocal() as db:
         print("Creating test techie users...\n")
 
-        # 1. Ensure the Techie role exists
+        # 1. Ensure the default Techie (empty-permission) role exists
+        from app.core.access_role_utils import (
+            compute_permission_signature,
+            get_or_create_empty_permission_role,
+        )
+
+        empty_sig = compute_permission_signature([])
         result = await db.execute(
-            select(UserRole).where(UserRole.role_type == RoleType.TECHIE)
+            select(UserRole).where(
+                UserRole.role_type == RoleType.TECHIE,
+                UserRole.permission_signature == empty_sig,
+            )
         )
         techie_role = result.scalar_one_or_none()
-        
+
         if not techie_role:
             print("Creating Techie role...")
-            techie_role = UserRole(
-                id=uuid4(),
-                name="Techie",
-                role_type=RoleType.TECHIE,
-                description="Verified techie user role"
+            techie_role = await get_or_create_empty_permission_role(
+                db, RoleType.TECHIE, description="Verified techie user role"
             )
-            db.add(techie_role)
-            await db.flush()
         else:
             print("Techie role already exists.")
 

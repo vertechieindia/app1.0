@@ -19,11 +19,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "users",
-        sa.Column("work_authorization", sa.String(100), nullable=True),
+    # Idempotent: column may already exist if DB was altered manually or stamp was out of sync
+    op.execute(
+        sa.text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS work_authorization VARCHAR(100)"
+        )
     )
 
 
 def downgrade() -> None:
-    op.drop_column("users", "work_authorization")
+    op.execute(
+        sa.text("ALTER TABLE users DROP COLUMN IF EXISTS work_authorization")
+    )
