@@ -34,9 +34,8 @@ async def send_email(
     try:
         # Check if SMTP is configured
         if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-            logger.warning("SMTP credentials not configured. Email not sent.")
-            logger.info(f"[DEV MODE] Would send email to {to_email}: {subject}")
-            return True  # Return True in dev mode to not block the flow
+            logger.error("SMTP credentials not configured. Email not sent.")
+            return False
         
         # Create message
         msg = MIMEMultipart("alternative")
@@ -52,7 +51,8 @@ async def send_email(
         msg.attach(MIMEText(html_content, "html"))
         
         # Send email
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30) as server:
+            # if settings.SMTP_USE_TLS:
             server.starttls()
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.sendmail(
@@ -64,9 +64,15 @@ async def send_email(
         logger.info(f"Email sent successfully to {to_email}")
         return True
         
+    except smtplib.SMTPAuthenticationError as e:
+        logger.exception("SMTP authentication failed")
+        raise Exception(f"SMTP authentication failed: {str(e)}")
+    except smtplib.SMTPException as e:
+        logger.exception("SMTP error")
+        raise Exception(f"SMTP error: {str(e)}")
     except Exception as e:
-        logger.error(f"Failed to send email to {to_email}: {str(e)}")
-        return False
+        logger.exception("Error sending email")
+        raise Exception(f"Error sending email: {str(e)}")
 
 
 async def send_password_reset_email(email: str, token: str, user_name: str = "User") -> bool:

@@ -39,6 +39,7 @@ export interface Job {
   // Additional fields
   salary_min?: number;
   salary_max?: number;
+  salary_currency?: string;
   views_count?: number;
   screeningQuestions?: ScreeningQuestion[];
   responsibilities?: string;
@@ -49,7 +50,7 @@ export interface Job {
 export interface ScreeningQuestion {
   id: string;
   question: string;
-  type?: 'text' | 'yesno' | 'multiple' | 'number' | 'code';
+  type?: 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal';
   required?: boolean;
   options?: string[];
   expectedOutput?: string;
@@ -68,6 +69,7 @@ export interface JobFormData {
   // Salary fields
   salaryMin?: number;
   salaryMax?: number;
+  salaryCurrency?: string;
   // Status field
   status?: 'active' | 'closed' | 'draft';
   collect_applicant_location?: boolean;

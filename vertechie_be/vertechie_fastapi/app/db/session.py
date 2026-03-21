@@ -56,6 +56,21 @@ async def init_db() -> None:
     
     # Create default superuser if it doesn't exist
     await create_default_superuser()
+    await _seed_default_admin_roles()
+
+
+async def _seed_default_admin_roles() -> None:
+    """Seed UserRole rows for Super Admin panel (Option 1)."""
+    import logging
+    from app.db.seed_admin_roles import ensure_default_admin_roles
+
+    logger = logging.getLogger(__name__)
+    async with AsyncSessionLocal() as session:
+        try:
+            await ensure_default_admin_roles(session)
+        except Exception as e:
+            logger.warning("Default admin UserRole seed skipped: %s", e)
+            await session.rollback()
 
 
 async def create_default_superuser() -> None:

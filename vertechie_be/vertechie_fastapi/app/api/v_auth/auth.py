@@ -18,9 +18,11 @@ from pydantic import BaseModel, EmailStr
 from fastapi import APIRouter, HTTPException, status
 
 from app.core.config import settings
+from app.core.logger import get_logger
 import logging
 
 router = APIRouter()
+logger = get_logger(__name__)
 logger = logging.getLogger(__name__)
 
 # In-memory OTP storage (for development - use Redis in production)
@@ -117,8 +119,8 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
     try:
         # Check if SMTP credentials are configured
         if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-            logger.warning("SMTP credentials not configured; skipping outbound email.")
-            return True  # Return True for dev mode
+            logger.error("SMTP credentials not configured; OTP email not sent.")
+            return False
         
         # Create message
         msg = MIMEMultipart()
@@ -142,14 +144,14 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
         return True
         
     except smtplib.SMTPAuthenticationError as e:
-        logger.error(f"SMTP authentication failed: {e}")
-        return False
+        logger.exception("SMTP authentication failed")
+        raise Exception(f"SMTP authentication failed: {str(e)}")
     except smtplib.SMTPException as e:
-        logger.error(f"SMTP error: {e}")
-        return False
+        logger.exception("SMTP error")
+        raise Exception(f"SMTP error: {str(e)}")
     except Exception as e:
-        logger.error(f"Error sending email: {e}")
-        return False
+        logger.exception("Error sending email")
+        raise Exception(f"Error sending email: {str(e)}")
 
 
 def send_otp_email(to_email: str, otp: str) -> bool:
@@ -262,37 +264,52 @@ async def extract_with_azure_document_intelligence(image_bytes: bytes, country: 
     Extract text and fields from document using Azure Document Intelligence.
     Uses the prebuilt-idDocument model for ID cards.
     """
-    endpoint = settings.AZURE_DOC_ENDPOINT.rstrip('/')
-    api_key = settings.AZURE_DOC_KEY
+    endpoint = (settings.AZURE_DOC_ENDPOINT or "").strip().strip("\"'").rstrip("/")
+    api_key = (settings.AZURE_DOC_KEY or "").strip().strip("\"'")
     
     # Validate Azure configuration
     if not endpoint or not endpoint.startswith(('http://', 'https://')):
-        print("[Azure OCR] Error: AZURE_DOC_ENDPOINT is not configured or missing protocol")
+        logger.error("[Azure OCR] AZURE_DOC_ENDPOINT is not configured or missing protocol")
         return {"error": "Azure Document Intelligence is not configured. Please set AZURE_DOC_ENDPOINT in .env file"}
     
     if not api_key:
-        print("[Azure OCR] Error: AZURE_DOC_KEY is not configured")
+        logger.error("[Azure OCR] AZURE_DOC_KEY is not configured")
         return {"error": "Azure Document Intelligence API key is not configured. Please set AZURE_DOC_KEY in .env file"}
-    
-    # Use prebuilt ID document model
-    analyze_url = f"{endpoint}/formrecognizer/documentModels/prebuilt-idDocument:analyze?api-version=2023-07-31"
     
     headers = {
         "Ocp-Apim-Subscription-Key": api_key,
         "Content-Type": "application/octet-stream"
     }
+    analyze_paths = [
+        f"{endpoint}/documentintelligence/documentModels/prebuilt-idDocument:analyze?api-version=2024-11-30",
+        f"{endpoint}/formrecognizer/documentModels/prebuilt-idDocument:analyze?api-version=2023-07-31",
+    ]
     
     async with httpx.AsyncClient(timeout=60.0) as client:
-        # Start analysis
-        response = await client.post(analyze_url, headers=headers, content=image_bytes)
-        
-        if response.status_code != 202:
-            print(f"[Azure] Error starting analysis: {response.status_code} - {response.text}")
-            return {"error": f"Azure API error: {response.status_code}"}
+        response = None
+        error_details = []
+        for analyze_url in analyze_paths:
+            response = await client.post(analyze_url, headers=headers, content=image_bytes)
+            if response.status_code == 202:
+                logger.info("[Azure OCR] Analysis accepted via %s", analyze_url)
+                break
+
+            error_text = response.text.strip()
+            error_details.append(f"{response.status_code}: {error_text}")
+            logger.warning("[Azure OCR] Analyze request failed via %s | %s | %s", analyze_url, response.status_code, error_text)
+
+            # 404 often means the route/service path is unsupported for this resource.
+            if response.status_code not in {404, 400}:
+                break
+
+        if response is None or response.status_code != 202:
+            joined_errors = " | ".join(error_details) if error_details else "Unknown Azure error"
+            return {"error": f"Azure API error. {joined_errors}"}
         
         # Get operation location for polling
         operation_location = response.headers.get("Operation-Location")
         if not operation_location:
+            logger.error("[Azure OCR] Operation-Location header missing")
             return {"error": "No operation location returned"}
         
         # Poll for results
@@ -308,8 +325,10 @@ async def extract_with_azure_document_intelligence(image_bytes: bytes, country: 
             if status == "succeeded":
                 return parse_azure_id_result(result, country)
             elif status == "failed":
+                logger.error("[Azure OCR] Document analysis failed: %s", result)
                 return {"error": "Document analysis failed"}
         
+        logger.error("[Azure OCR] Analysis timed out after polling")
         return {"error": "Analysis timed out"}
 
 
@@ -785,13 +804,10 @@ async def send_email_otp(request: SendEmailOTPRequest) -> Dict[str, Any]:
             "success": True,
             "message": "OTP sent successfully"
         }
-    else:
-        # Still return success if email fails but OTP is stored
-        # User can check server logs in dev mode
-        return {
-            "success": True,
-            "message": "OTP generated. Check server logs if email not received."
-        }
+    raise HTTPException(
+        status_code=503,
+        detail="Unable to send OTP email right now. Please try again later."
+    )
 
 
 @router.post("/verify-email-otp/")

@@ -5,7 +5,7 @@ Authentication API endpoints.
 import logging
 import json
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
@@ -30,6 +30,10 @@ from app.core.security import (
     get_current_user, get_current_admin_user
 )
 from app.core.vertechie_id import generate_vertechie_id
+from app.core.role_mapping import (
+    admin_role_code_from_user_role,
+    is_assignable_admin_user_role,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -146,24 +150,12 @@ async def register(
     requested_role = (user_in.role or "techie").lower()
     role_type = role_mapping.get(requested_role, RoleType.TECHIE)
     
-    # Get or create the appropriate role
-    result = await db.execute(select(UserRole).where(UserRole.role_type == role_type))
-    role = result.scalar_one_or_none()
-    
-    if not role:
-        role_names = {
-            RoleType.TECHIE: "Techie",
-            RoleType.HIRING_MANAGER: "Hiring Manager",
-            RoleType.COMPANY_ADMIN: "Company Admin",
-            RoleType.SCHOOL_ADMIN: "School Admin",
-        }
-        role = UserRole(
-            name=role_names.get(role_type, "User"),
-            role_type=role_type,
-            description=f"{role_type.value} user role"
-        )
-        db.add(role)
-        await db.flush()
+    # Get or create default platform role (empty permissions) for this role_type
+    from app.core.access_role_utils import get_or_create_empty_permission_role
+
+    role = await get_or_create_empty_permission_role(
+        db, role_type, description=f"{role_type.value} user role"
+    )
     
     await db.execute(insert(user_roles).values(user_id=user.id, role_id=role.id))
     
@@ -646,42 +638,66 @@ async def admin_create_user(
             email_prefix = user_in.email.split('@')[0]
             username = f"{slugify(email_prefix)}-{uuid4().hex[:4]}"
         
-        # Determine role type based on role field
-        role_mapping = {
-            "techie": RoleType.TECHIE,
-            "hr": RoleType.HIRING_MANAGER,
-            "company": RoleType.COMPANY_ADMIN,
-            "school": RoleType.SCHOOL_ADMIN,
-            "admin": RoleType.SUPER_ADMIN,
-        }
-        role_type = role_mapping.get(user_in.role, RoleType.TECHIE)
-        
-        # Set admin_roles - prefer frontend-provided roles, fallback to mapping
-        # Frontend sends specific admin_roles like ["hm_admin", "company_admin"]
-        if user_in.admin_roles and len(user_in.admin_roles) > 0:
-            # Use frontend-provided admin_roles
-            admin_roles = user_in.admin_roles
-        else:
-            # Fallback to mapping based on role type
-            admin_roles_mapping = {
-                "admin": ["superadmin"],
-                "hr": ["hm_admin"],  # Hiring Manager Admin
-                "company": ["company_admin"],
-                "school": ["school_admin"],
-            }
-            admin_roles = admin_roles_mapping.get(user_in.role, [])
-        
-        # Ensure admin_roles is always a list (not None)
-        if admin_roles is None:
-            admin_roles = []
-        if len(admin_roles) > 1:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Only one admin role can be assigned per user"
+        # Option 1: staff admin from Access Roles (UserRole id)
+        selected_staff_role: Optional[UserRole] = None
+        if user_in.role_id is not None:
+            if user_in.role != "admin":
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="role_id can only be used when role is admin",
+                )
+            role_result = await db.execute(
+                select(UserRole).where(UserRole.id == user_in.role_id)
             )
-        
+            selected_staff_role = role_result.scalar_one_or_none()
+            if not selected_staff_role:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Role not found",
+                )
+            if not is_assignable_admin_user_role(selected_staff_role):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="This role cannot be assigned to platform admins",
+                )
+            admin_roles = [admin_role_code_from_user_role(selected_staff_role)]
+            role_type = selected_staff_role.role_type
+        else:
+            # Determine role type based on role field
+            role_mapping = {
+                "techie": RoleType.TECHIE,
+                "hr": RoleType.HIRING_MANAGER,
+                "company": RoleType.COMPANY_ADMIN,
+                "school": RoleType.SCHOOL_ADMIN,
+                "admin": RoleType.SUPER_ADMIN,
+            }
+            role_type = role_mapping.get(user_in.role, RoleType.TECHIE)
+
+            # Set admin_roles - prefer frontend-provided roles, fallback to mapping
+            if user_in.admin_roles and len(user_in.admin_roles) > 0:
+                admin_roles = user_in.admin_roles
+            else:
+                admin_roles_mapping = {
+                    "admin": ["superadmin"],
+                    "hr": ["hm_admin"],
+                    "company": ["company_admin"],
+                    "school": ["school_admin"],
+                }
+                admin_roles = admin_roles_mapping.get(user_in.role, [])
+
+            if admin_roles is None:
+                admin_roles = []
+            if len(admin_roles) > 1:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Only one admin role can be assigned per user",
+                )
+
+            # Learn Admin: no UserRole row in Option 1 seed; link user_roles via TECHIE for association only
+            if admin_roles and str(admin_roles[0]).lower() == "learn_admin":
+                role_type = RoleType.TECHIE
+
         # Determine if user is superuser - only if admin_roles includes "superadmin"
-        # HM Admin, Company Admin, etc. should NOT be superusers
         is_superuser = "superadmin" in admin_roles if admin_roles else False
         
         # Create user (store only last 4 in gov_id and gov_id_last_four)
@@ -720,24 +736,21 @@ async def admin_create_user(
         )
         db.add(profile)
         
-        # Get or create role
-        result = await db.execute(
-            select(UserRole).where(UserRole.role_type == role_type)
-        )
-        role = result.scalar_one_or_none()
-        
-        if not role:
-            role = UserRole(
-                name=role_type.value.replace("_", " ").title(),
-                role_type=role_type,
+        # Link UserRole: exact row from role_id, or legacy get-or-create by role_type
+        if selected_staff_role is not None:
+            await db.execute(
+                insert(user_roles).values(
+                    user_id=user.id, role_id=selected_staff_role.id
+                )
             )
-            db.add(role)
-            await db.flush()
-        
-        # Add role association using SQL to avoid lazy loading issues
-        await db.execute(
-            insert(user_roles).values(user_id=user.id, role_id=role.id)
-        )
+        else:
+            from app.core.access_role_utils import get_or_create_empty_permission_role
+
+            role = await get_or_create_empty_permission_role(db, role_type)
+
+            await db.execute(
+                insert(user_roles).values(user_id=user.id, role_id=role.id)
+            )
         
         # Add experiences for techie users
         if user_in.experiences:

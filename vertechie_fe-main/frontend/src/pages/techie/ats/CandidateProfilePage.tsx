@@ -124,13 +124,61 @@ const normalizeSkills = (...values: unknown[]): string[] => {
   return Array.from(set);
 };
 
+const mapPipelineCandidateToSnapshot = (item: any): PipelineSnapshot => ({
+  matchScore: typeof item?.matchScore === 'number'
+    ? item.matchScore
+    : (typeof item?.match_score === 'number' ? item.match_score : null),
+  stage: item?.stage,
+  time: item?.time,
+  jobId: item?.jobId || item?.job_id,
+  jobTitle: item?.jobTitle || item?.job_title,
+  role: item?.role,
+  applicationId: item?.applicationId || item?.application_id,
+});
+
+const selectBestPipelineSnapshot = (
+  pipelineData: any[],
+  candidateId: string,
+  preferred?: PipelineSnapshot | null
+): PipelineSnapshot | null => {
+  if (!Array.isArray(pipelineData)) return null;
+
+  const matches = pipelineData.filter((item: any) => String(item.user_id) === String(candidateId));
+  if (matches.length === 0) return null;
+
+  if (preferred?.applicationId) {
+    const exactApplication = matches.find((item: any) => String(item.application_id || item.id || '') === String(preferred.applicationId));
+    if (exactApplication) return mapPipelineCandidateToSnapshot(exactApplication);
+  }
+
+  if (preferred?.jobId) {
+    const exactJob = matches.find((item: any) => String(item.job_id || '') === String(preferred.jobId));
+    if (exactJob) return mapPipelineCandidateToSnapshot(exactJob);
+  }
+
+  return mapPipelineCandidateToSnapshot(matches[0]);
+};
+
+const mergePipelineSnapshot = (
+  liveSnapshot: PipelineSnapshot,
+  preferred?: PipelineSnapshot | null
+): PipelineSnapshot => ({
+  ...liveSnapshot,
+  applicationId: preferred?.applicationId || liveSnapshot.applicationId,
+  jobId: preferred?.jobId || liveSnapshot.jobId,
+  jobTitle: preferred?.jobTitle || liveSnapshot.jobTitle,
+  role: preferred?.role || liveSnapshot.role,
+  time: preferred?.time || liveSnapshot.time,
+});
+
 const CandidateProfilePage: React.FC = () => {
   const { candidateId } = useParams<{ candidateId: string }>();
   const navigate = useNavigate();
   const routeLocation = useLocation();
+  const routePipelineSnapshot = ((routeLocation.state as any)?.pipelineCandidate || null) as PipelineSnapshot | null;
   const [candidate, setCandidate] = useState<CandidateData | null>(null);
   const [pipelineSnapshot, setPipelineSnapshot] = useState<PipelineSnapshot | null>(
-    (routeLocation.state as any)?.pipelineCandidate || null
+    routePipelineSnapshot
   );
   const [applicationDetails, setApplicationDetails] = useState<ApplicationDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -216,21 +264,9 @@ const CandidateProfilePage: React.FC = () => {
             const pipelineRes = await fetch(getApiUrl(API_ENDPOINTS.HIRING.PIPELINE_CANDIDATES), { headers });
             if (pipelineRes.ok) {
               const pipelineData = await pipelineRes.json();
-              const fromPipeline = Array.isArray(pipelineData)
-                ? pipelineData.find((item: any) => String(item.user_id) === String(candidateId))
-                : null;
+              const fromPipeline = selectBestPipelineSnapshot(pipelineData, candidateId!, routePipelineSnapshot);
               if (fromPipeline) {
-                setPipelineSnapshot({
-                  matchScore: typeof fromPipeline.matchScore === 'number'
-                    ? fromPipeline.matchScore
-                    : (typeof fromPipeline.match_score === 'number' ? fromPipeline.match_score : null),
-                  stage: fromPipeline.stage,
-                  time: fromPipeline.time,
-                  jobId: fromPipeline.job_id,
-                  jobTitle: fromPipeline.job_title,
-                  role: fromPipeline.role,
-                  applicationId: fromPipeline.application_id,
-                });
+                setPipelineSnapshot(mergePipelineSnapshot(fromPipeline, routePipelineSnapshot));
               }
             }
           } catch (e) {
@@ -250,7 +286,7 @@ const CandidateProfilePage: React.FC = () => {
     if (candidateId) {
       fetchCandidate();
     }
-  }, [candidateId]);
+  }, [candidateId, routePipelineSnapshot]);
 
   // Fetch HM's interviews to show Reschedule vs Schedule Interview
   useEffect(() => {
@@ -270,9 +306,35 @@ const CandidateProfilePage: React.FC = () => {
     if (!candidateId) return;
     
     try {
+      if (applicationId) {
+        setScheduleDialogOpen(true);
+        return;
+      }
+
       const token = localStorage.getItem('authToken');
       const userData = localStorage.getItem('userData');
       const user = userData ? JSON.parse(userData) : null;
+
+      if (pipelineSnapshot?.jobId) {
+        const jobAppsRes = await fetch(getApiUrl(`/jobs/${pipelineSnapshot.jobId}/applications`), {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (jobAppsRes.ok) {
+          const jobApps = await jobAppsRes.json();
+          const exactApp = Array.isArray(jobApps)
+            ? jobApps.find((a: any) =>
+                (pipelineSnapshot.applicationId && String(a.id) === String(pipelineSnapshot.applicationId)) ||
+                String(a.applicant_id) === String(candidateId) ||
+                String(a.applicant?.id) === String(candidateId)
+              )
+            : null;
+          if (exactApp?.id) {
+            setApplicationId(exactApp.id);
+            setScheduleDialogOpen(true);
+            return;
+          }
+        }
+      }
       
       // Get all jobs by this HM and find applications from this candidate
       const jobsRes = await fetch(getApiUrl('/jobs/'), {
@@ -312,19 +374,9 @@ const CandidateProfilePage: React.FC = () => {
       const pipelineRes = await fetch(getApiUrl(API_ENDPOINTS.HIRING.PIPELINE_CANDIDATES), { headers });
       if (pipelineRes.ok) {
         const pipelineData = await pipelineRes.json();
-        const fromPipeline = Array.isArray(pipelineData)
-          ? pipelineData.find((item: any) => String(item.user_id) === String(candidateId))
-          : null;
+        const fromPipeline = selectBestPipelineSnapshot(pipelineData, candidateId, routePipelineSnapshot || pipelineSnapshot);
         if (fromPipeline) {
-          setPipelineSnapshot({
-            matchScore: typeof fromPipeline.matchScore === 'number' ? fromPipeline.matchScore : (typeof fromPipeline.match_score === 'number' ? fromPipeline.match_score : null),
-            stage: fromPipeline.stage,
-            time: fromPipeline.time,
-            jobId: fromPipeline.job_id,
-            jobTitle: fromPipeline.job_title,
-            role: fromPipeline.role,
-            applicationId: fromPipeline.application_id,
-          });
+          setPipelineSnapshot(mergePipelineSnapshot(fromPipeline, routePipelineSnapshot || pipelineSnapshot));
         }
       }
     } catch (e) {
@@ -342,7 +394,11 @@ const CandidateProfilePage: React.FC = () => {
         if (!res.ok) return;
         const apps = await res.json();
         if (!Array.isArray(apps)) return;
-        const app = apps.find((a: any) => String(a.applicant_id) === String(candidateId) || String(a.applicant?.id) === String(candidateId));
+        const app = apps.find((a: any) =>
+          (pipelineSnapshot.applicationId && String(a.id) === String(pipelineSnapshot.applicationId)) ||
+          String(a.applicant_id) === String(candidateId) ||
+          String(a.applicant?.id) === String(candidateId)
+        );
         if (!app) return;
 
         setApplicationId(app.id || null);
@@ -361,7 +417,7 @@ const CandidateProfilePage: React.FC = () => {
     };
 
     fetchApplicationDetails();
-  }, [candidateId, pipelineSnapshot?.jobId, pipelineSnapshot?.jobTitle, pipelineSnapshot?.matchScore]);
+  }, [candidateId, pipelineSnapshot?.applicationId, pipelineSnapshot?.jobId, pipelineSnapshot?.jobTitle, pipelineSnapshot?.matchScore]);
 
   const handleSendEmail = () => {
     if (candidate?.email) {

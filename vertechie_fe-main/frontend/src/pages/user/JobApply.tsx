@@ -154,7 +154,7 @@ const SubmitButton = styled(Button)({
 interface ScreeningQuestion {
   id: string;
   question: string;
-  type: 'text' | 'yesno' | 'multiple' | 'number' | 'code';
+  type: 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal';
   required: boolean;
   options?: string[];
 }
@@ -245,7 +245,31 @@ const JobApply: React.FC = () => {
     if (normalized === 'multiple' || normalized === 'multiple_choice' || normalized === 'mcq') return 'multiple';
     if (normalized === 'number' || normalized === 'numeric') return 'number';
     if (normalized === 'code' || normalized === 'coding') return 'code';
+    if (normalized === 'verbal') return 'verbal';
     return 'text';
+  };
+
+  const parseQuestionTypeFromDescription = (description?: string): ScreeningQuestion['type'] => {
+    const raw = String(description || '').toLowerCase();
+    const match = raw.match(/type:\s*([a-z_]+)/);
+    return parseQuestionType(match?.[1] || '');
+  };
+
+  const parseQuestionRequiredFromDescription = (description?: string): boolean => {
+    const raw = String(description || '').toLowerCase();
+    if (raw.includes('(optional)') || raw.includes('(not required)')) return false;
+    if (raw.includes('(required)')) return true;
+    return true;
+  };
+
+  const parseQuestionOptionsFromDescription = (description?: string): string[] => {
+    const raw = String(description || '');
+    const match = raw.match(/options:\s*([^|]+)/i);
+    if (!match?.[1]) return [];
+    return match[1]
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
   };
 
   const normalizeSkill = (value: string): string =>
@@ -297,7 +321,7 @@ const JobApply: React.FC = () => {
     if (question.required && !value) return 'This question is required';
     if (!value) return '';
 
-    if (question.type === 'text') {
+    if (question.type === 'text' || question.type === 'verbal') {
       if (/^\d+([.,]\d+)?$/.test(value)) {
         return 'Numbers-only answers are not allowed for this question';
       }
@@ -376,9 +400,31 @@ const JobApply: React.FC = () => {
               collectApplicantLocation: Boolean(jobData.collect_applicant_location),
             });
             // Single source of truth: use screening questions only.
-            const screeningQuestions = Array.isArray(jobData.screeningQuestions) ? jobData.screeningQuestions : [];
-            if (screeningQuestions.length > 0) {
-              setQuestions(screeningQuestions
+            const rawScreeningQuestions = jobData.screeningQuestions ?? (jobData as any).screening_questions ?? [];
+            let screeningQuestions = Array.isArray(rawScreeningQuestions) ? rawScreeningQuestions : [];
+            if (!Array.isArray(rawScreeningQuestions) && typeof rawScreeningQuestions === 'string') {
+              try {
+                const parsed = JSON.parse(rawScreeningQuestions);
+                screeningQuestions = Array.isArray(parsed) ? parsed : [];
+              } catch {
+                screeningQuestions = [];
+              }
+            }
+
+            const fallbackQuestions = Array.isArray(jobData.codingQuestions)
+              ? jobData.codingQuestions.map((q: any, idx: number) => ({
+                  id: String(q.id || idx + 1),
+                  question: String(q.question || '').trim(),
+                  type: parseQuestionTypeFromDescription(q.description),
+                  required: parseQuestionRequiredFromDescription(q.description),
+                  options: parseQuestionOptionsFromDescription(q.description),
+                })).filter((q) => q.question.length > 0)
+              : [];
+
+            const resolvedQuestions = screeningQuestions.length > 0 ? screeningQuestions : fallbackQuestions;
+
+            if (resolvedQuestions.length > 0) {
+              setQuestions(resolvedQuestions
                 .map((q: any, idx: number) => {
                   const questionText = String(q.question || '').trim();
                   return {
@@ -736,17 +782,26 @@ const JobApply: React.FC = () => {
                       <Typography variant="subtitle1" fontWeight={600}>
                         {index + 1}. {question.question}
                       </Typography>
-                      {question.required && (
-                        <Chip label="Required" size="small" color="error" sx={{ height: 20, fontSize: '0.7rem' }} />
-                      )}
+                      <Chip
+                        label={question.required ? 'Required' : 'Optional'}
+                        size="small"
+                        color={question.required ? 'error' : 'default'}
+                        sx={{ height: 20, fontSize: '0.7rem' }}
+                      />
                     </Box>
 
-                    {(question.type === 'text' || question.type === 'code') && (
+                    {(question.type === 'text' || question.type === 'code' || question.type === 'verbal') && (
                       <TextField
                         fullWidth
                         multiline
                         rows={3}
-                        placeholder={question.type === 'code' ? 'Type your code answer here...' : 'Type your answer here...'}
+                        placeholder={
+                          question.type === 'code'
+                            ? 'Type your code answer here...'
+                            : question.type === 'verbal'
+                              ? 'Type your verbal answer here...'
+                              : 'Type your answer here...'
+                        }
                         value={answers[question.id] || ''}
                         onChange={(e) => handleAnswerChange(question.id, e.target.value)}
                         variant="outlined"

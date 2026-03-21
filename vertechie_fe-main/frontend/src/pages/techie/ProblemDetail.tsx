@@ -8,7 +8,7 @@
 * - Real-time execution results
 */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Box,
   Container,
@@ -48,8 +48,10 @@ import {
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../../config/api';
-import { VerTechieIDE, ExecutionResult, TestCase as IDETestCase } from '../../components/ide';
-import { getStatusLabel, getErrorMessage } from '../../services/CodeExecutionService';
+import type { ExecutionResult, TestCase as IDETestCase } from '../../components/ide';
+import { codeExecutionService, getStatusLabel, getErrorMessage } from '../../services/CodeExecutionService';
+
+const VerTechieIDE = lazy(() => import('../../components/ide/VerTechieIDE'));
 
 // Default starter code when API doesn't return any (e.g. Two Sum)
 const DEFAULT_STARTER_CODE: Record<string, Record<string, string>> = {
@@ -327,9 +329,6 @@ const ProblemDetail: React.FC = () => {
     if (!problem || !problem.id) {
       return { status: 'error', output: '', error: 'No problem loaded' };
     }
-
-    // Import the real execution service
-    const { codeExecutionService } = await import('../../services/CodeExecutionService');
 
     // Use backend API for problem execution (pass problem.id as UUID, not slug)
     const result = await codeExecutionService.executeForProblem(
@@ -885,22 +884,42 @@ const ProblemDetail: React.FC = () => {
 
         {/* Right Panel - Code Editor */}
         <Grid item xs={12} md={7} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-          <VerTechieIDE
-            problemId={problem.id}
-            problemTitle={problem.title}
-            initialLanguage={problem.supported_languages?.[0] || 'python'}
-            starterCode={
-              problem.starter_code && Object.keys(problem.starter_code).length > 0
-                ? problem.starter_code
-                : DEFAULT_STARTER_CODE[problem.slug] || problem.starter_code
+          <Suspense
+            fallback={
+              <Box
+                sx={{
+                  flex: 1,
+                  minHeight: 420,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 3,
+                  border: '1px solid',
+                  borderColor: alpha('#fff', 0.12),
+                  bgcolor: alpha('#020617', 0.6),
+                }}
+              >
+                <CircularProgress />
+              </Box>
             }
-            testCases={ideTestCases}
-            onRun={handleRun}
-            onSubmit={handleSubmit}
-            showSubmitButton={true}
-            showTestCases={true}
-            height="100%"
-          />
+          >
+            <VerTechieIDE
+              problemId={problem.id}
+              problemTitle={problem.title}
+              initialLanguage={problem.supported_languages?.[0] || 'python'}
+              starterCode={
+                problem.starter_code && Object.keys(problem.starter_code).length > 0
+                  ? problem.starter_code
+                  : DEFAULT_STARTER_CODE[problem.slug] || problem.starter_code
+              }
+              testCases={ideTestCases}
+              onRun={handleRun}
+              onSubmit={handleSubmit}
+              showSubmitButton={true}
+              showTestCases={true}
+              height="100%"
+            />
+          </Suspense>
         </Grid>
       </Grid>
 

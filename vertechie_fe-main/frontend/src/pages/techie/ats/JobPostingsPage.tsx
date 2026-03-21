@@ -96,6 +96,34 @@ const formatTimeAgo = (dateStr: string): string => {
   return `${months} month${months === 1 ? '' : 's'} ago`;
 };
 
+const formatApplicantExperience = (value: unknown): string => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 0 ? `${value}+ years` : 'Not specified';
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || 'Not specified';
+  }
+  return 'Not specified';
+};
+
+const formatLocationAtApply = (applicant: DisplayApplicant): string => {
+  if (applicant.applicantLocationLat != null && applicant.applicantLocationLng != null) {
+    return `${applicant.applicantLocationLat.toFixed(5)}, ${applicant.applicantLocationLng.toFixed(5)}`;
+  }
+
+  const snapshot = applicant.applicantLocationIpSnapshot;
+  if (snapshot && typeof snapshot === 'object') {
+    const city = 'city' in snapshot ? String((snapshot as any).city || '').trim() : '';
+    const region = 'region' in snapshot ? String((snapshot as any).region || '').trim() : '';
+    const country = 'country' in snapshot ? String((snapshot as any).country || '').trim() : '';
+    const locationText = [city, region, country].filter(Boolean).join(', ');
+    if (locationText) return locationText;
+  }
+
+  return 'Not specified';
+};
+
 // Display job interface
 interface DisplayJob {
   id: string;
@@ -119,6 +147,7 @@ interface DisplayJob {
   screeningQuestions?: Array<{ id: string; question: string; type?: string; required?: boolean; options?: string[] }>;
   salaryMin?: number;
   salaryMax?: number;
+  salaryCurrency?: string;
   hiringCountries?: string[];
   workAuthorizations?: string[];
   openForSponsorship?: boolean | null;
@@ -141,12 +170,12 @@ function parseDescriptionAndResponsibilities(combined: string | undefined): { de
 function normalizeScreeningQuestions(
   raw: unknown,
   parseRequired: (v: unknown) => boolean
-): { id: string; question: string; type: 'text' | 'yesno' | 'multiple' | 'number'; required: boolean; options?: string[] }[] {
+): { id: string; question: string; type: 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal'; required: boolean; options?: string[] }[] {
   const list = Array.isArray(raw) ? raw : [];
   return list.map((q: any, idx: number) => ({
     id: q.id || `q-${idx}-${Date.now()}`,
     question: (q.question ?? q.question_text ?? q.title ?? '').toString().trim(),
-    type: (q.type === 'yesno' || q.type === 'multiple' || q.type === 'number' ? q.type : 'text') as 'text' | 'yesno' | 'multiple' | 'number',
+    type: (q.type === 'yesno' || q.type === 'multiple' || q.type === 'number' || q.type === 'code' || q.type === 'verbal' ? q.type : 'text') as 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal',
     required: parseRequired(q.required),
     options: Array.isArray(q.options) ? q.options : [],
   }));
@@ -164,7 +193,6 @@ interface DisplayApplicant {
   matchScore: number;
   status: string;
   appliedDate: string;
-  skills: string[];
   location?: string;
   avatarUrl?: string;
   /** Applicant location at apply time (read-only; when job had collect applicant location) */
@@ -213,13 +241,7 @@ const JobPostingsPage: React.FC = () => {
             department: job.companyName || 'Company',
             location: job.location || 'Remote',
             type: job.jobType === 'full-time' ? 'Full-time' : job.jobType || 'Full-time',
-            salary: job.salary_min && job.salary_max
-              ? `$${job.salary_min.toLocaleString()} - $${job.salary_max.toLocaleString()}`
-              : job.salary_min
-                ? `From $${job.salary_min.toLocaleString()}`
-                : job.salary_max
-                  ? `Up to $${job.salary_max.toLocaleString()}`
-                  : 'Not specified',
+            salary: formatSalaryDisplay(job.salary_min, job.salary_max, job.salary_currency),
             applicants: job.applicantCount || 0,
             newApplicants: 0,
             views: job.views_count || 0,
@@ -235,6 +257,7 @@ const JobPostingsPage: React.FC = () => {
             screeningQuestions: (job as any).screening_questions ?? job.screeningQuestions ?? [],
             salaryMin: job.salary_min,
             salaryMax: job.salary_max,
+            salaryCurrency: job.salary_currency,
             hiringCountries: (job as any).hiringCountries ?? [],
             workAuthorizations: (job as any).workAuthorizations ?? [],
             openForSponsorship: (job as any).openForSponsorship ?? null,
@@ -260,7 +283,7 @@ const JobPostingsPage: React.FC = () => {
   // Open Create Job dialog when navigating from ATS "Create New Job Post" button
   useEffect(() => {
     if (searchParams.get('openCreate') === '1') {
-      setCreateDialogOpen(true);
+      openCreateDialog();
       const next = new URLSearchParams(searchParams);
       next.delete('openCreate');
       setSearchParams(next, { replace: true });
@@ -268,8 +291,9 @@ const JobPostingsPage: React.FC = () => {
   }, [searchParams, setSearchParams]);
   const [newJob, setNewJob] = useState({
     title: '', department: '', location: '', type: '', experience: '',
-    salaryMin: '', salaryMax: '', description: '', responsibilities: '',
+    salaryMin: '', salaryMax: '', salaryCurrency: 'USD', description: '', responsibilities: '',
   });
+  const [createSalaryCurrencyTouched, setCreateSalaryCurrencyTouched] = useState(false);
   const [hiringCountries, setHiringCountries] = useState<string[]>([]);
   const [hiringCountriesSelectOpen, setHiringCountriesSelectOpen] = useState(false);
   const [workAuthorizations, setWorkAuthorizations] = useState<string[]>([]);
@@ -292,6 +316,67 @@ const USA_WORK_AUTH_OPTIONS = [
   'US Citizen', 'Green Card', 'GC EAD', 'H1B', 'H4 EAD', 'L1', 'L2 EAD', 'J1', 'J2 EAD',
   'O1', 'E1', 'E2', 'E3', 'TN', 'OPT EAD', 'STEM OPT EAD', 'CPT', 'F1', 'EB-1/2/3 Pending', 'Asylum EAD', 'Other',
 ];
+
+const COUNTRY_CURRENCY_BY_CODE: Record<string, string> = {
+  US: 'USD',
+  IN: 'INR',
+  GB: 'GBP',
+  CA: 'CAD',
+};
+
+const CURRENCY_OPTIONS = [
+  { value: 'USD', label: 'USD ($)' },
+  { value: 'INR', label: 'INR (Rs)' },
+  { value: 'GBP', label: 'GBP (£)' },
+  { value: 'CAD', label: 'CAD (CA$)' },
+];
+
+const CURRENCY_SYMBOL_BY_CODE: Record<string, string> = {
+  USD: '$',
+  INR: 'Rs',
+  GBP: 'GBP',
+  CAD: 'CA$',
+};
+
+const getSalaryCurrencyForCountries = (countries: string[] = []): string => {
+  const primaryCountry = countries.find((code) => COUNTRY_CURRENCY_BY_CODE[code]);
+  return primaryCountry ? COUNTRY_CURRENCY_BY_CODE[primaryCountry] : 'USD';
+};
+
+const getSuggestedSalaryCurrencies = (countries: string[] = []): string[] => {
+  const seen = new Set<string>();
+  const suggestions: string[] = [];
+  countries.forEach((code) => {
+    const currency = COUNTRY_CURRENCY_BY_CODE[code];
+    if (currency && !seen.has(currency)) {
+      seen.add(currency);
+      suggestions.push(currency);
+    }
+  });
+  return suggestions;
+};
+
+const getCurrencySymbol = (currencyCode?: string): string => {
+  const normalizedCode = (currencyCode || 'USD').toUpperCase();
+  return CURRENCY_SYMBOL_BY_CODE[normalizedCode] || normalizedCode;
+};
+
+const formatSalaryDisplay = (
+  salaryMin?: number | null,
+  salaryMax?: number | null,
+  currencyCode?: string
+): string => {
+  const symbol = getCurrencySymbol(currencyCode);
+  if (salaryMin && salaryMax) return `${symbol}${salaryMin.toLocaleString()} - ${symbol}${salaryMax.toLocaleString()}`;
+  if (salaryMin) return `From ${symbol}${salaryMin.toLocaleString()}`;
+  if (salaryMax) return `Up to ${symbol}${salaryMax.toLocaleString()}`;
+  return 'Not specified';
+};
+
+const outlinedSelectLabelSx = {
+  backgroundColor: '#fff',
+  px: 0.5,
+};
 
 const ALL_SKILLS = [
     'React', 'Angular', 'Vue.js', 'TypeScript', 'JavaScript', 'HTML5', 'CSS3', 'Tailwind CSS', 'Next.js', 'Redux', 'Svelte',
@@ -340,19 +425,59 @@ const ALL_SKILLS = [
   interface ScreeningQuestion {
     id: string;
     question: string;
-    type: 'text' | 'yesno' | 'multiple' | 'number';
+    type: 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal';
     required: boolean;
     options?: string[];
   }
-  const [questions, setQuestions] = useState<ScreeningQuestion[]>([
-    { id: '1', question: 'How many years of experience do you have in this field?', type: 'number', required: true },
-    { id: '2', question: 'Are you authorized to work in the location specified?', type: 'yesno', required: true },
-  ]);
+  const [questions, setQuestions] = useState<ScreeningQuestion[]>([]);
   const [newQuestion, setNewQuestion] = useState('');
-  const [questionType, setQuestionType] = useState<'text' | 'yesno' | 'multiple' | 'number'>('text');
+  const [questionType, setQuestionType] = useState<'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal'>('text');
   const [questionRequired, setQuestionRequired] = useState(true);
   const [questionOptions, setQuestionOptions] = useState<string[]>(['']);
+
+  const resetCreateJobForm = () => {
+    setNewJob({ title: '', department: '', location: '', type: '', experience: '', salaryMin: '', salaryMax: '', salaryCurrency: 'USD', description: '', responsibilities: '' });
+    setCreateSalaryCurrencyTouched(false);
+    setHiringCountries([]);
+    setHiringCountriesSelectOpen(false);
+    setWorkAuthorizations([]);
+    setWorkAuthorizationsSelectOpen(false);
+    setOpenForSponsorship(null);
+    setCollectApplicantLocation(false);
+    setNewJobErrors({});
+    setSkills([]);
+    setNewSkill('');
+    setSkillsFieldError(false);
+    setQuestions([]);
+    setNewQuestion('');
+    setQuestionType('text');
+    setQuestionRequired(true);
+    setQuestionOptions(['']);
+    setCreateTab(0);
+    setLocationSuggestions([]);
+  };
+
+  const openCreateDialog = () => {
+    resetCreateJobForm();
+    setCreateDialogOpen(true);
+  };
+
+  const closeCreateDialog = () => {
+    setCreateDialogOpen(false);
+    resetCreateJobForm();
+  };
   const [isPosting, setIsPosting] = useState(false);
+
+  useEffect(() => {
+    if (!createSalaryCurrencyTouched) {
+      if (hiringCountries.length === 1) {
+        setNewJob((prev) => ({
+          ...prev,
+          salaryCurrency: getSalaryCurrencyForCountries(hiringCountries),
+        }));
+      }
+    }
+  }, [hiringCountries, createSalaryCurrencyTouched]);
 
   const validateCreateJobDetailsStep = (): boolean => {
     const requiredFields: Array<{ key: keyof typeof newJob; label: string }> = [
@@ -561,6 +686,15 @@ const ALL_SKILLS = [
   const handleRemoveQuestion = (id: string) => {
     setQuestions(questions.filter(q => q.id !== id));
   };
+
+  const getScreeningQuestionTypeLabel = (type: ScreeningQuestion['type']) => {
+    if (type === 'yesno') return 'Yes / No';
+    if (type === 'multiple') return 'Multiple Choice';
+    if (type === 'number') return 'Number';
+    if (type === 'code') return 'Coding';
+    if (type === 'verbal') return 'Verbal';
+    return 'Normal';
+  };
   
   // Filter Menu
   const [filterAnchor, setFilterAnchor] = useState<null | HTMLElement>(null);
@@ -579,12 +713,13 @@ const ALL_SKILLS = [
   const [editWorkAuthorizationsSelectOpen, setEditWorkAuthorizationsSelectOpen] = useState(false);
   const [editJobErrors, setEditJobErrors] = useState<Record<string, boolean>>({});
   const [editSkillsFieldError, setEditSkillsFieldError] = useState(false);
+  const [editSalaryCurrencyTouched, setEditSalaryCurrencyTouched] = useState(false);
   const [editTab, setEditTab] = useState(0);
   const [editSkills, setEditSkills] = useState<string[]>([]);
   const [editNewSkill, setEditNewSkill] = useState('');
-  const [editQuestions, setEditQuestions] = useState<{ id: string; question: string; type: 'text' | 'yesno' | 'multiple' | 'number'; required: boolean; options?: string[] }[]>([]);
+  const [editQuestions, setEditQuestions] = useState<{ id: string; question: string; type: 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal'; required: boolean; options?: string[] }[]>([]);
   const [editNewQuestion, setEditNewQuestion] = useState('');
-  const [editQuestionType, setEditQuestionType] = useState<'text' | 'yesno' | 'multiple' | 'number'>('text');
+  const [editQuestionType, setEditQuestionType] = useState<'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal'>('text');
   const [editQuestionRequired, setEditQuestionRequired] = useState(true);
   const [editQuestionOptions, setEditQuestionOptions] = useState<string[]>(['']);
   
@@ -597,6 +732,20 @@ const ALL_SKILLS = [
   const [scheduleModalContext, setScheduleModalContext] = useState<ScheduleInterviewContext | null>(null);
   const [scheduledInterviewApplicationIds, setScheduledInterviewApplicationIds] = useState<Set<string>>(new Set());
   const [hrCalendarLink, setHrCalendarLink] = useState<string | null>(null);
+  const [activeApplicantMenu, setActiveApplicantMenu] = useState<DisplayApplicant | null>(null);
+
+  useEffect(() => {
+    if (!editingJob || editSalaryCurrencyTouched) return;
+    if ((editingJob.hiringCountries ?? []).length === 1) {
+      setEditingJob((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          salaryCurrency: getSalaryCurrencyForCountries(prev.hiringCountries ?? []),
+        };
+      });
+    }
+  }, [editingJob?.hiringCountries, editSalaryCurrencyTouched]);
 
   // Load which applications already have a scheduled interview (for Reschedule vs Schedule Interview)
   const loadScheduledInterviewApplicationIds = useCallback(async () => {
@@ -611,6 +760,16 @@ const ALL_SKILLS = [
   useEffect(() => {
     if (applicantsDialogOpen) loadScheduledInterviewApplicationIds();
   }, [applicantsDialogOpen, loadScheduledInterviewApplicationIds]);
+
+  const openApplicantActionsMenu = (_event: React.MouseEvent<HTMLElement>, applicant: DisplayApplicant) => {
+    setActiveApplicantMenu((current) => (
+      current?.id === applicant.id ? null : applicant
+    ));
+  };
+
+  const closeApplicantActionsMenu = () => {
+    setActiveApplicantMenu(null);
+  };
 
   // Snackbar
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
@@ -662,6 +821,7 @@ const ALL_SKILLS = [
       }));
       
       // Create job via API - include salary (optional), hiring countries, work auth, sponsorship
+      const salaryCurrency = newJob.salaryCurrency || getSalaryCurrencyForCountries(hiringCountries);
       const createdJob = await jobService.createJob({
         title: newJob.title,
         companyName: companyName,
@@ -680,6 +840,7 @@ const ALL_SKILLS = [
         })),
         salaryMin: newJob.salaryMin ? parseInt(newJob.salaryMin) : undefined,
         salaryMax: newJob.salaryMax ? parseInt(newJob.salaryMax) : undefined,
+        salaryCurrency,
         hiringCountries: hiringCountries.length ? hiringCountries : [],
         workAuthorizations: hiringCountries.includes('US') ? workAuthorizations : [],
         openForSponsorship: openForSponsorship ?? undefined,
@@ -687,13 +848,11 @@ const ALL_SKILLS = [
       }, userId);
       
       // Format salary display
-      const salaryDisplay = newJob.salaryMin && newJob.salaryMax 
-        ? `$${parseInt(newJob.salaryMin).toLocaleString()} - $${parseInt(newJob.salaryMax).toLocaleString()}`
-        : newJob.salaryMin 
-          ? `From $${parseInt(newJob.salaryMin).toLocaleString()}`
-          : newJob.salaryMax
-            ? `Up to $${parseInt(newJob.salaryMax).toLocaleString()}`
-            : 'Not specified';
+      const salaryDisplay = formatSalaryDisplay(
+        newJob.salaryMin ? parseInt(newJob.salaryMin) : undefined,
+        newJob.salaryMax ? parseInt(newJob.salaryMax) : undefined,
+        salaryCurrency
+      );
 
       // Map department for display
       const departmentDisplay = newJob.department.charAt(0).toUpperCase() + newJob.department.slice(1);
@@ -720,6 +879,7 @@ const ALL_SKILLS = [
               newJob.type === 'paid_internship' ? 'Paid Internship' :
               newJob.type === 'freelance' ? 'Freelance' : 'Full-Time',
         salary: salaryDisplay,
+        salaryCurrency,
         applicants: 0,
         newApplicants: 0,
         views: 0,
@@ -731,22 +891,7 @@ const ALL_SKILLS = [
       };
       
       setJobs([displayJob, ...jobs]);
-      setCreateDialogOpen(false);
-      
-      // Reset form
-      setNewJob({ title: '', department: '', location: '', type: '', experience: '', salaryMin: '', salaryMax: '', description: '', responsibilities: '' });
-      setHiringCountries([]);
-      setWorkAuthorizations([]);
-      setOpenForSponsorship(null);
-      setCollectApplicantLocation(false);
-      setNewJobErrors({});
-      setSkills([]);
-      setSkillsFieldError(false);
-      setQuestions([
-        { id: '1', question: 'How many years of experience do you have in this field?', type: 'number', required: true },
-        { id: '2', question: 'Are you authorized to work in the location specified?', type: 'yesno', required: true },
-      ]);
-      setCreateTab(0);
+      closeCreateDialog();
       
       setSnackbar({ open: true, message: 'Job posted successfully! Applicants will answer screening questions.', severity: 'success' });
     } catch (error: any) {
@@ -784,6 +929,7 @@ const ALL_SKILLS = [
       };
       
       // Update via API
+      const salaryCurrency = editingJob.salaryCurrency || getSalaryCurrencyForCountries(editingJob.hiringCountries ?? []);
       await jobService.updateJob(editingJob.id, {
         title: editingJob.title,
         description: editingJob.description || '',
@@ -808,19 +954,18 @@ const ALL_SKILLS = [
         })),
         salaryMin: editingJob.salaryMin ? parseInt(editingJob.salaryMin) : undefined,
         salaryMax: editingJob.salaryMax ? parseInt(editingJob.salaryMax) : undefined,
+        salaryCurrency,
         hiringCountries: editingJob.hiringCountries ?? [],
         workAuthorizations: editingJob.workAuthorizations ?? [],
         openForSponsorship: editingJob.openForSponsorship ?? undefined,
         collectApplicantLocation: editingJob.collectApplicantLocation ?? false,
       } as any);
       
-      const salaryDisplay = editingJob.salaryMin && editingJob.salaryMax 
-        ? `$${parseInt(editingJob.salaryMin).toLocaleString()} - $${parseInt(editingJob.salaryMax).toLocaleString()}`
-        : editingJob.salaryMin 
-          ? `From $${parseInt(editingJob.salaryMin).toLocaleString()}`
-          : editingJob.salaryMax
-            ? `Up to $${parseInt(editingJob.salaryMax).toLocaleString()}`
-            : 'Not specified';
+      const salaryDisplay = formatSalaryDisplay(
+        editingJob.salaryMin ? parseInt(editingJob.salaryMin) : undefined,
+        editingJob.salaryMax ? parseInt(editingJob.salaryMax) : undefined,
+        salaryCurrency
+      );
 
       // Update local state with full job data
       const updatedJob = {
@@ -828,6 +973,7 @@ const ALL_SKILLS = [
         skills: editSkills,
         screeningQuestions: editQuestions,
         salary: salaryDisplay,
+        salaryCurrency,
       };
       setJobs(jobs.map(j => j.id === editingJob.id ? updatedJob : j));
       setEditDialogOpen(false);
@@ -895,6 +1041,7 @@ const ALL_SKILLS = [
     '8_10': '8_10', '10_12': '10_12', '12_leadership': '12_leadership',
   };
   const applyFormState = (fullJob: DisplayJob) => {
+    setEditSalaryCurrencyTouched(false);
     const j = fullJob as any;
     const rawType = (j.type || '').toString().toLowerCase().replace(/\s+/g, '');
     const rawExp = (j.experience || j.experienceLevel || '').toString().toLowerCase();
@@ -916,6 +1063,7 @@ const ALL_SKILLS = [
       department: j.department || fullJob.department || 'Company',
       salaryMin: j.salaryMin ?? fullJob.salaryMin,
       salaryMax: j.salaryMax ?? fullJob.salaryMax,
+      salaryCurrency: j.salaryCurrency ?? fullJob.salaryCurrency ?? getSalaryCurrencyForCountries(j.hiringCountries ?? []),
       hiringCountries: j.hiringCountries ?? [],
       workAuthorizations: j.workAuthorizations ?? [],
       openForSponsorship: j.openForSponsorship ?? null,
@@ -926,6 +1074,7 @@ const ALL_SKILLS = [
   };
 
   const openEditDialog = async (job: DisplayJob) => {
+    setEditSalaryCurrencyTouched(false);
     const { description: desc, responsibilities: resp } = parseDescriptionAndResponsibilities(job.description ?? '');
     const listJob = { ...job, description: desc, responsibilities: resp } as any;
     const rawType = (listJob.type || '').toString().toLowerCase().replace(/\s+/g, '');
@@ -948,6 +1097,7 @@ const ALL_SKILLS = [
       department: listJob.department || 'Company',
       salaryMin: listJob.salaryMin ?? listJob.salary_min,
       salaryMax: listJob.salaryMax ?? listJob.salary_max,
+      salaryCurrency: listJob.salaryCurrency ?? listJob.salary_currency ?? getSalaryCurrencyForCountries(listJob.hiringCountries ?? []),
     } as any);
     setEditSkills(Array.isArray(listSkills) ? [...listSkills] : []);
     setEditQuestions(listQuestions);
@@ -978,6 +1128,7 @@ const ALL_SKILLS = [
           screeningQuestions: (fetched as any).screening_questions ?? fetched.screeningQuestions ?? [],
           salaryMin: fetched.salary_min ?? job.salaryMin,
           salaryMax: fetched.salary_max ?? job.salaryMax,
+          salaryCurrency: fetched.salary_currency ?? job.salaryCurrency ?? getSalaryCurrencyForCountries((fetched as any).hiringCountries ?? job.hiringCountries ?? []),
           status: fetched.status || job.status,
           hiringCountries: (fetched as any).hiringCountries ?? job.hiringCountries ?? [],
           workAuthorizations: (fetched as any).workAuthorizations ?? job.workAuthorizations ?? [],
@@ -1063,11 +1214,10 @@ const ALL_SKILLS = [
           email: candidate.email || '',
           phone: candidate.phone || '',
           title: candidate.title || 'Candidate',
-          experience: candidate.experience || 'Not specified',
+          experience: formatApplicantExperience(candidate.experience),
           matchScore: candidate.matchScore ?? 0,  // Use actual match score from backend
           status: candidate.status || 'new',
           appliedDate: candidate.appliedAt ? formatTimeAgo(candidate.appliedAt) : 'Recently',
-          skills: candidate.skills || [],
           location: candidate.location || '',
           avatarUrl: candidate.avatar || '',
           applicantLocationLat: (candidate as any).applicantLocationLat ?? null,
@@ -1090,11 +1240,10 @@ const ALL_SKILLS = [
           email: app.candidateEmail || details?.email || '',
           phone: details?.phone || '',
           title: details?.title || 'Candidate',
-          experience: details?.experienceYears ? `${details.experienceYears}+ years` : 'Not specified',
+          experience: formatApplicantExperience(details?.experienceYears),
           matchScore: app.codingScore || app.match_score || 0,
           status: app.status === 'applied' || (app.status as string) === 'submitted' ? 'new' : app.status,
           appliedDate: formatTimeAgo(app.appliedAt),
-          skills: details?.skills || [],
           location: details?.location || '',
           avatarUrl: details?.avatarUrl || '',
           applicantLocationLat: (app as any).applicantLocationLat ?? null,
@@ -1301,7 +1450,7 @@ const ALL_SKILLS = [
             variant="contained" 
             startIcon={<AddIcon />} 
             sx={{ bgcolor: '#0d47a1' }}
-            onClick={() => setCreateDialogOpen(true)}
+            onClick={openCreateDialog}
           >
             Create Job
           </Button>
@@ -1527,11 +1676,7 @@ const ALL_SKILLS = [
       {/* Create Job Dialog - Enhanced with Tabs */}
       <Dialog
         open={createDialogOpen}
-        onClose={() => {
-          setCreateDialogOpen(false);
-          setNewJobErrors({});
-          setSkillsFieldError(false);
-        }}
+        onClose={closeCreateDialog}
         maxWidth="md"
         fullWidth
       >
@@ -1547,7 +1692,7 @@ const ALL_SKILLS = [
           {/* Tab 1: Job Details */}
           {createTab === 0 && (
             <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12}>
+              <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
                   label="Job Title"
@@ -1665,9 +1810,9 @@ const ALL_SKILLS = [
                   {newJobErrors.experience && <FormHelperText>Experience Level is required</FormHelperText>}
                 </FormControl>
               </Grid>
-              <Grid item xs={12}>
+              <Grid item xs={12} md={6}>
                 <FormControl fullWidth required error={!!newJobErrors.hiringCountries}>
-                  <InputLabel shrink>Hiring countries</InputLabel>
+                  <InputLabel shrink sx={outlinedSelectLabelSx}>Hiring countries</InputLabel>
                   <Select
                     multiple
                     value={hiringCountries}
@@ -1692,9 +1837,9 @@ const ALL_SKILLS = [
                 </FormControl>
               </Grid>
               {hiringCountries.includes('US') && (
-                <Grid item xs={12}>
+                <Grid item xs={12} md={6}>
                   <FormControl fullWidth>
-                    <InputLabel shrink>What work authorizations are accepted for this role?</InputLabel>
+                    <InputLabel shrink sx={outlinedSelectLabelSx}>What work authorizations are accepted for this role?</InputLabel>
                     <Select
                       multiple
                       value={workAuthorizations}
@@ -1717,9 +1862,9 @@ const ALL_SKILLS = [
                   </FormControl>
                 </Grid>
               )}
-              <Grid item xs={12}>
+              <Grid item xs={12} md={6}>
                 <FormControl fullWidth required error={!!newJobErrors.openForSponsorship}>
-                  <InputLabel shrink>Is this role open for sponsorship?</InputLabel>
+                  <InputLabel shrink sx={outlinedSelectLabelSx}>Is this role open for sponsorship?</InputLabel>
                   <Select
                     value={openForSponsorship === null ? '' : openForSponsorship ? 'yes' : 'no'}
                     label="Is this role open for sponsorship?"
@@ -1737,31 +1882,38 @@ const ALL_SKILLS = [
                   {newJobErrors.openForSponsorship && <FormHelperText error>Please select Yes or No</FormHelperText>}
                 </FormControl>
               </Grid>
-              <Grid item xs={12}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={collectApplicantLocation}
-                      onChange={(e) => setCollectApplicantLocation(e.target.checked)}
-                      color="primary"
-                    />
-                  }
-                  label="Collect applicant location"
-                />
-                <FormHelperText sx={{ display: 'block', mt: 0.5 }}>
-                  If enabled, applicants will be asked for permission to share their current location when applying. Location (coordinates and IP snapshot) is captured only at submission and shown to you as read-only.
-                </FormHelperText>
-              </Grid>
+              {hiringCountries.length > 1 && (
+                <Grid item xs={12} md={6}>
+                  <FormControl fullWidth>
+                    <InputLabel shrink sx={outlinedSelectLabelSx}>Salary currency</InputLabel>
+                    <Select
+                      value={newJob.salaryCurrency || 'USD'}
+                      label="Salary currency"
+                      onChange={(e) => {
+                        setNewJob({ ...newJob, salaryCurrency: e.target.value });
+                        setCreateSalaryCurrencyTouched(true);
+                      }}
+                    >
+                      {CURRENCY_OPTIONS.map((currency) => (
+                        <MenuItem key={currency.value} value={currency.value}>{currency.label}</MenuItem>
+                      ))}
+                    </Select>
+                    <FormHelperText>
+                      {`Suggestions: ${getSuggestedSalaryCurrencies(hiringCountries).join(', ') || 'USD'}. HR can choose one.`}
+                    </FormHelperText>
+                  </FormControl>
+                </Grid>
+              )}
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Minimum Salary (Annual) — optional"
+                  label="Minimum Salary (Annual) - optional"
                   value={newJob.salaryMin}
                   onChange={(e) => { setNewJob({ ...newJob, salaryMin: e.target.value }); setNewJobErrors({ ...newJobErrors, salaryMin: false, salaryMax: false }); }}
                   placeholder="e.g., 600000"
                   type="number"
                   InputLabelProps={{ shrink: true }}
-                  InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                  InputProps={{ startAdornment: <InputAdornment position="start">{getCurrencySymbol(newJob.salaryCurrency)}</InputAdornment> }}
                   helperText={newJobErrors.salaryMin ? "Valid minimum salary" : ""}
                   error={!!newJobErrors.salaryMin}
                 />
@@ -1769,16 +1921,33 @@ const ALL_SKILLS = [
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Maximum Salary (Annual) — optional"
+                  label="Maximum Salary (Annual) - optional"
                   value={newJob.salaryMax}
                   onChange={(e) => { setNewJob({ ...newJob, salaryMax: e.target.value }); setNewJobErrors({ ...newJobErrors, salaryMin: false, salaryMax: false }); }}
                   placeholder="e.g., 1200000"
                   type="number"
                   InputLabelProps={{ shrink: true }}
-                  InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                  InputProps={{ startAdornment: <InputAdornment position="start">{getCurrencySymbol(newJob.salaryCurrency)}</InputAdornment> }}
                   helperText={newJobErrors.salaryMax ? "Valid maximum salary" : ""}
                   error={!!newJobErrors.salaryMax}
                 />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5, px: 2, py: 1.5, minHeight: 112 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={collectApplicantLocation}
+                        onChange={(e) => setCollectApplicantLocation(e.target.checked)}
+                        color="primary"
+                      />
+                    }
+                    label="Collect applicant location"
+                  />
+                  <FormHelperText sx={{ display: 'block', mt: 0.5 }}>
+                    Location is captured only at submission and shown to you as read-only.
+                  </FormHelperText>
+                </Box>
               </Grid>
               <Grid item xs={12}>
                 <TextField
@@ -1913,7 +2082,7 @@ const ALL_SKILLS = [
                 Screening Questions
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Add questions that applicants must answer when applying. No resume upload - candidates will be matched based on their profile and answers.
+                Add only the questions you want. You can create normal, coding, verbal, numeric, yes/no, or multiple choice questions and mark each one as required or optional.
               </Typography>
 
               {/* Existing questions */}
@@ -1927,12 +2096,10 @@ const ALL_SKILLS = [
                           <Typography variant="body1" fontWeight={500}>
                             {index + 1}. {q.question}
                           </Typography>
-                          {q.required && (
-                            <Chip label="Required" size="small" color="error" sx={{ height: 20, fontSize: '0.7rem' }} />
-                          )}
+                          <Chip label={q.required ? 'Required' : 'Optional'} size="small" color={q.required ? 'error' : 'default'} sx={{ height: 20, fontSize: '0.7rem' }} />
                         </Box>
                         <Typography variant="caption" color="text.secondary">
-                          Type: {q.type === 'yesno' ? 'Yes/No' : q.type === 'multiple' ? 'Multiple Choice' : q.type === 'number' ? 'Number' : 'Text'}
+                          Type: {getScreeningQuestionTypeLabel(q.type)}
                           {q.options && ` • Options: ${q.options.join(', ')}`}
                         </Typography>
                       </Box>
@@ -1968,10 +2135,12 @@ const ALL_SKILLS = [
                         label="Answer Type"
                         onChange={(e) => setQuestionType(e.target.value as any)}
                       >
-                        <MenuItem value="text">Text (Open Answer)</MenuItem>
-                        <MenuItem value="yesno">Yes / No</MenuItem>
-                        <MenuItem value="number">Number</MenuItem>
-                        <MenuItem value="multiple">Multiple Choice</MenuItem>
+                          <MenuItem value="text">Normal Question</MenuItem>
+                          <MenuItem value="code">Coding Question</MenuItem>
+                          <MenuItem value="verbal">Verbal Question</MenuItem>
+                          <MenuItem value="yesno">Yes / No</MenuItem>
+                          <MenuItem value="number">Number</MenuItem>
+                          <MenuItem value="multiple">Multiple Choice</MenuItem>
                       </Select>
                     </FormControl>
                   </Grid>
@@ -2064,11 +2233,7 @@ const ALL_SKILLS = [
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button
-              onClick={() => {
-                setCreateDialogOpen(false);
-                setNewJobErrors({});
-                setSkillsFieldError(false);
-              }}
+              onClick={closeCreateDialog}
             >
               Cancel
             </Button>
@@ -2093,19 +2258,19 @@ const ALL_SKILLS = [
 
       {/* Edit Job Dialog - Same structure as Create Job */}
       <Dialog open={editDialogOpen} onClose={() => { if (!editDialogLoading) setEditDialogOpen(false); }} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid #eee' }}>
-          Edit Job
+        <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid #eee', pb: 0 }}>
+          <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>Edit Job</Typography>
         </DialogTitle>
         
         {/* Tabs */}
         <Tabs 
           value={editTab} 
           onChange={handleEditTabChange} 
-          sx={{ px: 3, borderBottom: '1px solid #eee' }}
+          sx={{ minHeight: 40, px: 3, borderBottom: '1px solid #eee' }}
         >
-          <Tab label="Job Details" />
-          <Tab label="Required Skills" />
-          <Tab label="Screening Questions" />
+          <Tab label="Job Details" sx={{ minHeight: 40, textTransform: 'none' }} />
+          <Tab label="Required Skills" sx={{ minHeight: 40, textTransform: 'none' }} />
+          <Tab label="Screening Questions" sx={{ minHeight: 40, textTransform: 'none' }} />
         </Tabs>
         
         <DialogContent sx={{ pt: 3, minHeight: 400, position: 'relative' }}>
@@ -2131,14 +2296,16 @@ const ALL_SKILLS = [
             <>
               {/* Tab 0: Job Details */}
               {editTab === 0 && (
-                <Grid container spacing={2}>
-                  <Grid item xs={12}>
+                <Grid container spacing={2} sx={{ mt: 1 }}>
+                  <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
                       label="Job Title"
                       value={editingJob.title}
                       onChange={(e) => { setEditingJob({ ...editingJob, title: e.target.value }); setEditJobErrors({ ...editJobErrors, title: false }); }}
+                      placeholder="e.g., Senior Software Engineer"
                       required
+                      variant="outlined"
                       InputLabelProps={{ shrink: true }}
                       error={!!editJobErrors.title}
                       helperText={editJobErrors.title ? "Job Title is required" : ""}
@@ -2216,7 +2383,9 @@ const ALL_SKILLS = [
                         value={editingJob.type}
                         label="Employment Type"
                         onChange={(e) => { setEditingJob({ ...editingJob, type: e.target.value }); setEditJobErrors({ ...editJobErrors, type: false }); }}
+                        displayEmpty
                       >
+                        <MenuItem value="" disabled>Select Type</MenuItem>
                         <MenuItem value="fulltime">Full-Time</MenuItem>
                         <MenuItem value="parttime">Part-Time</MenuItem>
                         <MenuItem value="w2contract">W2 - Contract</MenuItem>
@@ -2235,7 +2404,9 @@ const ALL_SKILLS = [
                         value={editingJob.experience || ''}
                         label="Experience Level"
                         onChange={(e) => { setEditingJob({ ...editingJob, experience: e.target.value }); setEditJobErrors({ ...editJobErrors, experience: false }); }}
+                        displayEmpty
                       >
+                        <MenuItem value="" disabled>Select Level</MenuItem>
                         <MenuItem value="college_fresh">College fresh grads</MenuItem>
                         <MenuItem value="0_2">0 to 2+ years</MenuItem>
                         <MenuItem value="2_5">2 to 5+ years</MenuItem>
@@ -2247,9 +2418,9 @@ const ALL_SKILLS = [
                       {editJobErrors.experience && <FormHelperText>Experience Level is required</FormHelperText>}
                     </FormControl>
                   </Grid>
-                  <Grid item xs={12}>
+                  <Grid item xs={12} md={6}>
                     <FormControl fullWidth>
-                      <InputLabel shrink>Hiring countries</InputLabel>
+                      <InputLabel shrink sx={outlinedSelectLabelSx}>Hiring countries</InputLabel>
                       <Select
                         multiple
                         value={editingJob.hiringCountries ?? []}
@@ -2267,14 +2438,14 @@ const ALL_SKILLS = [
                         {HIRING_COUNTRIES.map((c) => (
                           <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
                         ))}
-                      </Select>
-                      <FormHelperText>Job visible only to techies from the selected countries.</FormHelperText>
-                    </FormControl>
-                  </Grid>
+                        </Select>
+                        <FormHelperText>Job will be visible only to techies from the selected countries.</FormHelperText>
+                      </FormControl>
+                    </Grid>
                   {(editingJob.hiringCountries ?? []).includes('US') && (
-                    <Grid item xs={12}>
+                    <Grid item xs={12} md={6}>
                       <FormControl fullWidth>
-                        <InputLabel shrink>What work authorizations are accepted for this role?</InputLabel>
+                        <InputLabel shrink sx={outlinedSelectLabelSx}>What work authorizations are accepted for this role?</InputLabel>
                         <Select
                           multiple
                           value={editingJob.workAuthorizations ?? []}
@@ -2288,17 +2459,18 @@ const ALL_SKILLS = [
                             setEditWorkAuthorizationsSelectOpen(false);
                           }}
                           renderValue={(selected) => (selected as string[]).join(', ')}
-                        >
-                          {USA_WORK_AUTH_OPTIONS.map((opt) => (
-                            <MenuItem key={opt} value={opt}>{opt}</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </Grid>
+                      >
+                        {USA_WORK_AUTH_OPTIONS.map((opt) => (
+                          <MenuItem key={opt} value={opt}>{opt}</MenuItem>
+                        ))}
+                      </Select>
+                      <FormHelperText>Job will be visible only to users whose work authorization matches.</FormHelperText>
+                    </FormControl>
+                  </Grid>
                   )}
-                  <Grid item xs={12}>
+                  <Grid item xs={12} md={6}>
                     <FormControl fullWidth>
-                      <InputLabel shrink>Is this role open for sponsorship?</InputLabel>
+                      <InputLabel shrink sx={outlinedSelectLabelSx}>Is this role open for sponsorship?</InputLabel>
                       <Select
                         value={editingJob.openForSponsorship === null || editingJob.openForSponsorship === undefined ? '' : editingJob.openForSponsorship ? 'yes' : 'no'}
                         label="Is this role open for sponsorship?"
@@ -2308,54 +2480,79 @@ const ALL_SKILLS = [
                         }}
                         displayEmpty
                       >
-                        <MenuItem value="">—</MenuItem>
+                        <MenuItem value="" disabled>Select</MenuItem>
                         <MenuItem value="yes">Yes</MenuItem>
                         <MenuItem value="no">No</MenuItem>
                       </Select>
+                      {editJobErrors.openForSponsorship && <FormHelperText error>Please select Yes or No</FormHelperText>}
                     </FormControl>
                   </Grid>
-                  <Grid item xs={12}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={!!editingJob.collectApplicantLocation}
-                          onChange={(e) => setEditingJob({ ...editingJob, collectApplicantLocation: e.target.checked })}
-                          color="primary"
-                        />
-                      }
-                      label="Collect applicant location"
-                    />
-                    <FormHelperText sx={{ display: 'block', mt: 0.5 }}>
-                      If enabled, applicants are asked to share their current location when applying (captured at submission, read-only).
-                    </FormHelperText>
-                  </Grid>
+                  {(editingJob.hiringCountries ?? []).length > 1 && (
+                    <Grid item xs={12} md={6}>
+                      <FormControl fullWidth>
+                        <InputLabel shrink sx={outlinedSelectLabelSx}>Salary currency</InputLabel>
+                        <Select
+                          value={editingJob.salaryCurrency || 'USD'}
+                          label="Salary currency"
+                          onChange={(e) => {
+                            setEditingJob({ ...editingJob, salaryCurrency: e.target.value });
+                            setEditSalaryCurrencyTouched(true);
+                          }}
+                        >
+                          {CURRENCY_OPTIONS.map((currency) => (
+                            <MenuItem key={currency.value} value={currency.value}>{currency.label}</MenuItem>
+                          ))}
+                        </Select>
+                        <FormHelperText>
+                          {`Suggestions: ${getSuggestedSalaryCurrencies(editingJob.hiringCountries ?? []).join(', ') || 'USD'}. HR can choose one.`}
+                        </FormHelperText>
+                      </FormControl>
+                    </Grid>
+                  )}
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
-                      label="Min Salary (Annual) — optional"
+                      label="Minimum Salary (Annual) - optional"
                       value={editingJob.salaryMin != null && editingJob.salaryMin !== '' ? String(editingJob.salaryMin) : ''}
-                      onChange={(e) => { setEditingJob({ ...editingJob, salaryMin: e.target.value }); setEditJobErrors({ ...editJobErrors, salaryMin: false }); }}
-                      placeholder="e.g., 60000"
+                      onChange={(e) => { setEditingJob({ ...editingJob, salaryMin: e.target.value }); setEditJobErrors({ ...editJobErrors, salaryMin: false, salaryMax: false }); }}
+                      placeholder="e.g., 600000"
                       type="number"
                       InputLabelProps={{ shrink: true }}
-                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">{getCurrencySymbol(editingJob.salaryCurrency)}</InputAdornment> }}
                       error={!!editJobErrors.salaryMin}
-                      helperText={editJobErrors.salaryMin ? "Min salary is required and must be valid" : ""}
+                      helperText={editJobErrors.salaryMin ? "Valid minimum salary" : ""}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
-                      label="Max Salary (Annual) — optional"
+                      label="Maximum Salary (Annual) - optional"
                       value={editingJob.salaryMax != null && editingJob.salaryMax !== '' ? String(editingJob.salaryMax) : ''}
-                      onChange={(e) => { setEditingJob({ ...editingJob, salaryMax: e.target.value }); setEditJobErrors({ ...editJobErrors, salaryMax: false }); }}
-                      placeholder="e.g., 120000"
+                      onChange={(e) => { setEditingJob({ ...editingJob, salaryMax: e.target.value }); setEditJobErrors({ ...editJobErrors, salaryMin: false, salaryMax: false }); }}
+                      placeholder="e.g., 1200000"
                       type="number"
                       InputLabelProps={{ shrink: true }}
-                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">{getCurrencySymbol(editingJob.salaryCurrency)}</InputAdornment> }}
                       error={!!editJobErrors.salaryMax}
-                      helperText={editJobErrors.salaryMax ? "Valid max salary" : "Optional"}
+                      helperText={editJobErrors.salaryMax ? "Valid maximum salary" : ""}
                     />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5, px: 2, py: 1.5, minHeight: 112 }}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={!!editingJob.collectApplicantLocation}
+                            onChange={(e) => setEditingJob({ ...editingJob, collectApplicantLocation: e.target.checked })}
+                            color="primary"
+                          />
+                        }
+                        label="Collect applicant location"
+                      />
+                      <FormHelperText sx={{ display: 'block', mt: 0.5 }}>
+                        Location is captured only at submission and shown to you as read-only.
+                      </FormHelperText>
+                    </Box>
                   </Grid>
                   <Grid item xs={12}>
                     <TextField
@@ -2364,8 +2561,8 @@ const ALL_SKILLS = [
                       value={editingJob.description || ''}
                       onChange={(e) => { setEditingJob({ ...editingJob, description: e.target.value }); setEditJobErrors({ ...editJobErrors, description: false }); }}
                       multiline
-                      rows={4}
-                      placeholder="Describe the role, responsibilities, and what you're looking for..."
+                      rows={3}
+                      placeholder="Describe the role and what the candidate will be doing..."
                       InputLabelProps={{ shrink: true }}
                       InputProps={{ inputProps: { 'data-allow-paste': 'true' } as any }}
                       required
@@ -2381,7 +2578,7 @@ const ALL_SKILLS = [
                       onChange={(e) => { setEditingJob({ ...editingJob, responsibilities: e.target.value }); setEditJobErrors({ ...editJobErrors, responsibilities: false }); }}
                       multiline
                       rows={3}
-                      placeholder="List key responsibilities (one per line)"
+                      placeholder="List the main responsibilities (one per line)..."
                       InputLabelProps={{ shrink: true }}
                       InputProps={{ inputProps: { 'data-allow-paste': 'true' } as any }}
                       required
@@ -2495,7 +2692,7 @@ const ALL_SKILLS = [
               {editTab === 2 && (
                 <Box>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Add questions that applicants must answer when applying.
+                    Add only the questions you want. Applicants will see these exact questions while applying, including whether each one is required or optional.
                   </Typography>
                   
                   {/* Existing questions */}
@@ -2509,12 +2706,10 @@ const ALL_SKILLS = [
                               <Typography variant="body1" fontWeight={500}>
                                 {index + 1}. {q.question}
                               </Typography>
-                              {q.required && (
-                                <Chip label="Required" size="small" color="error" sx={{ height: 20, fontSize: '0.7rem' }} />
-                              )}
+                              <Chip label={q.required ? 'Required' : 'Optional'} size="small" color={q.required ? 'error' : 'default'} sx={{ height: 20, fontSize: '0.7rem' }} />
                             </Box>
                             <Typography variant="caption" color="text.secondary">
-                              Type: {q.type === 'yesno' ? 'Yes/No' : q.type === 'multiple' ? 'Multiple Choice' : q.type === 'number' ? 'Number' : 'Text'}
+                              Type: {getScreeningQuestionTypeLabel(q.type)}
                               {q.options && ` • Options: ${q.options.join(', ')}`}
                             </Typography>
                           </Box>
@@ -2550,7 +2745,9 @@ const ALL_SKILLS = [
                             label="Answer Type"
                             onChange={(e) => setEditQuestionType(e.target.value as any)}
                           >
-                            <MenuItem value="text">Text (Open Answer)</MenuItem>
+                            <MenuItem value="text">Normal Question</MenuItem>
+                            <MenuItem value="code">Coding Question</MenuItem>
+                            <MenuItem value="verbal">Verbal Question</MenuItem>
                             <MenuItem value="yesno">Yes / No</MenuItem>
                             <MenuItem value="number">Number</MenuItem>
                             <MenuItem value="multiple">Multiple Choice</MenuItem>
@@ -2700,9 +2897,10 @@ const ALL_SKILLS = [
                 <TableRow sx={{ bgcolor: alpha('#0d47a1', 0.02) }}>
                   <TableCell sx={{ fontWeight: 600 }}>Candidate</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Experience</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Skills</TableCell>
                   <TableCell sx={{ fontWeight: 600, textAlign: 'center' }}>Match Score</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Location at apply</TableCell>
+                  {selectedJob?.collectApplicantLocation && (
+                    <TableCell sx={{ fontWeight: 600 }}>Location at apply</TableCell>
+                  )}
                   <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
                   <TableCell sx={{ fontWeight: 600, textAlign: 'center' }}>Actions</TableCell>
                 </TableRow>
@@ -2724,18 +2922,8 @@ const ALL_SKILLS = [
                         </Box>
                       </Box>
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ display: selectedJob?.collectApplicantLocation ? 'table-cell' : 'none' }}>
                       <Typography variant="body2">{applicant.experience}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {applicant.skills.slice(0, 3).map((skill) => (
-                          <Chip key={skill} label={skill} size="small" sx={{ fontSize: '0.7rem' }} />
-                        ))}
-                        {applicant.skills.length > 3 && (
-                          <Chip label={`+${applicant.skills.length - 3}`} size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                        )}
-                      </Box>
                     </TableCell>
                     <TableCell align="center">
                       <MatchBadge score={applicant.matchScore}>
@@ -2757,7 +2945,7 @@ const ALL_SKILLS = [
                             </Box>
                           }
                         >
-                          <Chip size="small" label="Shared" color="primary" variant="outlined" sx={{ fontWeight: 600 }} />
+                          <Chip size="small" label={formatLocationAtApply(applicant)} color="primary" variant="outlined" sx={{ fontWeight: 600, maxWidth: 220 }} />
                         </Tooltip>
                       ) : (
                         <Typography variant="caption" color="text.secondary">—</Typography>
@@ -2775,7 +2963,7 @@ const ALL_SKILLS = [
                       />
                     </TableCell>
                     <TableCell align="center">
-                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap', position: 'relative', overflow: 'visible' }}>
                         {isNew(applicant.status) && (
                           <Tooltip title="Proceed to Shortlisted for Screening">
                             <Button
@@ -2792,17 +2980,19 @@ const ALL_SKILLS = [
                         )}
                         {!isRejected(applicant.status) && applicant.status?.toLowerCase() !== 'hired' && (
                           <Tooltip title="Reject applicant">
-                            <IconButton
+                            <Button
                               size="small"
-                              sx={{ color: 'error.main' }}
+                              variant="outlined"
+                              color="error"
                               onClick={() => {
                                 if (window.confirm(`Reject ${applicant.name}? They will be moved to Rejected and notified by email.`)) {
                                   updateApplicantStage(applicant.id, 'rejected', applicant);
                                 }
                               }}
+                              sx={{ minWidth: 0, px: 1 }}
                             >
-                              <CancelIcon fontSize="small" />
-                            </IconButton>
+                              Reject
+                            </Button>
                           </Tooltip>
                         )}
                         <Tooltip title="View Profile">
@@ -2811,82 +3001,132 @@ const ALL_SKILLS = [
                             sx={{ color: '#0d47a1' }}
                             onClick={() => {
                               const candidateId = applicant.applicantId || applicant.id;
-                              navigate(`/techie/ats/candidate/${candidateId}`);
+                              navigate(`/techie/ats/candidate/${candidateId}`, {
+                                state: {
+                                  pipelineCandidate: {
+                                    matchScore: applicant.matchScore,
+                                    stage: applicant.status,
+                                    time: applicant.appliedDate,
+                                    jobId: selectedJob?.id || '',
+                                    jobTitle: selectedJob?.title || '',
+                                    role: selectedJob?.title || applicant.title || '',
+                                    applicationId: applicant.id,
+                                  },
+                                },
+                              });
                             }}
                           >
                             <VisibilityIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title={scheduledInterviewApplicationIds.has(String(applicant.id)) ? 'Reschedule' : 'Schedule Interview'}>
-                          <IconButton 
-                            size="small" 
-                            sx={{ color: '#5856D6' }}
-                            onClick={() => {
-                              setScheduleModalContext({
-                                applicationId: applicant.id,
-                                candidateId: applicant.applicantId || applicant.id,
-                                candidateName: applicant.name,
-                                candidateEmail: applicant.email || '',
-                                jobId: selectedJob?.id || '',
-                                jobTitle: selectedJob?.title || '',
-                              });
-                              setScheduleModalOpen(true);
-                            }}
-                          >
-                            <ScheduleIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Email">
-                          <IconButton 
-                            size="small" 
-                            sx={{ color: '#34C759' }}
-                            onClick={() => {
-                              if (applicant.email) {
-                                window.open(`mailto:${applicant.email}?subject=Regarding Your Application for ${selectedJob?.title || 'Position'}`, '_blank');
-                              } else {
-                                setSnackbar({ open: true, message: 'No email available for this candidate', severity: 'warning' });
-                              }
-                            }}
-                          >
-                            <EmailIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Text (SMS)">
+                        <Tooltip title="More actions">
                           <IconButton
                             size="small"
                             sx={{ color: '#0d47a1' }}
-                            onClick={() => {
-                              const phone = (applicant.phone || '').trim().replace(/\D/g, '');
-                              if (phone) {
-                                window.open(`sms:${phone}`, '_blank');
-                              } else {
-                                setSnackbar({ open: true, message: 'No phone number available for this candidate', severity: 'warning' });
-                              }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openApplicantActionsMenu(event, applicant);
                             }}
                           >
-                            <SmsIcon fontSize="small" />
+                            <MoreVertIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Share vtCalendar link">
-                          <IconButton
-                            size="small"
-                            sx={{ color: '#00897b' }}
-                            onClick={async () => {
-                              if (hrCalendarLink) {
-                                try {
-                                  await navigator.clipboard.writeText(hrCalendarLink);
-                                  setSnackbar({ open: true, message: 'Calendar link copied to clipboard. Send it to the candidate so they can book a slot.', severity: 'success' });
-                                } catch {
-                                  setSnackbar({ open: true, message: 'Could not copy to clipboard', severity: 'error' });
-                                }
-                              } else {
-                                setSnackbar({ open: true, message: 'Set up your vtCalendar booking link in Calendar & Scheduling first.', severity: 'info' });
-                              }
+                        {activeApplicantMenu?.id === applicant.id && (
+                          <Paper
+                            elevation={8}
+                            sx={{
+                              position: 'absolute',
+                              top: 'calc(100% + 8px)',
+                              right: 0,
+                              display: 'flex',
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 0.5,
+                              p: 0.75,
+                              zIndex: 20,
+                              borderRadius: 2,
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              overflow: 'visible',
+                              bgcolor: '#fff',
                             }}
                           >
-                            <LinkIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                            <Tooltip title={scheduledInterviewApplicationIds.has(String(applicant.id)) ? 'Reschedule Interview' : 'Schedule Interview'}>
+                              <IconButton
+                                size="small"
+                                sx={{ color: '#5856D6' }}
+                                onClick={() => {
+                                  setScheduleModalContext({
+                                    applicationId: applicant.id,
+                                    candidateId: applicant.applicantId || applicant.id,
+                                    candidateName: applicant.name,
+                                    candidateEmail: applicant.email || '',
+                                    jobId: selectedJob?.id || '',
+                                    jobTitle: selectedJob?.title || '',
+                                  });
+                                  setScheduleModalOpen(true);
+                                  closeApplicantActionsMenu();
+                                }}
+                              >
+                                <ScheduleIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Email">
+                              <IconButton
+                                size="small"
+                                sx={{ color: '#34C759' }}
+                                onClick={() => {
+                                  if (applicant.email) {
+                                    window.open(`mailto:${applicant.email}?subject=Regarding Your Application for ${selectedJob?.title || 'Position'}`, '_blank');
+                                  } else {
+                                    setSnackbar({ open: true, message: 'No email available for this candidate', severity: 'warning' });
+                                  }
+                                  closeApplicantActionsMenu();
+                                }}
+                              >
+                                <EmailIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Text (SMS)">
+                              <IconButton
+                                size="small"
+                                sx={{ color: '#0d47a1' }}
+                                onClick={() => {
+                                  const phone = (applicant.phone || '').trim().replace(/\D/g, '');
+                                  if (phone) {
+                                    window.open(`sms:${phone}`, '_blank');
+                                  } else {
+                                    setSnackbar({ open: true, message: 'No phone number available for this candidate', severity: 'warning' });
+                                  }
+                                  closeApplicantActionsMenu();
+                                }}
+                              >
+                                <SmsIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Share vtCalendar link">
+                              <IconButton
+                                size="small"
+                                sx={{ color: '#00897b' }}
+                                onClick={async () => {
+                                  if (hrCalendarLink) {
+                                    try {
+                                      await navigator.clipboard.writeText(hrCalendarLink);
+                                      setSnackbar({ open: true, message: 'Calendar link copied to clipboard. Send it to the candidate so they can book a slot.', severity: 'success' });
+                                    } catch {
+                                      setSnackbar({ open: true, message: 'Could not copy to clipboard', severity: 'error' });
+                                    }
+                                  } else {
+                                    setSnackbar({ open: true, message: 'Set up your vtCalendar booking link in Calendar & Scheduling first.', severity: 'info' });
+                                  }
+                                  closeApplicantActionsMenu();
+                                }}
+                              >
+                                <LinkIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Paper>
+                        )}
                       </Box>
                     </TableCell>
                   </ApplicantRow>

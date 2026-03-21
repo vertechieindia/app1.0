@@ -326,6 +326,9 @@ class AdminUserCreate(BaseModel):
     # Admin roles - frontend sends specific admin roles like ["hm_admin", "company_admin"]
     admin_roles: Optional[List[str]] = None
 
+    # Option 1: assign staff admin from Access Roles (UserRole id); when set, admin_roles is derived on server
+    role_id: Optional[UUID] = None
+
     @field_validator("admin_roles")
     @classmethod
     def validate_single_admin_role(cls, value: Optional[List[str]]) -> Optional[List[str]]:

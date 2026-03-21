@@ -241,6 +241,7 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
       : (typeof backendJob.company_rating === 'number' ? backendJob.company_rating : undefined),
     salary_min: backendJob.salary_min,
     salary_max: backendJob.salary_max,
+    salary_currency: backendJob.salary_currency || backendJob.salaryCurrency || 'USD',
     is_remote: backendJob.is_remote,
     views_count: backendJob.views_count || 0,
   };
@@ -249,13 +250,15 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
 // Helper: Map frontend job format to backend format
 const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
   const explicitScreeningQuestions = frontendJob.screeningQuestions;
-  const parseTypeFromDescription = (description?: string): 'text' | 'yesno' | 'multiple' | 'number' => {
+  const parseTypeFromDescription = (description?: string): 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal' => {
     const raw = String(description || '').toLowerCase();
     const match = raw.match(/type:\s*([a-z_]+)/);
     const type = (match?.[1] || '').replace('_', '');
     if (type === 'yesno') return 'yesno';
     if (type === 'multiple' || type === 'multiplechoice' || type === 'mcq') return 'multiple';
     if (type === 'number' || type === 'numeric') return 'number';
+    if (type === 'code' || type === 'coding') return 'code';
+    if (type === 'verbal') return 'verbal';
     return 'text';
   };
 
@@ -300,6 +303,7 @@ const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
     is_remote: frontendJob.location?.toLowerCase().includes('remote') || false,
     salary_min: frontendJob.salaryMin || null,
     salary_max: frontendJob.salaryMax || null,
+    salary_currency: frontendJob.salaryCurrency || 'USD',
     collect_applicant_location: Boolean(frontendJob.collect_applicant_location ?? frontendJob.collectApplicantLocation),
     hiring_countries: frontendJob.hiringCountries ?? [],
     work_authorizations: frontendJob.workAuthorizations ?? [],

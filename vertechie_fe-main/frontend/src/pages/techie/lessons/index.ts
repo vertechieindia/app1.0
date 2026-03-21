@@ -1,1 +1,1 @@
-export { getLessonContent } from './getLessonContent';
+export { getLessonContentAsync, type LessonContentPayload } from './getLessonContent';

@@ -4,26 +4,24 @@ VerTechie FastAPI Application Entry Point.
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+import time
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
-import logging
-import time
 
 from app.core.config import settings
+from app.core.logger import setup_logging, get_logger
 from app.api.v1 import api_router
 from app.api.v_auth import router as v_auth_router
 from app.db.session import init_db, close_db
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO if not settings.DEBUG else logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+# Initialize logging: file (logs/app.log) + console, timestamp + level + message
+setup_logging(level="DEBUG" if settings.DEBUG else "INFO")
+logger = get_logger()
 
 
 @asynccontextmanager
@@ -68,13 +66,20 @@ app.add_middleware(
 )
 
 
-# Request timing middleware
+# Request logging + timing middleware (method, URL, status code, response time)
 @app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    start_time = time.time()
+async def log_requests(request: Request, call_next):
+    start_time = time.perf_counter()
     response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
+    process_time_ms = (time.perf_counter() - start_time) * 1000
+    logger.info(
+        "API request | %s %s | %s | %.2f ms",
+        request.method,
+        request.url.path,
+        response.status_code,
+        process_time_ms,
+    )
+    response.headers["X-Process-Time"] = str(round(process_time_ms / 1000, 4))
     return response
 
 
@@ -102,7 +107,7 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Handle validation errors."""
+    """Handle validation errors and log with full detail."""
     errors = []
     for error in exc.errors():
         errors.append({
@@ -110,7 +115,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "message": error["msg"],
             "type": error["type"]
         })
-    
+    logger.error(
+        "Validation error | %s %s | errors=%s",
+        request.method,
+        request.url.path,
+        errors,
+        exc_info=True,
+    )
     resp = JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
@@ -123,9 +134,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """Handle unexpected errors."""
-    logger.error(f"Unexpected error: {exc}", exc_info=True)
-    
+    """Handle unexpected errors with full traceback."""
+    logger.exception(
+        "Unhandled exception | %s %s | %s",
+        request.method,
+        request.url.path,
+        exc,
+    )
     resp = JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
@@ -216,5 +231,6 @@ if __name__ == "__main__":
         port=settings.PORT,
         reload=settings.DEBUG,
         workers=1 if settings.DEBUG else settings.WORKERS,
+        access_log=False,  # Use app middleware for request logging (single format)
     )
 
