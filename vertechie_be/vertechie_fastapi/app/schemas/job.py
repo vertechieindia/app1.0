@@ -45,8 +45,10 @@ class JobCreate(BaseModel):
     coding_questions: List[dict] = []
     screening_questions: List[dict] = []
     
+    department: Optional[str] = Field(None, max_length=200)
     # Hiring countries: job visible only to techies from these countries (e.g. ["US", "IN", "GB", "CA"])
     hiring_countries: List[str] = []
+    hiring_states: List[str] = []
     # When USA in hiring_countries: accepted work authorizations for this role
     work_authorizations: List[str] = []
     # Is this role open for sponsorship?
@@ -78,7 +80,9 @@ class JobUpdate(BaseModel):
     is_featured: Optional[bool] = None
     coding_questions: Optional[List[dict]] = None
     screening_questions: Optional[List[dict]] = None
+    department: Optional[str] = Field(None, max_length=200)
     hiring_countries: Optional[List[str]] = None
+    hiring_states: Optional[List[str]] = None
     work_authorizations: Optional[List[str]] = None
     open_for_sponsorship: Optional[bool] = None
     collect_applicant_location: Optional[bool] = None
@@ -112,7 +116,9 @@ class JobResponse(BaseModel):
     benefits: List[str] = []
     coding_questions: List[dict] = []
     screening_questions: List[dict] = []
+    department: Optional[str] = None
     hiring_countries: List[str] = []
+    hiring_states: List[str] = []
     work_authorizations: List[str] = []
     open_for_sponsorship: Optional[bool] = None
     collect_applicant_location: bool = False
