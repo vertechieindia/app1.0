@@ -106,8 +106,12 @@ class Job(Base, UUIDMixin, TimestampMixin):
     # Visibility
     is_internal = Column(Boolean, default=False)  # Company internal only
     requires_cover_letter = Column(Boolean, default=False)
+    # Org / role (ATS UI)
+    department = Column(String(200), nullable=True)
     # Hiring: job visible only to techies from these countries (e.g. ["US", "IN"])
     hiring_countries = Column(JSON, default=list)
+    # When USA in hiring_countries: US state codes for geo targeting (e.g. ["CA", "NY"])
+    hiring_states = Column(JSON, default=list)
     # When USA in hiring_countries: accepted work authorizations (e.g. ["H1B", "Green Card"])
     work_authorizations = Column(JSON, default=list)
     # Is this role open for sponsorship? (Yes/No)
