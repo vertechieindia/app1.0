@@ -39,14 +39,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # CORS
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "https://vertechie.com",
-        "https://www.vertechie.com"
-    ]
+    CORS_ORIGINS: List[str] = ["*"]
 
     # Frontend base URL (for emails, meeting links, redirects). Must set FRONTEND_URL in .env in production (e.g. https://vertechie.com) so forgot-password and other email links use the correct domain.
     FRONTEND_URL: str = "http://localhost:5173"

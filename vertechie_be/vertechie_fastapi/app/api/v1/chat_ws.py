@@ -4,8 +4,11 @@ WebSocket endpoints for real-time chat messaging.
 
 import json
 import logging
+from datetime import datetime
 from typing import Dict, Set
 from uuid import UUID
+
+from sqlalchemy import update
 
 from fastapi import WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -156,8 +159,19 @@ async def websocket_endpoint(
             message_type = data.get("type")
             
             if message_type == "ping":
-                # Heartbeat
+                # Heartbeat + presence
                 await websocket.send_json({"type": "pong"})
+                try:
+                    from app.db.session import AsyncSessionLocal
+                    async with AsyncSessionLocal() as sdb:
+                        await sdb.execute(
+                            update(User)
+                            .where(User.id == current_user.id)
+                            .values(last_seen_at=datetime.utcnow())
+                        )
+                        await sdb.commit()
+                except Exception as ex:
+                    logger.warning("Could not update last_seen_at on ping: %s", ex)
             
             elif message_type == "typing_start":
                 # Broadcast typing indicator
@@ -251,6 +265,27 @@ async def broadcast_message_edit(message: Message, conversation_id: UUID):
     }
     
     await manager.broadcast_to_conversation(message_data, conversation_id)
+
+
+async def broadcast_poll_vote_update(
+    message_id: UUID,
+    conversation_id: UUID,
+    vote_counts: dict,
+    total_votes: int,
+    voter_user_id: UUID,
+    option_index: int,
+) -> None:
+    """Notify clients that poll vote counts changed (all members see new totals)."""
+    payload = {
+        "type": "poll_vote_updated",
+        "message_id": str(message_id),
+        "conversation_id": str(conversation_id),
+        "vote_counts": {str(k): v for k, v in vote_counts.items()},
+        "total_votes": total_votes,
+        "voter_user_id": str(voter_user_id),
+        "option_index": option_index,
+    }
+    await manager.broadcast_to_conversation(payload, conversation_id)
 
 
 async def broadcast_message_delete(message_id: UUID, conversation_id: UUID, for_everyone: bool):

@@ -2,14 +2,15 @@
 Chat and Messaging API endpoints.
 """
 
+import copy
 from typing import Any, List, Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from sqlalchemy.exc import IntegrityError
@@ -33,21 +34,83 @@ def _ext(filename: str) -> str:
     return ".bin"
 
 from app.db.session import get_db
-from app.models.chat import Conversation, Message, ChatMember, ConversationType, MessageType, MemberRole
+from app.models.chat import Conversation, Message, ChatMember, ConversationType, MessageType, MemberRole, ChatPollVote
 from app.models.user import User
 from app.models.network import Connection, ConnectionStatus
 from app.schemas.chat import (
     ConversationCreate, ConversationResponse,
     MessageCreate, MessageResponse,
-    ChatMemberResponse, MessageReaction, MessageEdit, ChatUserCandidateResponse
+    ChatMemberResponse, MessageReaction, MessageEdit, ChatUserCandidateResponse,
 )
 from app.core.security import get_current_user
-from app.api.v1.chat_ws import broadcast_new_message, broadcast_message_edit, broadcast_message_delete
+from app.api.v1.chat_ws import broadcast_new_message, broadcast_message_edit, broadcast_message_delete, broadcast_poll_vote_update
 
 router = APIRouter()
 
+# Presence: user is "online" if last_seen_at within this window
+PRESENCE_ONLINE_WINDOW = timedelta(minutes=5)
+
+
+async def _aggregate_chat_poll_data(
+    db: AsyncSession,
+    message_id: UUID,
+    poll_data: Optional[dict],
+    current_user_id: UUID,
+) -> Optional[dict]:
+    """Merge vote_counts, total_votes, user_vote from chat_poll_votes into poll_data."""
+    if not poll_data or not isinstance(poll_data, dict):
+        return poll_data
+    pd = copy.deepcopy(poll_data)
+    result = await db.execute(
+        select(ChatPollVote.option_index, func.count(ChatPollVote.id))
+        .where(ChatPollVote.message_id == message_id)
+        .group_by(ChatPollVote.option_index)
+    )
+    vote_counts = {int(r[0]): int(r[1]) for r in result.all()}
+    total_votes = sum(vote_counts.values())
+    uv_row = await db.execute(
+        select(ChatPollVote.option_index).where(
+            ChatPollVote.message_id == message_id,
+            ChatPollVote.user_id == current_user_id,
+        )
+    )
+    user_vote = uv_row.scalar_one_or_none()
+    pd["vote_counts"] = vote_counts
+    pd["total_votes"] = total_votes
+    pd["user_vote"] = int(user_vote) if user_vote is not None else None
+    return pd
+
+
+async def _chat_poll_vote_counts(db: AsyncSession, message_id: UUID) -> dict:
+    result = await db.execute(
+        select(ChatPollVote.option_index, func.count(ChatPollVote.id))
+        .where(ChatPollVote.message_id == message_id)
+        .group_by(ChatPollVote.option_index)
+    )
+    return {int(r[0]): int(r[1]) for r in result.all()}
+
+
+def _is_user_online(last_seen_at: Optional[datetime]) -> bool:
+    if last_seen_at is None:
+        return False
+    now = datetime.utcnow()
+    ls = last_seen_at
+    if getattr(ls, "tzinfo", None) is not None:
+        ls = ls.replace(tzinfo=None)
+    return (now - ls) <= PRESENCE_ONLINE_WINDOW
+
 
 # ============= Conversations =============
+
+@router.post("/presence", status_code=status.HTTP_204_NO_CONTENT)
+async def update_chat_presence(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Heartbeat while user is active (e.g. chat page open). Updates last_seen_at."""
+    current_user.last_seen_at = datetime.utcnow()
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.get("/users/available", response_model=List[ChatUserCandidateResponse])
 async def list_available_chat_users(
@@ -165,6 +228,7 @@ async def list_conversations(
         )
         members = []
         for cm, u in member_rows:
+            online = _is_user_online(getattr(u, "last_seen_at", None))
             members.append({
                 "id": u.id,
                 "first_name": getattr(u, 'first_name', None),
@@ -175,6 +239,7 @@ async def list_conversations(
                 "is_active": cm.is_active,
                 "role": cm.role.name if hasattr(cm.role, 'name') else str(cm.role),
                 "unread_count": cm.unread_count or 0,
+                "is_online": online,
             })
 
         # Determine display name for direct conversations if name is not set
@@ -185,6 +250,15 @@ async def list_conversations(
                 if m['id'] != current_user.id:
                     display_name = m.get('name') or m.get('username') or m.get('email')
                     break
+
+        other_online = False
+        if conv_type == 'direct':
+            for m in members:
+                if m["id"] != current_user.id:
+                    other_online = bool(m.get("is_online"))
+                    break
+        else:
+            other_online = any(bool(m.get("is_online")) for m in members if m["id"] != current_user.id)
 
         conv_dict = {
             "id": conv.id,
@@ -201,6 +275,7 @@ async def list_conversations(
             "created_at": conv.created_at,
             "members": members,
             "is_group": conv_type in ('group', 'channel'),
+            "is_online": other_online,
         }
         conversations_with_unread.append(conv_dict)
 
@@ -437,7 +512,15 @@ async def list_messages(
     
     await db.commit()
     
-    return messages
+    enriched: List[MessageResponse] = []
+    for m in messages:
+        if m.message_type == MessageType.POLL and m.poll_data:
+            pd = await _aggregate_chat_poll_data(db, m.id, m.poll_data, current_user.id)
+            mr = MessageResponse.model_validate(m)
+            enriched.append(mr.model_copy(update={"poll_data": pd}))
+        else:
+            enriched.append(MessageResponse.model_validate(m))
+    return enriched
 
 
 @router.post("/conversations/{conv_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
@@ -641,6 +724,112 @@ async def delete_message(
     except Exception as e:
         logger.error(f"Error broadcasting message delete via WebSocket: {e}")
         # Don't fail the request if WebSocket broadcast fails
+
+
+@router.post("/messages/{message_id}/vote")
+async def vote_on_chat_poll(
+    message_id: UUID,
+    option_index: int = Query(..., ge=0, description="0-based poll option index"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Vote on a chat poll (one vote per user; changing option updates the vote)."""
+    result = await db.execute(
+        select(Message).where(
+            Message.id == message_id,
+            Message.is_deleted == False,  # noqa: E712
+        )
+    )
+    message = result.scalar_one_or_none()
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found",
+        )
+    if message.message_type != MessageType.POLL:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Message is not a poll",
+        )
+    if not message.poll_data or not isinstance(message.poll_data, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid poll data",
+        )
+    options = message.poll_data.get("options") or []
+    if not isinstance(options, list) or option_index >= len(options):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid option index. Poll has {len(options)} options.",
+        )
+
+    cm_result = await db.execute(
+        select(ChatMember).where(
+            ChatMember.conversation_id == message.conversation_id,
+            ChatMember.user_id == current_user.id,
+            ChatMember.is_active == True,  # noqa: E712
+        )
+    )
+    if not cm_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a member of this conversation",
+        )
+
+    result = await db.execute(
+        select(ChatPollVote).where(
+            ChatPollVote.message_id == message_id,
+            ChatPollVote.user_id == current_user.id,
+        )
+    )
+    existing_vote = result.scalar_one_or_none()
+
+    if existing_vote and existing_vote.option_index == option_index:
+        vote_counts = await _chat_poll_vote_counts(db, message_id)
+        total_votes = sum(vote_counts.values())
+        return {
+            "message": "unchanged",
+            "vote_counts": vote_counts,
+            "total_votes": total_votes,
+            "user_vote": option_index,
+        }
+
+    if existing_vote:
+        existing_vote.option_index = option_index
+        msg = "Vote updated"
+    else:
+        db.add(
+            ChatPollVote(
+                message_id=message_id,
+                user_id=current_user.id,
+                option_index=option_index,
+            )
+        )
+        msg = "Vote recorded"
+
+    await db.commit()
+
+    vote_counts = await _chat_poll_vote_counts(db, message_id)
+    total_votes = sum(vote_counts.values())
+
+    try:
+        await broadcast_poll_vote_update(
+            message_id,
+            message.conversation_id,
+            vote_counts,
+            total_votes,
+            current_user.id,
+            option_index,
+        )
+    except Exception as e:
+        logger.error(f"Error broadcasting poll vote via WebSocket: {e}")
+
+    return {
+        "message": msg,
+        "vote_counts": vote_counts,
+        "total_votes": total_votes,
+        "user_vote": option_index,
+    }
 
 
 @router.post("/messages/{message_id}/react")

@@ -14,6 +14,11 @@ import { getApiUrl, API_ENDPOINTS } from '../../config/api';
 import { fetchWithAuth } from '../../utils/apiInterceptor';
 import { api } from '../../services/apiClient';
 import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  fetchUserRelationshipStates,
+  getConnectionErrorKind,
+  type ConnectionButtonState,
+} from '../../utils/networkConnectionUi';
 
 // ============================================
 // STYLED COMPONENTS
@@ -93,7 +98,8 @@ const MyNetwork: React.FC = () => {
   const [findSearched, setFindSearched] = useState(false);
   const [hasMoreFindPeople, setHasMoreFindPeople] = useState(true);
   const [loadingMoreFindPeople, setLoadingMoreFindPeople] = useState(false);
-  const [sendingRequestId, setSendingRequestId] = useState<string | null>(null);
+  const [connectionButtonState, setConnectionButtonState] = useState<Record<string, ConnectionButtonState>>({});
+  const connectInFlightRef = useRef<Set<string>>(new Set());
   const [stats, setStats] = useState({
     connections: 0,
     followers: 0,
@@ -102,7 +108,7 @@ const MyNetwork: React.FC = () => {
     group_memberships: 0,
     profile_views: 0,
   });
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'success' });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -282,6 +288,30 @@ const MyNetwork: React.FC = () => {
     fetchConnections();
   }, [fetchStats, fetchConnections]);
 
+  const refreshRelationshipStates = useCallback(async () => {
+    try {
+      const raw = localStorage.getItem('userData');
+      if (!raw) return;
+      const meId = String(JSON.parse(raw).id || '');
+      if (!meId) return;
+      const map = await fetchUserRelationshipStates(meId);
+      setConnectionButtonState((prev) => {
+        const next = { ...prev };
+        for (const [id, rel] of Object.entries(map)) {
+          if (next[id] === 'loading') continue;
+          next[id] = rel;
+        }
+        return next;
+      });
+    } catch (e) {
+      console.error('MyNetwork: relationship states', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshRelationshipStates();
+  }, [refreshRelationshipStates]);
+
   useEffect(() => {
     if (location.hash === '#pending-requests' && pendingSectionRef.current) {
       pendingSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -313,6 +343,7 @@ const MyNetwork: React.FC = () => {
             pending_requests: Math.max(0, prev.pending_requests - 1),
           }));
           fetchStats();
+          refreshRelationshipStates();
           setSnackbar({ open: true, message: `Connected with ${user.name}!`, severity: 'success' });
         } else {
           setSnackbar({ open: true, message: 'Failed to accept request', severity: 'error' });
@@ -349,21 +380,43 @@ const MyNetwork: React.FC = () => {
     }
   };
 
-  const handleConnectFromFind = (userId: string) => {
-    setSendingRequestId(userId);
-    api.post(API_ENDPOINTS.NETWORK.SEND_REQUEST, {
-      receiver_id: userId,
-      message: "Hi! I'd like to connect with you on VerTechie.",
-    })
-      .then(() => {
-        setFindResults(prev => prev.filter(p => p.id !== userId));
-        setSnackbar({ open: true, message: 'Connection request sent', severity: 'success' });
-        fetchStats();
-      })
-      .catch((error: any) => {
-        setSnackbar({ open: true, message: error?.message || 'Failed to send connection request', severity: 'error' });
-      })
-      .finally(() => setSendingRequestId(null));
+  const handleConnectFromFind = async (userId: string) => {
+    const id = String(userId);
+    if (connectInFlightRef.current.has(id)) return;
+
+    const current = connectionButtonState[id] ?? 'connect';
+    if (current === 'pending' || current === 'connected') {
+      if (current === 'pending') {
+        setSnackbar({ open: true, message: 'Connection request already pending', severity: 'info' });
+      }
+      return;
+    }
+    if (current === 'loading') return;
+
+    connectInFlightRef.current.add(id);
+    setConnectionButtonState((s) => ({ ...s, [id]: 'loading' }));
+
+    try {
+      await api.post(API_ENDPOINTS.NETWORK.SEND_REQUEST, {
+        receiver_id: userId,
+        message: "Hi! I'd like to connect with you on VerTechie.",
+      });
+      setConnectionButtonState((s) => ({ ...s, [id]: 'pending' }));
+      fetchStats();
+    } catch (error: unknown) {
+      const kind = getConnectionErrorKind(error);
+      if (kind === 'already_pending') {
+        setConnectionButtonState((s) => ({ ...s, [id]: 'pending' }));
+        setSnackbar({ open: true, message: 'Connection request already pending', severity: 'info' });
+      } else if (kind === 'already_connected') {
+        setConnectionButtonState((s) => ({ ...s, [id]: 'connected' }));
+      } else {
+        setConnectionButtonState((s) => ({ ...s, [id]: 'connect' }));
+        setSnackbar({ open: true, message: 'Failed to send connection request', severity: 'error' });
+      }
+    } finally {
+      connectInFlightRef.current.delete(id);
+    }
   };
 
   // Filter connections based on search
@@ -558,7 +611,12 @@ const MyNetwork: React.FC = () => {
           {/* 2 profiles per row */}
           {!findLoading && findResults.length > 0 && (
             <Grid container spacing={2}>
-              {findResults.map((person) => (
+              {findResults.map((person) => {
+                const pid = String(person.id);
+                const st = connectionButtonState[pid] ?? 'connect';
+                const btnLabel =
+                  st === 'loading' ? 'Sending...' : st === 'pending' ? 'Pending' : st === 'connected' ? 'Connected' : 'Connect';
+                return (
                 <Grid item xs={12} sm={6} key={person.id}>
                   <ConnectionCard>
                     <Avatar
@@ -588,18 +646,26 @@ const MyNetwork: React.FC = () => {
                       )}
                     </Box>
                     <Button
-                      variant="outlined"
+                      variant={st === 'connected' ? 'outlined' : 'contained'}
+                      color={st === 'connected' ? 'success' : 'primary'}
                       size="small"
-                      sx={{ borderRadius: 2 }}
-                      disabled={sendingRequestId === person.id}
+                      sx={{ borderRadius: 2, minWidth: 108, textTransform: 'none', fontWeight: 600 }}
+                      disabled={st === 'loading' || st === 'pending' || st === 'connected'}
                       onClick={() => handleConnectFromFind(person.id)}
-                      startIcon={sendingRequestId === person.id ? <CircularProgress size={14} color="inherit" /> : <PersonAdd />}
+                      startIcon={
+                        st === 'loading' ? (
+                          <CircularProgress size={14} color="inherit" />
+                        ) : st === 'connect' ? (
+                          <PersonAdd />
+                        ) : undefined
+                      }
                     >
-                      {sendingRequestId === person.id ? 'Sending...' : 'Connect'}
+                      {btnLabel}
                     </Button>
                   </ConnectionCard>
                 </Grid>
-              ))}
+                );
+              })}
             </Grid>
           )}
 

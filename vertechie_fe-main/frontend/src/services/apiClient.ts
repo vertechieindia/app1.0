@@ -125,9 +125,22 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // Handle other errors
-    const errorMessage = error.response?.data?.error || error.message || 'An error occurred';
-    return Promise.reject(new Error(errorMessage));
+    // Handle other errors (FastAPI uses `detail` string or validation array)
+    const data = error.response?.data as { detail?: unknown; error?: string } | undefined;
+    let errorMessage = error.message || 'An error occurred';
+    if (data) {
+      if (typeof data.detail === 'string') {
+        errorMessage = data.detail;
+      } else if (Array.isArray(data.detail) && data.detail[0] && typeof data.detail[0] === 'object') {
+        const first = data.detail[0] as { msg?: string };
+        if (first.msg) errorMessage = first.msg;
+      } else if (typeof data.error === 'string') {
+        errorMessage = data.error;
+      }
+    }
+    const err = new Error(errorMessage) as Error & { status?: number };
+    err.status = error.response?.status;
+    return Promise.reject(err);
   }
 );
 

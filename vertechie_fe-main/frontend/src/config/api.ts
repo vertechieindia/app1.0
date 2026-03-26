@@ -257,11 +257,13 @@ export const API_ENDPOINTS = {
     // ============================================
     CHAT: {
         CONVERSATIONS: '/chat/conversations',
+        PRESENCE: '/chat/presence',
         CREATE_CONVERSATION: '/chat/conversations',
         AVAILABLE_USERS: '/chat/users/available',
         MESSAGES: (conversationId: string) => `/chat/conversations/${conversationId}/messages`,
         SEND_MESSAGE: (conversationId: string) => `/chat/conversations/${conversationId}/messages`,
         REACT: (messageId: string) => `/chat/messages/${messageId}/react`,
+        VOTE_POLL: (messageId: string) => `/chat/messages/${messageId}/vote`,
         // Backend expects unread-count under conversations path
         UNREAD_COUNT: '/chat/conversations/unread-count',
         MARK_READ: (conversationId: string) => `/chat/conversations/${conversationId}/mark-read`,

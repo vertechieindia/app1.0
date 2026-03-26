@@ -16,6 +16,9 @@ export interface Conversation {
   last_message_at: string | null;
   last_message_preview: string | null;
   unread_count: number;
+  /** Direct / group: from backend presence (last_seen within 5 min) */
+  is_online?: boolean;
+  members?: Array<Record<string, unknown>>;
 }
 
 export interface Message {
@@ -75,6 +78,13 @@ export const chatService = {
   },
 
   /**
+   * Heartbeat so other users see you as Online in chat (also sent on login).
+   */
+  sendPresence: async (): Promise<void> => {
+    await api.post(API_ENDPOINTS.CHAT.PRESENCE);
+  },
+
+  /**
    * Create a new conversation
    */
   createConversation: async (data: CreateConversationData): Promise<Conversation> => {
@@ -107,6 +117,21 @@ export const chatService = {
    */
   sendMessage: async (conversationId: string, data: SendMessageData): Promise<{ id: string; created_at: string }> => {
     return api.post(API_ENDPOINTS.CHAT.SEND_MESSAGE(conversationId), data);
+  },
+
+  /**
+   * Vote on a chat poll (one vote per user; server moves vote when option changes).
+   */
+  votePollMessage: async (
+    messageId: string,
+    optionIndex: number,
+  ): Promise<{
+    message: string;
+    vote_counts: Record<string, number>;
+    total_votes: number;
+    user_vote: number | null;
+  }> => {
+    return api.post(API_ENDPOINTS.CHAT.VOTE_POLL(messageId), {}, { params: { option_index: optionIndex } });
   },
 
   /**

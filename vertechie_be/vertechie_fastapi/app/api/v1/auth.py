@@ -2,6 +2,8 @@
 Authentication API endpoints.
 """
 
+from __future__ import annotations
+
 import logging
 import json
 from datetime import datetime, timedelta
@@ -333,8 +335,10 @@ async def login(
             detail="User account is blocked"
         )
     
-    # Update last login
-    user.last_login = datetime.utcnow()
+    # Update last login and presence
+    now = datetime.utcnow()
+    user.last_login = now
+    user.last_seen_at = now
     await db.commit()
     
     # Fetch user roles using SQL to avoid lazy loading issues
@@ -425,8 +429,10 @@ async def token_login(
             detail="User account is blocked"
         )
     
-    # Update last login
-    user.last_login = datetime.utcnow()
+    # Update last login and presence
+    now = datetime.utcnow()
+    user.last_login = now
+    user.last_seen_at = now
     await db.commit()
     
     # Create tokens

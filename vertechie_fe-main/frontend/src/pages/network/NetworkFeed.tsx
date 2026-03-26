@@ -540,6 +540,9 @@ const NetworkFeed: React.FC = () => {
   // Vote on poll
   const handleVotePoll = async (postId: string, optionIndex: number, optionText: string) => {
     const previousVote = posts.find((p) => p.id === postId)?.poll_data?.user_vote;
+    if (previousVote !== undefined && previousVote !== null && previousVote === optionIndex) {
+      return;
+    }
     try {
       // Call the vote endpoint with option_index as query parameter
       const response: any = await api.post(
