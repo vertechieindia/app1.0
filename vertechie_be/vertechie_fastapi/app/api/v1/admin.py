@@ -1264,7 +1264,9 @@ class RejectRequest(BaseModel):
 async def _get_profile_finalize_block_reason(db: AsyncSession, user: User) -> Optional[str]:
     """Return a blocking reason when profile cannot be approved/rejected yet."""
     role_result = await db.execute(
-        select(UserRole.role_type).where(UserRole.user_id == user.id)
+        select(UserRole.role_type)
+        .join(user_roles, UserRole.id == user_roles.c.role_id)
+        .where(user_roles.c.user_id == user.id)
     )
     role_values = {
         (getattr(row[0], "value", row[0]) or "").lower()

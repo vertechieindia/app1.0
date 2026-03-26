@@ -10,12 +10,12 @@
  * Stats (Connections, Followers, Following) are loaded from /unified-network/stats.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../services/apiClient';
 import { API_ENDPOINTS } from '../../config/api';
 import {
-  Box, Container, Grid, Typography, Card, CardContent, Avatar, Button, IconButton,
+  Box, Container, Grid, Typography, Card, CardContent, Avatar, Button,
   Tabs, Tab, Paper, List, ListItem, ListItemText, Badge, Divider, Chip,
   CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Snackbar, Alert,
@@ -25,6 +25,11 @@ import {
   People, PersonAdd, Groups, Forum, Event, TrendingUp, Send, Verified,
   GroupAdd,
 } from '@mui/icons-material';
+import {
+  fetchUserRelationshipStates,
+  getConnectionErrorKind,
+  type ConnectionButtonState,
+} from '../../utils/networkConnectionUi';
 
 // ============================================
 // ANIMATIONS
@@ -132,6 +137,9 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [loadingMoreSuggestions, setLoadingMoreSuggestions] = useState(false);
   const [hasMoreSuggestions, setHasMoreSuggestions] = useState(false);
+  /** Per suggested user: Connect / loading / Pending / Connected */
+  const [connectionButtonState, setConnectionButtonState] = useState<Record<string, ConnectionButtonState>>({});
+  const connectInFlightRef = useRef<Set<string>>(new Set());
   const [sidebarError, setSidebarError] = useState<string | null>(null);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmails, setInviteEmails] = useState('');
@@ -287,11 +295,35 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
     }
   }, []);
 
+  const refreshRelationshipStates = useCallback(async () => {
+    try {
+      const raw = localStorage.getItem('userData');
+      if (!raw) return;
+      const meId = String(JSON.parse(raw).id || '');
+      if (!meId) return;
+      const map = await fetchUserRelationshipStates(meId);
+      setConnectionButtonState((prev) => {
+        const next = { ...prev };
+        for (const [id, rel] of Object.entries(map)) {
+          if (next[id] === 'loading') continue;
+          next[id] = rel;
+        }
+        return next;
+      });
+    } catch (e) {
+      console.error('NetworkLayout: relationship states', e);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStats();
     fetchSidebarEvents();
     fetchSuggestions();
   }, [fetchStats, fetchSidebarEvents, fetchSuggestions]);
+
+  useEffect(() => {
+    refreshRelationshipStates();
+  }, [refreshRelationshipStates]);
 
   // Determine active tab based on current route
   const activeTab = tabRoutes.findIndex(route => location.pathname.startsWith(route.path));
@@ -301,18 +333,43 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
     navigate(tabRoutes[newValue].path);
   };
 
-  const handleConnect = (userId: string) => {
-    api.post(API_ENDPOINTS.NETWORK.SEND_REQUEST, {
-      receiver_id: userId,
-      message: "Hi! I'd like to connect with you on VerTechie.",
-    })
-      .then(() => {
-        setSnackbar({ open: true, message: 'Connection request sent', severity: 'success' });
-      })
-      .catch((error: any) => {
-        const msg = error?.message || 'Failed to send connection request';
-        setSnackbar({ open: true, message: msg, severity: 'error' });
+  const handleConnect = async (userId: string) => {
+    const id = String(userId);
+    if (connectInFlightRef.current.has(id)) return;
+
+    const current = connectionButtonState[id] ?? 'connect';
+    if (current === 'pending' || current === 'connected') {
+      if (current === 'pending') {
+        setSnackbar({ open: true, message: 'Connection request already pending', severity: 'info' });
+      }
+      return;
+    }
+    if (current === 'loading') return;
+
+    connectInFlightRef.current.add(id);
+    setConnectionButtonState((s) => ({ ...s, [id]: 'loading' }));
+
+    try {
+      await api.post(API_ENDPOINTS.NETWORK.SEND_REQUEST, {
+        receiver_id: userId,
+        message: "Hi! I'd like to connect with you on VerTechie.",
       });
+      setConnectionButtonState((s) => ({ ...s, [id]: 'pending' }));
+      fetchStats();
+    } catch (error: unknown) {
+      const kind = getConnectionErrorKind(error);
+      if (kind === 'already_pending') {
+        setConnectionButtonState((s) => ({ ...s, [id]: 'pending' }));
+        setSnackbar({ open: true, message: 'Connection request already pending', severity: 'info' });
+      } else if (kind === 'already_connected') {
+        setConnectionButtonState((s) => ({ ...s, [id]: 'connected' }));
+      } else {
+        setConnectionButtonState((s) => ({ ...s, [id]: 'connect' }));
+        setSnackbar({ open: true, message: 'Failed to send connection request', severity: 'error' });
+      }
+    } finally {
+      connectInFlightRef.current.delete(id);
+    }
   };
 
   const handleSendInvites = async () => {
@@ -477,8 +534,13 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                   </Typography>
                 )}
 
-                {!loadingSuggestions && (showAllSuggestions ? suggestions : suggestions.slice(0, SUGGESTIONS_PREVIEW_COUNT)).map(user => (
-                  <Box key={user.id} sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                {!loadingSuggestions && (showAllSuggestions ? suggestions : suggestions.slice(0, SUGGESTIONS_PREVIEW_COUNT)).map(user => {
+                  const uid = String(user.id);
+                  const st = connectionButtonState[uid] ?? 'connect';
+                  const label =
+                    st === 'loading' ? 'Sending...' : st === 'pending' ? 'Pending' : st === 'connected' ? 'Connected' : 'Connect';
+                  return (
+                  <Box key={uid} sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <Avatar sx={{ bgcolor: 'primary.main', mr: 1.5 }}>
                       {user.name.charAt(0)}
                     </Avatar>
@@ -489,11 +551,26 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
                       </Typography>
                       <Typography variant="caption" color="text.secondary" noWrap>{user.title}</Typography>
                     </Box>
-                    <IconButton size="small" color="primary" onClick={() => handleConnect(user.id)}>
-                      <PersonAdd fontSize="small" />
-                    </IconButton>
+                    <Button
+                      size="small"
+                      variant={st === 'connected' ? 'outlined' : 'contained'}
+                      color={st === 'connected' ? 'success' : 'primary'}
+                      disabled={st === 'loading' || st === 'pending' || st === 'connected'}
+                      onClick={() => handleConnect(user.id)}
+                      startIcon={
+                        st === 'loading' ? (
+                          <CircularProgress size={12} color="inherit" />
+                        ) : st === 'connect' ? (
+                          <PersonAdd fontSize="small" />
+                        ) : undefined
+                      }
+                      sx={{ minWidth: 108, flexShrink: 0, textTransform: 'none', fontWeight: 600 }}
+                    >
+                      {label}
+                    </Button>
                   </Box>
-                ))}
+                  );
+                })}
                 {showAllSuggestions && (hasMoreSuggestions || loadingMoreSuggestions) && (
                   <Box sx={{ display: 'flex', justifyContent: 'center', pt: 1 }}>
                     <Button

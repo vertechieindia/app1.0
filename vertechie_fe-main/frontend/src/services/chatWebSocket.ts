@@ -9,6 +9,7 @@ export type WebSocketMessageType =
   | 'new_message'
   | 'message_edited'
   | 'message_deleted'
+  | 'poll_vote_updated'
   | 'typing'
   | 'pong'
   | 'error';
@@ -23,6 +24,11 @@ export interface WebSocketMessage {
   is_typing?: boolean;
   for_everyone?: boolean;
   error?: string;
+  /** Poll vote broadcast */
+  vote_counts?: Record<string, number>;
+  total_votes?: number;
+  voter_user_id?: string;
+  option_index?: number;
 }
 
 export type MessageHandler = (message: WebSocketMessage) => void;

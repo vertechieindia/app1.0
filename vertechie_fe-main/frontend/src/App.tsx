@@ -10,6 +10,7 @@ import theme from './styles/theme';
 import ScrollToTop from './components/layout/ScrollToTop';
 import { getRedirectPathForUser } from './utils/authRedirect';
 import './index.css';
+import { AUTH_MAIN_PADDING_BOTTOM_PX } from './constants/layout';
 import IdleTimeoutProvider from './components/auth/IdleTimeoutProvider';
 import {
   RouteFallback,
@@ -139,7 +140,8 @@ const PublicLayout: React.FC = () => {
     <Box sx={{
       display: 'flex',
       flexDirection: 'column',
-      minHeight: '100vh',
+      flex: 1,
+      minHeight: 0,
       width: '100%',
       maxWidth: '100vw',
       overflowX: 'hidden',
@@ -161,14 +163,11 @@ const PublicLayout: React.FC = () => {
 
 /**
  * AuthenticatedLayout - For logged-in users with role-based navigation
- * Includes: AppHeader (top, fixed 64px) + BottomNav (fixed bottom 80px)
+ * Includes: AppHeader (Toolbar xs 64px / md+ 70px) + BottomNav (fixed ~80px)
  * 
  * IMPORTANT: This layout handles ALL spacing for the fixed header and bottom nav.
  * Child pages should NOT add their own top/bottom padding for these elements.
  */
-const HEADER_HEIGHT = 64;
-const BOTTOM_NAV_HEIGHT = 80;
-
 const AuthenticatedLayout: React.FC = () => {
   const location = useLocation();
   const isMeetingPage =
@@ -187,23 +186,47 @@ const AuthenticatedLayout: React.FC = () => {
     <Box sx={{
       display: 'flex',
       flexDirection: 'column',
-      minHeight: '100vh',
+      flex: 1,
       width: '100%',
       maxWidth: '100vw',
+      overflow: 'hidden',
       overflowX: 'hidden',
+      /* Lock shell to viewport so inner pages (e.g. chat) scroll internally, not the whole document */
+      height: '100dvh',
+      maxHeight: '100dvh',
+      minHeight: 0,
       background: 'linear-gradient(180deg, #f0f4f8 0%, #e8eef5 100%)',
       bgcolor: '#f0f4f8',
     }}>
       <AppHeader />
       <Box component="main" sx={{
-        flexGrow: 1,
+        flex: '1 1 0%',
         width: '100%',
         maxWidth: '100vw',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
         overflowX: 'hidden',
-        pt: `${HEADER_HEIGHT + 16}px`, // 80px - Account for fixed header (64px) + spacing (16px)
-        pb: `${BOTTOM_NAV_HEIGHT + 16}px`, // 96px - Account for fixed bottom nav (80px) + spacing (16px)
+        overflowY: 'auto',
+        // Match AppHeader Toolbar + gap; add top safe area for notched devices
+        pt: {
+          xs: 'calc(80px + env(safe-area-inset-top, 0px))',
+          md: 'calc(86px + env(safe-area-inset-top, 0px))',
+        },
+        pb: `calc(${AUTH_MAIN_PADDING_BOTTOM_PX}px + env(safe-area-inset-bottom, 0px))`,
       }}>
-        <Outlet />
+        <Box sx={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          width: '100%',
+          height: '100%',
+          maxHeight: '100%',
+        }}>
+          <Outlet />
+        </Box>
       </Box>
       <BottomNav />
     </Box>
@@ -1094,9 +1117,13 @@ const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <AppRoutes />
-      </Router>
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', overflow: 'hidden' }}>
+        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', overflow: 'hidden' }}>
+            <AppRoutes />
+          </Box>
+        </Router>
+      </Box>
     </ThemeProvider>
   );
 };

@@ -3,32 +3,36 @@
 Production Super Admin Creation Script
 
 Creates a super admin user for production deployment.
-Can be run manually or via deployment pipeline.
+Run from the vertechie_fastapi directory (same folder as this file).
 
 Usage:
     python create_production_superadmin.py --email admin@example.com --password "SecurePass123!"
-    
+
     Or with environment variables:
     export SUPERADMIN_EMAIL=admin@example.com
     export SUPERADMIN_PASSWORD="SecurePass123!"
     python create_production_superadmin.py
+
+    Or run with no args — you will be prompted for email and password.
+    BOOTSTRAP_SUPERUSER_EMAIL / BOOTSTRAP_SUPERUSER_PASSWORD in .env are also accepted.
 """
 
-import asyncio
-import sys
-import os
-import argparse
-import re
-from uuid import uuid4
-from sqlalchemy import select, insert
-from sqlalchemy.orm import selectinload
+from __future__ import annotations
 
-# Add current directory to path
+import argparse
+import asyncio
+import getpass
+import os
+import re
+import sys
+from pathlib import Path
+from uuid import uuid4
+
+from sqlalchemy import insert, select
+
+# Project root = directory containing this script (vertechie_fastapi)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app.db.session import AsyncSessionLocal
-from app.models.user import User, UserProfile, UserRole, RoleType, VerificationStatus, user_roles
-from app.core.security import get_password_hash
 from app.core.access_role_utils import (
     build_display_label,
     compute_permission_signature,
@@ -36,6 +40,16 @@ from app.core.access_role_utils import (
     sorted_unique_permission_codes,
 )
 from app.core.role_mapping import default_permissions_for_role_type
+from app.core.security import get_password_hash
+from app.db.session import AsyncSessionLocal
+from app.models.user import (
+    RoleType,
+    User,
+    UserProfile,
+    UserRole,
+    VerificationStatus,
+    user_roles,
+)
 
 
 def validate_password(password: str) -> tuple[bool, str]:
@@ -45,83 +59,74 @@ def validate_password(password: str) -> tuple[bool, str]:
     """
     if len(password) < 8:
         return False, "Password must be at least 8 characters long"
-    
-    if not re.search(r'[A-Z]', password):
+
+    if not re.search(r"[A-Z]", password):
         return False, "Password must contain at least one uppercase letter"
-    
-    if not re.search(r'[a-z]', password):
+
+    if not re.search(r"[a-z]", password):
         return False, "Password must contain at least one lowercase letter"
-    
-    if not re.search(r'\d', password):
+
+    if not re.search(r"\d", password):
         return False, "Password must contain at least one digit"
-    
-    if not re.search(r'[@$!%*?&]', password):
+
+    if not re.search(r"[@$!%*?&]", password):
         return False, "Password must contain at least one special character (@$!%*?&)"
-    
-    # Check for common weak passwords
-    weak_passwords = ['password', 'admin', '12345678', 'qwerty', 'letmein']
+
+    weak_passwords = ["password", "admin", "12345678", "qwerty", "letmein"]
     if password.lower() in weak_passwords:
         return False, "Password is too common. Please choose a stronger password"
-    
+
     return True, ""
 
 
 def validate_email(email: str) -> bool:
     """Validate email format."""
-    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     return re.match(email_pattern, email) is not None
 
 
-async def create_superadmin(email: str, password: str, first_name: str = None, last_name: str = None) -> bool:
+async def create_superadmin(
+    email: str, password: str, first_name: str | None = None, last_name: str | None = None
+) -> bool:
     """
     Create a super admin user.
-    
+
     Args:
         email: Super admin email address
         password: Super admin password (will be validated)
         first_name: Optional first name (defaults to "Super")
         last_name: Optional last name (defaults to "Admin")
-    
+
     Returns:
         True if created successfully, False otherwise
     """
-    # Validate email
     if not validate_email(email):
         print(f"❌ Invalid email format: {email}")
         return False
-    
-    # Validate password
+
     is_valid, error_msg = validate_password(password)
     if not is_valid:
         print(f"❌ Password validation failed: {error_msg}")
         return False
-    
+
     async with AsyncSessionLocal() as db:
         try:
-            # Check if superuser already exists
-            result = await db.execute(
-                select(User).where(User.is_superuser == True)
-            )
+            result = await db.execute(select(User).where(User.is_superuser == True))
             existing_superuser = result.scalar_one_or_none()
-            
+
             if existing_superuser:
                 print(f"⚠️  Superuser already exists: {existing_superuser.email}")
-                print(f"   If you want to create another superuser, please use a different email.")
+                print("   Only one superuser is allowed by this script.")
                 return False
-            
-            # Check if email already exists
-            result = await db.execute(
-                select(User).where(User.email == email)
-            )
+
+            result = await db.execute(select(User).where(User.email == email))
             if result.scalar_one_or_none():
                 print(f"❌ User with email {email} already exists")
                 return False
-            
-            # Generate username from email
-            email_prefix = email.split('@')[0]
+
+            email_prefix = email.split("@")[0]
             username = f"{email_prefix}_{uuid4().hex[:6]}"
-            
-            # Create superuser (verification_status=APPROVED since superadmin is pre-verified)
+
             superuser = User(
                 id=uuid4(),
                 email=email,
@@ -138,18 +143,16 @@ async def create_superadmin(email: str, password: str, first_name: str = None, l
                 verification_status=VerificationStatus.APPROVED,
                 admin_roles=["superadmin", "admin", "learnadmin"],
             )
-            
+
             db.add(superuser)
             await db.flush()
-            
-            # Create profile
+
             profile = UserProfile(
                 user_id=superuser.id,
             )
             db.add(profile)
             await db.flush()
-            
-            # Get or create SUPER_ADMIN access role (same permission set as seed)
+
             perms = sorted_unique_permission_codes(
                 default_permissions_for_role_type(RoleType.SUPER_ADMIN)
             )
@@ -174,103 +177,110 @@ async def create_superadmin(email: str, password: str, first_name: str = None, l
                 )
                 db.add(role)
                 await db.flush()
-            
-            # Add role association
+
             await db.execute(
                 insert(user_roles).values(user_id=superuser.id, role_id=role.id)
             )
-            
+
             await db.commit()
-            
+
             print("\n✅ Super Admin created successfully!")
             print(f"\n📧 Email: {email}")
             print(f"👤 Username: {username}")
             print(f"🆔 VerTechie ID: {superuser.vertechie_id}")
             print(f"🔑 Admin Roles: {superuser.admin_roles}")
-            print(f"\n⚠️  IMPORTANT: Save these credentials securely!")
-            print(f"⚠️  Change the password after first login in production!")
-            
+            print("\n⚠️  IMPORTANT: Save these credentials securely!")
+            print("⚠️  Change the password after first login in production!")
+
             return True
-            
+
         except Exception as e:
             await db.rollback()
             print(f"❌ Error creating super admin: {str(e)}")
             import traceback
+
             traceback.print_exc()
             return False
 
 
-def main():
-    """Main entry point."""
+def _load_dotenv_for_cli() -> None:
+    """Populate os.environ from .env so SUPERADMIN_* / BOOTSTRAP_SUPERUSER_* work without export."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+
+
+def main() -> None:
+    _load_dotenv_for_cli()
+
     parser = argparse.ArgumentParser(
         description="Create a super admin user for production",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Using command-line arguments
   python create_production_superadmin.py --email admin@example.com --password "SecurePass123!"
-  
-  # Using environment variables
-  export SUPERADMIN_EMAIL=admin@example.com
-  export SUPERADMIN_PASSWORD="SecurePass123!"
+  SUPERADMIN_EMAIL=a@b.com SUPERADMIN_PASSWORD='...' python create_production_superadmin.py
   python create_production_superadmin.py
-  
-  # With custom name
-  python create_production_superadmin.py --email admin@example.com --password "SecurePass123!" --first-name "John" --last-name "Doe"
-        """
+  (no args: prompts for email/password if SUPERADMIN_* / BOOTSTRAP_SUPERUSER_* unset)
+        """,
     )
-    
+
     parser.add_argument(
-        '--email',
+        "--email",
         type=str,
-        help='Super admin email address',
-        default=os.getenv('SUPERADMIN_EMAIL')
+        help="Super admin email (default: $SUPERADMIN_EMAIL or $BOOTSTRAP_SUPERUSER_EMAIL)",
+        default=os.getenv("SUPERADMIN_EMAIL") or os.getenv("BOOTSTRAP_SUPERUSER_EMAIL"),
     )
-    
+
     parser.add_argument(
-        '--password',
+        "--password",
         type=str,
-        help='Super admin password (min 8 chars, uppercase, lowercase, digit, special char)',
-        default=os.getenv('SUPERADMIN_PASSWORD')
+        help="Super admin password (default: $SUPERADMIN_PASSWORD or $BOOTSTRAP_SUPERUSER_PASSWORD)",
+        default=os.getenv("SUPERADMIN_PASSWORD") or os.getenv("BOOTSTRAP_SUPERUSER_PASSWORD"),
     )
-    
+
     parser.add_argument(
-        '--first-name',
+        "--first-name",
         type=str,
         help='First name (optional, defaults to "Super")',
-        default=None
+        default=None,
     )
-    
+
     parser.add_argument(
-        '--last-name',
+        "--last-name",
         type=str,
         help='Last name (optional, defaults to "Admin")',
-        default=None
+        default=None,
     )
-    
+
     args = parser.parse_args()
-    
-    # Validate required arguments
-    if not args.email:
-        print("❌ Error: Email is required")
-        print("   Use --email argument or set SUPERADMIN_EMAIL environment variable")
-        parser.print_help()
+
+    email = (args.email or "").strip() or None
+    password = (args.password or "").strip() or None
+
+    if not email:
+        email = input("Super admin email: ").strip()
+    if not password:
+        password = getpass.getpass("Super admin password: ")
+
+    if not email:
+        print("❌ Email is required.")
         sys.exit(1)
-    
-    if not args.password:
-        print("❌ Error: Password is required")
-        print("   Use --password argument or set SUPERADMIN_PASSWORD environment variable")
-        parser.print_help()
+    if not password:
+        print("❌ Password is required.")
         sys.exit(1)
-    
-    # Run async function
-    success = asyncio.run(create_superadmin(
-        email=args.email,
-        password=args.password,
-        first_name=args.first_name,
-        last_name=args.last_name
-    ))
-    
+
+    success = asyncio.run(
+        create_superadmin(
+            email=email,
+            password=password,
+            first_name=args.first_name,
+            last_name=args.last_name,
+        )
+    )
+
     sys.exit(0 if success else 1)
 
 

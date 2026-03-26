@@ -9,7 +9,7 @@ import enum
 
 from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum,
-    Text, JSON, ForeignKey, Integer
+    Text, JSON, ForeignKey, Integer, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -157,4 +157,20 @@ class Message(Base, UUIDMixin, TimestampMixin):
     conversation = relationship("Conversation", back_populates="messages")
     sender = relationship("User", foreign_keys=[sender_id], backref="sent_messages")
     reply_to = relationship("Message", remote_side="Message.id", foreign_keys=[reply_to_id])
+
+
+class ChatPollVote(Base, UUIDMixin, TimestampMixin):
+    """One vote per user per chat poll message (option can be changed)."""
+
+    __tablename__ = "chat_poll_votes"
+    __table_args__ = (
+        UniqueConstraint("message_id", "user_id", name="uq_chat_poll_vote_user_message"),
+    )
+
+    message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    option_index = Column(Integer, nullable=False)
+
+    message = relationship("Message", backref="chat_poll_votes")
+    user = relationship("User", backref="chat_poll_votes")
 
