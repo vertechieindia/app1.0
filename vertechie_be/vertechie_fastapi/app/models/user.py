@@ -122,6 +122,8 @@ class User(Base, UUIDMixin, TimestampMixin):
     
     # Timestamps
     last_login = Column(DateTime, nullable=True)
+    # Updated on login, chat presence heartbeat, and WebSocket ping — used for "online" in chat
+    last_seen_at = Column(DateTime, nullable=True, index=True)
     verified_at = Column(DateTime, nullable=True)
     
     # Relationships with CASCADE DELETE - when user is deleted, all related data is deleted

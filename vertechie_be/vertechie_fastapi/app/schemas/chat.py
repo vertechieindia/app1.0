@@ -5,7 +5,7 @@ Chat and Messaging schemas.
 from typing import Optional, List, Union
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, field_validator, field_serializer
+from pydantic import BaseModel, field_validator, field_serializer, ConfigDict
 
 
 class ConversationCreate(BaseModel):
@@ -32,9 +32,28 @@ def _serialize_datetime_utc(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat() + 'Z' if dt.tzinfo is None else dt.isoformat()
 
 
+class ConversationMemberSummary(BaseModel):
+    """Member row returned with conversation list (includes presence for UI)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    name: Optional[str] = None
+    username: Optional[str] = None
+    email: Optional[str] = None
+    is_active: bool = True
+    role: str = ""
+    unread_count: int = 0
+    is_online: bool = False
+
+
 class ConversationResponse(BaseModel):
     """Conversation response."""
-    
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     conversation_type: str
     name: Optional[str] = None
@@ -46,13 +65,16 @@ class ConversationResponse(BaseModel):
     last_message_preview: Optional[str] = None
     unread_count: int = 0  # Added for unread message tracking
     created_at: datetime
+    # Optional client fields (list endpoint)
+    type: Optional[str] = None
+    is_group: Optional[bool] = None
+    # Direct DM: other participant is online; groups: any member online (optional)
+    is_online: Optional[bool] = None
+    members: Optional[List[ConversationMemberSummary]] = None
 
     @field_serializer('last_message_at', 'created_at')
     def serialize_datetimes(self, dt: Optional[datetime]) -> Optional[str]:
         return _serialize_datetime_utc(dt)
-    
-    class Config:
-        from_attributes = True
 
 
 class MessageCreate(BaseModel):

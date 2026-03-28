@@ -911,6 +911,22 @@ async def vote_on_poll(
         )
         existing_vote = result.scalar_one_or_none()
         
+        if existing_vote and existing_vote.option_index == option_index:
+            # Same option — do not increment counts or touch the row
+            result = await db.execute(
+                select(PollVote.option_index, func.count(PollVote.id))
+                .where(PollVote.post_id == post_id)
+                .group_by(PollVote.option_index)
+            )
+            vote_counts = {int(row[0]): int(row[1]) for row in result.all()}
+            total_votes = sum(vote_counts.values())
+            return {
+                "message": "unchanged",
+                "vote_counts": vote_counts,
+                "total_votes": total_votes,
+                "user_vote": option_index,
+            }
+
         if existing_vote:
             # Update existing vote
             existing_vote.option_index = option_index

@@ -85,7 +85,7 @@ from app.models.calendar import (
 )
 
 # Chat Models
-from app.models.chat import Conversation, Message, ChatMember
+from app.models.chat import Conversation, Message, ChatMember, ChatPollVote
 
 # Network Models
 from app.models.network import Connection, ConnectionRequest
@@ -169,7 +169,7 @@ __all__ = [
     "AvailabilitySchedule", "MeetingType", "Booking", "SchedulingLink",
     
     # Chat
-    "Conversation", "Message", "ChatMember",
+    "Conversation", "Message", "ChatMember", "ChatPollVote",
     
     # Network
     "Connection", "ConnectionRequest",

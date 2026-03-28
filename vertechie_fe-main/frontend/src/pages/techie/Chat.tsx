@@ -93,46 +93,76 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import DescriptionIcon from '@mui/icons-material/Description';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { useLocation } from 'react-router-dom';
+import { ABOVE_BOTTOM_NAV_OFFSET_PX } from '../../constants/layout';
 
-// Styled Components
+// WhatsApp-like shell: flex column, only message list scrolls (header + input stay visible).
+// Height comes from AuthenticatedLayout <main> (not raw 100vh — avoids overlap with top/bottom nav).
 const ChatContainer = styled(Box)(({ theme }) => ({
   display: 'flex',
-  height: 'calc(100vh - 150px)',
+  flexDirection: 'row',
+  alignItems: 'stretch',
+  flex: 1,
+  minHeight: 0,
+  width: '100%',
+  maxHeight: '100%',
   backgroundColor: '#f5f7fa',
   borderRadius: 16,
   overflow: 'hidden',
   boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
   [theme.breakpoints.down('md')]: {
-    height: 'calc(100vh - 180px)',
     borderRadius: 0,
   },
 }));
 
 const ConversationList = styled(Box)(({ theme }) => ({
+  boxSizing: 'border-box',
   width: 360,
+  flex: '0 0 360px',
+  minWidth: 0,
+  minHeight: 0,
   borderRight: '1px solid #e0e0e0',
   backgroundColor: 'white',
   display: 'flex',
   flexDirection: 'column',
+  overflow: 'hidden',
   [theme.breakpoints.down('md')]: {
     width: '100%',
+    flex: '1 1 0%',
   },
 }));
 
 const ChatArea = styled(Box)({
-  flex: 1,
+  flex: '1 1 0%',
+  minWidth: 0,
+  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
+  overflow: 'hidden',
   backgroundColor: '#f0f2f5',
+  position: 'relative',
+  isolation: 'isolate',
 });
 
-const MessageContainer = styled(Box)({
-  flex: 1,
+/** Single scroll region: sticky thread header + messages (WhatsApp-style). */
+const ChatThreadScroll = styled(Box)({
+  flex: '1 1 0%',
+  minHeight: 0,
+  minWidth: 0,
+  overflowX: 'hidden',
   overflowY: 'auto',
+  WebkitOverflowScrolling: 'touch',
+  overscrollBehavior: 'contain',
+  display: 'flex',
+  flexDirection: 'column',
+});
+
+/** Message bubbles column (scrolls inside ChatThreadScroll). */
+const MessageContainer = styled(Box)({
   padding: 16,
   display: 'flex',
   flexDirection: 'column',
   gap: 8,
+  flex: '0 0 auto',
 });
 
 const MessageBubble = styled(Box)<{ isSent?: boolean }>(({ isSent }) => ({
@@ -257,6 +287,36 @@ interface PollOptionType {
   text: string;
   votes: number;
   votedByMe: boolean;
+}
+
+/** Map API poll_data (including vote_counts / user_vote from backend) to UI Poll. */
+function mapPollDataToPoll(pollData: Record<string, unknown> | undefined, messageId: string): Poll | undefined {
+  if (!pollData || !Array.isArray(pollData.options)) return undefined;
+  const options = pollData.options as string[];
+  const countsRaw = (pollData.vote_counts ?? pollData.votes) as Record<string | number, number> | undefined;
+  const userVote = pollData.user_vote as number | null | undefined;
+  let totalVotes = typeof pollData.total_votes === 'number' ? pollData.total_votes : 0;
+  const opts: PollOptionType[] = options.map((text, idx) => {
+    const c = countsRaw?.[idx] ?? countsRaw?.[String(idx)];
+    const votes = typeof c === 'number' ? c : 0;
+    return {
+      id: `o${idx}`,
+      text,
+      votes,
+      votedByMe: userVote === idx,
+    };
+  });
+  if (!totalVotes && opts.length) {
+    totalVotes = opts.reduce((s, o) => s + o.votes, 0);
+  }
+  return {
+    id: `poll-${messageId}`,
+    question: String(pollData.question || ''),
+    options: opts,
+    totalVotes,
+    multipleChoice: Boolean(pollData.allow_multiple),
+    anonymous: false,
+  };
 }
 
 interface Conversation {
@@ -609,6 +669,18 @@ const Chat: React.FC = () => {
           }
         }
 
+        const mappedMembers: GroupMember[] = (conv.members || []).map((m: any) => ({
+          id: String(m.id),
+          name:
+            m.name ||
+            [m.first_name, m.last_name].filter(Boolean).join(' ').trim() ||
+            m.email ||
+            'User',
+          avatar: '',
+          isAdmin: String(m.role || '').toLowerCase().includes('admin'),
+          isOnline: Boolean(m.is_online),
+        }));
+
         return {
           id: conv.id,
           name: name || 'Direct Message',
@@ -616,9 +688,9 @@ const Chat: React.FC = () => {
           lastMessage: conv.last_message_preview || '',
           timestamp: parseUtcDate(conv.last_message_at),
           unreadCount: conv.unread_count || 0,
-          isOnline: conv.is_online || false,
+          isOnline: Boolean(conv.is_online),
           isGroup: convType === 'group' || convType === 'channel',
-          members: conv.members || [],
+          members: mappedMembers,
           groupSettings: convType === 'group' ? {
             onlyAdminsCanMessage: false,
             onlyAdminsCanEditInfo: false,
@@ -664,19 +736,7 @@ const Chat: React.FC = () => {
         fileUrl: msg.media_url,
         fileName: msg.media_name,
         reactions: msg.reactions || {},
-        poll: msg.poll_data ? {
-          id: `poll-${msg.id}`,
-          question: msg.poll_data.question || '',
-          options: (msg.poll_data.options || []).map((opt: string, idx: number) => ({
-            id: `o${idx}`,
-            text: opt,
-            votes: (msg.poll_data.votes || {})[idx] || 0,
-            votedByMe: false,
-          })),
-          totalVotes: Object.values(msg.poll_data.votes || {}).reduce((sum: number, v: any) => sum + (Array.isArray(v) ? v.length : 0), 0),
-          multipleChoice: msg.poll_data.allow_multiple || false,
-          anonymous: false,
-        } : undefined,
+        poll: mapPollDataToPoll(msg.poll_data, msg.id),
       }));
       // Reverse to show oldest first
       setMessages(mappedMessages.reverse());
@@ -707,6 +767,43 @@ const Chat: React.FC = () => {
   useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
+
+  // Presence heartbeat so others see you as Online; refresh list when tab becomes visible
+  useEffect(() => {
+    const pulse = () => {
+      chatService.sendPresence().catch(() => undefined);
+    };
+    pulse();
+    const interval = window.setInterval(pulse, 45_000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        pulse();
+        fetchConversations();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [fetchConversations]);
+
+  // Keep open thread in sync when conversation list refreshes (e.g. peer online/offline)
+  useEffect(() => {
+    setSelectedConversation((prev) => {
+      if (!prev) return prev;
+      const next = conversations.find((c) => c.id === prev.id);
+      if (!next) return prev;
+      return {
+        ...prev,
+        isOnline: next.isOnline,
+        members: next.members ?? prev.members,
+        lastMessage: next.lastMessage,
+        unreadCount: next.unreadCount,
+        timestamp: next.timestamp,
+      };
+    });
+  }, [conversations]);
 
   // If navigated from network "Message" action, open existing DM or create one.
   useEffect(() => {
@@ -839,19 +936,7 @@ const Chat: React.FC = () => {
               fileUrl: wsMessage.message.media_url,
               fileName: wsMessage.message.media_name,
               reactions: wsMessage.message.reactions || {},
-              poll: wsMessage.message.poll_data ? {
-                id: `poll-${wsMessage.message.id}`,
-                question: wsMessage.message.poll_data.question || '',
-                options: (wsMessage.message.poll_data.options || []).map((opt: string, idx: number) => ({
-                  id: `o${idx}`,
-                  text: opt,
-                  votes: (wsMessage.message.poll_data.votes || {})[idx] || 0,
-                  votedByMe: false,
-                })),
-                totalVotes: Object.values(wsMessage.message.poll_data.votes || {}).reduce((sum: number, v: any) => sum + (Array.isArray(v) ? v.length : 0), 0),
-                multipleChoice: wsMessage.message.poll_data.allow_multiple || false,
-                anonymous: false,
-              } : undefined,
+              poll: mapPollDataToPoll(wsMessage.message.poll_data, wsMessage.message.id),
             };
             setMessages(prev => {
               // Check if message with this ID already exists
@@ -896,6 +981,32 @@ const Chat: React.FC = () => {
             setMessages(prev => prev.filter(m => m.id !== wsMessage.message_id));
           }
           break;
+
+        case 'poll_vote_updated': {
+          const mid = wsMessage.message_id;
+          const vc = wsMessage.vote_counts;
+          if (!mid || !vc) break;
+          const total = wsMessage.total_votes ?? 0;
+          const voterId = wsMessage.voter_user_id;
+          const optIdx = wsMessage.option_index;
+          const currentUserId = JSON.parse(localStorage.getItem('userData') || '{}').id;
+          setMessages(prev => prev.map(m => {
+            if (m.id !== mid || !m.poll) return m;
+            const opts = m.poll.options.map((o, i) => ({
+              ...o,
+              votes: vc[i] ?? vc[String(i)] ?? 0,
+              votedByMe:
+                voterId === currentUserId && typeof optIdx === 'number'
+                  ? i === optIdx
+                  : o.votedByMe,
+            }));
+            return {
+              ...m,
+              poll: { ...m.poll, options: opts, totalVotes: total },
+            };
+          }));
+          break;
+        }
 
         case 'typing':
           // Handle typing indicators
@@ -1102,50 +1213,129 @@ const Chat: React.FC = () => {
   const handleCreatePoll = async () => {
     if (!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2 || !selectedConversation) return;
 
+    const trimmedOptions = pollOptions.filter(o => o.trim());
     const pollData = {
       question: pollQuestion,
-      options: pollOptions.filter(o => o.trim()),
+      options: trimmedOptions,
       allow_multiple: pollMultipleChoice,
     };
 
+    const tempId = `temp-poll-${Date.now()}`;
+    const optimistic: Message = {
+      id: tempId,
+      text: pollQuestion,
+      senderId: 'me',
+      timestamp: new Date(),
+      status: 'sending',
+      type: 'poll',
+      poll: {
+        id: `poll-${tempId}`,
+        question: pollQuestion,
+        options: trimmedOptions.map((text, idx) => ({
+          id: `o${idx}`,
+          text,
+          votes: 0,
+          votedByMe: false,
+        })),
+        totalVotes: 0,
+        multipleChoice: pollMultipleChoice,
+        anonymous: false,
+      },
+    };
+    setMessages(prev => [...prev, optimistic]);
+    setShowCreatePoll(false);
+    setPollQuestion('');
+    setPollOptions(['', '']);
+    setPollMultipleChoice(false);
+
     try {
-      await chatService.sendMessage(selectedConversation.id, {
+      const data = await chatService.sendMessage(selectedConversation.id, {
         message_type: 'poll',
         content: pollQuestion,
         poll_data: pollData,
       });
-
-      setShowCreatePoll(false);
-      setPollQuestion('');
-      setPollOptions(['', '']);
-      setPollMultipleChoice(false);
-
-      // Messages will be updated via WebSocket/polling
+      const serverId = typeof data.id === 'string' ? data.id : String((data as { id: unknown }).id);
+      setMessages(prev => {
+        if (prev.some(m => m.id === serverId)) {
+          return prev.filter(m => m.id !== tempId);
+        }
+        return prev.map(m =>
+          m.id === tempId
+            ? {
+              ...m,
+              id: serverId,
+              status: 'delivered',
+              poll: m.poll
+                ? {
+                  ...m.poll,
+                  id: `poll-${serverId}`,
+                }
+                : undefined,
+            }
+            : m,
+        );
+      });
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === selectedConversation.id
+            ? { ...c, lastMessage: pollQuestion, timestamp: new Date() }
+            : c,
+        ),
+      );
     } catch (err) {
       console.error('Error creating poll:', err);
       setError('Failed to create poll');
+      setMessages(prev => prev.filter(m => m.id !== tempId));
     }
   };
 
-  const handleVotePoll = (pollId: string, optionId: string) => {
-    setMessages(prev => prev.map(m => {
-      if (m.poll?.id === pollId) {
-        const updatedOptions = m.poll.options.map(o => ({
-          ...o,
-          votes: o.id === optionId ? o.votes + 1 : o.votes,
-          votedByMe: o.id === optionId ? true : (m.poll!.multipleChoice ? o.votedByMe : false),
-        }));
-        return {
-          ...m,
-          poll: {
-            ...m.poll,
-            options: updatedOptions,
-            totalVotes: m.poll.totalVotes + 1,
-          },
-        };
+  const handleVotePoll = async (messageId: string, optionIndex: number) => {
+    const msg = messages.find(m => m.id === messageId);
+    if (!msg?.poll) return;
+    const prevIdx = msg.poll.options.findIndex(o => o.votedByMe);
+    if (prevIdx === optionIndex) return;
+
+    setMessages(prev =>
+      prev.map(m => {
+        if (m.id !== messageId || !m.poll) return m;
+        const opts = m.poll.options.map((o, i) => {
+          let votes = o.votes;
+          if (prevIdx >= 0 && i === prevIdx) votes = Math.max(0, votes - 1);
+          if (i === optionIndex) votes = votes + 1;
+          return { ...o, votes, votedByMe: i === optionIndex };
+        });
+        const totalVotes = m.poll.totalVotes + (prevIdx < 0 ? 1 : 0);
+        return { ...m, poll: { ...m.poll, options: opts, totalVotes } };
+      }),
+    );
+
+    try {
+      const res = await chatService.votePollMessage(messageId, optionIndex);
+      const counts = res.vote_counts || {};
+      setMessages(prev =>
+        prev.map(m => {
+          if (m.id !== messageId || !m.poll) return m;
+          const opts = m.poll.options.map((o, i) => ({
+            ...o,
+            votes: counts[i] ?? counts[String(i)] ?? 0,
+            votedByMe: res.user_vote === i,
+          }));
+          return {
+            ...m,
+            poll: {
+              ...m.poll,
+              options: opts,
+              totalVotes: res.total_votes ?? m.poll.totalVotes,
+            },
+          };
+        }),
+      );
+    } catch (err) {
+      console.error('Poll vote failed:', err);
+      if (selectedConversation) {
+        await fetchMessages(selectedConversation.id);
       }
-      return m;
-    }));
+    }
   };
 
   const handleInsertEmoji = (emoji: string) => {
@@ -1168,14 +1358,29 @@ const Chat: React.FC = () => {
     const file = event.target.files?.[0];
     if (!file || !selectedConversation) return;
 
+    const tempId = `temp-file-${Date.now()}`;
+    let blobUrl: string | undefined;
+    if (type === 'image') {
+      blobUrl = URL.createObjectURL(file);
+    }
+    const optimistic: Message = {
+      id: tempId,
+      text: type === 'image' ? `📷 ${file.name}` : `📄 ${file.name}`,
+      senderId: 'me',
+      timestamp: new Date(),
+      status: 'sending',
+      type: type === 'image' ? 'image' : 'file',
+      fileUrl: blobUrl,
+      fileName: file.name,
+    };
+    setMessages(prev => [...prev, optimistic]);
+
     setUploadingFile(true);
 
     try {
-      // Upload file to backend using service
       const uploadData = await chatService.uploadFile(file);
 
-      // Send message with file
-      const messageData: any = {
+      const messageData: Record<string, unknown> = {
         message_type: uploadData.media_type || type,
         content: type === 'image' ? `📷 ${file.name}` : `📄 ${file.name}`,
         media_url: uploadData.url,
@@ -1183,15 +1388,42 @@ const Chat: React.FC = () => {
         media_name: uploadData.name,
       };
 
-      await chatService.sendMessage(selectedConversation.id, messageData);
+      const data = await chatService.sendMessage(
+        selectedConversation.id,
+        messageData as import('../../services/chatService').SendMessageData,
+      );
+      const serverId = typeof data.id === 'string' ? data.id : String(data.id);
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
 
-      // Messages will be updated via WebSocket/polling automatically
+      setMessages(prev => {
+        if (prev.some(m => m.id === serverId)) {
+          return prev.filter(m => m.id !== tempId);
+        }
+        return prev.map(m =>
+          m.id === tempId
+            ? {
+              ...m,
+              id: serverId,
+              status: 'delivered',
+              fileUrl: uploadData.url,
+            }
+            : m,
+        );
+      });
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === selectedConversation.id
+            ? { ...c, lastMessage: optimistic.text, timestamp: new Date() }
+            : c,
+        ),
+      );
     } catch (err) {
       console.error('Error uploading file:', err);
       setError('Failed to upload file');
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      setMessages(prev => prev.filter(m => m.id !== tempId));
     } finally {
       setUploadingFile(false);
-      // Reset input
       if (event.target) event.target.value = '';
     }
   };
@@ -1199,32 +1431,90 @@ const Chat: React.FC = () => {
   const handleSendLink = async () => {
     if (!linkUrl.trim() || !selectedConversation) return;
 
+    const url = linkUrl.trim();
+    const tempId = `temp-link-${Date.now()}`;
+    const optimistic: Message = {
+      id: tempId,
+      text: url,
+      senderId: 'me',
+      timestamp: new Date(),
+      status: 'sending',
+      type: 'link',
+    };
+    setMessages(prev => [...prev, optimistic]);
+    setLinkUrl('');
+    setShowLinkDialog(false);
+
     try {
-      await chatService.sendMessage(selectedConversation.id, {
+      const data = await chatService.sendMessage(selectedConversation.id, {
         message_type: 'link',
-        content: linkUrl,
+        content: url,
       });
-      setLinkUrl('');
-      setShowLinkDialog(false);
+      const serverId = typeof data.id === 'string' ? data.id : String(data.id);
+      setMessages(prev => {
+        if (prev.some(m => m.id === serverId)) {
+          return prev.filter(m => m.id !== tempId);
+        }
+        return prev.map(m =>
+          m.id === tempId ? { ...m, id: serverId, status: 'delivered' as const } : m,
+        );
+      });
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === selectedConversation.id
+            ? { ...c, lastMessage: url, timestamp: new Date() }
+            : c,
+        ),
+      );
     } catch (err) {
       console.error('Error sending link:', err);
       setError('Failed to send link');
+      setMessages(prev => prev.filter(m => m.id !== tempId));
     }
   };
 
   const handleSendGif = async (gifUrl: string) => {
     if (!selectedConversation) return;
 
+    const tempId = `temp-gif-${Date.now()}`;
+    const optimistic: Message = {
+      id: tempId,
+      text: 'GIF Image',
+      senderId: 'me',
+      timestamp: new Date(),
+      status: 'sending',
+      type: 'gif',
+      fileUrl: gifUrl,
+    };
+    setMessages(prev => [...prev, optimistic]);
+    setGifAnchor(null);
+
     try {
-      await chatService.sendMessage(selectedConversation.id, {
+      const data = await chatService.sendMessage(selectedConversation.id, {
         message_type: 'gif',
         content: 'GIF Image',
         media_url: gifUrl,
       });
-      setGifAnchor(null);
+      const serverId = typeof data.id === 'string' ? data.id : String(data.id);
+      setMessages(prev => {
+        if (prev.some(m => m.id === serverId)) {
+          return prev.filter(m => m.id !== tempId);
+        }
+        return prev.map(m =>
+          m.id === tempId ? { ...m, id: serverId, status: 'delivered' as const } : m,
+        );
+      });
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === selectedConversation.id
+            ? { ...c, lastMessage: 'GIF', timestamp: new Date() }
+            : c,
+        ),
+      );
     } catch (err) {
       console.error('Error sending GIF:', err);
       setError('Failed to send GIF');
+      setMessages(prev => prev.filter(m => m.id !== tempId));
     }
   };
 
@@ -1268,7 +1558,7 @@ const Chat: React.FC = () => {
   };
 
   // Render Poll Component
-  const renderPoll = (poll: Poll) => (
+  const renderPoll = (poll: Poll, messageId: string) => (
     <Box sx={{ minWidth: 280 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
         <PollIcon sx={{ color: '#0d47a1' }} />
@@ -1279,7 +1569,7 @@ const Chat: React.FC = () => {
       <Typography variant="body1" sx={{ fontWeight: 600, mb: 2 }}>
         {poll.question}
       </Typography>
-      {poll.options.map((option) => {
+      {poll.options.map((option, idx) => {
         const percentage = poll.totalVotes > 0
           ? Math.round((option.votes / poll.totalVotes) * 100)
           : 0;
@@ -1288,7 +1578,7 @@ const Chat: React.FC = () => {
             key={option.id}
             voted={option.votedByMe}
             percentage={percentage}
-            onClick={() => handleVotePoll(poll.id, option.id)}
+            onClick={() => void handleVotePoll(messageId, idx)}
           >
             <Box sx={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between' }}>
               <Typography variant="body2">{option.text}</Typography>
@@ -1305,8 +1595,8 @@ const Chat: React.FC = () => {
 
   const renderConversationList = () => (
     <ConversationList>
-      {/* Header */}
-      <Box sx={{ p: 2, borderBottom: '1px solid #e0e0e0' }}>
+      {/* Header — fixed height; list scrolls below */}
+      <Box sx={{ p: 2, borderBottom: '1px solid #e0e0e0', flexShrink: 0 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h5" sx={{ fontWeight: 700, color: '#1a1a2e' }}>
             Messages
@@ -1354,8 +1644,8 @@ const Chat: React.FC = () => {
         </Tabs>
       </Box>
 
-      {/* Conversation List */}
-      <List sx={{ flex: 1, overflow: 'auto', p: 0 }}>
+      {/* Conversation List — only this section scrolls */}
+      <List sx={{ flex: '1 1 0%', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', p: 0, WebkitOverflowScrolling: 'touch' }}>
         {filteredConversations.map((conversation) => (
           <ListItem
             key={conversation.id}
@@ -1445,8 +1735,24 @@ const Chat: React.FC = () => {
     <ChatArea>
       {selectedConversation ? (
         <>
-          {/* Chat Header */}
-          <Box sx={{ p: 2, bgcolor: 'white', borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', gap: 2 }}>
+          {/* One scroll area: sticky profile header + messages (only this area scrolls) */}
+          <ChatThreadScroll id="chat-messages-scroll" aria-label="Messages">
+          <Box
+            component="header"
+            sx={{
+              p: 2,
+              flexShrink: 0,
+              position: 'sticky',
+              top: 0,
+              zIndex: 10,
+              bgcolor: '#ffffff',
+              borderBottom: '1px solid #e0e0e0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            }}
+          >
             {isMobile && (
               <IconButton onClick={() => setShowMobileChat(false)}>
                 <ArrowBackIcon />
@@ -1467,7 +1773,7 @@ const Chat: React.FC = () => {
 
             <Box sx={{ flex: 1, cursor: 'pointer' }} onClick={() => setShowInfoPanel(true)}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, color: 'primary.main' }}>
                   {selectedConversation.name}
                 </Typography>
                 {selectedConversation.groupSettings?.onlyAdminsCanMessage && (
@@ -1534,7 +1840,6 @@ const Chat: React.FC = () => {
             </Menu>
           </Box>
 
-          {/* Messages */}
           <MessageContainer>
             {messages.map((message) => (
               <Box
@@ -1552,7 +1857,7 @@ const Chat: React.FC = () => {
                 )}
                 <MessageBubble isSent={message.senderId === 'me'} sx={message.type === 'gif' ? { p: 0.5, bgcolor: 'transparent', boxShadow: 'none' } : {}}>
                   {message.type === 'poll' && message.poll ? (
-                    renderPoll(message.poll)
+                    renderPoll(message.poll, message.id)
                   ) : message.type === 'gif' && message.fileUrl ? (
                     <Box sx={{ borderRadius: 2, overflow: 'hidden', maxWidth: 250 }}>
                       <img
@@ -1650,17 +1955,40 @@ const Chat: React.FC = () => {
             ))}
             <div ref={messagesEndRef} />
           </MessageContainer>
+          </ChatThreadScroll>
 
-          {/* Message Input */}
+          {/* Composer — fixed below scroll area; cleared by main bottom padding above BottomNav */}
           {selectedConversation.isGroup && selectedConversation.groupSettings?.onlyAdminsCanMessage && !isCurrentUserAdmin() ? (
-            <Box sx={{ p: 2, bgcolor: 'white', borderTop: '1px solid #e0e0e0', textAlign: 'center' }}>
+            <Box
+              sx={{
+                p: 2,
+                flexShrink: 0,
+                zIndex: 2,
+                bgcolor: '#ffffff',
+                borderTop: '1px solid #e0e0e0',
+                textAlign: 'center',
+                boxShadow: '0 -1px 0 rgba(0,0,0,0.06)',
+              }}
+            >
               <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                 <LockIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 1 }} />
                 Only admins can send messages in this group
               </Typography>
             </Box>
           ) : (
-            <Box sx={{ p: 2, bgcolor: 'white', borderTop: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box
+              sx={{
+                p: 2,
+                flexShrink: 0,
+                zIndex: 2,
+                bgcolor: '#ffffff',
+                borderTop: '1px solid #e0e0e0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                boxShadow: '0 -1px 0 rgba(0,0,0,0.06)',
+              }}
+            >
               {/* Attachment Menu */}
               <IconButton onClick={(e) => setAttachAnchor(e.currentTarget)}>
                 <AddIcon />
@@ -1838,7 +2166,7 @@ const Chat: React.FC = () => {
           )}
         </>
       ) : (
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
+        <Box sx={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
           <ChatBubbleOutlineIcon sx={{ fontSize: 80, color: '#e0e0e0', mb: 2 }} />
           <Typography variant="h5" sx={{ fontWeight: 600, color: '#1a1a2e', mb: 1 }}>
             Your Messages
@@ -2291,7 +2619,23 @@ const Chat: React.FC = () => {
   // Mobile View
   if (isMobile) {
     return (
-      <Box sx={{ p: 2 }}>
+      <Box
+        sx={{
+          flex: '1 1 0%',
+          width: '100%',
+          minWidth: 0,
+          minHeight: 0,
+          height: '100%',
+          maxHeight: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          px: 2,
+          pt: 1,
+          pb: 0,
+          boxSizing: 'border-box',
+        }}
+      >
         <ChatContainer>
           {!showMobileChat ? renderConversationList() : renderChatArea()}
         </ChatContainer>
@@ -2479,22 +2823,23 @@ const Chat: React.FC = () => {
 
   // Desktop View
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header with Back Button */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-        <IconButton
-          onClick={() => window.history.back()}
-          sx={{
-            bgcolor: alpha(theme.palette.primary.main, 0.1),
-            '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.2) }
-          }}
-        >
-          <ArrowBackIcon sx={{ color: theme.palette.primary.main }} />
-        </IconButton>
-        <Typography variant="h4" fontWeight={700} color="#1a237e">
-          Messages
-        </Typography>
-      </Box>
+    <Box
+      sx={{
+        flex: '1 1 0%',
+        width: '100%',
+        minWidth: 0,
+        minHeight: 0,
+        height: '100%',
+        maxHeight: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        px: 3,
+        pt: 0,
+        pb: 0,
+        boxSizing: 'border-box',
+      }}
+    >
       <ChatContainer>
         {renderConversationList()}
         {renderChatArea()}
@@ -2544,7 +2889,15 @@ const Chat: React.FC = () => {
 
       {/* Upload Progress */}
       {uploadingFile && (
-        <Box sx={{ position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 9999 }}>
+        <Box
+          sx={{
+            position: 'fixed',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            bottom: `calc(${ABOVE_BOTTOM_NAV_OFFSET_PX}px + env(safe-area-inset-bottom, 0px) + 8px)`,
+          }}
+        >
           <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
             <Typography>Uploading...</Typography>
             <LinearProgress sx={{ width: 100 }} />
