@@ -96,6 +96,19 @@ INDIA_PLACES = [
     ("Bijnor", "Uttar Pradesh"), ("Budaun", "Uttar Pradesh"), ("Etawah", "Uttar Pradesh"),
     ("Mainpuri", "Uttar Pradesh"), ("Etah", "Uttar Pradesh"), ("Fatehpur", "Uttar Pradesh"),
     ("Pratapgarh", "Uttar Pradesh"), ("Kaushambi", "Uttar Pradesh"), ("Ambedkar Nagar", "Uttar Pradesh"),
+    # Common alternate spellings / extra tier-2 & tier-3 (autocomplete coverage)
+    ("Bengaluru", "Karnataka"), ("Prayagraj", "Uttar Pradesh"), ("Gurugram", "Haryana"),
+    ("Tirunelveli", "Tamil Nadu"), ("Kumbakonam", "Tamil Nadu"), ("Nagapattinam", "Tamil Nadu"),
+    ("Mayiladuthurai", "Tamil Nadu"), ("Cuddalore", "Tamil Nadu"), ("Viluppuram", "Tamil Nadu"),
+    ("Tiruvannamalai", "Tamil Nadu"), ("Namakkal", "Tamil Nadu"), ("Theni", "Tamil Nadu"),
+    ("Tenkasi", "Tamil Nadu"), ("Sivaganga", "Tamil Nadu"), ("Pudukkottai", "Tamil Nadu"),
+    ("Ramanathapuram", "Tamil Nadu"), ("Virudhunagar", "Tamil Nadu"), ("Mettupalayam", "Tamil Nadu"),
+    ("Pollachi", "Tamil Nadu"), ("Gobichettipalayam", "Tamil Nadu"), ("Bhavani", "Tamil Nadu"),
+    ("Rajapalayam", "Tamil Nadu"), ("Sathyamangalam", "Tamil Nadu"), ("Dharmapuri", "Tamil Nadu"),
+    ("Krishnagiri", "Tamil Nadu"), ("Ambur", "Tamil Nadu"), ("Vaniyambadi", "Tamil Nadu"),
+    ("Neyveli", "Tamil Nadu"), ("Panruti", "Tamil Nadu"), ("Tindivanam", "Tamil Nadu"),
+    ("Chidambaram", "Tamil Nadu"), ("Sirkazhi", "Tamil Nadu"), ("Rameswaram", "Tamil Nadu"),
+    ("Karaikudi", "Tamil Nadu"),
 ]
 
 

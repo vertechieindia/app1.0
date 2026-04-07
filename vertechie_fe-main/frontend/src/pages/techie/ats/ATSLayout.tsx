@@ -4,7 +4,7 @@
  * Enhanced with job posting, screening questions, and applicant matching
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { applicationService, jobService, getHRUserInfo } from '../../../services/jobPortalService';
 import { interviewService } from '../../../services/interviewService';
@@ -45,6 +45,7 @@ import {
   Checkbox,
   FormGroup,
   InputAdornment,
+  Autocomplete,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 
@@ -64,6 +65,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import { fetchJobTitleSuggestions } from '../../../utils/jobTitleSuggestions';
+import { fetchSkillSuggestions, SUGGESTED_SKILL_CHIPS } from '../../../utils/skillSuggestions';
 
 const NavItem = styled(Box)<{ active?: boolean }>(({ active }) => ({
   display: 'flex',
@@ -133,11 +136,15 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
     requirements: '',
   });
   const [jobFieldErrors, setJobFieldErrors] = useState<Record<string, string>>({});
+  const [atsJobTitleOptions, setAtsJobTitleOptions] = useState<string[]>([]);
+  const atsJobTitleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Skills state
-  const [skills, setSkills] = useState<string[]>(['JavaScript', 'React', 'Node.js']);
+  const [skills, setSkills] = useState<string[]>([]);
   const [newSkill, setNewSkill] = useState('');
   const [skillsError, setSkillsError] = useState('');
+  const [skillOptions, setSkillOptions] = useState<string[]>([]);
+  const skillSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Screening Questions state
   const [questions, setQuestions] = useState<ScreeningQuestion[]>([
@@ -158,6 +165,31 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
         return next;
       });
     }
+  };
+
+  const onAtsJobTitleInputChange = (_: unknown, newInputValue: string) => {
+    handleJobFieldChange('title', newInputValue);
+    if (atsJobTitleDebounceRef.current) clearTimeout(atsJobTitleDebounceRef.current);
+    atsJobTitleDebounceRef.current = setTimeout(async () => {
+      if (!newInputValue || newInputValue.trim().length < 2) {
+        setAtsJobTitleOptions([]);
+        return;
+      }
+      setAtsJobTitleOptions(await fetchJobTitleSuggestions(newInputValue));
+    }, 300);
+  };
+
+  const onSkillInputChange = (_: unknown, newInputValue: string) => {
+    setNewSkill(newInputValue);
+    if (skillsError) setSkillsError('');
+    if (skillSearchDebounceRef.current) clearTimeout(skillSearchDebounceRef.current);
+    skillSearchDebounceRef.current = setTimeout(async () => {
+      if (!newInputValue || newInputValue.trim().length < 1) {
+        setSkillOptions([]);
+        return;
+      }
+      setSkillOptions(await fetchSkillSuggestions(newInputValue));
+    }, 300);
   };
 
   const handleAddSkill = () => {
@@ -411,6 +443,7 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
       
       // Reset form
       setNewJob({ title: '', department: '', location: '', type: '', experience: '', salaryMin: '', salaryMax: '', description: '', responsibilities: '', requirements: '' });
+      setAtsJobTitleOptions([]);
       setSkills(['JavaScript', 'React', 'Node.js']);
       setQuestions([
         { id: '1', question: 'How many years of experience do you have in this field?', type: 'number', required: true },
@@ -532,6 +565,7 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
           setOpenJobDialog(false);
           setJobFieldErrors({});
           setSkillsError('');
+          setAtsJobTitleOptions([]);
         }}
         maxWidth="md"
         fullWidth
@@ -549,17 +583,26 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
           {dialogTab === 0 && (
             <Grid container spacing={2} sx={{ mt: 1 }}>
               <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Job Title"
+                <Autocomplete
+                  freeSolo
+                  options={atsJobTitleOptions}
                   value={newJob.title}
-                  onChange={(e) => handleJobFieldChange('title', e.target.value)}
-                  placeholder="e.g., Senior Software Engineer"
-                  required
-                  variant="outlined"
-                  error={Boolean(jobFieldErrors.title)}
-                  helperText={jobFieldErrors.title || ' '}
-                  InputLabelProps={{ shrink: true }}
+                  onChange={(_, newValue) => handleJobFieldChange('title', (newValue as string) || '')}
+                  onInputChange={onAtsJobTitleInputChange}
+                  filterOptions={(options) => options}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      fullWidth
+                      label="Job Title"
+                      placeholder="e.g., Senior Software Engineer"
+                      required
+                      variant="outlined"
+                      error={Boolean(jobFieldErrors.title)}
+                      helperText={jobFieldErrors.title || ' '}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  )}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
@@ -703,18 +746,26 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
               
               {/* Add new skill */}
               <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
-                <TextField
+                <Autocomplete
+                  freeSolo
                   fullWidth
                   size="small"
-                  placeholder="Type a skill and press Enter or click Add..."
-                  value={newSkill}
-                  onChange={(e) => {
-                    setNewSkill(e.target.value);
-                    if (skillsError) setSkillsError('');
+                  options={skillOptions.filter((s) => !skills.includes(s))}
+                  value={newSkill || null}
+                  onChange={(_, newValue) => {
+                    if (newValue) setNewSkill(newValue);
                   }}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddSkill()}
-                  error={Boolean(skillsError)}
-                  helperText={skillsError || ' '}
+                  onInputChange={onSkillInputChange}
+                  filterOptions={(options) => options}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      placeholder="Type a skill and press Enter or click Add..."
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddSkill()}
+                      error={Boolean(skillsError)}
+                      helperText={skillsError || ' '}
+                    />
+                  )}
                 />
                 <Button variant="contained" onClick={handleAddSkill} sx={{ bgcolor: '#0d47a1', whiteSpace: 'nowrap' }}>
                   Add Skill
@@ -749,8 +800,7 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
                   Suggested Skills (click to add)
                 </Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                  {['Python', 'Java', 'TypeScript', 'AWS', 'Docker', 'Kubernetes', 'SQL', 'MongoDB', 'GraphQL', 'REST API', 'CI/CD', 'Git']
-                    .filter(s => !skills.includes(s))
+                  {SUGGESTED_SKILL_CHIPS.filter((s) => !skills.includes(s))
                     .map((skill) => (
                       <Chip
                         key={skill}

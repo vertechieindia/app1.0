@@ -66,6 +66,13 @@ PERMISSION_DEFINITIONS: List[PermissionDef] = [
     PermissionDef("20", "Create Jobs", "create_jobs", "Create job postings on behalf of companies"),
     PermissionDef("21", "Edit Jobs", "edit_jobs", "Edit job postings"),
     PermissionDef("22", "Delete Jobs", "delete_jobs", "Delete or close job postings"),
+    # Learn Admin — courses / tutorials / lessons (Learn Admin panel)
+    PermissionDef(
+        "23",
+        "Manage learning content",
+        "manage_learning_content",
+        "Courses, tutorials, sections, lessons, and learning CMS",
+    ),
 ]
 
 

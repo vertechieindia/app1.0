@@ -33,7 +33,7 @@ import {
 import { styled, alpha } from '@mui/material/styles';
 import { api } from '../../../services/apiClient';
 import { API_ENDPOINTS } from '../../../config/api';
-import { DUMMY_COMPANY, DUMMY_STATS } from './CMSDummyData';
+import { fetchMyCompanyForCMS } from './cmsCompanyFetch';
 
 // Icons
 import EditIcon from '@mui/icons-material/Edit';
@@ -51,6 +51,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ImageIcon from '@mui/icons-material/Image';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import CodeIcon from '@mui/icons-material/Code';
+import PersonSearchIcon from '@mui/icons-material/PersonSearch';
 
 // Pre-made banner templates (20 options)
 const BANNER_TEMPLATES = [
@@ -83,6 +84,41 @@ const colors = {
   accent: '#34C759',
   background: '#f5f7fa',
 };
+
+function formatCompanySizeLabel(raw: string | undefined | null): string {
+  if (!raw) return '';
+  const k = String(raw).toLowerCase();
+  const map: Record<string, string> = {
+    startup: 'Startup (1–10)',
+    small: 'Small (11–50)',
+    medium: 'Medium (51–200)',
+    large: 'Large (201–1,000)',
+    enterprise: 'Enterprise (1,000+)',
+  };
+  return map[k] || raw;
+}
+
+function companyToFormInfo(myCompany: any) {
+  return {
+    name: myCompany.name || '',
+    legalName: myCompany.legal_name || '',
+    tagline: myCompany.tagline || '',
+    industry: myCompany.industry || '',
+    size: formatCompanySizeLabel(
+      myCompany.company_size != null ? String(myCompany.company_size) : '',
+    ),
+    headquartersShort: myCompany.headquarters || '',
+    location:
+      (typeof myCompany.address === 'string' && myCompany.address.trim()) ||
+      myCompany.headquarters ||
+      '',
+    website: myCompany.website || '',
+    description: myCompany.description || '',
+    phone: myCompany.phone || '',
+    domain: myCompany.domain || '',
+    gstNumber: myCompany.gst_number || '',
+  };
+}
 
 const NavItem = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'active',
@@ -141,63 +177,32 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [companyInfo, setCompanyInfo] = useState({
     name: '',
+    legalName: '',
     tagline: '',
     industry: '',
     size: '',
+    headquartersShort: '',
     location: '',
     website: '',
     description: '',
+    phone: '',
+    domain: '',
+    gstNumber: '',
   });
   const [logo, setLogo] = useState<string | null>(null);
   const [selectedBanner, setSelectedBanner] = useState<number>(1);
   const [customBanner, setCustomBanner] = useState<string | null>(null);
   const [useCustomBanner, setUseCustomBanner] = useState(false);
 
-  // Fetch company data
+  // Fetch company data (always use /users/me/company — not GET /companies/ which ignores user_id)
   useEffect(() => {
     const fetchCompany = async () => {
       try {
-        let myCompany = null;
-
-        // Try getting user first to find their company
-        try {
-          const me = await api.get<any>(API_ENDPOINTS.AUTH.ME);
-          if (me?.id) {
-            // Try fetching companies associated with user
-            // We expect a list or a single object depending on backend
-            // Using logic from fix document: query companies by user_id
-            const result = await api.get(API_ENDPOINTS.COMPANY, { params: { user_id: me.id } });
-
-            if (Array.isArray(result) && result.length > 0) {
-              myCompany = result[0];
-            } else if (result && (result as any).id) {
-              myCompany = result;
-            }
-          }
-        } catch (e) {
-          console.warn('Failed to resolve company via user lookup:', e);
-        }
-
-        // Fallback to direct legacy endpoint if above failed
-        if (!myCompany) {
-          try {
-            myCompany = await api.get(API_ENDPOINTS.CMS.MY_COMPANY);
-          } catch (e) {
-            // Ignore, we handled it
-          }
-        }
+        const myCompany = await fetchMyCompanyForCMS();
 
         if (myCompany) {
           setCompany(myCompany);
-          setCompanyInfo({
-            name: myCompany.name || '',
-            tagline: myCompany.tagline || '',
-            industry: myCompany.industry || '',
-            size: myCompany.company_size || '',
-            location: myCompany.headquarters || '',
-            website: myCompany.website || '',
-            description: myCompany.description || '',
-          });
+          setCompanyInfo(companyToFormInfo(myCompany));
           setLogo(myCompany.logo_url || null);
 
           // Restore banner selection from backend cover_image_url if present
@@ -217,7 +222,6 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
             }
           }
 
-          // Fetch stats
           try {
             const stats = await api.get(API_ENDPOINTS.CMS.STATS(myCompany.id));
             setCompanyStats(stats);
@@ -227,35 +231,7 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
         }
       } catch (err) {
         console.error('Failed to fetch company:', err);
-        // Fallback to dummy data
-        setCompany(DUMMY_COMPANY);
-        setCompanyInfo({
-          name: DUMMY_COMPANY.name,
-          tagline: DUMMY_COMPANY.tagline,
-          industry: DUMMY_COMPANY.industry,
-          size: DUMMY_COMPANY.company_size,
-          location: DUMMY_COMPANY.headquarters,
-          website: DUMMY_COMPANY.website,
-          description: DUMMY_COMPANY.description,
-        });
-        setCompanyStats(DUMMY_STATS);
       } finally {
-        setCompany((prev: any) => {
-          if (!prev) {
-            setCompanyInfo({
-              name: DUMMY_COMPANY.name,
-              tagline: DUMMY_COMPANY.tagline,
-              industry: DUMMY_COMPANY.industry,
-              size: DUMMY_COMPANY.company_size,
-              location: DUMMY_COMPANY.headquarters,
-              website: DUMMY_COMPANY.website,
-              description: DUMMY_COMPANY.description,
-            });
-            setCompanyStats(DUMMY_STATS);
-            return DUMMY_COMPANY;
-          }
-          return prev;
-        });
         setLoading(false);
       }
     };
@@ -313,6 +289,7 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
     { path: '/techie/cms/posts', label: 'Posts', icon: <PostAddIcon /> },
     { path: '/techie/cms/employees', label: 'Employee Verification', icon: <PeopleIcon /> },
     { path: '/techie/cms/admins', label: 'Page Admins', icon: <GroupAddIcon /> },
+    { path: '/techie/cms/affiliated-users', label: 'Affiliated users', icon: <PersonSearchIcon /> },
     { path: '/techie/cms/jobs', label: 'Jobs', icon: <WorkIcon /> },
     { path: '/techie/cms/media', label: 'Media Library', icon: <ImageIcon /> },
     { path: '/techie/cms/snippets', label: 'Code Snippets', icon: <CodeIcon /> },
@@ -339,11 +316,16 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
     try {
       const updatePayload: any = {
         name: companyInfo.name,
+        legal_name: companyInfo.legalName.trim() || undefined,
         tagline: companyInfo.tagline,
         industry: companyInfo.industry,
         description: companyInfo.description,
         website: companyInfo.website,
-        headquarters: companyInfo.location || undefined,
+        headquarters: companyInfo.headquartersShort.trim() || undefined,
+        address: companyInfo.location.trim() || undefined,
+        phone: companyInfo.phone.trim() || undefined,
+        domain: companyInfo.domain.trim() || undefined,
+        gst_number: companyInfo.gstNumber.trim() || undefined,
       };
 
       // Persist logo URL if we have one
@@ -365,15 +347,7 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
       const updated = await api.get<any>(API_ENDPOINTS.CMS.MY_COMPANY);
       if (updated) {
         setCompany(updated);
-        setCompanyInfo({
-          name: updated.name || '',
-          tagline: updated.tagline || '',
-          industry: updated.industry || '',
-          size: updated.company_size || '',
-          location: updated.headquarters || '',
-          website: updated.website || '',
-          description: updated.description || '',
-        });
+        setCompanyInfo(companyToFormInfo(updated));
         setLogo(updated.logo_url || null);
         if (updated.cover_image_url) {
           const cover: string = updated.cover_image_url;
@@ -446,6 +420,11 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
                   <Typography variant="h4" fontWeight={700}>{company.name || 'Company Name'}</Typography>
                   {company.is_verified && <VerifiedIcon sx={{ color: colors.primaryLight }} />}
                 </Box>
+                {company.legal_name && (
+                  <Typography variant="body2" sx={{ opacity: 0.85, mb: 0.5 }}>
+                    Legal: {company.legal_name}
+                  </Typography>
+                )}
                 <Typography variant="body1" sx={{ opacity: 0.9, mb: 1.5 }}>
                   {company.tagline || company.description || 'Company tagline'}
                 </Typography>
@@ -459,15 +438,29 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
                   )}
                   {company.company_size && (
                     <Chip
-                      label={company.company_size}
+                      label={formatCompanySizeLabel(String(company.company_size))}
                       size="small"
                       sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
                     />
                   )}
-                  {company.headquarters && (
+                  {company.gst_number && (
+                    <Chip
+                      label={`GST ${company.gst_number}`}
+                      size="small"
+                      sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
+                    />
+                  )}
+                  {company.domain && (
+                    <Chip
+                      label={company.domain}
+                      size="small"
+                      sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
+                    />
+                  )}
+                  {(company.headquarters || company.address) && (
                     <Chip
                       icon={<LocationOnIcon sx={{ color: 'white !important' }} />}
-                      label={company.headquarters}
+                      label={company.headquarters || company.address}
                       size="small"
                       sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
                     />
@@ -554,6 +547,13 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
               />
               <TextField
                 fullWidth
+                label="Legal name"
+                value={companyInfo.legalName}
+                onChange={(e) => setCompanyInfo({ ...companyInfo, legalName: e.target.value })}
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                fullWidth
                 label="Tagline"
                 value={companyInfo.tagline}
                 onChange={(e) => setCompanyInfo({ ...companyInfo, tagline: e.target.value })}
@@ -573,22 +573,63 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
                     fullWidth
                     label="Company Size"
                     value={companyInfo.size}
-                    onChange={(e) => setCompanyInfo({ ...companyInfo, size: e.target.value })}
+                    InputProps={{ readOnly: true }}
+                    helperText="Edit in Page Settings if you need to change size"
+                  />
+                </Grid>
+              </Grid>
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Phone"
+                    value={companyInfo.phone}
+                    onChange={(e) => setCompanyInfo({ ...companyInfo, phone: e.target.value })}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Website"
+                    value={companyInfo.website}
+                    onChange={(e) => setCompanyInfo({ ...companyInfo, website: e.target.value })}
+                  />
+                </Grid>
+              </Grid>
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Domain"
+                    value={companyInfo.domain}
+                    onChange={(e) => setCompanyInfo({ ...companyInfo, domain: e.target.value })}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="GST number"
+                    value={companyInfo.gstNumber}
+                    onChange={(e) => setCompanyInfo({ ...companyInfo, gstNumber: e.target.value })}
                   />
                 </Grid>
               </Grid>
               <TextField
                 fullWidth
-                label="Location"
-                value={companyInfo.location}
-                onChange={(e) => setCompanyInfo({ ...companyInfo, location: e.target.value })}
+                label="Headquarters (short)"
+                value={companyInfo.headquartersShort}
+                onChange={(e) =>
+                  setCompanyInfo({ ...companyInfo, headquartersShort: e.target.value })
+                }
                 sx={{ mb: 2 }}
               />
               <TextField
                 fullWidth
-                label="Website"
-                value={companyInfo.website}
-                onChange={(e) => setCompanyInfo({ ...companyInfo, website: e.target.value })}
+                multiline
+                minRows={2}
+                label="Full address"
+                value={companyInfo.location}
+                onChange={(e) => setCompanyInfo({ ...companyInfo, location: e.target.value })}
                 sx={{ mb: 2 }}
               />
               <TextField

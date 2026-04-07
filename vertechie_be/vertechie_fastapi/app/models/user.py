@@ -27,6 +27,7 @@ class RoleType(str, enum.Enum):
     SCHOOL_ADMIN = "school_admin"
     SUPER_ADMIN = "super_admin"
     BDM_ADMIN = "bdm_admin"
+    LEARN_ADMIN = "learn_admin"
 
 
 class AdminRole(str, enum.Enum):
@@ -191,6 +192,8 @@ class UserProfile(Base, UUIDMixin, TimestampMixin):
     experience_years = Column(Integer, default=0)
     current_position = Column(String(200), nullable=True)
     current_company = Column(String(200), nullable=True)
+    # Primary company affiliation (HR/company signup, optional for techies)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="SET NULL"), nullable=True)
     
     # Social Links
     linkedin_url = Column(String(255), nullable=True)

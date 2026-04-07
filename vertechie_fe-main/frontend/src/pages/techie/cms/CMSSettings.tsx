@@ -40,20 +40,38 @@ const CMSSettings: React.FC = () => {
   const [success, setSuccess] = useState(false);
   const [settings, setSettings] = useState({
     name: '',
+    legalName: '',
     tagline: '',
     website: '',
+    domain: '',
     email: '',
     phone: '',
+    headquarters: '',
     address: '',
     industry: '',
-    size: '',
+    gstNumber: '',
+    companySizeRaw: '' as string,
     description: '',
+    coverImageUrl: '',
     allowEmployeeVerification: true,
     showJobPostings: true,
     enableMessaging: true,
     showContactInfo: true,
   });
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  const formatCompanySizeLabel = (raw: string | undefined | null): string => {
+    if (!raw) return '';
+    const k = String(raw).toLowerCase();
+    const map: Record<string, string> = {
+      startup: 'Startup (1–10)',
+      small: 'Small (11–50)',
+      medium: 'Medium (51–200)',
+      large: 'Large (201–1,000)',
+      enterprise: 'Enterprise (1,000+)',
+    };
+    return map[k] || raw;
+  };
 
   // Fetch company data for the logged-in HR/company admin
   useEffect(() => {
@@ -72,20 +90,28 @@ const CMSSettings: React.FC = () => {
 
         setCompanyId(myCompany.id);
 
-        // Company size is already a human readable string in this response
-        const companySize = myCompany.company_size || '';
+        const sizeRaw = myCompany.company_size != null ? String(myCompany.company_size) : '';
+        const fullAddress =
+          (typeof myCompany.address === 'string' && myCompany.address.trim()) ||
+          (typeof myCompany.headquarters === 'string' && myCompany.headquarters) ||
+          '';
 
         setSettings((prev) => ({
           ...prev,
           name: myCompany.name || prev.name,
+          legalName: myCompany.legal_name || prev.legalName,
           tagline: myCompany.tagline || prev.tagline,
           website: myCompany.website || prev.website,
+          domain: myCompany.domain || prev.domain,
           email: myCompany.email || prev.email,
           phone: myCompany.phone || prev.phone,
-          address: myCompany.headquarters || prev.address,
+          headquarters: myCompany.headquarters || prev.headquarters,
+          address: fullAddress || prev.address,
           industry: myCompany.industry || prev.industry,
-          size: companySize || prev.size,
+          gstNumber: myCompany.gst_number || prev.gstNumber,
+          companySizeRaw: sizeRaw || prev.companySizeRaw,
           description: myCompany.description || prev.description,
+          coverImageUrl: myCompany.cover_image_url || prev.coverImageUrl,
         }));
 
         setLogoUrl(myCompany.logo_url || null);
@@ -118,31 +144,21 @@ const CMSSettings: React.FC = () => {
       setSaving(true);
       setError(null);
 
-      // Parse company size back to number if needed
-      let employeesCount: number | undefined = undefined;
-      if (settings.size) {
-        const sizeMatch = settings.size.match(/(\d+)-(\d+)/);
-        if (sizeMatch) {
-          employeesCount = parseInt(sizeMatch[2]);
-        } else if (settings.size.includes('1000+')) {
-          employeesCount = 1000;
-        }
-      }
-
       const updatePayload: any = {
         name: settings.name.trim(),
+        legal_name: settings.legalName.trim() || undefined,
         tagline: settings.tagline.trim() || undefined,
         website: settings.website.trim() || undefined,
+        domain: settings.domain.trim() || undefined,
         email: settings.email.trim() || undefined,
         phone: settings.phone.trim() || undefined,
-        headquarters: settings.address.trim() || undefined,
+        headquarters: settings.headquarters.trim() || undefined,
+        address: settings.address.trim() || undefined,
         industry: settings.industry.trim() || undefined,
+        gst_number: settings.gstNumber.trim() || undefined,
         description: settings.description.trim() || undefined,
+        cover_image_url: settings.coverImageUrl.trim() || undefined,
       };
-
-      if (employeesCount !== undefined) {
-        updatePayload.employees_count = employeesCount;
-      }
 
       // Remove undefined values
       Object.keys(updatePayload).forEach(key => {
@@ -238,12 +254,22 @@ const CMSSettings: React.FC = () => {
                 </Box>
 
                 <Grid container spacing={2}>
-                  <Grid item xs={12}>
+                  <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
-                      label="Company Name"
+                      required
+                      label="Display name"
+                      helperText="Public company name (from your registration)"
                       value={settings.name}
                       onChange={handleChange('name')}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      label="Legal name"
+                      value={settings.legalName}
+                      onChange={handleChange('legalName')}
                     />
                   </Grid>
                   <Grid item xs={12}>
@@ -265,9 +291,26 @@ const CMSSettings: React.FC = () => {
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
-                      label="Company Size"
-                      value={settings.size}
-                      onChange={handleChange('size')}
+                      label="Company size"
+                      value={formatCompanySizeLabel(settings.companySizeRaw)}
+                      InputProps={{ readOnly: true }}
+                      helperText="Set when you registered; contact support to change"
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      label="GST number"
+                      value={settings.gstNumber}
+                      onChange={handleChange('gstNumber')}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      label="Domain"
+                      value={settings.domain}
+                      onChange={handleChange('domain')}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
@@ -281,7 +324,7 @@ const CMSSettings: React.FC = () => {
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
-                      label="Careers Email"
+                      label="Careers / primary email"
                       value={settings.email}
                       onChange={handleChange('email')}
                     />
@@ -294,12 +337,31 @@ const CMSSettings: React.FC = () => {
                       onChange={handleChange('phone')}
                     />
                   </Grid>
-                  <Grid item xs={12} md={6}>
+                  <Grid item xs={12}>
                     <TextField
                       fullWidth
-                      label="Headquarters"
+                      label="Headquarters (short)"
+                      value={settings.headquarters}
+                      onChange={handleChange('headquarters')}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      multiline
+                      minRows={3}
+                      label="Full address"
                       value={settings.address}
                       onChange={handleChange('address')}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Banner image URL"
+                      value={settings.coverImageUrl}
+                      onChange={handleChange('coverImageUrl')}
+                      helperText="Cover image from registration; paste a new image URL to change"
                     />
                   </Grid>
                 </Grid>

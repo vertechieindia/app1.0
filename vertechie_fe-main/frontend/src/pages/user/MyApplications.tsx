@@ -529,24 +529,24 @@ const MyApplications: React.FC = () => {
                           </Box>
                         </Box>
 
-                        {/* Match Score (profile/skills match) */}
-                        {application.codingScore !== undefined && (
+                        {/* Skill match vs job requirements (not coding test score) */}
+                        {(application.skillMatchPercent ?? application.match_score) != null && (
                           <Box sx={{ ml: 9, mb: 1 }}>
                             <Chip
-                              label={`Match Score: ${application.codingScore}%`}
+                              label={`Skill match: ${application.skillMatchPercent ?? application.match_score}%`}
                               size="small"
                               sx={{
                                 fontWeight: 600,
                                 bgcolor:
-                                  application.codingScore >= 80
+                                  (application.skillMatchPercent ?? application.match_score ?? 0) >= 80
                                     ? alpha('#00d4aa', 0.12)
-                                    : application.codingScore >= 60
+                                    : (application.skillMatchPercent ?? application.match_score ?? 0) >= 60
                                     ? alpha('#ffc107', 0.12)
                                     : alpha('#ff4d6a', 0.12),
                                 color:
-                                  application.codingScore >= 80
+                                  (application.skillMatchPercent ?? application.match_score ?? 0) >= 80
                                     ? '#00a085'
-                                    : application.codingScore >= 60
+                                    : (application.skillMatchPercent ?? application.match_score ?? 0) >= 60
                                     ? '#d39e00'
                                     : '#ff4d6a',
                               }}

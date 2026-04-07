@@ -1,3 +1,7 @@
+/**
+ * Profile verification queues: `userType` techie → Techie Admin; hr → HM Admin; company/school → their admins.
+ * Company *creation* for CMS is not approved here — that is BDM (VerTechie Admin → User Management → Company registration, registration invites).
+ */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -201,19 +205,8 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
         setTotalCount(total);
         if (total > 0 && skip >= total) setPage(0);
 
-        // Additional client-side filtering for techie_admin to ensure only techies are shown
-        if (userType === 'techie') {
-          const filtered = (approvals as any[]).filter((approval: any) => {
-            const isTechie = !approval.user_type ||
-              String(approval.user_type).toLowerCase() === 'techie' ||
-              String(approval.user_type).toLowerCase() === 'tech professional';
-            const hasAdminRoles = approval.admin_roles && approval.admin_roles.length > 0;
-            return isTechie && !hasAdminRoles;
-          });
-          setPendingApprovals(filtered);
-        } else {
-          setPendingApprovals(approvals);
-        }
+        // Server already scopes techie_admin to TECHIE role; do not re-filter client-side (can empty a page).
+        setPendingApprovals(approvals);
       } else {
         setPendingApprovals([]);
         if (response.status === 401) {
@@ -530,18 +523,6 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
     }
   };
 
-  // Client-side filter: only for techie admin to exclude non-techies (server already filters by search/status)
-  const filteredApprovals = pendingApprovals.filter((approval) => {
-    if (userType === 'techie') {
-      const isTechie = !approval.user_type ||
-        String(approval.user_type).toLowerCase() === 'techie' ||
-        String(approval.user_type).toLowerCase() === 'tech professional';
-      const hasAdminRoles = approval.admin_roles && approval.admin_roles.length > 0;
-      if (!isTechie || hasAdminRoles) return false;
-    }
-    return true;
-  });
-
   const getUserTypeLabel = () => {
     switch (userType) {
       case 'techie': return 'Tech Professional';
@@ -555,7 +536,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   // Export filtered list to CSV
   const handleExportCSV = () => {
     const headers = ['Name', 'Email', 'VID', 'Country', 'Type', 'Submitted', 'Status'];
-    const rows = filteredApprovals.map((a: any) => [
+    const rows = pendingApprovals.map((a: any) => [
       a.user_full_name ?? '',
       a.user_email ?? '',
       a.vertechie_id ?? '',
@@ -590,7 +571,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
             <Button variant="outlined" startIcon={<Refresh />} onClick={fetchApprovals} size="medium">
               Refresh
             </Button>
-            <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={handleExportCSV} size="medium" disabled={filteredApprovals.length === 0}>
+            <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={handleExportCSV} size="medium" disabled={pendingApprovals.length === 0}>
               Export
             </Button>
             <Button variant="contained" startIcon={<PersonAdd />} onClick={() => setCreateWizardOpen(true)} size="medium">
@@ -691,7 +672,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
             <LinearProgress sx={{ width: '60%', maxWidth: 300, height: 6, borderRadius: 3 }} />
             <Typography align="center" sx={{ mt: 2 }} color="text.secondary">Loading...</Typography>
           </Box>
-        ) : filteredApprovals.length === 0 ? (
+        ) : pendingApprovals.length === 0 ? (
           <Paper elevation={0} sx={{ p: 6, textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2, bgcolor: '#f0fdf4' }}>
               <CheckCircle sx={{ fontSize: 40, color: '#22c55e' }} />
@@ -723,7 +704,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filteredApprovals.map((approval) => (
+                {pendingApprovals.map((approval) => (
                   <TableRow key={approval.id} hover>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -1192,9 +1173,11 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                       )}
                     </Grid>
                   </Box>
-                  <Divider sx={{ my: 2 }} />
+                  {userType === 'techie' && <Divider sx={{ my: 2 }} />}
                 </>
               )}
+              {userType === 'techie' && (
+              <>
               <Box sx={{ px: 2.5, pb: 2.5 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 0.5, mb: 1.5 }}>
                   <Business sx={{ fontSize: 18 }} /> Work Experience ({reviewData.experiences?.length || 0})
@@ -1354,6 +1337,8 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
                   <Typography variant="body2" color="text.secondary">No education added</Typography>
                 )}
               </Box>
+              </>
+              )}
               <Divider sx={{ my: 2 }} />
               <Box sx={{ px: 2.5, pb: 2.5 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 0.5, mb: 1.5 }}>

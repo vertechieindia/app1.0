@@ -12,6 +12,8 @@ import {
   Application,
   ApplicationStatus,
   CodingAnswer,
+  ScreeningAnswerDetail,
+  CodingAssessmentRunResult,
 } from '../types/jobPortal';
 
 // API Helper - Get auth token
@@ -97,6 +99,48 @@ export const jobService = {
     }
     const data = await response.json();
     return mapBackendJobToFrontend(data);
+  },
+
+  /**
+   * Preview run (stdin/sample) or test (all cases) during coding assessment.
+   * Requires auth; uses server judge when JUDGE_SERVICE_URL is set.
+   */
+  runCodingAssessmentPreview: async (
+    jobId: string,
+    payload: { questionId: string; code: string; language: string; mode: 'run' | 'test' }
+  ): Promise<CodingAssessmentRunResult> => {
+    const response = await apiRequest(API_ENDPOINTS.JOBS.CODING_ASSESSMENT_RUN(jobId), {
+      method: 'POST',
+      body: JSON.stringify({
+        question_id: payload.questionId,
+        code: payload.code,
+        language: payload.language,
+        mode: payload.mode,
+      }),
+    });
+    const raw = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error((raw as { detail?: string })?.detail || 'Execution request failed');
+    }
+    const r = raw as Record<string, unknown>;
+    return {
+      executionAvailable: Boolean(r.execution_available ?? r.executionAvailable),
+      message: (r.message as string) || undefined,
+      status: (r.status as string) || undefined,
+      stdout: (r.stdout as string) || '',
+      stderr: (r.stderr as string) || '',
+      runtimeMs: (r.runtime_ms as number) ?? null,
+      passed: (r.passed as number) ?? null,
+      total: (r.total as number) ?? null,
+      tests: Array.isArray(r.tests)
+        ? (r.tests as Record<string, unknown>[]).map((row) => ({
+            passed: Boolean(row.passed),
+            input: String(row.input ?? ''),
+            expected: String(row.expected ?? row.expected_output ?? ''),
+            actual: String(row.actual ?? ''),
+          }))
+        : undefined,
+    };
   },
 
    // Get saved (bookmarked) job IDs from backend - GET /jobs/saved
@@ -250,6 +294,7 @@ const mapBackendJobToFrontend = (backendJob: any): Job => {
 // Helper: Map frontend job format to backend format
 const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
   const explicitScreeningQuestions = frontendJob.screeningQuestions;
+  const explicitCodingQuestions = frontendJob.codingQuestions;
   const parseTypeFromDescription = (description?: string): 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal' => {
     const raw = String(description || '').toLowerCase();
     const match = raw.match(/type:\s*([a-z_]+)/);
@@ -291,6 +336,8 @@ const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
     ? explicitScreeningQuestions
     : fallbackScreeningQuestions;
 
+  const codingQuestions = Array.isArray(explicitCodingQuestions) ? explicitCodingQuestions : [];
+
   return {
     title: frontendJob.title,
     company_name: frontendJob.companyName || 'Company',
@@ -308,8 +355,7 @@ const mapFrontendJobToBackend = (frontendJob: JobFormData): any => {
     hiring_countries: frontendJob.hiringCountries ?? [],
     work_authorizations: frontendJob.workAuthorizations ?? [],
     open_for_sponsorship: frontendJob.openForSponsorship ?? undefined,
-    // Keep a single source of truth to avoid duplicate questions on user side.
-    coding_questions: [],
+    coding_questions: codingQuestions,
     screening_questions: screeningQuestions,
     status: 'published',
   };
@@ -325,7 +371,12 @@ export const applicationService = {
     candidateName: string,
     candidateEmail: string,
     codingAnswers: CodingAnswer[],
-    applicantLocation?: { lat: number; lng: number } | null
+    applicantLocation?: {
+      lat: number;
+      lng: number;
+      context?: Record<string, unknown>;
+    } | null,
+    assessmentPayload?: Record<string, unknown>
   ): Promise<Application> => {
     void userId;
     void candidateName;
@@ -335,14 +386,22 @@ export const applicationService = {
       answersDict[answer.questionId] = answer.code || '';
     });
 
+    const answersBody = assessmentPayload && Object.keys(assessmentPayload).length > 0
+      ? {
+          responses: answersDict,
+          ...assessmentPayload,
+        }
+      : answersDict;
+
     const response = await apiRequest(API_ENDPOINTS.JOBS.APPLY(jobId), {
       method: 'POST',
       body: JSON.stringify({
         cover_letter: '',
         resume_url: '',
-        answers: answersDict,
+        answers: answersBody,
         applicant_location_lat: applicantLocation?.lat ?? null,
         applicant_location_lng: applicantLocation?.lng ?? null,
+        applicant_location_context: applicantLocation?.context ?? null,
       }),
     });
     if (!response.ok) {
@@ -419,6 +478,48 @@ const mapBackendApplicationToFrontend = (backendApp: any): Application => {
     : backendApp.applicant_name || backendApp.candidateName || 'Applicant';
   const applicantEmail = applicant.email || backendApp.applicant_email || backendApp.candidateEmail || '';
   
+  const rawAnswers = backendApp.answers;
+  const normalizedCodingAnswers = Array.isArray(rawAnswers?.coding_answers)
+    ? rawAnswers.coding_answers
+    : Array.isArray(rawAnswers)
+      ? rawAnswers
+      : [];
+
+  const integrityRaw = rawAnswers && typeof rawAnswers === 'object' && !Array.isArray(rawAnswers)
+    ? (rawAnswers as Record<string, unknown>).integrity
+    : undefined;
+  const assessmentIntegrity =
+    integrityRaw && typeof integrityRaw === 'object' && !Array.isArray(integrityRaw)
+      ? (integrityRaw as Application['assessmentIntegrity'])
+      : undefined;
+
+  const ms = backendApp.match_score ?? backendApp.rating;
+  const skillMatchPercent = typeof ms === 'number' ? ms : undefined;
+
+  const answersObj = rawAnswers && typeof rawAnswers === 'object' && !Array.isArray(rawAnswers)
+    ? (rawAnswers as Record<string, unknown>)
+    : null;
+  const codingScoreFromAnswers =
+    typeof answersObj?.coding_test_score === 'number' ? answersObj.coding_test_score : undefined;
+
+  const screeningAnswersDetail: ScreeningAnswerDetail[] | undefined = Array.isArray(
+    answersObj?.screening_answers
+  )
+    ? (answersObj.screening_answers as ScreeningAnswerDetail[])
+    : undefined;
+
+  const screeningIntegrityStage =
+    answersObj?.screening_integrity && typeof answersObj.screening_integrity === 'object'
+      ? (answersObj.screening_integrity as Record<string, unknown>)
+      : undefined;
+
+  const codingEvalMerged =
+    backendApp.coding_evaluation && typeof backendApp.coding_evaluation === 'object'
+      ? backendApp.coding_evaluation
+      : answersObj?.coding_evaluation && typeof answersObj.coding_evaluation === 'object'
+        ? answersObj.coding_evaluation
+        : undefined;
+
   return {
     id: backendApp.id,
     jobId: backendApp.job_id || backendApp.jobId,
@@ -429,9 +530,17 @@ const mapBackendApplicationToFrontend = (backendApp: any): Application => {
       backendApp.submitted_at || backendApp.appliedAt || backendApp.created_at
     ),
     status: backendApp.status || 'applied',
-    codingAnswers: backendApp.answers || [],
-    codingScore: backendApp.match_score || backendApp.rating,
+    codingAnswers: normalizedCodingAnswers,
+    codingScore:
+      backendApp.coding_test_score ??
+      backendApp.coding_evaluation_score ??
+      codingScoreFromAnswers,
     codingStatus: backendApp.coding_status || 'pending',
+    skillMatchPercent,
+    assessmentIntegrity,
+    screeningAnswersDetail,
+    screeningIntegrityStage,
+    codingEvaluation: codingEvalMerged as Application['codingEvaluation'],
     job: backendApp.job ? mapBackendJobToFrontend(backendApp.job) : undefined,
     // Skill matching fields from backend
     match_score: backendApp.match_score,
@@ -676,3 +785,45 @@ const mapApplicationStatus = (status: string): Candidate['status'] => {
   };
   return statusMap[status?.toLowerCase()] || 'new';
 };
+
+/** Browser URL for files under FastAPI `/uploads` (dev: same origin + vite proxy). */
+export function resolveUploadsPublicUrl(path: string): string {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  if (typeof window !== 'undefined' && path.startsWith('/')) {
+    return `${window.location.origin}${path}`;
+  }
+  return path;
+}
+
+export async function uploadJobScreeningVideo(file: File): Promise<string> {
+  const token = getAuthToken();
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_BASE_URL}/jobs/upload/screening-video`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error((await res.text()) || 'Upload failed');
+  }
+  const data = await res.json();
+  if (!data?.url) throw new Error('Invalid upload response');
+  return data.url as string;
+}
+
+export async function fetchPracticeProblemsForBank(params?: { limit?: number; search?: string }) {
+  const q = new URLSearchParams();
+  q.set('limit', String(params?.limit ?? 40));
+  if (params?.search) q.set('search', params.search);
+  const res = await apiRequest(`/practice/problems?${q.toString()}`);
+  if (!res.ok) throw new Error('Failed to load question bank');
+  return res.json();
+}
+
+export async function fetchPracticeProblemById(problemId: string) {
+  const res = await apiRequest(`/practice/problems/${problemId}`);
+  if (!res.ok) throw new Error('Failed to load problem');
+  return res.json();
+}

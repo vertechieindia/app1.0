@@ -49,7 +49,9 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import BusinessIcon from '@mui/icons-material/Business';
 import { applicationService, jobService } from '../../services/jobPortalService';
+import VideoScreeningRecorder from '../../components/screening/VideoScreeningRecorder';
 import { getApiUrl } from '../../config/api';
+import { ABOVE_BOTTOM_NAV_OFFSET_PX } from '../../constants/layout';
 import { fetchWithAuth } from '../../utils/apiInterceptor';
 
 // Theme Colors
@@ -154,9 +156,10 @@ const SubmitButton = styled(Button)({
 interface ScreeningQuestion {
   id: string;
   question: string;
-  type: 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal';
+  type: 'text' | 'yesno' | 'multiple' | 'number' | 'verbal' | 'video';
   required: boolean;
   options?: string[];
+  maxVideoSeconds?: number;
 }
 
 interface UserProfile {
@@ -186,7 +189,11 @@ interface Job {
   requiredSkills: string[];
   experienceLevel: string;
   collectApplicantLocation: boolean;
+  hasCodingQuestions: boolean;
+  codingQuestionCount: number;
 }
+
+const getScreeningAnswersStorageKey = (jobId: string) => `job-application-screening:${jobId}`;
 
 const JobApply: React.FC = () => {
   const navigate = useNavigate();
@@ -211,6 +218,8 @@ const JobApply: React.FC = () => {
     requiredSkills: [],
     experienceLevel: '',
     collectApplicantLocation: false,
+    hasCodingQuestions: false,
+    codingQuestionCount: 0,
   });
   
   // User profile from localStorage
@@ -244,8 +253,8 @@ const JobApply: React.FC = () => {
     if (normalized === 'yesno' || normalized === 'yes_no' || normalized === 'boolean') return 'yesno';
     if (normalized === 'multiple' || normalized === 'multiple_choice' || normalized === 'mcq') return 'multiple';
     if (normalized === 'number' || normalized === 'numeric') return 'number';
-    if (normalized === 'code' || normalized === 'coding') return 'code';
     if (normalized === 'verbal') return 'verbal';
+    if (normalized === 'video' || normalized === 'video_response') return 'video';
     return 'text';
   };
 
@@ -341,6 +350,14 @@ const JobApply: React.FC = () => {
       return '';
     }
 
+    if (question.type === 'video') {
+      if (!value.trim()) return question.required ? 'Video answer is required' : '';
+      if (!value.startsWith('/uploads/') && !value.startsWith('http')) {
+        return 'Please record and upload your video';
+      }
+      return '';
+    }
+
     if (question.type === 'multiple') {
       const options = question.options || [];
       if (options.length > 0 && !options.includes(value)) return 'Please select a valid option';
@@ -350,26 +367,57 @@ const JobApply: React.FC = () => {
     return '';
   };
 
-  const requestApplicantLocation = async (): Promise<{ lat: number; lng: number } | null> => {
-    if (!job.collectApplicantLocation) return null;
-    if (!locationConsent) {
-      throw new Error('Please allow location sharing to apply for this job.');
+  const reverseGeocodeApplicantLocation = async (
+    lat: number,
+    lng: number
+  ): Promise<Record<string, unknown> | null> => {
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=12&addressdetails=1`,
+        {
+          headers: {
+            Accept: 'application/json',
+          },
+        }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const address = data?.address || {};
+      return {
+        city: address.city || address.town || address.village || address.hamlet || '',
+        region: address.state || address.county || '',
+        country: address.country || '',
+        postcode: address.postcode || '',
+        display_name: data?.display_name || '',
+        source: 'reverse_geocode',
+      };
+    } catch {
+      return null;
     }
+  };
+
+  const requestApplicantLocation = async (): Promise<{ lat: number; lng: number; context?: Record<string, unknown> } | null> => {
+    if (!job.collectApplicantLocation) return null;
+    if (!locationConsent) return null;
     if (!navigator.geolocation) {
-      throw new Error('Location access is not supported in this browser.');
+      return null;
     }
 
     return new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
-        (position) => {
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          const context = await reverseGeocodeApplicantLocation(lat, lng);
           resolve({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
+            lat,
+            lng,
+            context: context || undefined,
           });
         },
         (error) => {
           if (error.code === error.PERMISSION_DENIED) {
-            reject(new Error('Location permission was denied. Please enable it and try again.'));
+            reject(new Error('You chose to share location, but browser location permission is blocked. Please enable location access or uncheck the consent box and continue.'));
             return;
           }
           reject(new Error('Unable to capture your current location. Please try again.'));
@@ -398,6 +446,8 @@ const JobApply: React.FC = () => {
               requiredSkills: jobData.requiredSkills || [],
               experienceLevel: jobData.experienceLevel || '',
               collectApplicantLocation: Boolean(jobData.collect_applicant_location),
+              hasCodingQuestions: Array.isArray(jobData.codingQuestions) && jobData.codingQuestions.length > 0,
+              codingQuestionCount: Array.isArray(jobData.codingQuestions) ? jobData.codingQuestions.length : 0,
             });
             // Single source of truth: use screening questions only.
             const rawScreeningQuestions = jobData.screeningQuestions ?? (jobData as any).screening_questions ?? [];
@@ -433,6 +483,12 @@ const JobApply: React.FC = () => {
                     type: parseQuestionType(q.type),
                     required: parseQuestionRequired(q.required),
                     options: Array.isArray(q.options) ? q.options : [],
+                    maxVideoSeconds:
+                      typeof q.maxVideoSeconds === 'number'
+                        ? q.maxVideoSeconds
+                        : typeof q.max_video_seconds === 'number'
+                          ? q.max_video_seconds
+                          : 120,
                   };
                 })
                 .filter((q) => q.question.length > 0)
@@ -588,10 +644,13 @@ const JobApply: React.FC = () => {
   };
 
   const isQuestionAnswered = (question: ScreeningQuestion) => {
-    return question.required ? !!answers[question.id]?.trim() : true;
+    if (!question.required) return true;
+    const v = answers[question.id]?.trim() || '';
+    if (question.type === 'video') return v.length > 0;
+    return !!v;
   };
 
-  const allRequiredAnswered = questions.filter(q => q.required).every(q => !!answers[q.id]?.trim());
+  const allRequiredAnswered = questions.filter((q) => q.required).every((q) => isQuestionAnswered(q));
 
   const handleSubmit = async () => {
     const validationErrors: Record<string, string> = {};
@@ -619,15 +678,27 @@ const JobApply: React.FC = () => {
         return;
       }
 
-      // Prepare screening answers for API
+      const applicantLocation = await requestApplicantLocation();
+
       const screeningAnswers = questions.map(q => ({
         questionId: q.id,
+        question: q.question,
         code: answers[q.id] || '',
-        language: 'text',
+        language: q.type,
         submittedAt: new Date().toISOString(),
       }));
 
-      const applicantLocation = await requestApplicantLocation();
+      if (job.hasCodingQuestions) {
+        const payload = {
+          screeningAnswers,
+          applicantLocation,
+          savedAt: new Date().toISOString(),
+        };
+        sessionStorage.setItem(getScreeningAnswersStorageKey(job.id), JSON.stringify(payload));
+        setSubmitting(false);
+        navigate(`/techie/jobs/${job.id}/coding-test`);
+        return;
+      }
 
       // Submit application to database via API
       await applicationService.applyForJob(
@@ -636,7 +707,10 @@ const JobApply: React.FC = () => {
         user.name || `${user.first_name} ${user.last_name}`,
         user.email,
         screeningAnswers,
-        applicantLocation
+        applicantLocation,
+        {
+          screening_answers: screeningAnswers,
+        }
       );
       
       setSubmitting(false);
@@ -735,46 +809,64 @@ const JobApply: React.FC = () => {
 
   return (
     <PageContainer>
-      <Container maxWidth="lg" sx={{ py: 3 }}>
+      <Container
+        maxWidth={false}
+        sx={{
+          pt: 3,
+          pb: `calc(${ABOVE_BOTTOM_NAV_OFFSET_PX}px + 24px + env(safe-area-inset-bottom, 0px))`,
+          px: { xs: 2, sm: 2.5, lg: 3 },
+          maxWidth: '1440px',
+        }}
+      >
         {/* Header */}
         <HeaderCard elevation={0}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: { xs: 'flex-start', lg: 'center' },
+              gap: 2,
+              flexWrap: 'wrap',
+            }}
+          >
             <Button
-              startIcon={<ArrowBackIcon />}
               onClick={() => navigate(-1)}
-              sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' } }}
+              sx={{
+                minWidth: 'auto',
+                p: 0.5,
+                color: 'white',
+                borderRadius: 999,
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+              }}
             >
-              Back
+              <ArrowBackIcon />
             </Button>
-          </Box>
-          <Typography variant="h4" fontWeight={700} sx={{ mb: 1 }}>
-            Apply for {job.title || 'Job'}
-          </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <BusinessIcon sx={{ fontSize: 20 }} />
-              <Typography>{job.company || 'Company not available'}</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <LocationOnIcon sx={{ fontSize: 20 }} />
-              <Typography>{job.location || 'Location not available'}</Typography>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="h4" fontWeight={700} sx={{ mb: 1 }}>
+                Apply for {job.title || 'Job'}
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <BusinessIcon sx={{ fontSize: 20 }} />
+                  <Typography>{job.company || 'Company not available'}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <LocationOnIcon sx={{ fontSize: 20 }} />
+                  <Typography>{job.location || 'Location not available'}</Typography>
+                </Box>
+              </Box>
             </Box>
           </Box>
         </HeaderCard>
 
-        <Grid container spacing={3}>
+        <Grid container spacing={{ xs: 2, lg: 1 }}>
           {/* Main Content - Questions */}
-          <Grid item xs={12} lg={8}>
+          <Grid item xs={12} lg={8.5} order={{ xs: 2, lg: 2 }}>
             <ContentCard>
-              <CardContent sx={{ p: 4 }}>
+              <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
                 <Typography variant="h5" fontWeight={700} sx={{ mb: 1 }}>
-                  {questions.length > 0 ? "Screening Questions" : "Submit Application"}
+                  {questions.length > 0 ? "Screening Questions" : job.hasCodingQuestions ? "Start Coding Assessment" : "Submit Application"}
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-                  {questions.length > 0 
-                    ? "Please answer the following questions. Your profile information will be automatically shared with the hiring manager."
-                    : "Review your profile match score and submit your application. Your profile information will be automatically shared with the hiring manager."}
-                </Typography>
+                
 
                 {questions.map((question, index) => (
                   <QuestionCard key={question.id} elevation={0}>
@@ -790,25 +882,40 @@ const JobApply: React.FC = () => {
                       />
                     </Box>
 
-                    {(question.type === 'text' || question.type === 'code' || question.type === 'verbal') && (
+                    {(question.type === 'text' || question.type === 'verbal') && (
                       <TextField
                         fullWidth
                         multiline
                         rows={3}
                         placeholder={
-                          question.type === 'code'
-                            ? 'Type your code answer here...'
-                            : question.type === 'verbal'
-                              ? 'Type your verbal answer here...'
-                              : 'Type your answer here...'
+                          question.type === 'verbal'
+                            ? 'Type your verbal answer here...'
+                            : 'Type your answer here...'
                         }
                         value={answers[question.id] || ''}
                         onChange={(e) => handleAnswerChange(question.id, e.target.value)}
                         variant="outlined"
                         error={Boolean(questionErrors[question.id])}
                         helperText={questionErrors[question.id] || ' '}
-                        InputProps={question.type === 'code' ? { sx: { fontFamily: 'monospace' } } : undefined}
                       />
+                    )}
+
+                    {question.type === 'video' && (
+                      <Box data-allow-paste="true">
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                          Max length {question.maxVideoSeconds ?? 120}s · allow camera & microphone when prompted.
+                        </Typography>
+                        <VideoScreeningRecorder
+                          maxSeconds={Math.min(600, Math.max(15, question.maxVideoSeconds ?? 120))}
+                          value={answers[question.id] || ''}
+                          onChange={(url) => handleAnswerChange(question.id, url)}
+                        />
+                        {questionErrors[question.id] && (
+                          <Typography variant="caption" sx={{ color: colors.error, mt: 1, display: 'block' }}>
+                            {questionErrors[question.id]}
+                          </Typography>
+                        )}
+                      </Box>
                     )}
 
                     {question.type === 'number' && (
@@ -876,54 +983,21 @@ const JobApply: React.FC = () => {
                   </QuestionCard>
                 ))}
 
-                {job.collectApplicantLocation && (
-                  <QuestionCard elevation={0}>
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1 }}>
-                      <LocationOnIcon sx={{ color: colors.primary, mt: 0.2 }} />
-                      <Box>
-                        <Typography variant="subtitle1" fontWeight={600}>
-                          Share your current location
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          This job requires your consent to capture your current location when you submit the application.
-                        </Typography>
-                      </Box>
-                    </Box>
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={locationConsent}
-                          onChange={(e) => {
-                            setLocationConsent(e.target.checked);
-                            if (e.target.checked) setLocationError('');
-                          }}
-                          sx={{ '&.Mui-checked': { color: colors.primary } }}
-                        />
-                      }
-                      label="I agree to share my current location for this application."
-                    />
-                    {locationError && (
-                      <Typography variant="caption" sx={{ color: colors.error, display: 'block', mt: 1 }}>
-                        {locationError}
-                      </Typography>
-                    )}
-                  </QuestionCard>
-                )}
-
                 <Divider sx={{ my: 4 }} />
 
                 <Box sx={{ display: 'flex', justifyContent: questions.length > 0 ? 'space-between' : 'flex-end', alignItems: 'center' }}>
                   {questions.length > 0 && (
                     <Typography variant="body2" color="text.secondary">
-                      {questions.filter(q => q.required && answers[q.id]?.trim()).length} of {questions.filter(q => q.required).length} required questions answered
+                      {questions.filter((q) => q.required && isQuestionAnswered(q)).length} of{' '}
+                      {questions.filter((q) => q.required).length} required questions answered
                     </Typography>
                   )}
                   <SubmitButton
                     onClick={handleSubmit}
-                    disabled={!allRequiredAnswered || submitting || (job.collectApplicantLocation && !locationConsent)}
+                    disabled={!allRequiredAnswered || submitting}
                     startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
                   >
-                    {submitting ? 'Submitting...' : 'Submit Application'}
+                    {submitting ? 'Submitting...' : job.hasCodingQuestions ? 'Continue to Coding Assessment' : 'Submit Application'}
                   </SubmitButton>
                 </Box>
               </CardContent>
@@ -931,7 +1005,7 @@ const JobApply: React.FC = () => {
           </Grid>
 
           {/* Sidebar - Profile Summary & Match Score */}
-          <Grid item xs={12} lg={4}>
+          <Grid item xs={12} lg={3.5} order={{ xs: 1, lg: 1 }}>
             {/* Match Score */}
             <MatchScoreCard sx={{ mb: 3 }}>
               <Typography variant="overline" color="text.secondary">
@@ -993,82 +1067,42 @@ const JobApply: React.FC = () => {
               </CardContent>
             </ContentCard>
 
-            {/* Profile Summary */}
-            <ContentCard>
-              <CardContent sx={{ p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                  <Avatar sx={{ width: 56, height: 56, bgcolor: colors.primary }}>
-                    <PersonIcon />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="subtitle1" fontWeight={600}>
-                      {userProfile.name || 'Profile name not available'}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {userProfile.title || 'Title not available'}
-                    </Typography>
+            {job.collectApplicantLocation && (
+              <ContentCard>
+                <CardContent sx={{ p: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.25, mb: 1.5 }}>
+                    <LocationOnIcon sx={{ color: colors.primary, mt: 0.2 }} />
+                    <Box>
+                      <Typography variant="subtitle1" fontWeight={600}>
+                        Share your current location
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        This job requires your consent to capture your current location when you submit the application.
+                      </Typography>
+                    </Box>
                   </Box>
-                </Box>
-
-                <Divider sx={{ mb: 2 }} />
-
-                <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <WorkIcon fontSize="small" color="primary" />
-                  Experience ({userProfile.yearsExperience} years)
-                </Typography>
-                {userProfile.experience.length > 0 ? (
-                  userProfile.experience.map((exp, idx) => (
-                    <Box key={idx} sx={{ mb: 2, pl: 3 }}>
-                      <Typography variant="body2" fontWeight={600}>{exp.title}</Typography>
-                      <Typography variant="caption" color="text.secondary">{exp.company} • {exp.duration}</Typography>
-                    </Box>
-                  ))
-                ) : (
-                  <Typography variant="caption" color="text.secondary" sx={{ pl: 3 }}>
-                    No experience entries in profile
-                  </Typography>
-                )}
-
-                <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <SchoolIcon fontSize="small" color="primary" />
-                  Education
-                </Typography>
-                {userProfile.education.length > 0 ? (
-                  userProfile.education.map((edu, idx) => (
-                    <Box key={idx} sx={{ mb: 1, pl: 3 }}>
-                      <Typography variant="body2" fontWeight={600}>{edu.degree}</Typography>
-                      <Typography variant="caption" color="text.secondary">{edu.school} • {edu.year}</Typography>
-                    </Box>
-                  ))
-                ) : (
-                  <Typography variant="caption" color="text.secondary" sx={{ pl: 3 }}>
-                    No education entries in profile
-                  </Typography>
-                )}
-
-                <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <CodeIcon fontSize="small" color="primary" />
-                  Your Skills
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, pl: 3 }}>
-                  {userProfile.skills.length > 0 ? (
-                    userProfile.skills.map((skill) => (
-                      <Chip key={skill} label={skill} size="small" sx={{ fontSize: '0.75rem' }} />
-                    ))
-                  ) : (
-                    <Typography variant="caption" color="text.secondary">
-                      No skills added in profile
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={locationConsent}
+                        onChange={(e) => {
+                          setLocationConsent(e.target.checked);
+                          if (e.target.checked) setLocationError('');
+                        }}
+                        sx={{ '&.Mui-checked': { color: colors.primary } }}
+                      />
+                    }
+                    label="I agree to share my current location for this application."
+                  />
+                  {locationError && (
+                    <Typography variant="caption" sx={{ color: colors.error, display: 'block', mt: 1 }}>
+                      {locationError}
                     </Typography>
                   )}
-                </Box>
+                </CardContent>
+              </ContentCard>
+            )}
 
-                <Alert severity="info" sx={{ mt: 3, borderRadius: 2 }}>
-                  <Typography variant="caption">
-                    This information will be shared with the hiring manager when you submit.
-                  </Typography>
-                </Alert>
-              </CardContent>
-            </ContentCard>
           </Grid>
         </Grid>
       </Container>

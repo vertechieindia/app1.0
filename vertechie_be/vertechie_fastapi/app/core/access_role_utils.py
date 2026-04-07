@@ -25,6 +25,7 @@ ROLE_TYPE_SHORT_LABEL: dict[RoleType, str] = {
     RoleType.HIRING_MANAGER: "Hiring Manager",
     RoleType.TECHIE: "Techie",
     RoleType.BDM_ADMIN: "BDM",
+    RoleType.LEARN_ADMIN: "Learn Admin",
 }
 
 
@@ -195,6 +196,43 @@ async def get_or_create_empty_permission_role(
         permissions=[],
         display_label=build_display_label(role_type, []),
         permission_signature=sig,
+        is_active=True,
+    )
+    db.add(role)
+    await db.flush()
+    return role
+
+
+async def get_or_create_default_permission_role(
+    db: AsyncSession,
+    role_type: RoleType,
+    description: Optional[str] = None,
+) -> UserRole:
+    """
+    One canonical UserRole row per (role_type, default permission set) — used for
+    legacy learn_admin sync and admin user creation when no Access Role id is passed.
+    """
+    from app.core.role_mapping import default_permissions_for_role_type
+
+    perms = sorted_unique_permission_codes(default_permissions_for_role_type(role_type))
+    sig = compute_permission_signature(perms)
+    result = await db.execute(
+        select(UserRole).where(
+            UserRole.role_type == role_type,
+            UserRole.permission_signature == sig,
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        return existing
+
+    role = UserRole(
+        name=generate_internal_name(),
+        role_type=role_type,
+        description=description or f"Default {role_type.value} permissions",
+        permissions=perms,
+        permission_signature=sig,
+        display_label=build_display_label(role_type, perms),
         is_active=True,
     )
     db.add(role)

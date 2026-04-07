@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -41,6 +41,7 @@ interface SignupErrors {
 
 const Signup = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [step, setStep] = useState(0); // 0: Role selection, 1: Country selection (for techie)
   const [state, setState] = useState<SignupState>({
     role: null,
@@ -55,7 +56,6 @@ const Signup = () => {
   }>({ open: false, message: '', severity: 'success' });
 
   // Memoize roleOptions to prevent recreation on every render
-  // NOTE: Company and School signup removed - users can create these after registration
   const roleOptions = useMemo(() => [
     {
       id: 'techie' as PublicUserRole,
@@ -87,18 +87,26 @@ const Signup = () => {
     },
   ], []);
 
+  useEffect(() => {
+    const r = searchParams.get('role');
+    if (r === 'techie' || r === 'hiring_manager') {
+      setState((prev) => ({ ...prev, role: r as PublicUserRole }));
+      setStep(1);
+      setErrors((prev) => ({ ...prev, role: '' }));
+    }
+  }, [searchParams]);
+
   const handleRoleSelect = (role: PublicUserRole) => {
-    setState((prev) => ({ ...prev, role }));
     setErrors((prev) => ({ ...prev, role: '' }));
-    
-    // Only techie and hiring_manager roles available for signup
-    // Company and School pages can be created after registration
+
+    setState((prev) => ({ ...prev, role }));
+
     if (role === 'techie' || role === 'hiring_manager') {
       setStep(1);
     } else {
       setErrors((prev) => ({
         ...prev,
-        role: `Please select Tech Professional or Hiring Manager. Company and School pages can be created after registration.`,
+        role: 'Please select Tech Professional or Hiring Manager.',
       }));
     }
   };
@@ -316,14 +324,20 @@ const Signup = () => {
           px: 2,
         }}
       >
-        <Container maxWidth="lg">
+        <Container
+          maxWidth="md"
+          sx={{
+            width: '100%',
+            px: { xs: 1.5, sm: 2, md: 3 },
+          }}
+        >
           <Paper
             elevation={8}
             sx={{
               borderRadius: 4,
-              p: 4,
+              p: { xs: 2, sm: 3, md: 4 },
               background: 'white',
-              maxWidth: 1200,
+              maxWidth: { xs: '100%', sm: 600, md: 760 },
               mx: 'auto',
               mt: -5,
             }}
@@ -351,7 +365,7 @@ const Signup = () => {
                 px: 2,
               }}
             >
-              Choose your role to begin the secure registration process. All registrations include comprehensive verification and fraud prevention.
+              Choose Tech Professional or Hiring Manager to begin registration. Both flows include document verification. After you sign in, use Business in the app to request a company or school page; BDM approves before it goes live.
             </Typography>
 
             <Box
@@ -377,15 +391,33 @@ const Signup = () => {
               <CheckCircleIcon sx={{ color: '#2e7d32', fontSize: 28 }} />
             </Box>
 
-            <Grid container spacing={3} sx={{ mb: 4 }} justifyContent="center">
+            <Grid
+              container
+              spacing={{ xs: 2, sm: 2.5, md: 3 }}
+              sx={{ mb: 4, justifyContent: 'center', mx: 'auto', maxWidth: { md: 720 } }}
+            >
               {roleOptions.map((option) => (
-                <Grid item xs={12} sm={6} md={4} key={option.id}>
+                <Grid
+                  item
+                  xs={12}
+                  sm={10}
+                  md={6}
+                  key={option.id}
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    maxWidth: { md: 360 },
+                    flexBasis: { md: '50%' },
+                  }}
+                >
                   <Card
                     role="button"
                     tabIndex={0}
                     aria-label={`Select ${option.title} role`}
                     sx={{
                       height: '100%',
+                      width: '100%',
+                      maxWidth: { xs: '100%', sm: 420, md: 340 },
                       display: 'flex',
                       flexDirection: 'column',
                       cursor: 'pointer',
@@ -406,7 +438,7 @@ const Signup = () => {
                       }
                     }}
                   >
-                    <CardContent sx={{ flexGrow: 1, p: 3 }}>
+                    <CardContent sx={{ flexGrow: 1, p: { xs: 2, sm: 2.5, md: 3 } }}>
                       <Box
                         sx={{
                           display: 'flex',

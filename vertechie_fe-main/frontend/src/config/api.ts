@@ -113,6 +113,7 @@ export const API_ENDPOINTS = {
         UPDATE_POST: (id: string) => `/community/posts/${id}`,
         UPLOAD: '/community/upload/',
         STATS: (id: string) => `/companies/${id}/stats`,
+        AFFILIATED_USERS: (id: string) => `/companies/${id}/affiliated-users`,
     },
 
     // ============================================
@@ -173,7 +174,7 @@ export const API_ENDPOINTS = {
         GET: (id: string) => `/users/${id}/`,
         UPDATE_ME: '/users/me/',
         PROFILE: (id: string) => `/users/${id}/profile/`,
-        UPDATE_PROFILE: '/users/me/profile/',
+        UPDATE_PROFILE: '/users/me/profile',
     } as unknown as string & {
         LIST: string;
         GET: (id: string) => string;
@@ -197,6 +198,17 @@ export const API_ENDPOINTS = {
         SAVED_LIST: '/jobs/saved',
         SAVED_DELETE: (jobId: string) => `/jobs/saved/${jobId}`,
         MY_APPLICATIONS: '/jobs/my/applications',
+        /** GET ?q=&limit= — seeded catalog + distinct titles from existing jobs */
+        TITLE_AUTOCOMPLETE: '/jobs/title-autocomplete',
+        /** POST body: question_id, code, language, mode run|test — preview execution during assessment */
+        CODING_ASSESSMENT_RUN: (id: string) => `/jobs/${id}/coding-assessment/run`,
+    },
+
+    // ============================================
+    // SKILLS (/skills) — autocomplete catalog + live job skills
+    // ============================================
+    SKILLS: {
+        AUTOCOMPLETE: '/skills/autocomplete',
     },
 
     // ============================================
@@ -380,3 +392,10 @@ export const getApiUrl = (endpoint: string): string => {
 export const getLegacyApiUrl = (endpoint: string): string => {
     return `${LEGACY_API_URL}${endpoint}`;
 };
+
+/** Job / ATS / calendar location autocomplete: backend supports IN, US, GB, CA (`/places/autocomplete`). */
+export const LOCATION_AUTOCOMPLETE_COUNTRY_CODES = ['IN', 'US', 'GB', 'CA'] as const;
+/** Per-country `limit` query param (backend max 50). */
+export const LOCATION_AUTOCOMPLETE_PER_COUNTRY_LIMIT = 18;
+/** Max suggestions after merging and deduping across countries. */
+export const LOCATION_AUTOCOMPLETE_MERGED_MAX = 48;

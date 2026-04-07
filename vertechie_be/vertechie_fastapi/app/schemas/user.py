@@ -2,7 +2,7 @@
 User schemas.
 """
 
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime, date
 from uuid import UUID
 import re
@@ -61,9 +61,28 @@ class UserResponse(UserBase):
     admin_roles: Optional[List[str]] = []  # List of admin role strings
     date_joined: Optional[datetime] = None  # Alias for created_at for frontend compatibility
     last_login: Optional[datetime] = None  # Last login timestamp
-    
+    verification_status: Optional[str] = None
+
+    @field_validator("verification_status", mode="before")
+    @classmethod
+    def normalize_verification_status(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        if hasattr(v, "value"):
+            return str(v.value).lower()
+        return str(v).lower()
+
     class Config:
         from_attributes = True
+
+
+class UserMeResponse(UserResponse):
+    """Current user + company linkage for CMS/ATS nav (CompanyAdmin)."""
+
+    company_id: Optional[str] = None
+    has_company: bool = False
+    groups: List[dict] = Field(default_factory=list)
+    role: Optional[str] = None
 
 
 class UserProfileUpdate(BaseModel):
@@ -79,6 +98,7 @@ class UserProfileUpdate(BaseModel):
     experience_years: Optional[int] = None
     current_position: Optional[str] = None
     current_company: Optional[str] = None
+    company_id: Optional[UUID] = None
     linkedin_url: Optional[str] = None
     github_url: Optional[str] = None
     gitlab_url: Optional[str] = None
@@ -106,6 +126,7 @@ class UserProfileResponse(BaseModel):
     experience_years: int = 0
     current_position: Optional[str] = None
     current_company: Optional[str] = None
+    company_id: Optional[UUID] = None
     linkedin_url: Optional[str] = None
     github_url: Optional[str] = None
     gitlab_url: Optional[str] = None

@@ -15,7 +15,8 @@ from app.models.user import (
 from app.models.company import (
     Company, CompanyProfile, CompanyLocation, CompanyBenefit, 
     CompanyPhoto, CompanyTeamMember, CompanyAdmin, CompanyInvite,
-    CompanySize, CompanyStatus, BenefitCategory, PhotoType, InviteStatus
+    CompanySize, CompanyStatus, BenefitCategory, PhotoType, InviteStatus,
+    CompanyInviteFlow,
 )
 
 # School Models
@@ -27,7 +28,9 @@ from app.models.school import (
 )
 
 # Jobs Models
-from app.models.job import Job, JobApplication, SavedJob
+from app.models.job import Job, JobApplication, SavedJob, JobView
+from app.models.job_title_catalog import JobTitleCatalog
+from app.models.skill_catalog import SkillCatalog
 
 # Practice/Coding Models
 from app.models.practice import (
@@ -113,6 +116,7 @@ __all__ = [
     "Company", "CompanyProfile", "CompanyLocation", "CompanyBenefit",
     "CompanyPhoto", "CompanyTeamMember", "CompanyAdmin", "CompanyInvite",
     "CompanySize", "CompanyStatus", "BenefitCategory", "PhotoType", "InviteStatus",
+    "CompanyInviteFlow",
     
     # School
     "School", "Department", "Program", "StudentBatch",
@@ -121,7 +125,7 @@ __all__ = [
     "SchoolType", "SchoolStatus", "ProgramType", "MemberType", "SchoolAdminRole",
     
     # Jobs
-    "Job", "JobApplication", "SavedJob",
+    "Job", "JobApplication", "SavedJob", "JobView", "JobTitleCatalog", "SkillCatalog",
     
     # Practice
     "ProblemCategory", "Problem", "TestCase", "ProblemHint", "ProblemSolution",

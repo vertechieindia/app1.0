@@ -29,6 +29,7 @@ export const NetworkGroups = lazy(() => import('../pages/network/NetworkGroups')
 export const NetworkEvents = lazy(() => import('../pages/network/NetworkEvents'));
 export const Combinator = lazy(() => import('../pages/network/Combinator'));
 export const Companies = lazy(() => import('../pages/Companies'));
+export const CompanyRegistrationPage = lazy(() => import('../pages/company/CompanyRegistrationPage'));
 export const Contact = lazy(() => import('../pages/Contact'));
 export const Services = lazy(() => import('../pages/Services'));
 export const ServiceDetail = lazy(() => import('../pages/ServiceDetail'));
@@ -63,7 +64,6 @@ export const CalendarCallback = lazy(() => import('../pages/CalendarCallback'));
 // ——— Admin / heavy ———
 export const SuperAdmin = lazy(() => import('../pages/SuperAdmin'));
 export const SuperAdminChat = lazy(() => import('../pages/superadmin/SuperAdminChat'));
-export const BDMAdminDashboard = lazy(() => import('../pages/BDMAdminDashboard'));
 export const Admin = lazy(() => import('../pages/Admin'));
 
 export const TechieAdminDashboard = lazy(() =>
@@ -94,6 +94,7 @@ export const ViewApplicants = lazy(() => import('../pages/hr/ViewApplicants'));
 export const JobListings = lazy(() => import('../pages/user/JobListings'));
 export const JobDetails = lazy(() => import('../pages/user/JobDetails'));
 export const JobApply = lazy(() => import('../pages/user/JobApply'));
+export const CodingTest = lazy(() => import('../pages/user/CodingTest'));
 export const MyApplications = lazy(() => import('../pages/user/MyApplications'));
 
 // ——— Techie platform ———
@@ -142,6 +143,7 @@ export const SMSSettings = lazy(() => import('../pages/techie/sms/SMSSettings'))
 export const CMSPosts = lazy(() => import('../pages/techie/cms/CMSPosts'));
 export const CMSEmployees = lazy(() => import('../pages/techie/cms/CMSEmployees'));
 export const CMSAdmins = lazy(() => import('../pages/techie/cms/CMSPageAdmins'));
+export const CMSAffiliatedUsers = lazy(() => import('../pages/techie/cms/CMSAffiliatedUsers'));
 export const CMSJobs = lazy(() => import('../pages/techie/cms/CMSJobs'));
 export const CMSAnalytics = lazy(() => import('../pages/techie/cms/CMSAnalytics'));
 export const CMSSettings = lazy(() => import('../pages/techie/cms/CMSSettings'));

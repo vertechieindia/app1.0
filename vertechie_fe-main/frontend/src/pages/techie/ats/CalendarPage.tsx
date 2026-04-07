@@ -66,7 +66,13 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ATSLayout from './ATSLayout';
-import { getApiUrl, API_ENDPOINTS } from '../../../config/api';
+import {
+  getApiUrl,
+  API_ENDPOINTS,
+  LOCATION_AUTOCOMPLETE_COUNTRY_CODES,
+  LOCATION_AUTOCOMPLETE_PER_COUNTRY_LIMIT,
+  LOCATION_AUTOCOMPLETE_MERGED_MAX,
+} from '../../../config/api';
 import { fetchWithAuth } from '../../../utils/apiInterceptor';
 import { calendarSyncService, type CalendarConnectionDto, type SyncStatusResponse } from '../../../services/calendarSyncService';
 
@@ -542,17 +548,17 @@ const CalendarPage: React.FC = () => {
     }
     try {
       const q = encodeURIComponent(query.trim());
-      const countries = ['IN', 'US'];
+      const lim = LOCATION_AUTOCOMPLETE_PER_COUNTRY_LIMIT;
       const responses = await Promise.all(
-        countries.map(async (country) => {
-          const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${q}&country=${country}&limit=10`;
+        LOCATION_AUTOCOMPLETE_COUNTRY_CODES.map(async (country) => {
+          const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${q}&country=${country}&limit=${lim}`;
           const response = await fetchWithAuth(url);
           if (!response.ok) return [];
           const data = await response.json();
           return Array.isArray(data) ? data.map((place: any) => place.display_name).filter(Boolean) : [];
         })
       );
-      const suggestions = Array.from(new Set(responses.flat())).slice(0, 20);
+      const suggestions = Array.from(new Set(responses.flat())).slice(0, LOCATION_AUTOCOMPLETE_MERGED_MAX);
       setLocationSuggestions(suggestions);
     } catch {
       setLocationSuggestions([]);

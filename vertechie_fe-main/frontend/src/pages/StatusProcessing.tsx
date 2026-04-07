@@ -38,8 +38,26 @@ const StatusProcessing = () => {
       });
       if (!response.ok) return false;
       const userData = await response.json();
+      // Always merge /users/me into localStorage so header/nav match the server (role, admin_roles)
+      try {
+        const prev = JSON.parse(localStorage.getItem('userData') || '{}');
+        const merged = {
+          ...prev,
+          ...userData,
+          groups: userData.groups ?? prev.groups,
+          role: userData.role ?? prev.role,
+          admin_roles: userData.admin_roles ?? prev.admin_roles,
+          verification_status: userData.verification_status ?? prev.verification_status,
+          is_verified: userData.is_verified ?? prev.is_verified,
+          company_id: userData.company_id ?? prev.company_id,
+          has_company: userData.has_company ?? prev.has_company,
+        };
+        localStorage.setItem('userData', JSON.stringify(merged));
+        window.dispatchEvent(new Event('vertechie-userdata-updated'));
+      } catch {
+        localStorage.setItem('userData', JSON.stringify(userData));
+      }
       if (!isUserVerified(userData)) return false;
-      localStorage.setItem('userData', JSON.stringify(userData));
       const path = getRedirectPathForUser(userData);
       if (path) {
         navigate(path, { replace: true });

@@ -12,14 +12,22 @@ from sqlalchemy import select, or_, func, update
 from pydantic import BaseModel
 
 from app.db.session import get_db
-from app.models.user import User, UserProfile, Experience, Education, RoleType, VerificationStatus
+from app.models.user import User, UserProfile, Experience, Education, RoleType, VerificationStatus, UserRole, user_roles
+from app.models.company import CompanyAdmin
+from app.services.company_matching import find_company_id_by_normalized_name
 from app.models.activity import ActivityType
 from app.models.company import Company, CompanyAdmin
 from app.models.school import School, SchoolAdmin
 from app.schemas.user import (
-    UserResponse, UserUpdate, UserProfileUpdate, UserProfileResponse,
-    ExperienceCreate, ExperienceResponse,
-    EducationCreate, EducationResponse
+    UserResponse,
+    UserMeResponse,
+    UserUpdate,
+    UserProfileUpdate,
+    UserProfileResponse,
+    ExperienceCreate,
+    ExperienceResponse,
+    EducationCreate,
+    EducationResponse,
 )
 from app.core.security import get_current_user, get_current_admin_user
 from sqlalchemy.orm import selectinload
@@ -206,32 +214,69 @@ async def list_users(
         )
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=UserMeResponse)
 async def get_me(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get current user."""
-    return current_user
+    """Get current user, including company linkage for CMS/ATS when user is a company admin."""
+    roles_result = await db.execute(
+        select(UserRole).join(user_roles).where(user_roles.c.user_id == current_user.id)
+    )
+    user_role_list = roles_result.scalars().all()
+    groups = [{"name": r.role_type.value} for r in user_role_list] if user_role_list else []
+    primary_role = user_role_list[0].role_type.value if user_role_list else "techie"
+
+    base = UserResponse.model_validate(current_user)
+    row = await db.execute(
+        select(CompanyAdmin.company_id).where(CompanyAdmin.user_id == current_user.id).limit(1)
+    )
+    cid = row.scalar_one_or_none()
+    return UserMeResponse(
+        **base.model_dump(),
+        company_id=str(cid) if cid else None,
+        has_company=bool(cid),
+        groups=groups,
+        role=primary_role,
+    )
 
 
-@router.put("/me", response_model=UserResponse)
-@router.patch("/me", response_model=UserResponse)
+@router.put("/me", response_model=UserMeResponse)
+@router.patch("/me", response_model=UserMeResponse)
 async def update_me(
     user_in: UserUpdate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Update current user."""
-    
+
     update_data = user_in.model_dump(exclude_unset=True)
-    
+
     for field, value in update_data.items():
         setattr(current_user, field, value)
-    
+
     await db.commit()
     await db.refresh(current_user)
-    
-    return current_user
+
+    roles_result = await db.execute(
+        select(UserRole).join(user_roles).where(user_roles.c.user_id == current_user.id)
+    )
+    user_role_list = roles_result.scalars().all()
+    groups = [{"name": r.role_type.value} for r in user_role_list] if user_role_list else []
+    primary_role = user_role_list[0].role_type.value if user_role_list else "techie"
+
+    base = UserResponse.model_validate(current_user)
+    row = await db.execute(
+        select(CompanyAdmin.company_id).where(CompanyAdmin.user_id == current_user.id).limit(1)
+    )
+    cid = row.scalar_one_or_none()
+    return UserMeResponse(
+        **base.model_dump(),
+        company_id=str(cid) if cid else None,
+        has_company=bool(cid),
+        groups=groups,
+        role=primary_role,
+    )
 
 
 @router.get("/me/profile", response_model=UserProfileResponse)
@@ -276,6 +321,20 @@ async def update_my_profile(
         await db.flush()
     
     update_data = profile_in.model_dump(exclude_unset=True)
+    if "company_id" in update_data:
+        cid = update_data["company_id"]
+        if cid is not None:
+            adm = await db.execute(
+                select(CompanyAdmin).where(
+                    CompanyAdmin.company_id == cid,
+                    CompanyAdmin.user_id == current_user.id,
+                )
+            )
+            if not adm.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not authorized to set company affiliation for this company",
+                )
     for field, value in update_data.items():
         setattr(profile, field, value)
     
@@ -397,11 +456,12 @@ async def add_experience(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Add experience to current user."""
-    
-    experience = Experience(
-        user_id=current_user.id,
-        **exp_in.model_dump()
-    )
+    data = exp_in.model_dump()
+    resolved_cid = await find_company_id_by_normalized_name(db, exp_in.company_name)
+    if resolved_cid:
+        data["company_id"] = resolved_cid
+
+    experience = Experience(user_id=current_user.id, **data)
     db.add(experience)
     await db.commit()
     await db.refresh(experience)
@@ -434,6 +494,12 @@ async def update_experience(
         )
     
     update_data = exp_in.model_dump()
+    resolved_cid = await find_company_id_by_normalized_name(db, exp_in.company_name)
+    if resolved_cid:
+        update_data["company_id"] = resolved_cid
+    else:
+        update_data["company_id"] = None
+
     for field, value in update_data.items():
         setattr(experience, field, value)
     
@@ -830,17 +896,26 @@ async def get_my_company(
         # Return 200 with null so frontend always gets valid JSON (avoids 204 and 404 confusion)
         return JSONResponse(status_code=200, content=None)
     
+    cs = company.company_size
+    company_size_val = cs.value if cs is not None and hasattr(cs, "value") else (str(cs) if cs is not None else None)
+
     return {
         "id": str(company.id),
         "name": company.name,
+        "legal_name": company.legal_name,
+        "tagline": company.tagline,
         "website": company.website,
+        "domain": company.domain,
         "email": company.email,
+        "phone": company.phone,
         "description": company.description,
         "industry": company.industry,
         "headquarters": company.headquarters,
+        "address": company.address,
+        "gst_number": company.gst_number,
         "logo_url": company.logo_url,
         "cover_image_url": company.cover_image_url,
-        "company_size": company.company_size,
+        "company_size": company_size_val,
         "founded_year": company.founded_year,
     }
 

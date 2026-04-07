@@ -29,7 +29,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import CloseIcon from '@mui/icons-material/Close';
 import { StepComponentProps } from '../../types';
 import axios from 'axios';
-import { getApiUrl, API_ENDPOINTS } from '../../../../config/api';
+import { getApiUrl, API_ENDPOINTS, LOCATION_AUTOCOMPLETE_PER_COUNTRY_LIMIT } from '../../../../config/api';
 
 /** Internal location autocomplete: API country code (US, IN, GB, CA) */
 const LOCATION_COUNTRY_MAP: Record<string, string> = { US: 'US', IN: 'IN', UK: 'GB', CA: 'CA' };
@@ -209,7 +209,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
       }
       setLocationLoading(true);
       try {
-        const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${encodeURIComponent(query.trim())}&country=${placeCountry}&limit=10`;
+        const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${encodeURIComponent(query.trim())}&country=${placeCountry}&limit=${LOCATION_AUTOCOMPLETE_PER_COUNTRY_LIMIT}`;
         const res = await fetch(url);
         if (res.ok) {
           const data: PlaceSuggestion[] = await res.json();
@@ -895,6 +895,11 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
 
         <DialogContent sx={{ p: { xs: 2, sm: 4 } }}>
           <Box sx={{ pt: 1 }}>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Your work history here is saved on your profile for verification. It does not grant access to that
+              employer&apos;s company tools. If you use &quot;Invite this company,&quot; that only sends them an
+              invitation to join VerTechie—it does not link them to your account.
+            </Alert>
             {/* --- Top Section --- */}
             <Grid container spacing={{ xs: 2, md: 3 }}>
               {/* Column 1 - Company Name with autocomplete + Invite this company */}
@@ -1954,6 +1959,7 @@ const WorkExperienceForm: React.FC<StepComponentProps> = ({
                     address: address || undefined,
                     emails: email ? [email] : [],
                     phone_numbers: phoneDigits ? [phoneDigits] : [],
+                    invite_flow: 'outreach',
                   },
                   { headers: token ? { Authorization: `Bearer ${token}` } : {} }
                 );

@@ -76,10 +76,13 @@ import {
   Delete,
   VpnKey,
   Settings,
+  Handshake,
+  AutoStories,
 } from '@mui/icons-material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getApiUrl, API_ENDPOINTS } from '../config/api';
 import AdminCreateUserWizard from '../components/admin/AdminCreateUserWizard';
+import { AUTH_MAIN_PADDING_BOTTOM_PX } from '../constants/layout';
 
 // Route to tab mapping
 const ROUTE_TAB_MAP: Record<string, number> = {
@@ -257,10 +260,12 @@ const PageContainer = styled(Box)(({ theme }) => ({
   minHeight: '100%',
   background: 'transparent',
   padding: theme.spacing(1),
+  paddingBottom: `calc(${AUTH_MAIN_PADDING_BOTTOM_PX}px + ${theme.spacing(4)} + env(safe-area-inset-bottom, 0px))`,
   position: 'relative',
   overflow: 'visible',
   [theme.breakpoints.up('md')]: {
     padding: theme.spacing(2),
+    paddingBottom: `calc(${AUTH_MAIN_PADDING_BOTTOM_PX}px + ${theme.spacing(6)} + env(safe-area-inset-bottom, 0px))`,
   },
 }));
 
@@ -554,6 +559,80 @@ const roleDisplayLabel = (r: Role) => r.display_label?.trim() || r.name;
 const roleSubtitle = (r: Role) =>
   (r.permission_summary?.trim() || r.description?.trim() || '');
 
+const renderAssignableRoleSelectValue = (selectedId: string, roles: Role[]) => {
+  const r = roles.find((x) => String(x.id) === selectedId);
+  if (!r) return '';
+  const menuStyle = getAssignableRoleMenuStyle(r.role_type);
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+      <Box
+        sx={{
+          width: 28,
+          height: 28,
+          borderRadius: 1.5,
+          background: menuStyle.gradient,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#fff',
+          flexShrink: 0,
+          '& .MuiSvgIcon-root': { fontSize: 16 },
+        }}
+      >
+        {menuStyle.icon}
+      </Box>
+      <Typography component="span" variant="body2" sx={{ fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {roleDisplayLabel(r)}
+      </Typography>
+    </Box>
+  );
+};
+
+/** Colourful icon + gradient for assign-role dropdowns (by backend role_type) */
+const ACCESS_ROLE_TYPE_MENU_STYLE: Record<
+  string,
+  { gradient: string; icon: React.ReactNode }
+> = {
+  super_admin: {
+    gradient: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+    icon: <AdminPanelSettings sx={{ fontSize: 22 }} />,
+  },
+  company_admin: {
+    gradient: 'linear-gradient(135deg, #059669 0%, #34d399 100%)',
+    icon: <Business sx={{ fontSize: 22 }} />,
+  },
+  school_admin: {
+    gradient: 'linear-gradient(135deg, #d97706 0%, #fbbf24 100%)',
+    icon: <School sx={{ fontSize: 22 }} />,
+  },
+  hiring_manager: {
+    gradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)',
+    icon: <People sx={{ fontSize: 22 }} />,
+  },
+  techie: {
+    gradient: 'linear-gradient(135deg, #ea580c 0%, #fbbf24 100%)',
+    icon: <Engineering sx={{ fontSize: 22 }} />,
+  },
+  bdm_admin: {
+    gradient: 'linear-gradient(135deg, #a855f7 0%, #f472b6 100%)',
+    icon: <Handshake sx={{ fontSize: 22 }} />,
+  },
+  learn_admin: {
+    gradient: 'linear-gradient(135deg, #0891b2 0%, #22d3ee 100%)',
+    icon: <AutoStories sx={{ fontSize: 22 }} />,
+  },
+};
+
+const getAssignableRoleMenuStyle = (roleType: string | undefined) => {
+  const key = String(roleType || '').toLowerCase();
+  return (
+    ACCESS_ROLE_TYPE_MENU_STYLE[key] ?? {
+      gradient: 'linear-gradient(135deg, #64748b 0%, #94a3b8 100%)',
+      icon: <Security sx={{ fontSize: 22 }} />,
+    }
+  );
+};
+
 /** Maps users.admin_roles[0] to API role_type on UserRole */
 const ADMIN_CODE_TO_ROLE_TYPE: Record<string, string> = {
   superadmin: 'super_admin',
@@ -562,6 +641,7 @@ const ADMIN_CODE_TO_ROLE_TYPE: Record<string, string> = {
   hm_admin: 'hiring_manager',
   techie_admin: 'techie',
   bdm_admin: 'bdm_admin',
+  learn_admin: 'learn_admin',
 };
 
 /** Matches backend RoleType enum (POST /groups/ role_type) — required when creating a role */
@@ -572,6 +652,67 @@ const PLATFORM_ROLE_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'hiring_manager', label: 'Hiring Manager (HM Admin)' },
   { value: 'techie', label: 'Techie Admin' },
   { value: 'bdm_admin', label: 'BDM Admin' },
+  { value: 'learn_admin', label: 'Learn Admin' },
+];
+
+/**
+ * When true, restores the previous UI: accordion with one checkbox per permission.
+ * Default false: one toggle per module (Schools, Companies, …); included permissions are read-only in the panel.
+ */
+const LEGACY_GRANULAR_ACCESS_ROLE_PERMISSIONS = false;
+
+/**
+ * Logical modules for Access Roles — aligns with `permissions_catalog` codenames.
+ * Selecting a module grants every permission listed; details show what is included (not individually toggled).
+ */
+const ACCESS_ROLE_MODULE_GROUPS: {
+  id: string;
+  label: string;
+  description?: string;
+  codenames: readonly string[];
+}[] = [
+  {
+    id: 'users',
+    label: 'Users',
+    description: 'Directory, edits, delete, block, profile verification',
+    codenames: ['view_users', 'edit_users', 'delete_users', 'block_users', 'verify_profiles'],
+  },
+  {
+    id: 'companies',
+    label: 'Companies',
+    description: 'View, create, edit, delete company records (includes legacy manage)',
+    codenames: ['manage_companies', 'view_companies', 'create_companies', 'edit_companies', 'delete_companies'],
+  },
+  {
+    id: 'schools',
+    label: 'Schools',
+    description: 'View, create, edit, delete schools / institutions (includes legacy manage)',
+    codenames: ['manage_schools', 'view_schools', 'create_schools', 'edit_schools', 'delete_schools'],
+  },
+  {
+    id: 'jobs',
+    label: 'Jobs',
+    description: 'Job postings admin scope (includes legacy manage)',
+    codenames: ['manage_jobs', 'view_jobs', 'create_jobs', 'edit_jobs', 'delete_jobs'],
+  },
+  {
+    id: 'learning',
+    label: 'Learning',
+    description: 'Courses, tutorials, lessons, and learning CMS',
+    codenames: ['manage_learning_content'],
+  },
+  {
+    id: 'reports',
+    label: 'Reports',
+    description: 'Analytics and dashboards',
+    codenames: ['view_reports'],
+  },
+  {
+    id: 'system',
+    label: 'System',
+    description: 'Platform-wide settings',
+    codenames: ['system_settings'],
+  },
 ];
 
 const SuperAdmin: React.FC = () => {
@@ -616,7 +757,7 @@ const SuperAdmin: React.FC = () => {
     confirmPassword: '',
     first_name: '',
     last_name: '',
-    /** UserRole id from Access Roles, or "learn_admin" for legacy Learn Admin (no UserRole row) */
+    /** UserRole id from Access Roles (includes Learn Admin roles) */
     adminRoleSelection: '',
   });
   const [showPassword, setShowPassword] = useState(false);
@@ -670,7 +811,7 @@ const SuperAdmin: React.FC = () => {
   const [editRolesDialogOpen, setEditRolesDialogOpen] = useState(false);
   const [editingAdmin, setEditingAdmin] = useState<Admin | null>(null);
   const [editingAdminRoles, setEditingAdminRoles] = useState<string[]>([]);
-  /** UserRole id or "learn_admin" for legacy Learn Admin */
+  /** UserRole id from Access Roles (includes Learn Admin) */
   const [editingAdminRoleSelection, setEditingAdminRoleSelection] = useState('');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
 
@@ -699,6 +840,7 @@ const SuperAdmin: React.FC = () => {
       'hiring_manager',
       'techie',
       'bdm_admin',
+      'learn_admin',
     ]);
     return roles.filter(
       (r) => r.role_type && allowed.has(String(r.role_type).toLowerCase())
@@ -1253,7 +1395,7 @@ const SuperAdmin: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [approvalTypeFilter]);
 
-  // Create Admin (Option 1: prefer role_id from Access Roles; Learn Admin uses admin_roles legacy)
+  // Create Admin: assign via Access Role (UserRole id)
   const handleCreateAdmin = async () => {
     if (!adminForm.email || !adminForm.password || !adminForm.adminRoleSelection) {
       setSnackbar({ open: true, message: 'Email, password, and an admin role are required', severity: 'error' });
@@ -1269,11 +1411,7 @@ const SuperAdmin: React.FC = () => {
         password: adminForm.password,
         role: 'admin',
       };
-      if (adminForm.adminRoleSelection === 'learn_admin') {
-        payload.admin_roles = ['learn_admin'];
-      } else {
-        payload.role_id = adminForm.adminRoleSelection;
-      }
+      payload.role_id = adminForm.adminRoleSelection;
 
       const response = await fetch(getApiUrl(API_ENDPOINTS.CREATE_ADMIN), {
         method: 'POST',
@@ -1311,10 +1449,9 @@ const SuperAdmin: React.FC = () => {
 
     try {
       const token = localStorage.getItem('authToken');
-      const body: Record<string, unknown> =
-        editingAdminRoleSelection && editingAdminRoleSelection !== 'learn_admin'
-          ? { role_id: editingAdminRoleSelection }
-          : { admin_roles: editingAdminRoleSelection === 'learn_admin' ? ['learn_admin'] : editingAdminRoles };
+      const body: Record<string, unknown> = editingAdminRoleSelection
+        ? { role_id: editingAdminRoleSelection }
+        : { admin_roles: editingAdminRoles };
 
       const response = await fetch(getApiUrl(`${API_ENDPOINTS.USERS}${editingAdmin.id}/update-admin-roles/`), {
         method: 'POST',
@@ -1808,6 +1945,80 @@ const SuperAdmin: React.FC = () => {
     }
   };
 
+  /** Module rows for Access Roles (non-legacy UI): one toggle per domain. */
+  const accessRoleModuleRows = useMemo(() => {
+    const covered = new Set<string>();
+    ACCESS_ROLE_MODULE_GROUPS.forEach((m) => m.codenames.forEach((c) => covered.add(c)));
+
+    const rows = ACCESS_ROLE_MODULE_GROUPS.map((mod) => ({
+      ...mod,
+      permissions: mod.codenames
+        .map((code) => permissions.find((p) => p.codename === code))
+        .filter((p): p is Permission => Boolean(p)),
+    })).filter((row) => row.permissions.length > 0);
+
+    const orphanPerms = permissions.filter((p) => !covered.has(p.codename));
+    if (orphanPerms.length > 0) {
+      rows.push({
+        id: 'other',
+        label: 'Other permissions',
+        description: 'Catalog entries not yet mapped to a domain module above',
+        codenames: orphanPerms.map((p) => p.codename),
+        permissions: orphanPerms,
+      });
+    }
+    return rows;
+  }, [permissions]);
+
+  const filteredAccessRoleModuleRows = useMemo(() => {
+    const q = permissionSearchQuery.trim().toLowerCase();
+    if (!q) return accessRoleModuleRows;
+    return accessRoleModuleRows.filter(
+      (row) =>
+        row.label.toLowerCase().includes(q) ||
+        (row.description && row.description.toLowerCase().includes(q)) ||
+        row.permissions.some(
+          (p) => p.name.toLowerCase().includes(q) || p.codename.toLowerCase().includes(q),
+        ),
+    );
+  }, [accessRoleModuleRows, permissionSearchQuery]);
+
+  const isAccessModuleFullySelected = (perms: Permission[]) =>
+    perms.length > 0 && perms.every((p) => roleForm.selectedPermissions.includes(p.id));
+
+  const isAccessModulePartiallySelected = (perms: Permission[]) => {
+    const n = perms.filter((p) => roleForm.selectedPermissions.includes(p.id)).length;
+    return n > 0 && n < perms.length;
+  };
+
+  const toggleAccessModule = (perms: Permission[]) => {
+    const ids = perms.map((p) => p.id);
+    if (isAccessModuleFullySelected(perms)) {
+      setRoleForm((prev) => ({
+        ...prev,
+        selectedPermissions: prev.selectedPermissions.filter((id) => !ids.includes(id)),
+      }));
+    } else {
+      setRoleForm((prev) => ({
+        ...prev,
+        selectedPermissions: [...new Set([...prev.selectedPermissions, ...ids])],
+      }));
+    }
+  };
+
+  const selectAllAccessModules = () => {
+    const allIds = accessRoleModuleRows.flatMap((r) => r.permissions.map((p) => p.id));
+    setRoleForm((prev) => ({ ...prev, selectedPermissions: [...new Set(allIds)] }));
+  };
+
+  const accessRoleSelectedModuleCount = useMemo(
+    () =>
+      accessRoleModuleRows.filter((row) =>
+        row.permissions.some((p) => roleForm.selectedPermissions.includes(p.id)),
+      ).length,
+    [accessRoleModuleRows, roleForm.selectedPermissions],
+  );
+
   // Filter admins
   const filteredAdmins = admins.filter(admin =>
     admin.email.toLowerCase().includes(adminSearchQuery.toLowerCase()) ||
@@ -1922,7 +2133,12 @@ const SuperAdmin: React.FC = () => {
       </AnimatedDotsContainer>
 
       <ContentWrapper>
-        <Container maxWidth="xl">
+        <Container
+          maxWidth="xl"
+          sx={{
+            pb: { xs: 4, md: 6 },
+          }}
+        >
 
           {/* Stats Cards */}
           <Grid container spacing={{ xs: 1.5, md: 2 }} sx={{ mb: { xs: 2, md: 3 }, mt: { xs: 1, md: 2 } }}>
@@ -2377,10 +2593,11 @@ const SuperAdmin: React.FC = () => {
                                           const existingRoles = ((admin as any).admin_roles || []) as string[];
                                           setEditingAdminRoles(existingRoles.length > 0 ? [existingRoles[0]] : []);
                                           const code = existingRoles[0];
-                                          if (code === 'learn_admin') {
-                                            setEditingAdminRoleSelection('learn_admin');
-                                          } else if (admin.access_role_id) {
+                                          if (admin.access_role_id) {
                                             setEditingAdminRoleSelection(String(admin.access_role_id));
+                                          } else if (code === 'learn_admin') {
+                                            const match = roles.find((r) => String(r.role_type).toLowerCase() === 'learn_admin');
+                                            setEditingAdminRoleSelection(match ? String(match.id) : '');
                                           } else if (code) {
                                             const rt = ADMIN_CODE_TO_ROLE_TYPE[code];
                                             const match = rt
@@ -2623,8 +2840,16 @@ const SuperAdmin: React.FC = () => {
                                   {expandedRoleId === role.id ? <ExpandLess /> : <ExpandMore />}
                                 </Box>
 
-                                <Collapse in={expandedRoleId === role.id}>
-                                  <Box sx={{ mt: 1.5, maxHeight: 200, overflow: 'auto' }}>
+                                 <Collapse in={expandedRoleId === role.id}>
+                                   <Box
+                                     sx={{
+                                       mt: 1.5,
+                                       maxHeight: { xs: 260, md: 340 },
+                                       overflow: 'auto',
+                                       pr: 0.5,
+                                       pb: 0.5,
+                                     }}
+                                   >
                                     {role.permissions.length === 0 ? (
                                       <Typography variant="caption" color="text.secondary">
                                         No permissions assigned
@@ -3754,37 +3979,51 @@ const SuperAdmin: React.FC = () => {
                 value={adminForm.adminRoleSelection}
                 label="Admin Role *"
                 onChange={(e) => setAdminForm({ ...adminForm, adminRoleSelection: e.target.value })}
+                renderValue={(value) =>
+                  value
+                    ? renderAssignableRoleSelectValue(String(value), assignableRoles)
+                    : (
+                      <Typography component="span" color="text.secondary" sx={{ fontWeight: 500 }}>
+                        Select a role
+                      </Typography>
+                    )
+                }
                 sx={{ borderRadius: '12px' }}
               >
-                {assignableRoles.map((r) => (
-                  <MenuItem key={r.id} value={String(r.id)}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left' }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{roleDisplayLabel(r)}</Typography>
-                      {roleSubtitle(r) && (
-                        <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'normal', lineHeight: 1.35 }}>
-                          {roleSubtitle(r)}
+                {assignableRoles.map((r) => {
+                  const menuStyle = getAssignableRoleMenuStyle(r.role_type);
+                  return (
+                    <MenuItem key={r.id} value={String(r.id)} sx={{ py: 1.25 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%', minWidth: 0 }}>
+                        <Box
+                          sx={{
+                            width: 42,
+                            height: 42,
+                            borderRadius: 2,
+                            background: menuStyle.gradient,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#fff',
+                            flexShrink: 0,
+                            boxShadow: '0 2px 10px rgba(15, 23, 42, 0.15)',
+                          }}
+                        >
+                          {menuStyle.icon}
+                        </Box>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a', lineHeight: 1.3 }}>
+                          {roleDisplayLabel(r)}
                         </Typography>
-                      )}
-                    </Box>
-                  </MenuItem>
-                ))}
-                <MenuItem value="learn_admin">
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <School sx={{ color: '#0891b2' }} />
-                    Learn Admin — courses & learning (uses admin_roles; not in Access Roles list)
-                  </Box>
-                </MenuItem>
+                      </Box>
+                    </MenuItem>
+                  );
+                })}
               </Select>
             </FormControl>
             {adminForm.adminRoleSelection && (
               <Alert severity="info" sx={{ borderRadius: '12px' }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Summary</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {adminForm.adminRoleSelection === 'learn_admin'
-                    ? 'Learn Admin: Manage courses, tutorials, sections, lessons, and learning content.'
-                    : (assignableRoles.find((r) => String(r.id) === adminForm.adminRoleSelection)?.permission_summary
-                      || assignableRoles.find((r) => String(r.id) === adminForm.adminRoleSelection)?.description
-                      || 'Permissions for this role are defined under Access Roles.')}
+                  Fine-grained permissions for this role are set under <strong>Access Roles</strong>.
                 </Typography>
               </Alert>
             )}
@@ -3869,9 +4108,7 @@ const SuperAdmin: React.FC = () => {
               onChange={(e) => {
                 const v = e.target.value as string;
                 setEditingAdminRoleSelection(v);
-                if (v === 'learn_admin') {
-                  setEditingAdminRoles(['learn_admin']);
-                } else if (v) {
+                if (v) {
                   const row = assignableRoles.find((r) => String(r.id) === v);
                   const code = row
                     ? (Object.entries(ADMIN_CODE_TO_ROLE_TYPE).find(
@@ -3883,38 +4120,52 @@ const SuperAdmin: React.FC = () => {
                   setEditingAdminRoles([]);
                 }
               }}
+              renderValue={(value) =>
+                value
+                  ? renderAssignableRoleSelectValue(String(value), assignableRoles)
+                  : (
+                    <Typography component="span" color="text.secondary" sx={{ fontWeight: 500 }}>
+                      Select a role
+                    </Typography>
+                  )
+              }
               sx={{ borderRadius: '12px' }}
             >
-              {assignableRoles.map((r) => (
-                <MenuItem key={r.id} value={String(r.id)}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{roleDisplayLabel(r)}</Typography>
-                    {roleSubtitle(r) && (
-                      <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'normal', lineHeight: 1.35 }}>
-                        {roleSubtitle(r)}
+              {assignableRoles.map((r) => {
+                const menuStyle = getAssignableRoleMenuStyle(r.role_type);
+                return (
+                  <MenuItem key={r.id} value={String(r.id)} sx={{ py: 1.25 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%', minWidth: 0 }}>
+                      <Box
+                        sx={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 2,
+                          background: menuStyle.gradient,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#fff',
+                          flexShrink: 0,
+                          boxShadow: '0 2px 10px rgba(15, 23, 42, 0.15)',
+                        }}
+                      >
+                        {menuStyle.icon}
+                      </Box>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a', lineHeight: 1.3 }}>
+                        {roleDisplayLabel(r)}
                       </Typography>
-                    )}
-                  </Box>
-                </MenuItem>
-              ))}
-              <MenuItem value="learn_admin">
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <School sx={{ color: '#0891b2' }} />
-                  Learn Admin
-                </Box>
-              </MenuItem>
+                    </Box>
+                  </MenuItem>
+                );
+              })}
             </Select>
           </FormControl>
 
           {(editingAdminRoleSelection || editingAdminRoles.length > 0) && (
             <Alert severity="info" sx={{ mt: 2, borderRadius: '12px' }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Summary</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
-                {editingAdminRoleSelection === 'learn_admin' || editingAdminRoles.includes('learn_admin')
-                  ? 'Learn Admin: Manage courses, tutorials & learning content.'
-                  : (assignableRoles.find((r) => String(r.id) === editingAdminRoleSelection)?.permission_summary
-                    || assignableRoles.find((r) => String(r.id) === editingAdminRoleSelection)?.description
-                    || 'Permissions are defined under Access Roles.')}
+                Permissions for the selected role are managed under <strong>Access Roles</strong>.
               </Typography>
             </Alert>
           )}
@@ -4016,16 +4267,16 @@ const SuperAdmin: React.FC = () => {
                 ))}
               </Select>
             </FormControl>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-              The access label is generated from this admin type and the permissions you select. You cannot create two roles with the same type and the same permission set.
-            </Typography>
+           
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                Assign Permissions ({permissions.length} total)
+                {LEGACY_GRANULAR_ACCESS_ROLE_PERMISSIONS
+                  ? `Assign permissions (${permissions.length} total)`
+                  : `Select modules (${accessRoleModuleRows.length} domains)`}
               </Typography>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 <Chip
-                  label="View Only"
+                  label="View only"
                   size="small"
                   onClick={() => applyPermissionTemplate('viewOnly')}
                   sx={{
@@ -4036,9 +4287,13 @@ const SuperAdmin: React.FC = () => {
                   }}
                 />
                 <Chip
-                  label="Full Access"
+                  label={LEGACY_GRANULAR_ACCESS_ROLE_PERMISSIONS ? 'Full access' : 'All modules'}
                   size="small"
-                  onClick={() => applyPermissionTemplate('fullAccess')}
+                  onClick={() =>
+                    LEGACY_GRANULAR_ACCESS_ROLE_PERMISSIONS
+                      ? applyPermissionTemplate('fullAccess')
+                      : selectAllAccessModules()
+                  }
                   sx={{
                     cursor: 'pointer',
                     bgcolor: '#dcfce7',
@@ -4047,7 +4302,7 @@ const SuperAdmin: React.FC = () => {
                   }}
                 />
                 <Chip
-                  label="Clear All"
+                  label="Clear all"
                   size="small"
                   onClick={() => applyPermissionTemplate('clear')}
                   sx={{
@@ -4060,9 +4315,13 @@ const SuperAdmin: React.FC = () => {
               </Box>
             </Box>
 
-            {/* Search Permissions */}
+            {!LEGACY_GRANULAR_ACCESS_ROLE_PERMISSIONS && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+               </Typography>
+            )}
+
             <TextField
-              placeholder="Search permissions..."
+              placeholder={LEGACY_GRANULAR_ACCESS_ROLE_PERMISSIONS ? 'Search permissions…' : 'Search modules or permissions…'}
               size="small"
               fullWidth
               value={permissionSearchQuery}
@@ -4104,7 +4363,7 @@ const SuperAdmin: React.FC = () => {
                   Loading all permissions...
                 </Typography>
               </Box>
-            ) : (
+            ) : LEGACY_GRANULAR_ACCESS_ROLE_PERMISSIONS ? (
               <Box sx={{ maxHeight: 350, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
                 {Object.keys(filteredGroupedPermissions).length === 0 ? (
                   <Box sx={{ p: 4, textAlign: 'center' }}>
@@ -4192,11 +4451,102 @@ const SuperAdmin: React.FC = () => {
                     })
                 )}
               </Box>
+            ) : (
+              <Box sx={{ maxHeight: 350, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                {filteredAccessRoleModuleRows.length === 0 ? (
+                  <Box sx={{ p: 4, textAlign: 'center' }}>
+                    <Typography color="text.secondary">No modules match your search</Typography>
+                  </Box>
+                ) : (
+                  filteredAccessRoleModuleRows.map((row) => {
+                    const selectedInModule = row.permissions.filter((p) =>
+                      roleForm.selectedPermissions.includes(p.id),
+                    ).length;
+                    return (
+                      <Accordion key={row.id} elevation={0} disableGutters sx={{ '&:before': { display: 'none' } }}>
+                        <AccordionSummary
+                          expandIcon={<ExpandMore />}
+                          sx={{
+                            bgcolor: '#f8fafc',
+                            '&:hover': { bgcolor: '#f1f5f9' },
+                            minHeight: 52,
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', pr: 1 }}>
+                            <Checkbox
+                              checked={isAccessModuleFullySelected(row.permissions)}
+                              indeterminate={isAccessModulePartiallySelected(row.permissions)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleAccessModule(row.permissions);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              sx={{ '&.Mui-checked, &.MuiCheckbox-indeterminate': { color: '#8b5cf6' } }}
+                            />
+                            <VpnKey sx={{ color: '#8b5cf6', fontSize: 18 }} />
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography sx={{ fontWeight: 600 }}>{row.label}</Typography>
+                              {row.description && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                  {row.description}
+                                </Typography>
+                              )}
+                            </Box>
+                            <Chip
+                              label={`${selectedInModule}/${row.permissions.length}`}
+                              size="small"
+                              sx={{
+                                bgcolor: selectedInModule > 0 ? '#f3e8ff' : '#f1f5f9',
+                                color: selectedInModule > 0 ? '#8b5cf6' : '#64748b',
+                                fontWeight: 600,
+                              }}
+                            />
+                          </Box>
+                        </AccordionSummary>
+                        <AccordionDetails sx={{ bgcolor: '#fafafa', pt: 0, pb: 2, px: 2 }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                            Included in this module (reference — use the checkbox above to select all)
+                          </Typography>
+                          <List dense disablePadding sx={{ border: '1px solid #e2e8f0', borderRadius: 1, bgcolor: '#fff' }}>
+                            {row.permissions.map((perm) => (
+                              <ListItem key={perm.id} sx={{ py: 0.5, px: 1.5 }}>
+                                <ListItemText
+                                  primary={
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                                      <Typography variant="body2">{perm.name}</Typography>
+                                      {['manage_companies', 'manage_schools', 'manage_jobs'].includes(perm.codename) && (
+                                        <Chip label="Legacy" size="small" sx={{ height: 18, fontSize: '0.6rem' }} />
+                                      )}
+                                    </Box>
+                                  }
+                                  secondary={perm.codename}
+                                  secondaryTypographyProps={{ variant: 'caption', sx: { fontFamily: 'monospace' } }}
+                                />
+                              </ListItem>
+                            ))}
+                          </List>
+                        </AccordionDetails>
+                      </Accordion>
+                    );
+                  })
+                )}
+              </Box>
             )}
 
-            <Box sx={{ mt: 2, p: 2, bgcolor: '#f8fafc', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box sx={{ mt: 2, p: 2, bgcolor: '#f8fafc', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
               <Typography variant="body2" color="text.secondary">
-                <strong>Selected:</strong> {roleForm.selectedPermissions.length} of {permissions.length} permissions
+                <strong>Selected:</strong>{' '}
+                {LEGACY_GRANULAR_ACCESS_ROLE_PERMISSIONS ? (
+                  <>
+                    {roleForm.selectedPermissions.length} of {permissions.length} permissions
+                  </>
+                ) : (
+                  <>
+                    {roleForm.selectedPermissions.length} permission
+                    {roleForm.selectedPermissions.length === 1 ? '' : 's'} across {accessRoleSelectedModuleCount} module
+                    {accessRoleSelectedModuleCount === 1 ? '' : 's'}
+                  </>
+                )}
               </Typography>
               {roleForm.selectedPermissions.length > 0 && (
                 <Button
@@ -4870,4 +5220,3 @@ const SuperAdmin: React.FC = () => {
 };
 
 export default SuperAdmin;
-

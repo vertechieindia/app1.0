@@ -50,7 +50,18 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
   const [establishedYear, setEstablishedYear] = useState('');
   const [companyAddress, setCompanyAddress] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  
+
+  // HR: company invite dialog (same pattern as WorkExperienceForm)
+  const [showCompanyInvite, setShowCompanyInvite] = useState(false);
+  const [companyInvite, setCompanyInvite] = useState({
+    companyName: '',
+    address: '',
+    email: '',
+    phone: '',
+  });
+  const [companyInviteErrors, setCompanyInviteErrors] = useState<Record<string, string>>({});
+  const [inviteSending, setInviteSending] = useState(false);
+
   // Check if this is company signup (not HR)
   const isCompanySignup = role === 'company';
   // Get location from props or formData
@@ -1009,18 +1020,20 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
       console.log('Company operation:', isEdit ? 'PUT (Update)' : 'POST (Create)');
       console.log('Company ID:', companyId || 'Not found (will create new)');
 
-      // Use api client so auth token is attached and 401/refresh is handled
-      const apiUrl = getApiUrl(API_ENDPOINTS.COMPANY);
+      // Paths relative to apiClient baseURL (/api/v1) — do not use getApiUrl here or axios doubles /api/v1
       let responseData: { id?: string; company_id?: string };
 
       if (isEdit && companyId) {
-        const updateUrl = `${apiUrl}${companyId}/`;
-        console.log('Updating company details:', updateUrl);
-        responseData = await api.put<{ id?: string; company_id?: string }>(updateUrl, payload);
+        const updatePath = API_ENDPOINTS.CMS.UPDATE_COMPANY(companyId);
+        console.log('Updating company details:', updatePath);
+        responseData = await api.put<{ id?: string; company_id?: string }>(updatePath, payload);
         console.log('Company details updated successfully', responseData);
       } else {
-        console.log('Posting new company details:', apiUrl);
-        responseData = await api.post<{ id?: string; company_id?: string }>(apiUrl, payload);
+        console.log('Posting new company details:', API_ENDPOINTS.COMPANY);
+        responseData = await api.post<{ id?: string; company_id?: string }>(
+          API_ENDPOINTS.COMPANY,
+          payload,
+        );
         console.log('Company details saved successfully', responseData);
       }
 
@@ -1028,10 +1041,10 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
       
       // Also update user_profile with company name so it shows on profile page (api client adds auth)
       try {
-        const profileUrl = getApiUrl('/users/me/profile');
-        await api.put(profileUrl, {
+        await api.put(API_ENDPOINTS.USERS.UPDATE_PROFILE, {
           current_company: companyName.trim(),
           current_position: isCompanySignup ? 'Company Owner' : 'Hiring Manager',
+          ...(returnedCompanyId ? { company_id: returnedCompanyId } : {}),
         });
         console.log('Updated user profile with company name');
       } catch (profileErr) {
@@ -1340,28 +1353,13 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
                     if (isInviteCompanyOption(opt)) {
                       const name = opt.name.trim();
                       if (!name) return;
-                      (async () => {
-                        try {
-                          const token = localStorage.getItem('authToken') || formData?.access_token;
-                          const contactName = [formData?.firstName, formData?.lastName].filter(Boolean).join(' ') || 'HR Manager';
-                          await axios.post(
-                            getApiUrl(API_ENDPOINTS.COMPANY_INVITES),
-                            {
-                              company_name: name,
-                              contact_person_name: contactName,
-                              website: companyWebsite?.trim() || undefined,
-                              emails: companyEmail?.trim() ? [companyEmail.trim()] : [],
-                            },
-                            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-                          );
-                          handleChange('companyName', name);
-                          setCompanyInputValue(name);
-                        } catch (e) {
-                          console.error('Company invite request failed:', e);
-                          handleChange('companyName', name);
-                          setCompanyInputValue(name);
-                        }
-                      })();
+                      setCompanyInvite((prev) => ({
+                        ...prev,
+                        companyName: name,
+                        email: companyEmail.trim() || prev.email,
+                      }));
+                      setCompanyInviteErrors({});
+                      setShowCompanyInvite(true);
                       return;
                     }
                     handleChange('companyName', opt.name);
@@ -1682,6 +1680,171 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* HR: invite unknown company — same flow as techie Work Experience */}
+      {!isCompanySignup && (
+        <Dialog
+          open={showCompanyInvite}
+          onClose={() => {
+            if (inviteSending) return;
+            setShowCompanyInvite(false);
+            setCompanyInviteErrors({});
+          }}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle sx={{ fontWeight: 700 }}>
+            Invite Your Company to VerTechie
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" sx={{ mb: 2, color: '#64748b' }}>
+              Your company is not registered with us. You can invite them to create an account,
+              or proceed without inviting by clicking &quot;Skip&quot;.
+            </Typography>
+            {companyInviteErrors.submit ? (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {companyInviteErrors.submit}
+              </Alert>
+            ) : null}
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Company Name *"
+                  value={companyInvite.companyName}
+                  onChange={(e) => {
+                    setCompanyInvite((prev) => ({ ...prev, companyName: e.target.value }));
+                    if (companyInviteErrors.companyName) {
+                      setCompanyInviteErrors((prev) => ({ ...prev, companyName: '' }));
+                    }
+                  }}
+                  error={!!companyInviteErrors.companyName}
+                  helperText={companyInviteErrors.companyName}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Company Address *"
+                  multiline
+                  rows={2}
+                  value={companyInvite.address}
+                  onChange={(e) => {
+                    setCompanyInvite((prev) => ({ ...prev, address: e.target.value }));
+                    if (companyInviteErrors.address) {
+                      setCompanyInviteErrors((prev) => ({ ...prev, address: '' }));
+                    }
+                  }}
+                  error={!!companyInviteErrors.address}
+                  helperText={companyInviteErrors.address}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Company Email *"
+                  type="email"
+                  placeholder="company@example.com"
+                  value={companyInvite.email}
+                  onChange={(e) => {
+                    setCompanyInvite((prev) => ({ ...prev, email: e.target.value }));
+                    if (companyInviteErrors.email) {
+                      setCompanyInviteErrors((prev) => ({ ...prev, email: '' }));
+                    }
+                  }}
+                  error={!!companyInviteErrors.email}
+                  helperText={companyInviteErrors.email}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Company Phone *"
+                  placeholder="9876543210"
+                  value={companyInvite.phone}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    setCompanyInvite((prev) => ({ ...prev, phone: digits }));
+                    if (companyInviteErrors.phone) {
+                      setCompanyInviteErrors((prev) => ({ ...prev, phone: '' }));
+                    }
+                  }}
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', maxLength: 10 }}
+                  error={!!companyInviteErrors.phone}
+                  helperText={companyInviteErrors.phone}
+                />
+              </Grid>
+            </Grid>
+          </DialogContent>
+          <DialogActions sx={{ p: 2 }}>
+            <Button
+              onClick={() => {
+                setShowCompanyInvite(false);
+                setCompanyInviteErrors({});
+              }}
+              disabled={inviteSending}
+            >
+              Skip - Proceed Without Inviting
+            </Button>
+            <Button
+              variant="contained"
+              disabled={inviteSending}
+              onClick={async () => {
+                const name = companyInvite.companyName.trim();
+                const address = companyInvite.address.trim();
+                const email = companyInvite.email.trim();
+                const phone = companyInvite.phone.trim();
+                const phoneDigits = phone.replace(/\D/g, '');
+                const err: Record<string, string> = {};
+                if (!name) err.companyName = 'Company name is required';
+                else if (name.length < 2) err.companyName = 'Company name must be at least 2 characters';
+                if (!address) err.address = 'Company address is required';
+                else if (address.length < 5) err.address = 'Address must be at least 5 characters';
+                if (!email) err.email = 'Company email is required';
+                else if (!isValidEmail(email)) err.email = 'Enter a valid email address';
+                if (!phone) err.phone = 'Company phone is required';
+                else if (phoneDigits.length !== 10) err.phone = 'Enter a valid 10-digit phone number';
+                setCompanyInviteErrors(err);
+                if (Object.keys(err).length > 0) return;
+                setInviteSending(true);
+                try {
+                  const token = localStorage.getItem('authToken') || formData?.access_token;
+                  const contactName =
+                    [formData?.firstName, formData?.lastName].filter(Boolean).join(' ') || 'HR Manager';
+                  await axios.post(
+                    getApiUrl(API_ENDPOINTS.COMPANY_INVITES),
+                    {
+                      company_name: name,
+                      address: address || undefined,
+                      emails: email ? [email] : [],
+                      phone_numbers: phoneDigits ? [phoneDigits] : [],
+                      contact_person_name: contactName,
+                      website: companyWebsite?.trim() || undefined,
+                      invite_flow: 'outreach',
+                    },
+                    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+                  );
+                  setShowCompanyInvite(false);
+                  setCompanyInviteErrors({});
+                  handleChange('companyName', name);
+                  setCompanyInputValue(name);
+                  handleChange('companyEmail', email);
+                  setCompanyInvite({ companyName: '', address: '', email: '', phone: '' });
+                } catch (e) {
+                  console.error('Company invite request failed:', e);
+                  setCompanyInviteErrors({
+                    submit: 'Invite could not be sent. Please try again.',
+                  });
+                } finally {
+                  setInviteSending(false);
+                }
+              }}
+            >
+              {inviteSending ? 'Sending…' : 'Send Invite'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
 
       {errors.submit && (
         <Alert severity="error" sx={{ mt: 2 }}>

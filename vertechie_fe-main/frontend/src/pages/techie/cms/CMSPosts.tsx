@@ -24,6 +24,7 @@ import ShareIcon from '@mui/icons-material/Share';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import BusinessIcon from '@mui/icons-material/Business';
 import CMSLayout from './CMSLayout';
+import { fetchMyCompanyForCMS } from './cmsCompanyFetch';
 import { api } from '../../../services/apiClient';
 import { API_ENDPOINTS } from '../../../config/api';
 
@@ -64,19 +65,7 @@ const CMSPosts: React.FC = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                let myCompany = null;
-                try {
-                    const me = await api.get<any>(API_ENDPOINTS.AUTH.ME);
-                    if (me?.id) {
-                        const result = await api.get<any>(API_ENDPOINTS.COMPANY, { params: { user_id: me.id } });
-                        if (Array.isArray(result) && result.length > 0) myCompany = result[0];
-                        else if (result?.id) myCompany = result;
-                    }
-                } catch (e) { console.warn("Company lookup failed:", e); }
-
-                if (!myCompany) {
-                    try { myCompany = await api.get<any>(API_ENDPOINTS.CMS.MY_COMPANY); } catch (e) { }
-                }
+                const myCompany = await fetchMyCompanyForCMS();
 
                 if (myCompany?.id) {
                     setCompanyId(myCompany.id);

@@ -42,6 +42,7 @@ def _admin_role_codes_to_role_type(admin_code: str) -> RoleType | None:
         "hm_admin": RoleType.HIRING_MANAGER,
         "techie_admin": RoleType.TECHIE,
         "bdm_admin": RoleType.BDM_ADMIN,
+        "learn_admin": RoleType.LEARN_ADMIN,
     }
     return m.get((admin_code or "").lower().strip())
 

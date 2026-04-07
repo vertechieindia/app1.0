@@ -70,8 +70,10 @@ class Company(Base):
     
     # Contact
     website = Column(String(500))
+    domain = Column(String(255))  # Primary corporate web domain (e.g. example.com)
     email = Column(String(255))
     phone = Column(String(20))
+    gst_number = Column(String(50))  # India GSTIN or similar
     
     # Social
     linkedin_url = Column(String(500))
@@ -306,6 +308,16 @@ class InviteStatus(str, enum.Enum):
     EXPIRED = "expired"
 
 
+class CompanyInviteFlow(str, enum.Enum):
+    """How this company_invites row should be handled."""
+
+    OUTREACH = "outreach"
+    # Signup / work-exp / profile — notify or track outreach to external companies; not BDM company-creation queue.
+
+    REGISTRATION = "registration"
+    # Business → full company form — BDM approves/rejects before provisioning a Company profile.
+
+
 class CompanyInvite(Base):
     """Company invite requests from users."""
     __tablename__ = "company_invites"
@@ -314,8 +326,19 @@ class CompanyInvite(Base):
     
     # Company Details
     company_name = Column(String(200), nullable=False)
+    legal_name = Column(String(300))
     address = Column(Text)
+    headquarters_address = Column(Text)
+    branch_addresses = Column(JSON, default=list)  # list of branch address dicts
     website = Column(String(500))
+    domain = Column(String(255))
+    gst_number = Column(String(50))
+    industry = Column(String(100))
+    logo_url = Column(String(500))
+    banner_image_url = Column(String(500))
+    about = Column(Text)
+    tagline = Column(String(200))
+    founder_details = Column(JSON, default=list)  # list of {name, role, email, phone}
     
     # Contact Person
     contact_person_name = Column(String(100))
@@ -327,9 +350,13 @@ class CompanyInvite(Base):
     
     # Status
     status = Column(SQLEnum(InviteStatus), default=InviteStatus.PENDING)
+
+    # outreach vs registration (BDM queue / provisioning only for registration)
+    invite_flow = Column(String(32), nullable=False, default=CompanyInviteFlow.OUTREACH.value, server_default="outreach")
     
     # Who requested
     requested_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    provisioned_company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
     
     # Notes
     admin_notes = Column(Text)
