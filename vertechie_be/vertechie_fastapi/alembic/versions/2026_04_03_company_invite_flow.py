@@ -14,7 +14,9 @@ import sqlalchemy as sa
 revision: str = "2026_04_03_invite_flow"
 down_revision: Union[str, None] = "764b704c89b8"
 branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+# This migration classifies rows using fields introduced in
+# 2026_04_01_company_invite_reg, so ensure that branch is applied first.
+depends_on: Union[str, Sequence[str], None] = ("2026_04_01_company_invite_reg",)
 
 
 def upgrade() -> None:
