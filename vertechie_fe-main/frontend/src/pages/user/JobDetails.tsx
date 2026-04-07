@@ -44,6 +44,21 @@ import IconButton from '@mui/material/IconButton';
 import { formatDistanceToNow, format } from 'date-fns';
 import { Job, JOB_TYPES, EXPERIENCE_LEVELS, DIFFICULTY_LABELS } from '../../types/jobPortal';
 import { jobService, applicationService, getUserInfo } from '../../services/jobPortalService';
+import { ABOVE_BOTTOM_NAV_OFFSET_PX } from '../../constants/layout';
+
+const getCodingDraftStorageKey = (jobId: string) => `job-application-coding-draft:${jobId}`;
+
+const hasLockedAssessmentDraft = (jobId?: string): boolean => {
+  if (!jobId || typeof window === 'undefined') return false;
+  const raw = window.sessionStorage.getItem(getCodingDraftStorageKey(jobId));
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw);
+    return Boolean(parsed?.assessmentLocked);
+  } catch {
+    return false;
+  }
+};
 
 // Theme Colors - VerTechie Blue Palette (Matching App Theme)
 const colors = {
@@ -180,6 +195,14 @@ const CodingQuestionCard = styled(Paper)(({ theme }) => ({
   },
 }));
 
+const ScreeningQuestionCard = styled(Paper)(({ theme }) => ({
+  borderRadius: 16,
+  padding: theme.spacing(2.5),
+  background: alpha(colors.primaryLight, 0.08),
+  border: `1px solid ${alpha(colors.primary, 0.18)}`,
+  marginBottom: theme.spacing(1.5),
+}));
+
 const InfoBox = styled(Box)(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
@@ -199,11 +222,13 @@ const JobDetails: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [hasApplied, setHasApplied] = useState(false);
   const [checkingApplication, setCheckingApplication] = useState(true);
+  const [assessmentLocked, setAssessmentLocked] = useState(false);
 
   useEffect(() => {
     if (jobId) {
       loadJob();
       checkApplicationStatus();
+      setAssessmentLocked(hasLockedAssessmentDraft(jobId));
     }
   }, [jobId]);
 
@@ -241,11 +266,14 @@ const JobDetails: React.FC = () => {
   const handleApply = () => {
     if (!job) return;
 
+    if (assessmentLocked && job.codingQuestions.length > 0) {
+      navigate(`/techie/jobs/${job.id}/coding-test`);
+      return;
+    }
+
     if (job.codingQuestions.length > 0) {
-      // Redirect to coding test page
       navigate(`/techie/jobs/${job.id}/apply`);
     } else {
-      // Apply directly without coding test
       navigate(`/techie/jobs/${job.id}/apply`);
     }
   };
@@ -295,7 +323,12 @@ const JobDetails: React.FC = () => {
 
   return (
     <PageContainer>
-      <Container maxWidth="xl">
+      <Container
+        maxWidth="xl"
+        sx={{
+          pb: `calc(${ABOVE_BOTTOM_NAV_OFFSET_PX}px + env(safe-area-inset-bottom, 0px))`,
+        }}
+      >
         {/* Header Card */}
         <HeaderCard elevation={0}>
           <Box sx={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'flex-start', gap: 3 }}>
@@ -397,6 +430,88 @@ const JobDetails: React.FC = () => {
                   ))}
                 </Box>
 
+                {/* Screening Questions */}
+                {job.screeningQuestions && job.screeningQuestions.length > 0 && (
+                  <>
+                    <Divider sx={{ my: 4 }} />
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                      <CheckCircleIcon color="primary" sx={{ fontSize: 28 }} />
+                      <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                        Screening Questions
+                      </Typography>
+                    </Box>
+                    <Alert
+                      severity="info"
+                      sx={{ mb: 3, borderRadius: 2 }}
+                      icon={<StarIcon />}
+                    >
+                      This job includes {job.screeningQuestions.length} screening question
+                      {job.screeningQuestions.length > 1 ? 's' : ''} before application submission.
+                    </Alert>
+
+                    {job.screeningQuestions.map((question, index) => (
+                      <ScreeningQuestionCard key={question.id} elevation={0}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2 }}>
+                          <Box sx={{ display: 'flex', gap: 2, flex: 1 }}>
+                            <Box
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 2,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: `linear-gradient(135deg, ${colors.secondary} 0%, ${colors.primaryLight} 100%)`,
+                                color: 'white',
+                                fontWeight: 700,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {index + 1}
+                            </Box>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="subtitle1" sx={{ fontWeight: 600, color: colors.secondary, mb: 0.75 }}>
+                                {question.question}
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                <Chip
+                                  label={`Type: ${
+                                    question.type === 'yesno'
+                                      ? 'Yes / No'
+                                      : question.type === 'multiple'
+                                        ? 'Multiple Choice'
+                                        : question.type === 'number'
+                                          ? 'Number'
+                                          : question.type === 'verbal'
+                                            ? 'Verbal'
+                                            : 'Text'
+                                  }`}
+                                  size="small"
+                                  sx={{ bgcolor: alpha(colors.primary, 0.08), color: colors.primaryDark, fontWeight: 600 }}
+                                />
+                                <Chip
+                                  label={question.required ? 'Required' : 'Optional'}
+                                  size="small"
+                                  sx={{
+                                    bgcolor: question.required ? alpha(colors.error, 0.12) : alpha(colors.success, 0.12),
+                                    color: question.required ? colors.error : colors.success,
+                                    fontWeight: 600,
+                                  }}
+                                />
+                              </Box>
+                              {question.options && question.options.length > 0 && (
+                                <Typography variant="body2" sx={{ color: colors.textLight, mt: 1 }}>
+                                  Options: {question.options.join(', ')}
+                                </Typography>
+                              )}
+                            </Box>
+                          </Box>
+                        </Box>
+                      </ScreeningQuestionCard>
+                    ))}
+                  </>
+                )}
+
                 {/* Coding Questions */}
                 {job.codingQuestions.length > 0 && (
                   <>
@@ -481,8 +596,15 @@ const JobDetails: React.FC = () => {
 
           {/* Sidebar */}
           <Grid item xs={12} lg={4}>
+            <Box
+              sx={{
+                position: { xs: 'static', lg: 'sticky' },
+                top: { lg: 100 },
+                pr: { lg: 1 },
+              }}
+            >
             {/* Apply Card */}
-            <ContentCard sx={{ mb: 3, position: 'sticky', top: 100 }}>
+            <ContentCard sx={{ mb: 3 }}>
               <CardContent sx={{ p: 4, textAlign: 'center' }}>
                 {hasApplied ? (
                   <>
@@ -531,10 +653,12 @@ const JobDetails: React.FC = () => {
                 ) : (
                   <>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-                      Ready to Apply?
+                      {assessmentLocked ? 'Assessment Locked' : 'Ready to Apply?'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Answer a few questions and your profile will be matched to this role automatically.
+                      {assessmentLocked
+                        ? 'Suspicious activity locked this coding assessment. Open the locked assessment screen to review the status.'
+                        : 'Answer a few questions and your profile will be matched to this role automatically.'}
                     </Typography>
                     <Box sx={{ 
                       p: 2, 
@@ -550,7 +674,10 @@ const JobDetails: React.FC = () => {
                         ✓ Profile auto-matched with job requirements
                       </Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        ✓ Quick screening questions
+                        ✓ {job.screeningQuestions && job.screeningQuestions.length > 0 ? `${job.screeningQuestions.length} screening question${job.screeningQuestions.length > 1 ? 's' : ''}` : 'No screening questions'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                        ✓ {job.codingQuestions.length > 0 ? `${job.codingQuestions.length} coding question${job.codingQuestions.length > 1 ? 's' : ''}` : 'No coding assessment'}
                       </Typography>
                     </Box>
                     <ApplyButton
@@ -558,8 +685,20 @@ const JobDetails: React.FC = () => {
                       startIcon={<SendIcon />}
                       onClick={handleApply}
                       disabled={job.status !== 'active' || checkingApplication}
+                      sx={assessmentLocked ? {
+                        background: `linear-gradient(135deg, ${colors.warning} 0%, ${colors.error} 100%)`,
+                        color: 'white',
+                        '&:hover': {
+                          background: `linear-gradient(135deg, ${colors.error} 0%, ${colors.warning} 100%)`,
+                          color: 'white',
+                        },
+                      } : undefined}
                     >
-                      {job.status !== 'active' ? 'Position Closed' : 'Apply Now'}
+                      {job.status !== 'active'
+                        ? 'Position Closed'
+                        : assessmentLocked
+                          ? 'Assessment Locked'
+                          : 'Apply Now'}
                     </ApplyButton>
                   </>
                 )}
@@ -648,6 +787,7 @@ const JobDetails: React.FC = () => {
                 </Grid>
               </CardContent>
             </ContentCard>
+            </Box>
           </Grid>
         </Grid>
       </Container>

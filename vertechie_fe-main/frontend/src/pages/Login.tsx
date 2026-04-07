@@ -208,9 +208,11 @@ const Login = () => {
             groups: userApiData.groups || data.user_data.groups || [],
             roles: userApiData.roles || data.user_data.roles || [],
             admin_roles: userApiData.admin_roles || data.user_data.admin_roles || [],
-            // IMPORTANT: Preserve verification_status and role from login response
-            verification_status: userApiData.verification_status || data.user_data.verification_status,
-            role: userApiData.role || data.user_data.role,
+            // Prefer freshest API values; avoid || so empty strings / explicit API null don't keep stale login PENDING
+            verification_status: userApiData.verification_status ?? data.user_data.verification_status,
+            role: userApiData.role ?? data.user_data.role,
+            company_id: userApiData.company_id ?? data.user_data.company_id,
+            has_company: userApiData.has_company ?? data.user_data.has_company,
           };
           localStorage.setItem('userData', JSON.stringify(userData));
         }
@@ -235,6 +237,32 @@ const Login = () => {
             profile: profileData,
           };
           localStorage.setItem('userData', JSON.stringify(userData));
+        }
+
+        try {
+          const meRes = await fetch(getApiUrl('/users/me'), {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${data.access}`,
+            },
+          });
+          if (meRes.ok) {
+            const me = await meRes.json();
+            userData = {
+              ...userData,
+              ...me,
+              groups: me.groups ?? userData.groups,
+              role: me.role ?? userData.role,
+              verification_status: me.verification_status ?? userData.verification_status,
+              is_verified: me.is_verified ?? userData.is_verified,
+              company_id: me.company_id ?? userData.company_id,
+              has_company: me.has_company ?? userData.has_company,
+            };
+            localStorage.setItem('userData', JSON.stringify(userData));
+          }
+        } catch {
+          // non-fatal
         }
       } catch (fetchError) {
         console.warn('Could not fetch user data from API, using token response data:', fetchError);

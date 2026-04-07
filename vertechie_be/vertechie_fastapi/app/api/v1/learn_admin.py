@@ -34,13 +34,18 @@ router = APIRouter()
 DEV_MODE = True  # Allow access without authentication for testing
 
 async def require_learn_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Require admin, learn_admin, or super_admin role."""
-    if current_user.role not in ['super_admin', 'admin', 'learn_admin', 'superadmin']:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Learn Admin access required"
-        )
-    return current_user
+    """Require superuser, superadmin, or learn_admin (admin_roles / Access Role)."""
+    if current_user.is_superuser:
+        return current_user
+    ar = current_user.admin_roles or []
+    if ar:
+        code = str(ar[0]).lower().strip()
+        if code in ("learn_admin", "superadmin", "super_admin"):
+            return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Learn Admin access required",
+    )
 
 
 async def optional_learn_admin():

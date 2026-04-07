@@ -9,7 +9,7 @@ import enum
 
 from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum, Date,
-    Text, JSON, ForeignKey, Integer, Float
+    Text, JSON, ForeignKey, Integer, Float, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -139,6 +139,7 @@ class Job(Base, UUIDMixin, TimestampMixin):
     company = relationship("Company", back_populates="jobs")
     posted_by = relationship("User", backref="posted_jobs")
     applications = relationship("JobApplication", back_populates="job")
+    unique_views = relationship("JobView", back_populates="job", cascade="all, delete-orphan")
 
 
 class JobApplication(Base, UUIDMixin, TimestampMixin):
@@ -202,3 +203,18 @@ class SavedJob(Base, UUIDMixin, TimestampMixin):
     # Relationships
     user = relationship("User", backref="saved_jobs")
     job = relationship("Job", backref="saves")
+
+
+class JobView(Base, UUIDMixin, TimestampMixin):
+    """Tracks unique authenticated viewers per job."""
+
+    __tablename__ = "job_views"
+    __table_args__ = (
+        UniqueConstraint("job_id", "user_id", name="uq_job_views_job_user"),
+    )
+
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False)
+
+    user = relationship("User", backref="job_views")
+    job = relationship("Job", back_populates="unique_views")

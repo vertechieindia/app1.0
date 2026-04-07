@@ -17,6 +17,7 @@ ASSIGNABLE_ADMIN_ROLE_TYPES: Set[RoleType] = {
     RoleType.HIRING_MANAGER,
     RoleType.TECHIE,
     RoleType.BDM_ADMIN,
+    RoleType.LEARN_ADMIN,
 }
 
 
@@ -29,6 +30,7 @@ def role_type_to_admin_role_code(role_type: RoleType) -> str:
         RoleType.HIRING_MANAGER: "hm_admin",
         RoleType.TECHIE: "techie_admin",
         RoleType.BDM_ADMIN: "bdm_admin",
+        RoleType.LEARN_ADMIN: "learn_admin",
     }
     if role_type not in mapping:
         raise ValueError(f"Unsupported RoleType for admin mapping: {role_type}")
@@ -51,6 +53,7 @@ def admin_role_code_to_role_type(code: str) -> Optional[RoleType]:
         "hm_admin": RoleType.HIRING_MANAGER,
         "techie_admin": RoleType.TECHIE,
         "bdm_admin": RoleType.BDM_ADMIN,
+        "learn_admin": RoleType.LEARN_ADMIN,
     }
     return mapping.get(key)
 
@@ -105,5 +108,10 @@ def default_permissions_for_role_type(role_type: RoleType) -> List[str]:
             "create_companies",
             "edit_companies",
             "delete_companies",
+        ]
+    if role_type == RoleType.LEARN_ADMIN:
+        return [
+            "manage_learning_content",
+            "view_reports",
         ]
     return base

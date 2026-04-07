@@ -23,7 +23,6 @@ import {
   CompanyAdminDashboard,
   SchoolAdminDashboard,
   MultiRoleAdminDashboard,
-  BDMAdminDashboard,
   Networking,
   NetworkFeed,
   MyNetwork,
@@ -31,6 +30,7 @@ import {
   NetworkEvents,
   Combinator,
   Companies,
+  CompanyRegistrationPage,
   Contact,
   Services,
   ServiceDetail,
@@ -71,6 +71,7 @@ import {
   JobListings,
   JobDetails,
   JobApply,
+  CodingTest,
   MyApplications,
   TechieDashboard,
   CodingProblems,
@@ -111,6 +112,7 @@ import {
   CMSPosts,
   CMSEmployees,
   CMSAdmins,
+  CMSAffiliatedUsers,
   CMSJobs,
   CMSAnalytics,
   CMSSettings,
@@ -170,17 +172,23 @@ const PublicLayout: React.FC = () => {
  */
 const AuthenticatedLayout: React.FC = () => {
   const location = useLocation();
+  const [immersiveAssessmentMode, setImmersiveAssessmentMode] = useState(false);
   const isMeetingPage =
     location.pathname.startsWith('/techie/lobby/') ||
     location.pathname.startsWith('/techie/meet/');
 
-  if (isMeetingPage) {
-    return (
-      <Box sx={{ width: '100%', minHeight: '100vh', overflow: 'hidden', bgcolor: '#0a0a0f' }}>
-        <Outlet />
-      </Box>
-    );
-  }
+  useEffect(() => {
+    const handleAssessmentModeChange = (event: Event) => {
+      const customEvent = event as CustomEvent<boolean>;
+      setImmersiveAssessmentMode(Boolean(customEvent.detail));
+    };
+
+    window.addEventListener('vt-assessment-immersive-mode', handleAssessmentModeChange as EventListener);
+
+    return () => {
+      window.removeEventListener('vt-assessment-immersive-mode', handleAssessmentModeChange as EventListener);
+    };
+  }, []);
 
   return (
     <Box sx={{
@@ -191,14 +199,16 @@ const AuthenticatedLayout: React.FC = () => {
       maxWidth: '100vw',
       overflow: 'hidden',
       overflowX: 'hidden',
-      /* Lock shell to viewport so inner pages (e.g. chat) scroll internally, not the whole document */
+      /* Lock shell to viewport; <main> scrolls for long pages; full-height routes (e.g. chat) use flex:1 + minHeight:0 */
       height: '100dvh',
       maxHeight: '100dvh',
       minHeight: 0,
-      background: 'linear-gradient(180deg, #f0f4f8 0%, #e8eef5 100%)',
-      bgcolor: '#f0f4f8',
+      background: isMeetingPage
+        ? '#0a0a0f'
+        : 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+      bgcolor: isMeetingPage ? '#0a0a0f' : '#f8fafc',
     }}>
-      <AppHeader />
+      {!isMeetingPage && !immersiveAssessmentMode && <AppHeader />}
       <Box component="main" sx={{
         flex: '1 1 0%',
         width: '100%',
@@ -207,28 +217,21 @@ const AuthenticatedLayout: React.FC = () => {
         display: 'flex',
         flexDirection: 'column',
         overflowX: 'hidden',
-        overflowY: 'auto',
+        overflowY: isMeetingPage || immersiveAssessmentMode ? 'hidden' : 'auto',
         // Match AppHeader Toolbar + gap; add top safe area for notched devices
-        pt: {
-          xs: 'calc(80px + env(safe-area-inset-top, 0px))',
-          md: 'calc(86px + env(safe-area-inset-top, 0px))',
-        },
-        pb: `calc(${AUTH_MAIN_PADDING_BOTTOM_PX}px + env(safe-area-inset-bottom, 0px))`,
+        pt: isMeetingPage || immersiveAssessmentMode
+          ? 0
+          : {
+              xs: 'calc(80px + env(safe-area-inset-top, 0px))',
+              md: 'calc(86px + env(safe-area-inset-top, 0px))',
+            },
+        pb: isMeetingPage || immersiveAssessmentMode
+          ? 0
+          : `calc(${AUTH_MAIN_PADDING_BOTTOM_PX}px + env(safe-area-inset-bottom, 0px))`,
       }}>
-        <Box sx={{
-          flex: 1,
-          minHeight: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          width: '100%',
-          height: '100%',
-          maxHeight: '100%',
-        }}>
-          <Outlet />
-        </Box>
+        <Outlet />
       </Box>
-      <BottomNav />
+      {!isMeetingPage && !immersiveAssessmentMode && <BottomNav />}
     </Box>
   );
 };
@@ -368,6 +371,7 @@ const AppRoutes: React.FC = () => {
             <Route path="/services/:id" element={<ServiceDetail />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
+            <Route path="/signup/company" element={<CompanyRegistrationPage />} />
             <Route path="/techie-signup" element={<TechieSignup />} />
             <Route path="/signup-success" element={<SignupSuccess />} />
             <Route path="/verification" element={<Verification />} />
@@ -500,15 +504,15 @@ const AppRoutes: React.FC = () => {
               </ProtectedRoute>
             } />
 
-            {/* BDM Admin */}
+            {/* BDM company queue lives under VerTechie Admin → User Management → Company registration (BDM) */}
             <Route path="/vertechie/bdmadmin" element={
               <ProtectedRoute requiredRole="admin">
-                <BDMAdminDashboard />
+                <Navigate to="/vertechie/admin?bdm=1" replace />
               </ProtectedRoute>
             } />
             <Route path="/vertechie/bdmadmin/*" element={
               <ProtectedRoute requiredRole="admin">
-                <BDMAdminDashboard />
+                <Navigate to="/vertechie/admin?bdm=1" replace />
               </ProtectedRoute>
             } />
 
@@ -657,6 +661,11 @@ const AppRoutes: React.FC = () => {
             <Route path="/techie/jobs/:jobId/apply" element={
               <ProtectedRoute requiredRole="user">
                 <JobApply />
+              </ProtectedRoute>
+            } />
+            <Route path="/techie/jobs/:jobId/coding-test" element={
+              <ProtectedRoute requiredRole="user">
+                <CodingTest />
               </ProtectedRoute>
             } />
             <Route path="/techie/my-applications" element={
@@ -810,7 +819,7 @@ const AppRoutes: React.FC = () => {
             {/* Create Company/School Pages (for Tech Professionals & Hiring Managers) */}
             <Route path="/techie/create-company" element={
               <ProtectedRoute requiredRole="user">
-                <TechieDashboard />
+                <CompanyRegistrationPage />
               </ProtectedRoute>
             } />
             <Route path="/techie/create-school" element={
@@ -1002,6 +1011,11 @@ const AppRoutes: React.FC = () => {
             <Route path="/techie/cms/admins" element={
               <ProtectedRoute requiredRole="user">
                 <CMSAdmins />
+              </ProtectedRoute>
+            } />
+            <Route path="/techie/cms/affiliated-users" element={
+              <ProtectedRoute requiredRole="user">
+                <CMSAffiliatedUsers />
               </ProtectedRoute>
             } />
             <Route path="/techie/cms/jobs" element={

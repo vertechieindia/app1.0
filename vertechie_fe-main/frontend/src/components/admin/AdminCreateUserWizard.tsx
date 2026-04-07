@@ -1800,6 +1800,7 @@ const AdminCreateUserWizard: React.FC<AdminCreateUserWizardProps> = ({
                             address: address || undefined,
                             emails: email ? [email] : [],
                             phone_numbers: phoneDigits ? [phoneDigits] : [],
+                            invite_flow: 'outreach',
                           }),
                         });
                         if (response.ok) {

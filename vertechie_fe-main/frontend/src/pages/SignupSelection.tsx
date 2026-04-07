@@ -6,15 +6,11 @@ import {
   Typography,
   Card,
   CardContent,
-  CardActions,
-  Button,
   Grid,
   Paper,
 } from '@mui/material';
 import {
   Person,
-  Business,
-  School,
   Work,
 } from '@mui/icons-material';
 
@@ -27,7 +23,7 @@ const SignupSelection: React.FC = () => {
       title: 'Tech Professional',
       description: 'Join as a verified tech professional to showcase your skills and connect with top companies',
       icon: <Person sx={{ fontSize: 60, color: 'primary.main' }} />,
-      route: '/signup/techie',
+      route: '/signup?role=techie',
       color: '#1976d2',
     },
     {
@@ -35,24 +31,8 @@ const SignupSelection: React.FC = () => {
       title: 'Hiring Manager',
       description: 'Access verified tech talent and streamline your hiring process',
       icon: <Work sx={{ fontSize: 60, color: 'success.main' }} />,
-      route: '/signup/hiring-manager',
+      route: '/signup?role=hiring_manager',
       color: '#2e7d32',
-    },
-    {
-      id: 'school',
-      title: 'Educational Institution',
-      description: 'Partner with us to provide opportunities for your students and alumni',
-      icon: <School sx={{ fontSize: 60, color: 'warning.main' }} />,
-      route: '/signup/school',
-      color: '#ed6c02',
-    },
-    {
-      id: 'company',
-      title: 'Company',
-      description: 'Join our network of companies looking for verified tech talent',
-      icon: <Business sx={{ fontSize: 60, color: 'error.main' }} />,
-      route: '/signup/company',
-      color: '#d32f2f',
     },
   ];
 
@@ -61,21 +41,43 @@ const SignupSelection: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ py: 8 }}>
-      <Paper elevation={3} sx={{ p: 6, textAlign: 'center' }}>
+    <Container maxWidth="md" sx={{ py: { xs: 4, md: 8 }, px: { xs: 1.5, sm: 2 } }}>
+      <Paper
+        elevation={3}
+        sx={{
+          p: { xs: 3, sm: 4, md: 6 },
+          textAlign: 'center',
+          maxWidth: { xs: '100%', sm: 600, md: 760 },
+          mx: 'auto',
+        }}
+      >
         <Typography variant="h3" component="h1" gutterBottom sx={{ mb: 2 }}>
           Join VerTechie
         </Typography>
         <Typography variant="h6" color="text.secondary" paragraph sx={{ mb: 6 }}>
-          Choose your account type to get started
+          Choose Tech Professional or Hiring Manager. Company and school pages are requested from Business after you sign in.
         </Typography>
 
-        <Grid container spacing={4}>
+        <Grid
+          container
+          spacing={{ xs: 2, md: 3 }}
+          justifyContent="center"
+          sx={{ maxWidth: 720, mx: 'auto' }}
+        >
           {signupOptions.map((option) => (
-            <Grid item xs={12} sm={6} md={3} key={option.id}>
+            <Grid
+              item
+              xs={12}
+              sm={10}
+              md={6}
+              key={option.id}
+              sx={{ display: 'flex', justifyContent: 'center' }}
+            >
               <Card
                 sx={{
                   height: '100%',
+                  width: '100%',
+                  maxWidth: { xs: '100%', sm: 420, md: 340 },
                   display: 'flex',
                   flexDirection: 'column',
                   transition: 'transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out',
@@ -98,46 +100,13 @@ const SignupSelection: React.FC = () => {
                     {option.description}
                   </Typography>
                 </CardContent>
-                <CardActions sx={{ justifyContent: 'center', pb: 3 }}>
-                  <Button
-                    variant="contained"
-                    size="large"
-                    sx={{
-                      backgroundColor: option.color,
-                      '&:hover': {
-                        backgroundColor: option.color,
-                        opacity: 0.9,
-                      },
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOptionSelect(option.route);
-                    }}
-                  >
-                    Get Started
-                  </Button>
-                </CardActions>
               </Card>
             </Grid>
           ))}
         </Grid>
-
-        <Box sx={{ mt: 6, pt: 4, borderTop: '1px solid #e0e0e0' }}>
-          <Typography variant="body2" color="text.secondary">
-            Already have an account?{' '}
-            <Button
-              variant="text"
-              onClick={() => navigate('/login')}
-              sx={{ textTransform: 'none', fontWeight: 600 }}
-            >
-              Sign In
-            </Button>
-          </Typography>
-        </Box>
       </Paper>
     </Container>
   );
 };
 
 export default SignupSelection;
-

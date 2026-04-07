@@ -3,8 +3,10 @@ Company API Routes
 User and Admin endpoints for company management
 """
 
-from typing import List, Optional
+import logging
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
+import uuid as uuid_lib
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,20 +15,26 @@ from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
 from app.models.company import (
-    Company, CompanyProfile, CompanyLocation, CompanyBenefit, 
+    Company, CompanyProfile, CompanyLocation, CompanyBenefit,
     CompanyPhoto, CompanyTeamMember, CompanyAdmin, CompanyStatus,
-    CompanyInvite, InviteStatus
+    CompanyInvite, InviteStatus, CompanySize, CompanyInviteFlow,
 )
-from app.models.user import User
+from app.models.user import User, UserProfile, Experience
+from app.models.notification import Notification, NotificationType
+from app.services.company_matching import (
+    link_experiences_to_company_by_normalized_name,
+    normalize_company_name,
+)
 from app.core.security import get_current_user, get_current_admin_user, get_optional_user
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from datetime import datetime
-from typing import Any
 import aiosmtplib
 from email.message import EmailMessage
 from email.utils import formataddr
 import re
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Companies"])
 
@@ -58,7 +66,9 @@ class CompanyBase(BaseModel):
     phone: Optional[str] = None
     linkedin_url: Optional[str] = None
     founded_year: Optional[int] = None
-    
+    gst_number: Optional[str] = None
+    domain: Optional[str] = None
+
     class Config:
         extra = "ignore"  # Ignore extra fields from frontend
 
@@ -68,13 +78,17 @@ class CompanyCreate(CompanyBase):
 
 class CompanyUpdate(BaseModel):
     name: Optional[str] = None
+    legal_name: Optional[str] = None
     description: Optional[str] = None
     tagline: Optional[str] = None
     website: Optional[str] = None
+    domain: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     headquarters: Optional[str] = None
+    address: Optional[str] = None
     industry: Optional[str] = None
+    gst_number: Optional[str] = None
     employees_count: Optional[int] = None
     # Branding fields so logo and banner can be updated from CMS
     logo_url: Optional[str] = None
@@ -92,6 +106,19 @@ class CompanyResponse(CompanyBase):
     
     class Config:
         from_attributes = True
+
+
+class AffiliatedUserRow(BaseModel):
+    """User linked to a company via admin role, profile.company_id, or experience.company_id."""
+
+    user_id: UUID
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    association_sources: List[str] = Field(
+        default_factory=list,
+        description="company_admin | profile | experience",
+    )
 
 class CompanyLocationCreate(BaseModel):
     name: str
@@ -154,6 +181,827 @@ async def list_companies(
     return result.scalars().all()
 
 
+# ============= Company Invite Endpoints =============
+
+class BranchAddressIn(BaseModel):
+    label: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    postal_code: Optional[str] = None
+
+
+class FounderDetailIn(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class CompanyInviteCreate(BaseModel):
+    company_name: str
+    address: Optional[str] = None
+    headquarters_address: Optional[str] = None
+    branch_addresses: List[BranchAddressIn] = Field(default_factory=list)
+    website: Optional[str] = None
+    domain: Optional[str] = None
+    legal_name: Optional[str] = None
+    gst_number: Optional[str] = None
+    industry: Optional[str] = None
+    logo_url: Optional[str] = None
+    banner_image_url: Optional[str] = None
+    about: Optional[str] = None
+    tagline: Optional[str] = None
+    founder_details: List[FounderDetailIn] = Field(default_factory=list)
+    contact_person_name: Optional[str] = None
+    contact_person_role: Optional[str] = None
+    emails: List[str] = Field(default_factory=list)
+    phone_numbers: List[str] = Field(default_factory=list)
+    # outreach = signup/profile invite to external companies; registration = Business form → BDM company profile queue
+    invite_flow: Literal["outreach", "registration"] = "outreach"
+    # Legacy: send outreach emails and may set status to SENT. Registration flow uses False to await admin approval.
+    send_notification_emails: bool = True
+
+    @field_validator("branch_addresses", "founder_details", "emails", "phone_numbers", mode="before")
+    @classmethod
+    def _none_to_empty_list_create(cls, v: Any) -> Any:
+        return [] if v is None else v
+
+
+class CompanyInviteResponse(BaseModel):
+    id: UUID
+    company_name: str
+    legal_name: Optional[str] = None
+    address: Optional[str] = None
+    headquarters_address: Optional[str] = None
+    branch_addresses: List[Any] = Field(default_factory=list)
+    website: Optional[str] = None
+    domain: Optional[str] = None
+    gst_number: Optional[str] = None
+    industry: Optional[str] = None
+    logo_url: Optional[str] = None
+    banner_image_url: Optional[str] = None
+    about: Optional[str] = None
+    tagline: Optional[str] = None
+    founder_details: List[Any] = Field(default_factory=list)
+    contact_person_name: Optional[str] = None
+    contact_person_role: Optional[str] = None
+    emails: List[str] = Field(default_factory=list)
+    phone_numbers: List[str] = Field(default_factory=list)
+    status: InviteStatus
+    requested_by_id: Optional[UUID] = None
+    provisioned_company_id: Optional[UUID] = None
+    admin_notes: Optional[str] = None
+    created_at: datetime
+    sent_at: Optional[datetime] = None
+    invite_flow: str = "outreach"
+    # Enriched when requested_by is loaded (BDM queue / detail)
+    requested_by_name: Optional[str] = None
+    requested_by_email: Optional[str] = None
+    requested_by_primary_role: Optional[str] = None
+
+    @field_validator("branch_addresses", "founder_details", "emails", "phone_numbers", mode="before")
+    @classmethod
+    def _none_to_empty_list_response(cls, v: Any) -> Any:
+        """DB JSON columns can be NULL; API always exposes lists."""
+        return [] if v is None else v
+
+    @field_validator("invite_flow", mode="before")
+    @classmethod
+    def _default_invite_flow_response(cls, v: Any) -> Any:
+        return v if v is not None and v != "" else CompanyInviteFlow.OUTREACH.value
+
+    class Config:
+        from_attributes = True
+
+
+def _primary_role_value(user: Optional[User]) -> Optional[str]:
+    """First assigned role for display (matches /users/me primary_role pattern)."""
+    if not user:
+        return None
+    roles = getattr(user, "roles", None) or []
+    if roles:
+        try:
+            return roles[0].role_type.value
+        except Exception:
+            return None
+    return "techie"
+
+
+def _invite_to_response(invite: CompanyInvite) -> CompanyInviteResponse:
+    base = CompanyInviteResponse.model_validate(invite)
+    u = getattr(invite, "requested_by", None)
+    if not u:
+        return base
+    name = ""
+    try:
+        name = (u.full_name or "").strip()
+    except Exception:
+        name = ""
+    if not name:
+        name = f"{u.first_name or ''} {u.last_name or ''}".strip()
+    role = _primary_role_value(u)
+    return base.model_copy(
+        update={
+            "requested_by_name": name or None,
+            "requested_by_email": u.email,
+            "requested_by_primary_role": role,
+        }
+    )
+
+
+class CompanyInviteStatusBody(BaseModel):
+    new_status: Optional[InviteStatus] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    bdm_notes: Optional[str] = None
+
+
+def _normalize_invite_phones(phone_numbers: Optional[List[str]]) -> List[str]:
+    out: List[str] = []
+    for raw_phone in phone_numbers or []:
+        cleaned_phone = (raw_phone or "").strip()
+        if not cleaned_phone:
+            continue
+        phone_digits = re.sub(r"\D", "", cleaned_phone)
+        if len(phone_digits) < 7 or len(phone_digits) > 15:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Each phone number must contain between 7 and 15 digits",
+            )
+        out.append(phone_digits)
+    return out
+
+
+async def provision_company_from_invite(db: AsyncSession, invite: CompanyInvite) -> Company:
+    """Create Company, profile, locations, and owner admin from an approved invite. Caller commits."""
+    if invite.provisioned_company_id:
+        result = await db.execute(select(Company).where(Company.id == invite.provisioned_company_id))
+        existing = result.scalar_one_or_none()
+        if existing:
+            return existing
+
+    base_name = (invite.company_name or "").strip() or "Company"
+    legal = (invite.legal_name or base_name).strip()
+    slug = re.sub(r"[^a-z0-9]+", "-", base_name.lower()).strip("-") or "company"
+    existing_slug = await db.execute(select(Company).where(Company.slug == slug))
+    if existing_slug.scalar_one_or_none():
+        slug = f"{slug}-{uuid_lib.uuid4().hex[:8]}"
+
+    hq_text = (invite.headquarters_address or invite.address or "").strip()
+    primary_email = None
+    if invite.emails:
+        primary_email = next((e.strip() for e in invite.emails if e and str(e).strip()), None)
+    primary_phone = None
+    if invite.phone_numbers:
+        primary_phone = str(invite.phone_numbers[0])
+
+    db_company = Company(
+        name=base_name,
+        legal_name=legal,
+        slug=slug,
+        industry=invite.industry,
+        description=invite.about,
+        tagline=invite.tagline,
+        headquarters=(hq_text[:200] if hq_text else None),
+        address=hq_text or None,
+        website=invite.website,
+        domain=invite.domain,
+        gst_number=invite.gst_number,
+        email=primary_email,
+        phone=primary_phone,
+        logo_url=invite.logo_url,
+        cover_image_url=invite.banner_image_url,
+        status=CompanyStatus.ACTIVE,
+        is_verified=True,  # BDM approved this registration before provisioning
+        company_size=CompanySize.STARTUP,
+    )
+    db.add(db_company)
+    await db.flush()
+
+    founders_payload = invite.founder_details if invite.founder_details else []
+    custom_sections: List[Dict[str, Any]] = []
+    if founders_payload:
+        custom_sections.append({"type": "founders", "items": founders_payload})
+
+    profile = CompanyProfile(
+        company_id=db_company.id,
+        about=invite.about,
+        tagline=invite.tagline,
+        banner_image=invite.banner_image_url,
+        custom_sections=custom_sections,
+    )
+    db.add(profile)
+
+    if hq_text:
+        db.add(
+            CompanyLocation(
+                company_id=db_company.id,
+                name="Headquarters",
+                address_line1=hq_text[:200],
+                city="-",
+                country="-",
+                is_headquarters=True,
+            )
+        )
+
+    branches = invite.branch_addresses or []
+    if isinstance(branches, list):
+        for i, br in enumerate(branches):
+            if not isinstance(br, dict):
+                continue
+            line1 = (br.get("address_line1") or br.get("address") or "").strip() or "—"
+            db.add(
+                CompanyLocation(
+                    company_id=db_company.id,
+                    name=(br.get("label") or f"Branch {i + 1}")[:100],
+                    address_line1=line1[:200],
+                    address_line2=br.get("address_line2"),
+                    city=(br.get("city") or "-")[:100],
+                    state=br.get("state"),
+                    country=(br.get("country") or "-")[:100],
+                    postal_code=br.get("postal_code"),
+                    is_headquarters=False,
+                )
+            )
+
+    if invite.requested_by_id:
+        db.add(
+            CompanyAdmin(
+                company_id=db_company.id,
+                user_id=invite.requested_by_id,
+                role="owner",
+                can_manage_jobs=True,
+                can_manage_candidates=True,
+                can_manage_team=True,
+                can_manage_billing=True,
+                can_manage_admins=True,
+            )
+        )
+        prof_row = await db.execute(
+            select(UserProfile).where(UserProfile.user_id == invite.requested_by_id)
+        )
+        prof = prof_row.scalar_one_or_none()
+        if prof is not None:
+            prof.company_id = db_company.id
+
+    invite.provisioned_company_id = db_company.id
+    invite.status = InviteStatus.ACCEPTED
+    await db.flush()
+    # Match prior signup work-experience rows that only had company_name text
+    linked = await link_experiences_to_company_by_normalized_name(
+        db, db_company.id, base_name
+    )
+    if linked:
+        logger.info(
+            "Linked %s experience rows to company %s by normalized name",
+            linked,
+            db_company.id,
+        )
+    await db.flush()
+    await db.refresh(db_company)
+    return db_company
+
+
+async def send_company_invite_email(
+    company_name: str,
+    contact_name: str,
+    email: str,
+    invite_id: str
+):
+    """Send company invite email."""
+    settings = get_settings()
+    
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+        print(f"[EMAIL] SMTP not configured. Would send invite to: {email} for company: {company_name}")
+        return False
+    
+    msg = EmailMessage()
+    msg["Subject"] = f"Invitation to Join VerTechie - {company_name}"
+    msg["From"] = formataddr((settings.EMAILS_FROM_NAME, settings.EMAILS_FROM_EMAIL))
+    msg["To"] = email
+    
+    body = f"""
+Dear {contact_name},
+
+You have been invited to register your company "{company_name}" on VerTechie!
+
+VerTechie is a trusted platform connecting verified tech professionals with companies.
+
+To register your company, please visit:
+https://vertechie.com/companies/register?invite={invite_id}
+
+Benefits of joining VerTechie:
+• Access to verified tech talent
+• Advanced candidate screening
+• Streamlined hiring process
+• Employer branding opportunities
+
+If you have any questions, please contact us at support@vertechie.com.
+
+Best regards,
+The VerTechie Team
+    """
+    
+    msg.set_content(body)
+    
+    try:
+        import ssl
+        # Create SSL context for STARTTLS (for development, we skip verification)
+        # In production, use proper certificates
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        
+        # For Gmail on port 587, use STARTTLS (start_tls=True, use_tls=False)
+        # For port 465, use SSL (use_tls=True, start_tls=False)
+        use_ssl = settings.SMTP_PORT == 465
+        
+        async with aiosmtplib.SMTP(
+            hostname=settings.SMTP_HOST,
+            port=settings.SMTP_PORT,
+            use_tls=use_ssl,
+            start_tls=not use_ssl and settings.SMTP_USE_TLS,
+            tls_context=context,
+        ) as smtp:
+            await smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            await smtp.send_message(msg)
+        print(f"[EMAIL] Company invite sent to {email} for {company_name}")
+        return True
+    except Exception as e:
+        print(f"[EMAIL] Failed to send company invite to {email}: {e}")
+        return False
+
+
+async def send_company_registration_decision_email(
+    to_email: str,
+    recipient_name: str,
+    company_name: str,
+    accepted: bool,
+    notes: Optional[str] = None,
+    primary_role: Optional[str] = None,
+) -> bool:
+    """Notify submitter that BDM approved or declined company profile registration."""
+    settings = get_settings()
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+        logger.warning("[EMAIL] SMTP not configured; skipping registration decision email to %s", to_email)
+        return False
+
+    safe_name = recipient_name.strip() or "there"
+    if accepted:
+        subject = f"Your company page is live — {company_name}"
+        role_hint = ""
+        pr = (primary_role or "").strip().lower()
+        if pr == "techie":
+            role_hint = """
+Your Tech Professional account now has company access: open CMS to manage your company page and ATS to post jobs and track candidates (use the bottom navigation after you sign in or refresh).
+"""
+        elif pr == "hiring_manager":
+            role_hint = """
+Open CMS from the app to manage your company page and employer branding.
+"""
+        elif pr == "company_admin":
+            role_hint = """
+You can manage your company page under CMS in the app.
+"""
+        body = f"""Dear {safe_name},
+
+Good news: your company registration for "{company_name}" has been approved on VerTechie.{role_hint}
+Sign in at https://vertechie.com/login to continue.
+
+If you did not request this, please contact support@vertechie.com.
+
+Best regards,
+The VerTechie Team
+"""
+    else:
+        subject = f"Update on your company registration — {company_name}"
+        note_line = ""
+        if notes and str(notes).strip():
+            note_line = f"\nNote from our team:\n{notes.strip()}\n"
+        body = f"""Dear {safe_name},
+
+Thank you for your interest in VerTechie.
+
+Your company registration request for "{company_name}" was not approved at this time.{note_line}
+If you have questions, reply to this email or contact support@vertechie.com.
+
+Best regards,
+The VerTechie Team
+"""
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = formataddr((settings.EMAILS_FROM_NAME, settings.EMAILS_FROM_EMAIL))
+    msg["To"] = to_email
+    msg.set_content(body)
+
+    try:
+        import ssl
+
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        use_ssl = settings.SMTP_PORT == 465
+        async with aiosmtplib.SMTP(
+            hostname=settings.SMTP_HOST,
+            port=settings.SMTP_PORT,
+            use_tls=use_ssl,
+            start_tls=not use_ssl and settings.SMTP_USE_TLS,
+            tls_context=context,
+        ) as smtp:
+            await smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            await smtp.send_message(msg)
+        logger.info("[EMAIL] Registration decision (%s) sent to %s", "accepted" if accepted else "declined", to_email)
+        return True
+    except Exception as e:
+        logger.warning("[EMAIL] Failed to send registration decision to %s: %s", to_email, e)
+        return False
+
+
+async def get_optional_current_user(
+    authorization: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+) -> Optional[User]:
+    """Get current user if token provided, otherwise return None."""
+    from fastapi import Request
+    from app.core.security import verify_token
+    
+    # This is called manually, we'll pass the token from the request
+    return None
+
+
+@router.post("/invites", response_model=CompanyInviteResponse)
+async def create_company_invite(
+    invite: CompanyInviteCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+) -> Any:
+    """Create a company invite / registration request (optional auth for owner linkage)."""
+    user_id = current_user.id if current_user else None
+    normalized_phone_numbers = _normalize_invite_phones(invite.phone_numbers)
+    branch_json = [b.model_dump(exclude_none=True) for b in (invite.branch_addresses or [])]
+    founder_json = [f.model_dump(exclude_none=True) for f in (invite.founder_details or [])]
+
+    flow_str = invite.invite_flow
+    if flow_str not in ("outreach", "registration"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invite_flow must be 'outreach' or 'registration'",
+        )
+
+    db_invite = CompanyInvite(
+        company_name=invite.company_name,
+        legal_name=invite.legal_name,
+        address=invite.address,
+        headquarters_address=invite.headquarters_address,
+        branch_addresses=branch_json,
+        website=invite.website,
+        domain=invite.domain,
+        gst_number=invite.gst_number,
+        industry=invite.industry,
+        logo_url=invite.logo_url,
+        banner_image_url=invite.banner_image_url,
+        about=invite.about,
+        tagline=invite.tagline,
+        founder_details=founder_json,
+        contact_person_name=invite.contact_person_name,
+        contact_person_role=invite.contact_person_role,
+        emails=list(invite.emails or []),
+        phone_numbers=normalized_phone_numbers,
+        requested_by_id=user_id,
+        status=InviteStatus.PENDING,
+        invite_flow=flow_str,
+    )
+
+    db.add(db_invite)
+    await db.commit()
+    await db.refresh(db_invite)
+
+    if not invite.send_notification_emails:
+        loaded = await db.execute(
+            select(CompanyInvite)
+            .options(selectinload(CompanyInvite.requested_by).selectinload(User.roles))
+            .where(CompanyInvite.id == db_invite.id)
+        )
+        return _invite_to_response(loaded.scalar_one())
+
+    emails_sent = 0
+    contact_name = invite.contact_person_name or "Contact"
+    for email in invite.emails or []:
+        if email and email.strip():
+            success = await send_company_invite_email(
+                company_name=invite.company_name,
+                contact_name=contact_name,
+                email=email.strip(),
+                invite_id=str(db_invite.id),
+            )
+            if success:
+                emails_sent += 1
+
+    if emails_sent > 0:
+        db_invite.status = InviteStatus.SENT
+        db_invite.sent_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(db_invite)
+
+    loaded = await db.execute(
+        select(CompanyInvite)
+        .options(selectinload(CompanyInvite.requested_by).selectinload(User.roles))
+        .where(CompanyInvite.id == db_invite.id)
+    )
+    return _invite_to_response(loaded.scalar_one())
+
+
+@router.get("/invites/mine", response_model=List[CompanyInviteResponse])
+async def list_my_company_invites(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List company invite requests created by the current user (for profile review / dashboard)."""
+    query = (
+        select(CompanyInvite)
+        .options(selectinload(CompanyInvite.requested_by).selectinload(User.roles))
+        .where(CompanyInvite.requested_by_id == current_user.id)
+        .order_by(CompanyInvite.created_at.desc())
+    )
+    result = await db.execute(query)
+    rows = result.scalars().all()
+    return [_invite_to_response(inv) for inv in rows]
+
+
+@router.get("/invites", response_model=List[CompanyInviteResponse])
+@router.get("/invites/", response_model=List[CompanyInviteResponse])
+async def list_company_invites(
+    status: Optional[InviteStatus] = None,
+    invite_flow: Optional[Literal["outreach", "registration"]] = Query(
+        None,
+        description="Filter: outreach (signup/email) vs registration (BDM company profile requests). Omit for all.",
+    ),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """List all company invites (admin only). Both /invites and /invites/ avoid 307 redirects that drop Authorization."""
+    query = select(CompanyInvite).options(
+        selectinload(CompanyInvite.requested_by).selectinload(User.roles)
+    )
+
+    if status:
+        query = query.where(CompanyInvite.status == status)
+    if invite_flow in ("outreach", "registration"):
+        query = query.where(CompanyInvite.invite_flow == invite_flow)
+
+    query = query.order_by(CompanyInvite.created_at.desc()).offset(skip).limit(limit)
+    result = await db.execute(query)
+    rows = result.scalars().all()
+    return [_invite_to_response(inv) for inv in rows]
+
+
+@router.get("/invites/stats/")
+async def get_invite_stats(
+    invite_flow: Optional[Literal["outreach", "registration"]] = Query(
+        None,
+        description="Restrict counts to this flow (BDM dashboard uses registration).",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Get invite statistics (admin only)."""
+    flow_filter = []
+    if invite_flow in ("outreach", "registration"):
+        flow_filter.append(CompanyInvite.invite_flow == invite_flow)
+
+    def _count(where_status: InviteStatus):
+        cond = [CompanyInvite.status == where_status] + flow_filter
+        return select(func.count(CompanyInvite.id)).where(*cond)
+
+    pending_count = await db.execute(_count(InviteStatus.PENDING))
+    sent_count = await db.execute(_count(InviteStatus.SENT))
+    accepted_count = await db.execute(_count(InviteStatus.ACCEPTED))
+    declined_count = await db.execute(_count(InviteStatus.DECLINED))
+
+    p, s, a, d = (
+        pending_count.scalar() or 0,
+        sent_count.scalar() or 0,
+        accepted_count.scalar() or 0,
+        declined_count.scalar() or 0,
+    )
+    return {
+        "pending": p,
+        "sent": s,
+        "accepted": a,
+        "declined": d,
+        "total": p + s + a + d,
+    }
+
+
+@router.get("/invites/{invite_id}", response_model=CompanyInviteResponse)
+async def get_company_invite(
+    invite_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get a specific company invite."""
+    result = await db.execute(
+        select(CompanyInvite)
+        .options(selectinload(CompanyInvite.requested_by).selectinload(User.roles))
+        .where(CompanyInvite.id == invite_id)
+    )
+    invite = result.scalar_one_or_none()
+
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+
+    return _invite_to_response(invite)
+
+
+async def _apply_invite_status_change(
+    db: AsyncSession,
+    invite: CompanyInvite,
+    new_status: InviteStatus,
+    notes: Optional[str],
+) -> dict:
+    """Set invite status; on ACCEPTED + registration flow, provision company when not already done."""
+    old_status = invite.status
+
+    if notes:
+        invite.admin_notes = notes
+
+    flow = getattr(invite, "invite_flow", None) or "outreach"
+    is_registration = flow == CompanyInviteFlow.REGISTRATION.value
+
+    if new_status == InviteStatus.ACCEPTED:
+        if is_registration:
+            if not invite.provisioned_company_id:
+                await provision_company_from_invite(db, invite)
+            else:
+                invite.status = InviteStatus.ACCEPTED
+        else:
+            # Outreach: acknowledge only — do not create a Company row
+            invite.status = InviteStatus.ACCEPTED
+    elif new_status == InviteStatus.DECLINED:
+        invite.status = InviteStatus.DECLINED
+    else:
+        invite.status = new_status
+
+    # In-app notification when registration is newly approved (CMS / ATS access)
+    if (
+        is_registration
+        and invite.status == InviteStatus.ACCEPTED
+        and old_status != InviteStatus.ACCEPTED
+        and invite.requested_by_id
+        and invite.provisioned_company_id
+    ):
+        cn = (invite.company_name or "Your company").strip()
+        db.add(
+            Notification(
+                user_id=invite.requested_by_id,
+                title="Company page approved",
+                message=f'"{cn}" is live. Open CMS for your company page; use ATS to post jobs and manage candidates.',
+                notification_type=NotificationType.SYSTEM,
+                link="/techie/cms",
+                reference_id=invite.provisioned_company_id,
+                reference_type="company",
+            )
+        )
+
+    await db.commit()
+    await db.refresh(invite)
+
+    # Email submitter once when BDM approves or declines (registration queue only)
+    if (
+        is_registration
+        and old_status != invite.status
+        and invite.status in (InviteStatus.ACCEPTED, InviteStatus.DECLINED)
+    ):
+        to_email = None
+        recipient_name = ""
+        primary_role: Optional[str] = None
+        if invite.requested_by_id:
+            ures = await db.execute(
+                select(User).options(selectinload(User.roles)).where(User.id == invite.requested_by_id)
+            )
+            u = ures.scalar_one_or_none()
+            if u:
+                to_email = u.email
+                recipient_name = f"{u.first_name or ''} {u.last_name or ''}".strip()
+                primary_role = _primary_role_value(u)
+        if not to_email and invite.emails:
+            to_email = next((e.strip() for e in invite.emails if e and str(e).strip()), None)
+        if not recipient_name:
+            recipient_name = (invite.contact_person_name or "").strip() or "there"
+        if to_email:
+            try:
+                await send_company_registration_decision_email(
+                    to_email=to_email,
+                    recipient_name=recipient_name,
+                    company_name=invite.company_name or "your company",
+                    accepted=invite.status == InviteStatus.ACCEPTED,
+                    notes=notes if invite.status == InviteStatus.DECLINED else None,
+                    primary_role=primary_role,
+                )
+            except Exception as e:
+                logger.warning("Registration decision email failed: %s", e)
+
+    return {
+        "status": "updated",
+        "new_status": invite.status.value,
+        "provisioned_company_id": str(invite.provisioned_company_id)
+        if invite.provisioned_company_id
+        else None,
+    }
+
+
+@router.post("/invites/{invite_id}/update_status/")
+async def post_invite_status(
+    invite_id: UUID,
+    body: CompanyInviteStatusBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+) -> Any:
+    """Update invite status with JSON body (admin only). Accepts new_status or legacy status string."""
+    result = await db.execute(select(CompanyInvite).where(CompanyInvite.id == invite_id))
+    invite = result.scalar_one_or_none()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+
+    raw = body.new_status
+    if raw is None and body.status:
+        try:
+            raw = InviteStatus(body.status.lower().strip())
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid status value",
+            )
+    if raw is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide new_status or status",
+        )
+    notes = body.notes or body.bdm_notes
+    return await _apply_invite_status_change(db, invite, raw, notes)
+
+
+@router.put("/invites/{invite_id}/update_status/")
+async def update_invite_status(
+    invite_id: UUID,
+    new_status: InviteStatus,
+    notes: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+) -> Any:
+    """Update invite status (admin only) — query params."""
+    result = await db.execute(select(CompanyInvite).where(CompanyInvite.id == invite_id))
+    invite = result.scalar_one_or_none()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    return await _apply_invite_status_change(db, invite, new_status, notes)
+
+
+@router.post("/invites/{invite_id}/send_invite/")
+async def resend_invite(
+    invite_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Resend invite emails (admin only)."""
+    result = await db.execute(
+        select(CompanyInvite).where(CompanyInvite.id == invite_id)
+    )
+    invite = result.scalar_one_or_none()
+    
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    
+    # Send emails
+    emails_sent = 0
+    for email in invite.emails:
+        if email and email.strip():
+            success = await send_company_invite_email(
+                company_name=invite.company_name,
+                contact_name=invite.contact_person_name or "Hiring Manager",
+                email=email.strip(),
+                invite_id=str(invite.id)
+            )
+            if success:
+                emails_sent += 1
+    
+    if emails_sent > 0:
+        invite.status = InviteStatus.SENT
+        invite.sent_at = datetime.utcnow()
+        await db.commit()
+    
+    return {
+        "status": "sent" if emails_sent > 0 else "failed",
+        "emails_sent": emails_sent,
+        "total_emails": len([e for e in invite.emails if e and e.strip()])
+    }
+
+
 @router.get("/{company_id}", response_model=CompanyResponse)
 async def get_company(
     company_id: UUID,
@@ -193,6 +1041,93 @@ async def get_company_by_slug(
         raise HTTPException(status_code=404, detail="Company not found")
     
     return company
+
+
+@router.get("/{company_id}/affiliated-users", response_model=List[AffiliatedUserRow])
+async def list_company_affiliated_users(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Company admins only: users tied via CompanyAdmin, profile.company_id, or experience.company_id."""
+    admin_check = await db.execute(
+        select(CompanyAdmin).where(
+            CompanyAdmin.company_id == company_id,
+            CompanyAdmin.user_id == current_user.id,
+        )
+    )
+    if not admin_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    co = await db.execute(select(Company).where(Company.id == company_id))
+    company = co.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    sources: Dict[UUID, set] = {}
+
+    for uid in (
+        await db.execute(
+            select(CompanyAdmin.user_id).where(CompanyAdmin.company_id == company_id)
+        )
+    ).scalars().all():
+        sources.setdefault(uid, set()).add("company_admin")
+
+    for uid in (
+        await db.execute(
+            select(UserProfile.user_id).where(UserProfile.company_id == company_id)
+        )
+    ).scalars().all():
+        sources.setdefault(uid, set()).add("profile")
+
+    for uid in (
+        await db.execute(
+            select(Experience.user_id)
+            .where(Experience.company_id == company_id)
+            .distinct()
+        )
+    ).scalars().all():
+        sources.setdefault(uid, set()).add("experience")
+
+    # Experiences saved as free-text only (company_id null) but name matches this company
+    name_target = normalize_company_name(company.name)
+    if name_target:
+        for row in (
+            await db.execute(
+                select(Experience.user_id, Experience.company_name).where(
+                    Experience.company_id.is_(None)
+                )
+            )
+        ).all():
+            uid, cname = row[0], row[1]
+            if normalize_company_name(cname) == name_target:
+                sources.setdefault(uid, set()).add("experience")
+
+    if not sources:
+        return []
+
+    order = ("company_admin", "profile", "experience")
+    user_rows = await db.execute(
+        select(User.id, User.email, User.first_name, User.last_name).where(
+            User.id.in_(list(sources.keys()))
+        )
+    )
+    by_id = {row[0]: row for row in user_rows.all()}
+    out: List[AffiliatedUserRow] = []
+    for uid, srcs in sources.items():
+        row = by_id.get(uid)
+        sorted_src = [s for s in order if s in srcs]
+        out.append(
+            AffiliatedUserRow(
+                user_id=uid,
+                email=row[1] if row else None,
+                first_name=row[2] if row else None,
+                last_name=row[3] if row else None,
+                association_sources=sorted_src,
+            )
+        )
+    out.sort(key=lambda r: (r.email or "", str(r.user_id)))
+    return out
 
 
 @router.get("/{company_id}/locations", response_model=List[CompanyLocationResponse])
@@ -289,8 +1224,20 @@ async def create_company(
         can_manage_admins=True
     )
     db.add(admin)
+
+    prof_res = await db.execute(
+        select(UserProfile).where(UserProfile.user_id == current_user.id)
+    )
+    prof = prof_res.scalar_one_or_none()
+    if not prof:
+        prof = UserProfile(user_id=current_user.id, company_id=db_company.id)
+        db.add(prof)
+    else:
+        prof.company_id = db_company.id
+
     await db.commit()
-    
+    await db.refresh(db_company)
+
     return db_company
 
 
@@ -414,325 +1361,6 @@ async def delete_company_location(
     return {"status": "deleted"}
 
 
-# ============= Company Invite Endpoints =============
-
-class CompanyInviteCreate(BaseModel):
-    company_name: str
-    address: Optional[str] = None
-    website: Optional[str] = None
-    contact_person_name: Optional[str] = None
-    contact_person_role: Optional[str] = None
-    emails: List[str] = []
-    phone_numbers: List[str] = []
-
-
-class CompanyInviteResponse(BaseModel):
-    id: UUID
-    company_name: str
-    address: Optional[str] = None
-    website: Optional[str] = None
-    contact_person_name: Optional[str] = None
-    contact_person_role: Optional[str] = None
-    emails: List[str] = []
-    phone_numbers: List[str] = []
-    status: InviteStatus
-    created_at: datetime
-    sent_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
-
-
-async def send_company_invite_email(
-    company_name: str,
-    contact_name: str,
-    email: str,
-    invite_id: str
-):
-    """Send company invite email."""
-    settings = get_settings()
-    
-    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-        print(f"[EMAIL] SMTP not configured. Would send invite to: {email} for company: {company_name}")
-        return False
-    
-    msg = EmailMessage()
-    msg["Subject"] = f"Invitation to Join VerTechie - {company_name}"
-    msg["From"] = formataddr((settings.EMAILS_FROM_NAME, settings.EMAILS_FROM_EMAIL))
-    msg["To"] = email
-    
-    body = f"""
-Dear {contact_name},
-
-You have been invited to register your company "{company_name}" on VerTechie!
-
-VerTechie is a trusted platform connecting verified tech professionals with companies.
-
-To register your company, please visit:
-https://vertechie.com/companies/register?invite={invite_id}
-
-Benefits of joining VerTechie:
-• Access to verified tech talent
-• Advanced candidate screening
-• Streamlined hiring process
-• Employer branding opportunities
-
-If you have any questions, please contact us at support@vertechie.com.
-
-Best regards,
-The VerTechie Team
-    """
-    
-    msg.set_content(body)
-    
-    try:
-        import ssl
-        # Create SSL context for STARTTLS (for development, we skip verification)
-        # In production, use proper certificates
-        context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        
-        # For Gmail on port 587, use STARTTLS (start_tls=True, use_tls=False)
-        # For port 465, use SSL (use_tls=True, start_tls=False)
-        use_ssl = settings.SMTP_PORT == 465
-        
-        async with aiosmtplib.SMTP(
-            hostname=settings.SMTP_HOST,
-            port=settings.SMTP_PORT,
-            use_tls=use_ssl,
-            start_tls=not use_ssl and settings.SMTP_USE_TLS,
-            tls_context=context,
-        ) as smtp:
-            await smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            await smtp.send_message(msg)
-        print(f"[EMAIL] Company invite sent to {email} for {company_name}")
-        return True
-    except Exception as e:
-        print(f"[EMAIL] Failed to send company invite to {email}: {e}")
-        return False
-
-
-async def get_optional_current_user(
-    authorization: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-) -> Optional[User]:
-    """Get current user if token provided, otherwise return None."""
-    from fastapi import Request
-    from app.core.security import verify_token
-    
-    # This is called manually, we'll pass the token from the request
-    return None
-
-
-@router.post("/invites", response_model=CompanyInviteResponse)
-async def create_company_invite(
-    invite: CompanyInviteCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_user),
-) -> Any:
-    """Create a company invite request (no authentication required)."""
-    user_id = current_user.id if current_user else None
-    normalized_phone_numbers: List[str] = []
-    for raw_phone in (invite.phone_numbers or []):
-        cleaned_phone = (raw_phone or "").strip()
-        if not cleaned_phone:
-            continue
-        phone_digits = re.sub(r"\D", "", cleaned_phone)
-        if len(phone_digits) != 10:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Company phone must contain exactly 10 digits",
-            )
-        normalized_phone_numbers.append(phone_digits)
-
-    # Create the invite record
-    db_invite = CompanyInvite(
-        company_name=invite.company_name,
-        address=invite.address,
-        website=invite.website,
-        contact_person_name=invite.contact_person_name,
-        contact_person_role=invite.contact_person_role,
-        emails=invite.emails,
-        phone_numbers=normalized_phone_numbers,
-        requested_by_id=user_id,
-        status=InviteStatus.PENDING
-    )
-    
-    db.add(db_invite)
-    await db.commit()
-    await db.refresh(db_invite)
-    
-    # Try to send emails to all provided email addresses
-    emails_sent = 0
-    contact_name = invite.contact_person_name or "Contact"
-    for email in invite.emails:
-        if email and email.strip():
-            success = await send_company_invite_email(
-                company_name=invite.company_name,
-                contact_name=contact_name,
-                email=email.strip(),
-                invite_id=str(db_invite.id)
-            )
-            if success:
-                emails_sent += 1
-    
-    # Update status if emails were sent
-    if emails_sent > 0:
-        db_invite.status = InviteStatus.SENT
-        db_invite.sent_at = datetime.utcnow()
-        await db.commit()
-        await db.refresh(db_invite)
-    
-    return db_invite
-
-
-@router.get("/invites/mine", response_model=List[CompanyInviteResponse])
-async def list_my_company_invites(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """List company invite requests created by the current user (for profile review / dashboard)."""
-    query = (
-        select(CompanyInvite)
-        .where(CompanyInvite.requested_by_id == current_user.id)
-        .order_by(CompanyInvite.created_at.desc())
-    )
-    result = await db.execute(query)
-    return result.scalars().all()
-
-
-@router.get("/invites", response_model=List[CompanyInviteResponse])
-async def list_company_invites(
-    status: Optional[InviteStatus] = None,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
-):
-    """List all company invites (admin only)."""
-    query = select(CompanyInvite)
-    
-    if status:
-        query = query.where(CompanyInvite.status == status)
-    
-    query = query.order_by(CompanyInvite.created_at.desc()).offset(skip).limit(limit)
-    result = await db.execute(query)
-    return result.scalars().all()
-
-
-@router.get("/invites/stats/")
-async def get_invite_stats(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
-):
-    """Get invite statistics (admin only)."""
-    # Count by status
-    pending_count = await db.execute(
-        select(func.count(CompanyInvite.id)).where(CompanyInvite.status == InviteStatus.PENDING)
-    )
-    sent_count = await db.execute(
-        select(func.count(CompanyInvite.id)).where(CompanyInvite.status == InviteStatus.SENT)
-    )
-    accepted_count = await db.execute(
-        select(func.count(CompanyInvite.id)).where(CompanyInvite.status == InviteStatus.ACCEPTED)
-    )
-    declined_count = await db.execute(
-        select(func.count(CompanyInvite.id)).where(CompanyInvite.status == InviteStatus.DECLINED)
-    )
-    
-    return {
-        "pending": pending_count.scalar() or 0,
-        "sent": sent_count.scalar() or 0,
-        "accepted": accepted_count.scalar() or 0,
-        "declined": declined_count.scalar() or 0,
-        "total": (pending_count.scalar() or 0) + (sent_count.scalar() or 0) + 
-                 (accepted_count.scalar() or 0) + (declined_count.scalar() or 0)
-    }
-
-
-@router.get("/invites/{invite_id}", response_model=CompanyInviteResponse)
-async def get_company_invite(
-    invite_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
-    """Get a specific company invite."""
-    result = await db.execute(
-        select(CompanyInvite).where(CompanyInvite.id == invite_id)
-    )
-    invite = result.scalar_one_or_none()
-    
-    if not invite:
-        raise HTTPException(status_code=404, detail="Invite not found")
-    
-    return invite
-
-
-@router.put("/invites/{invite_id}/update_status/")
-async def update_invite_status(
-    invite_id: UUID,
-    new_status: InviteStatus,
-    notes: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
-):
-    """Update invite status (admin only)."""
-    result = await db.execute(
-        select(CompanyInvite).where(CompanyInvite.id == invite_id)
-    )
-    invite = result.scalar_one_or_none()
-    
-    if not invite:
-        raise HTTPException(status_code=404, detail="Invite not found")
-    
-    invite.status = new_status
-    if notes:
-        invite.admin_notes = notes
-    
-    await db.commit()
-    await db.refresh(invite)
-    
-    return {"status": "updated", "new_status": new_status.value}
-
-
-@router.post("/invites/{invite_id}/send_invite/")
-async def resend_invite(
-    invite_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
-):
-    """Resend invite emails (admin only)."""
-    result = await db.execute(
-        select(CompanyInvite).where(CompanyInvite.id == invite_id)
-    )
-    invite = result.scalar_one_or_none()
-    
-    if not invite:
-        raise HTTPException(status_code=404, detail="Invite not found")
-    
-    # Send emails
-    emails_sent = 0
-    for email in invite.emails:
-        if email and email.strip():
-            success = await send_company_invite_email(
-                company_name=invite.company_name,
-                contact_name=invite.contact_person_name or "Hiring Manager",
-                email=email.strip(),
-                invite_id=str(invite.id)
-            )
-            if success:
-                emails_sent += 1
-    
-    if emails_sent > 0:
-        invite.status = InviteStatus.SENT
-        invite.sent_at = datetime.utcnow()
-        await db.commit()
-    
-    return {
-        "status": "sent" if emails_sent > 0 else "failed",
-        "emails_sent": emails_sent,
-        "total_emails": len([e for e in invite.emails if e and e.strip()])
-    }
 
 
 # ============= Super Admin Endpoints =============

@@ -2,18 +2,20 @@
 Job Portal API endpoints.
 """
 
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from uuid import UUID, uuid4
 from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_, func, case, literal
 from sqlalchemy.orm import selectinload
 from slugify import slugify
 
 from app.db.session import get_db
-from app.models.job import Job, JobApplication, SavedJob, JobStatus, ApplicationStatus
+from app.models.job import Job, JobApplication, SavedJob, JobView, JobStatus, ApplicationStatus
+from app.models.job_title_catalog import JobTitleCatalog
 from app.models.user import User
 from app.schemas.job import (
     JobCreate, JobUpdate, JobResponse,
@@ -21,8 +23,31 @@ from app.schemas.job import (
     SavedJobCreate, ApplicantInfo, JobApplicationWithApplicant
 )
 from app.core.security import get_current_user, get_optional_user, get_current_admin_user
+from app.core.config import get_settings
+from app.services.job_coding_eval import evaluate_job_coding_submissions, run_assessment_preview
+from pydantic import BaseModel
 
 router = APIRouter()
+
+
+class CodingAssessmentRunRequest(BaseModel):
+    question_id: str
+    code: str
+    language: str
+    mode: Literal["run", "test"] = "run"
+
+
+def _find_coding_question_dict(job: Job, question_id: str) -> Optional[dict]:
+    raw = getattr(job, "coding_questions", None) or []
+    if not isinstance(raw, list):
+        return None
+    for q in raw:
+        if isinstance(q, dict) and str(q.get("id")) == str(question_id):
+            return q
+    return None
+
+_MAX_SCREENING_VIDEO_BYTES = 80 * 1024 * 1024
+_SCREENING_VIDEO_EXTS = {".webm", ".mp4", ".mov", ".mkv"}
 
 # Map user-facing country names to codes used in hiring_countries
 _COUNTRY_TO_CODE = {
@@ -77,6 +102,119 @@ def _allowed_application_status_transition(current_status: ApplicationStatus, re
         ApplicationStatus.WITHDRAWN: set(),
     }
     return requested_status in allowed.get(current_status, set())
+
+
+def _normalize_json_list(value: Any) -> list:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return []
+    return [value]
+
+
+def _serialize_job_for_response(job: Job) -> dict[str, Any]:
+    return {
+        "id": job.id,
+        "title": job.title,
+        "slug": job.slug,
+        "description": job.description,
+        "short_description": job.short_description,
+        "company_id": job.company_id,
+        "company_name": job.company_name,
+        "posted_by_id": job.posted_by_id,
+        "job_type": job.job_type.value if hasattr(job.job_type, "value") else job.job_type,
+        "experience_level": job.experience_level.value if hasattr(job.experience_level, "value") else job.experience_level,
+        "location": job.location,
+        "is_remote": bool(job.is_remote),
+        "salary_min": job.salary_min,
+        "salary_max": job.salary_max,
+        "salary_currency": job.salary_currency or "USD",
+        "show_salary": bool(job.show_salary),
+        "skills_required": _normalize_json_list(job.skills_required),
+        "benefits": _normalize_json_list(job.benefits),
+        "coding_questions": _normalize_json_list(job.coding_questions),
+        "screening_questions": _normalize_json_list(job.screening_questions),
+        "department": job.department,
+        "hiring_countries": _normalize_json_list(job.hiring_countries),
+        "hiring_states": _normalize_json_list(job.hiring_states),
+        "work_authorizations": _normalize_json_list(job.work_authorizations),
+        "open_for_sponsorship": job.open_for_sponsorship,
+        "collect_applicant_location": bool(job.collect_applicant_location),
+        "status": job.status.value if hasattr(job.status, "value") else job.status,
+        "is_featured": bool(job.is_featured),
+        "views_count": job.views_count or 0,
+        "applications_count": job.applications_count or 0,
+        "published_at": job.published_at,
+        "created_at": job.created_at,
+    }
+
+
+def _is_acceptable_live_job_title(raw: Optional[str]) -> bool:
+    """Filter junk titles from distinct `jobs.title` (e.g. drafts, '* Update')."""
+    t = (raw or "").strip()
+    if len(t) < 2:
+        return False
+    lower = t.lower()
+    if lower in ("test", "draft", "update", "tbd", "n/a", "none", "placeholder", "temp", "temporary"):
+        return False
+    if lower.endswith(" update"):
+        return False
+    if lower.startswith("draft ") or lower.startswith("test "):
+        return False
+    return True
+
+
+@router.get("/title-autocomplete", response_model=List[str])
+async def title_autocomplete(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(24, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> List[str]:
+    """
+    Job title suggestions: seeded catalog (relevance-ranked) + distinct titles from existing jobs.
+    Public; no auth required (same pattern as /places/autocomplete).
+    """
+    q_stripped = q.strip()
+    if not q_stripped:
+        return []
+    search = f"%{q_stripped}%"
+    match_rank = case(
+        (func.lower(JobTitleCatalog.title) == func.lower(literal(q_stripped)), literal(0)),
+        (JobTitleCatalog.title.ilike(f"{q_stripped}%"), literal(1)),
+        else_=literal(2),
+    )
+    cat_stmt = (
+        select(JobTitleCatalog.title)
+        .where(JobTitleCatalog.title.ilike(search))
+        .order_by(match_rank, JobTitleCatalog.title)
+        .limit(limit)
+    )
+    cat_result = await db.execute(cat_stmt)
+    catalog_titles = [row[0] for row in cat_result.all() if row[0]]
+
+    jobs_stmt = (
+        select(Job.title)
+        .where(Job.title.ilike(search))
+        .distinct()
+        .order_by(Job.title)
+        .limit(limit)
+    )
+    jobs_result = await db.execute(jobs_stmt)
+    job_titles = [row[0] for row in jobs_result.all() if row[0] and _is_acceptable_live_job_title(row[0])]
+
+    seen: set[str] = set()
+    out: List[str] = []
+    for title in catalog_titles + job_titles:
+        key = title.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(title.strip())
+        if len(out) >= limit:
+            break
+    return out
 
 
 @router.get("/", response_model=List[JobResponse])
@@ -134,11 +272,11 @@ async def list_jobs(
         user_country_code = _user_country_code(getattr(current_user, "country", None))
         user_work_auth = (getattr(current_user, "work_authorization", None) or "").strip() or None
         filtered = [job for job in rows if _job_visible_to_user(job, user_country_code, user_work_auth)]
-        return filtered[skip : skip + limit]
+        return [_serialize_job_for_response(job) for job in filtered[skip : skip + limit]]
     
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
-    return result.scalars().all()
+    return [_serialize_job_for_response(job) for job in result.scalars().all()]
 
 
 @router.post("/", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
@@ -171,7 +309,28 @@ async def create_job(
     await db.commit()
     await db.refresh(job)
     
-    return job
+    return _serialize_job_for_response(job)
+
+
+@router.post("/upload/screening-video")
+async def upload_screening_video(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Authenticated upload for candidate screening video answers (stored under /uploads)."""
+    root = Path(__file__).resolve().parents[3] / "uploads" / "job_screening"
+    root.mkdir(parents=True, exist_ok=True)
+    orig = Path(file.filename or "video.webm")
+    ext = orig.suffix.lower() if orig.suffix else ".webm"
+    if ext not in _SCREENING_VIDEO_EXTS:
+        ext = ".webm"
+    name = f"{current_user.id}_{uuid4().hex}{ext}"
+    dest = root / name
+    content = await file.read()
+    if len(content) > _MAX_SCREENING_VIDEO_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Video file too large")
+    dest.write_bytes(content)
+    return {"url": f"/uploads/job_screening/{name}", "filename": name}
 
 
 @router.post("/{job_id}/apply", response_model=JobApplicationResponse, status_code=status.HTTP_201_CREATED)
@@ -209,6 +368,22 @@ async def apply_to_job(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You have already applied to this job"
         )
+
+    # ============= MERGE CODING AUTO-EVALUATION INTO ANSWERS =============
+    merged_answers: Any = application_in.answers
+    if isinstance(application_in.answers, dict):
+        merged_answers = dict(application_in.answers)
+        raw_coding = merged_answers.get("coding_answers")
+        cq = job.coding_questions
+        if raw_coding and isinstance(raw_coding, list) and cq:
+            settings_eval = get_settings()
+            eval_block = await evaluate_job_coding_submissions(
+                cq if isinstance(cq, list) else [],
+                raw_coding,
+                settings_eval.resolved_judge_service_url(),
+            )
+            if eval_block:
+                merged_answers.update(eval_block)
     
     # ============= SKILL MATCHING CALCULATION =============
     def _normalize_skills(values: Any) -> List[str]:
@@ -285,6 +460,7 @@ async def apply_to_job(
     if job.collect_applicant_location:
         lat = application_in.applicant_location_lat
         lng = application_in.applicant_location_lng
+        location_context = application_in.applicant_location_context or {}
         if lat is not None and lng is not None:
             applicant_location_lat = lat
             applicant_location_lng = lng
@@ -292,6 +468,7 @@ async def apply_to_job(
             applicant_location_ip_snapshot = {
                 "ip": request.client.host if request.client else None,
                 "captured_at": applicant_location_consent_at.isoformat(),
+                **(location_context if isinstance(location_context, dict) else {}),
             }
 
     application = JobApplication(
@@ -299,7 +476,7 @@ async def apply_to_job(
         applicant_id=current_user.id,
         cover_letter=application_in.cover_letter,
         resume_url=application_in.resume_url,
-        answers=application_in.answers,
+        answers=merged_answers,
         expected_salary=application_in.expected_salary,
         available_from=application_in.available_from,
         referral_source=application_in.referral_source,
@@ -364,6 +541,11 @@ async def get_my_applications(
             "matched_skills": app.matched_skills or [],
             "missing_skills": app.missing_skills or [],
         }
+        if isinstance(app.answers, dict):
+            if app.answers.get("coding_test_score") is not None:
+                app_dict["coding_test_score"] = app.answers.get("coding_test_score")
+            if app.answers.get("coding_evaluation") is not None:
+                app_dict["coding_evaluation"] = app.answers.get("coding_evaluation")
         
         # Include job details
         if app.job:
@@ -587,7 +769,7 @@ async def get_saved_jobs(
     result = await db.execute(
         select(Job).where(Job.id.in_(job_ids))
     )
-    return result.scalars().all()
+    return [_serialize_job_for_response(job) for job in result.scalars().all()]
 
 
 @router.delete("/saved/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -611,10 +793,43 @@ async def unsave_job(
         await db.commit()
 
 
+@router.post("/{job_id}/coding-assessment/run")
+async def run_coding_assessment_preview(
+    job_id: UUID,
+    body: CodingAssessmentRunRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Preview run / test for a coding question during application (uses optional judge service).
+    Does not affect application scoring until submit.
+    """
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job or job.status != JobStatus.PUBLISHED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found or not accepting applications")
+
+    q = _find_coding_question_dict(job, body.question_id)
+    if not q:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coding question not found for this job")
+
+    settings = get_settings()
+    judge_url = settings.resolved_judge_service_url()
+
+    return await run_assessment_preview(
+        q,
+        body.code,
+        body.language,
+        body.mode,
+        judge_url,
+    )
+
+
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
 ) -> Any:
     """Get job by ID."""
     
@@ -629,11 +844,20 @@ async def get_job(
             detail="Job not found"
         )
     
-    # Increment view count
-    job.views_count += 1
-    await db.commit()
+    # Count only the first authenticated view per user for this job.
+    if current_user:
+        existing_view = await db.execute(
+            select(JobView).where(
+                JobView.job_id == job.id,
+                JobView.user_id == current_user.id,
+            )
+        )
+        if existing_view.scalar_one_or_none() is None:
+            db.add(JobView(job_id=job.id, user_id=current_user.id))
+            job.views_count = (job.views_count or 0) + 1
+            await db.commit()
     
-    return job
+    return _serialize_job_for_response(job)
 
 
 @router.put("/{job_id}", response_model=JobResponse)
@@ -699,7 +923,7 @@ async def update_job(
     await db.commit()
     await db.refresh(job)
     
-    return job
+    return _serialize_job_for_response(job)
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)

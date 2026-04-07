@@ -35,6 +35,7 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CMSLayout from './CMSLayout';
+import { fetchMyCompanyForCMS } from './cmsCompanyFetch';
 import { api } from '../../../services/apiClient';
 import { API_ENDPOINTS } from '../../../config/api';
 import { DUMMY_ADMINS } from './CMSDummyData';
@@ -57,19 +58,7 @@ const CMSPageAdmins: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const me = await api.get<any>(API_ENDPOINTS.AUTH.ME);
-      let myCompany = null;
-      if (me?.id) {
-        const result = await api.get<any>(API_ENDPOINTS.COMPANY, { params: { user_id: me.id } });
-        if (Array.isArray(result) && result.length > 0) myCompany = result[0];
-        else if (result?.id) myCompany = result;
-      }
-
-      if (!myCompany) {
-        try {
-          myCompany = await api.get<any>(API_ENDPOINTS.CMS.MY_COMPANY);
-        } catch (e) { }
-      }
+      const myCompany = await fetchMyCompanyForCMS();
 
       if (myCompany?.id) {
         setCompanyId(myCompany.id);

@@ -4,7 +4,7 @@
  * Theme: Poncho (#403a3e → #be5869)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Box,
@@ -29,6 +29,12 @@ import {
   Autocomplete,
   alpha,
   keyframes,
+  FormControlLabel,
+  Switch,
+  Tooltip,
+  List,
+  ListItemButton,
+  ListItemText,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
@@ -40,17 +46,30 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   WorkOutline as WorkOutlineIcon,
+  Tune as TuneIcon,
+  AddCircleOutline as AddCaseIcon,
+  AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material';
 import {
   JobFormData,
   CodingQuestion,
+  TestCase,
   EXPERIENCE_LEVELS,
   JOB_TYPES,
   DIFFICULTY_LABELS,
 } from '../../types/jobPortal';
 import { jobService, getHRUserInfo } from '../../services/jobPortalService';
-import { API_ENDPOINTS, getApiUrl } from '../../config/api';
+import {
+  API_ENDPOINTS,
+  getApiUrl,
+  LOCATION_AUTOCOMPLETE_COUNTRY_CODES,
+  LOCATION_AUTOCOMPLETE_PER_COUNTRY_LIMIT,
+  LOCATION_AUTOCOMPLETE_MERGED_MAX,
+} from '../../config/api';
 import { fetchWithAuth } from '../../utils/apiInterceptor';
+import { fetchJobTitleSuggestions } from '../../utils/jobTitleSuggestions';
+import { fetchSkillSuggestions } from '../../utils/skillSuggestions';
+import { buildAssessmentTemplatePack } from '../../data/assessmentQuestionTemplate';
 
 // Theme Colors - Poncho Palette
 const colors = {
@@ -255,6 +274,40 @@ const StyledTextField = styled(TextField)(({ theme }) => ({
   },
 }));
 
+/** Languages shown to candidates in the coding assessment (values align with CodingTest page). */
+const CODING_LANGUAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'javascript', label: 'JavaScript' },
+  { value: 'typescript', label: 'TypeScript' },
+  { value: 'python', label: 'Python' },
+  { value: 'java', label: 'Java' },
+  { value: 'cpp', label: 'C++' },
+  { value: 'csharp', label: 'C#' },
+  { value: 'go', label: 'Go' },
+  { value: 'rust', label: 'Rust' },
+  { value: 'sql', label: 'SQL' },
+];
+
+const normalizeCodingQuestion = (raw: Partial<CodingQuestion> & { id: string }): CodingQuestion => ({
+  id: raw.id,
+  question: raw.question ?? '',
+  description: raw.description ?? '',
+  difficulty: raw.difficulty ?? 'medium',
+  starterCode: raw.starterCode ?? '',
+  allowedLanguages:
+    Array.isArray(raw.allowedLanguages) && raw.allowedLanguages.length > 0
+      ? raw.allowedLanguages.map((x) => String(x).trim().toLowerCase())
+      : ['javascript', 'python', 'java'],
+  timeLimitMinutes: raw.timeLimitMinutes ?? 30,
+  sampleInput: raw.sampleInput ?? '',
+  sampleOutput: raw.sampleOutput ?? '',
+  expectedOutput: raw.expectedOutput ?? '',
+  testCases: Array.isArray(raw.testCases) ? raw.testCases : [],
+  requireFullScreen: raw.requireFullScreen !== false,
+  blockCopyPaste: raw.blockCopyPaste !== false,
+  maxTabSwitches: typeof raw.maxTabSwitches === 'number' ? raw.maxTabSwitches : 2,
+  sqlSchema: raw.sqlSchema ?? (raw as { sql_schema?: string }).sql_schema ?? '',
+});
+
 const StyledSelect = styled(Select)(({ theme }) => ({
   borderRadius: 12,
   '&:hover': {
@@ -281,18 +334,16 @@ const CreateJobPost: React.FC = () => {
   const [success, setSuccess] = useState(false);
   const [skillInput, setSkillInput] = useState('');
   const [expandedQuestion, setExpandedQuestion] = useState<number | null>(0);
+  const [codingAdvOpen, setCodingAdvOpen] = useState<Record<string, boolean>>({});
   const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+  const [jobTitleSuggestions, setJobTitleSuggestions] = useState<string[]>([]);
+  const jobTitleSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [skillSuggestions, setSkillSuggestions] = useState<string[]>([]);
+  const skillSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Predefined Skills for suggestions
-  const ALL_SKILLS = [
-    'React', 'Angular', 'Vue.js', 'TypeScript', 'JavaScript', 'HTML5', 'CSS3', 'Tailwind CSS', 'Next.js', 'Redux', 'Svelte',
-    'Python', 'Node.js', 'Java', 'Go', 'Rust', 'C#', '.NET', 'Ruby', 'PHP', 'Django', 'FastAPI', 'Express.js', 'Spring Boot',
-    'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Elasticsearch', 'Oracle', 'SQL Server', 'DynamoDB', 'Cassandra',
-    'Docker', 'Kubernetes', 'AWS', 'Azure', 'GCP', 'Jenkins', 'GitLab CI', 'Terraform', 'Ansible', 'Linux',
-    'React Native', 'Flutter', 'Swift', 'Kotlin', 'iOS', 'Android', 'Xamarin',
-    'Machine Learning', 'TensorFlow', 'PyTorch', 'Pandas', 'NumPy', 'Data Science', 'NLP', 'Computer Vision', 'LLMs',
-    'Git', 'VS Code', 'Jira', 'Figma', 'Postman', 'Slack', 'Notion'
-  ].sort();
+  const templatePackList = useMemo(() => buildAssessmentTemplatePack(), []);
+  const [selectedTemplateIndex, setSelectedTemplateIndex] = useState<number | null>(null);
+  const [templateStaging, setTemplateStaging] = useState<CodingQuestion | null>(null);
 
   const [formData, setFormData] = useState<JobFormData>({
     title: '',
@@ -319,12 +370,12 @@ const CreateJobPost: React.FC = () => {
 
     try {
       const q = encodeURIComponent(query.trim());
-      const countries = ['IN', 'US'];
       const token = localStorage.getItem('authToken');
-      
+      const lim = LOCATION_AUTOCOMPLETE_PER_COUNTRY_LIMIT;
+
       const results = await Promise.all(
-        countries.map(async (country) => {
-          const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${q}&country=${country}&limit=10`;
+        LOCATION_AUTOCOMPLETE_COUNTRY_CODES.map(async (country) => {
+          const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${q}&country=${country}&limit=${lim}`;
           
           const response = await fetch(url, {
             method: 'GET',
@@ -340,7 +391,7 @@ const CreateJobPost: React.FC = () => {
         })
       );
 
-      const merged = Array.from(new Set(results.flat())).slice(0, 20);
+      const merged = Array.from(new Set(results.flat())).slice(0, LOCATION_AUTOCOMPLETE_MERGED_MAX);
       setLocationSuggestions(merged);
     } catch (err) {
       console.error('Failed to fetch location suggestions:', err);
@@ -361,7 +412,9 @@ const CreateJobPost: React.FC = () => {
           experienceLevel: job.experienceLevel,
           location: job.location,
           jobType: job.jobType,
-          codingQuestions: job.codingQuestions,
+          codingQuestions: (job.codingQuestions || []).map((q) =>
+            normalizeCodingQuestion({ ...q, id: q.id || `q-${Date.now()}` })
+          ),
         });
       }
     } catch (err) {
@@ -373,6 +426,32 @@ const CreateJobPost: React.FC = () => {
 
   const handleInputChange = (field: keyof JobFormData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const onJobTitleInputChange = (_: unknown, newInputValue: string) => {
+    handleInputChange('title', newInputValue);
+    if (jobTitleSearchDebounceRef.current) clearTimeout(jobTitleSearchDebounceRef.current);
+    jobTitleSearchDebounceRef.current = setTimeout(async () => {
+      if (!newInputValue || newInputValue.trim().length < 2) {
+        setJobTitleSuggestions([]);
+        return;
+      }
+      const opts = await fetchJobTitleSuggestions(newInputValue);
+      setJobTitleSuggestions(opts);
+    }, 300);
+  };
+
+  const onSkillInputChange = (_: unknown, newInputValue: string) => {
+    setSkillInput(newInputValue);
+    if (skillSearchDebounceRef.current) clearTimeout(skillSearchDebounceRef.current);
+    skillSearchDebounceRef.current = setTimeout(async () => {
+      if (!newInputValue || newInputValue.trim().length < 1) {
+        setSkillSuggestions([]);
+        return;
+      }
+      const opts = await fetchSkillSuggestions(newInputValue);
+      setSkillSuggestions(opts);
+    }, 300);
   };
 
   const handleAddSkill = () => {
@@ -393,17 +472,152 @@ const CreateJobPost: React.FC = () => {
   };
 
   const handleAddCodingQuestion = () => {
-    const newQuestion: CodingQuestion = {
+    const newQuestion = normalizeCodingQuestion({
       id: `q-${Date.now()}`,
       question: '',
       description: '',
       difficulty: 'medium',
-    };
+    });
     setFormData((prev) => ({
       ...prev,
       codingQuestions: [...prev.codingQuestions, newQuestion],
     }));
     setExpandedQuestion(formData.codingQuestions.length);
+  };
+
+  const toggleCodingAdv = (questionId: string) => {
+    setCodingAdvOpen((prev) => ({ ...prev, [questionId]: !prev[questionId] }));
+  };
+
+  const toggleAllowedLanguage = (qIndex: number, langValue: string) => {
+    setFormData((prev) => {
+      const q = prev.codingQuestions[qIndex];
+      const cur = [...(q.allowedLanguages || [])];
+      const idx = cur.findIndex((l) => l.toLowerCase() === langValue.toLowerCase());
+      if (idx >= 0) {
+        cur.splice(idx, 1);
+      } else {
+        cur.push(langValue);
+      }
+      if (cur.length === 0) {
+        cur.push(langValue);
+      }
+      return {
+        ...prev,
+        codingQuestions: prev.codingQuestions.map((cq, i) =>
+          i === qIndex ? { ...cq, allowedLanguages: cur } : cq
+        ),
+      };
+    });
+  };
+
+  const addTestCase = (qIndex: number) => {
+    const tc: TestCase = {
+      id: `tc-${Date.now()}`,
+      input: '',
+      expectedOutput: '',
+    };
+    setFormData((prev) => ({
+      ...prev,
+      codingQuestions: prev.codingQuestions.map((cq, i) =>
+        i === qIndex ? { ...cq, testCases: [...(cq.testCases || []), tc] } : cq
+      ),
+    }));
+  };
+
+  const updateTestCase = (qIndex: number, tcIndex: number, field: keyof TestCase, value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      codingQuestions: prev.codingQuestions.map((cq, i) => {
+        if (i !== qIndex) return cq;
+        const list = [...(cq.testCases || [])];
+        if (!list[tcIndex]) return cq;
+        list[tcIndex] = { ...list[tcIndex], [field]: value };
+        return { ...cq, testCases: list };
+      }),
+    }));
+  };
+
+  const removeTestCase = (qIndex: number, tcIndex: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      codingQuestions: prev.codingQuestions.map((cq, i) => {
+        if (i !== qIndex) return cq;
+        const list = (cq.testCases || []).filter((_, j) => j !== tcIndex);
+        return { ...cq, testCases: list };
+      }),
+    }));
+  };
+
+  const selectTemplatePackItem = (index: number) => {
+    const src = templatePackList[index];
+    setSelectedTemplateIndex(index);
+    setTemplateStaging(
+      normalizeCodingQuestion({
+        ...src,
+        id: `staging-${Date.now()}`,
+        testCases: (src.testCases || []).map((tc, j) => ({
+          id: tc.id || `tc-stg-${j}`,
+          input: tc.input,
+          expectedOutput: tc.expectedOutput,
+        })),
+      })
+    );
+  };
+
+  const updateTemplateStaging = (field: keyof CodingQuestion, value: unknown) => {
+    setTemplateStaging((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const toggleTemplateStagingLanguage = (langValue: string) => {
+    setTemplateStaging((prev) => {
+      if (!prev) return prev;
+      const cur = [...(prev.allowedLanguages || [])];
+      const idx = cur.findIndex((l) => l.toLowerCase() === langValue.toLowerCase());
+      if (idx >= 0) cur.splice(idx, 1);
+      else cur.push(langValue);
+      if (cur.length === 0) cur.push(langValue);
+      return { ...prev, allowedLanguages: cur };
+    });
+  };
+
+  const updateTemplateStagingTestCase = (tcIndex: number, field: keyof TestCase, value: string) => {
+    setTemplateStaging((prev) => {
+      if (!prev) return prev;
+      const list = [...(prev.testCases || [])];
+      if (!list[tcIndex]) return prev;
+      list[tcIndex] = { ...list[tcIndex], [field]: value };
+      return { ...prev, testCases: list };
+    });
+  };
+
+  const addTemplateStagingToJob = () => {
+    if (!templateStaging) return;
+    const toAdd = normalizeCodingQuestion({
+      ...templateStaging,
+      id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    });
+    setFormData((prev) => {
+      const next = [...prev.codingQuestions, toAdd];
+      const newIdx = next.length - 1;
+      queueMicrotask(() => setExpandedQuestion(newIdx));
+      return { ...prev, codingQuestions: next };
+    });
+  };
+
+  const addAllTemplatePackToJob = () => {
+    setFormData((prev) => {
+      const additions = templatePackList.map((q, i) =>
+        normalizeCodingQuestion({
+          ...q,
+          id: `q-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`,
+        })
+      );
+      const next = [...prev.codingQuestions, ...additions];
+      const firstNew = prev.codingQuestions.length;
+      queueMicrotask(() => setExpandedQuestion(firstNew));
+      return { ...prev, codingQuestions: next };
+    });
   };
 
   const handleUpdateCodingQuestion = (index: number, field: keyof CodingQuestion, value: any) => {
@@ -592,13 +806,29 @@ const CreateJobPost: React.FC = () => {
             <Grid container spacing={3}>
               {/* Job Title */}
               <Grid item xs={12} md={6}>
-                <StyledTextField
-                  fullWidth
-                  label="Job Title"
+                <Autocomplete
+                  freeSolo
+                  options={jobTitleSuggestions}
                   value={formData.title}
-                  onChange={(e) => handleInputChange('title', e.target.value)}
-                  required
-                  placeholder="e.g., Senior React Developer"
+                  onChange={(_, newValue) => handleInputChange('title', (newValue as string) || '')}
+                  onInputChange={onJobTitleInputChange}
+                  filterOptions={(options) => options}
+                  renderInput={(params) => (
+                    <StyledTextField
+                      {...params}
+                      fullWidth
+                      label="Job Title"
+                      required
+                      placeholder="e.g., Senior React Developer"
+                    />
+                  )}
+                  slotProps={{
+                    paper: {
+                      sx: {
+                        maxHeight: 240,
+                      },
+                    },
+                  }}
                 />
               </Grid>
 
@@ -635,7 +865,7 @@ const CreateJobPost: React.FC = () => {
                       fullWidth
                       label="Location"
                       required
-                      placeholder="Type city/village in India or USA..."
+                      placeholder="City or town (India, USA, UK, Canada)..."
                     />
                   )}
                 />
@@ -698,17 +928,16 @@ const CreateJobPost: React.FC = () => {
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
                   <Autocomplete
-                    freeSolo={false}
-                    options={ALL_SKILLS.filter(s => !formData.requiredSkills.includes(s))}
+                    freeSolo
+                    options={skillSuggestions.filter((s) => !formData.requiredSkills.includes(s))}
                     value={skillInput || null}
                     onChange={(_, newValue) => {
                       if (newValue) {
                         setSkillInput(newValue);
                       }
                     }}
-                    onInputChange={(_, newInputValue) => {
-                      setSkillInput(newInputValue);
-                    }}
+                    onInputChange={onSkillInputChange}
+                    filterOptions={(options) => options}
                     fullWidth
                     renderInput={(params) => (
                       <StyledTextField
@@ -788,6 +1017,240 @@ const CreateJobPost: React.FC = () => {
                     </Typography>
                   </Box>
                 </Box>
+
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 2.5,
+                    mb: 3,
+                    borderRadius: 3,
+                    border: `1px solid ${colors.accent}`,
+                    bgcolor: alpha(colors.primary, 0.04),
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <AutoAwesomeIcon sx={{ color: colors.primary }} />
+                      <Box>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: colors.secondary }}>
+                          VerTechie template pack
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: colors.textLight }}>
+                          6 questions (2 easy, 2 medium, 2 hard) — each with 3 test cases. Click one to fill the form below, then add to the job.
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      onClick={addAllTemplatePackToJob}
+                      sx={{
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
+                      }}
+                    >
+                      Add all 6 to job
+                    </Button>
+                  </Box>
+                  <List dense disablePadding sx={{ mb: templateStaging ? 2 : 0 }}>
+                    {templatePackList.map((q, index) => (
+                      <ListItemButton
+                        key={q.id}
+                        selected={selectedTemplateIndex === index}
+                        onClick={() => selectTemplatePackItem(index)}
+                        sx={{
+                          borderRadius: 2,
+                          mb: 0.5,
+                          border: `1px solid ${alpha(colors.accent, 0.6)}`,
+                        }}
+                      >
+                        <ListItemText
+                          primary={
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                              <Typography component="span" fontWeight={600}>
+                                {index + 1}. {q.question}
+                              </Typography>
+                              <Chip size="small" label={DIFFICULTY_LABELS[q.difficulty]} sx={{ height: 22 }} />
+                            </Box>
+                          }
+                          secondary={`${(q.testCases || []).length} test cases`}
+                          secondaryTypographyProps={{ variant: 'caption' }}
+                        />
+                      </ListItemButton>
+                    ))}
+                  </List>
+
+                  <Collapse in={Boolean(templateStaging)}>
+                    {templateStaging && (
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 2,
+                          borderRadius: 2,
+                          border: `1px dashed ${colors.primary}50`,
+                          bgcolor: alpha(colors.surface, 0.9),
+                        }}
+                      >
+                        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 2, color: colors.secondary }}>
+                          Review & edit — then add to job
+                        </Typography>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} md={6}>
+                            <StyledTextField
+                              fullWidth
+                              label="Question title"
+                              value={templateStaging.question}
+                              onChange={(e) => updateTemplateStaging('question', e.target.value)}
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <FormControl fullWidth>
+                              <InputLabel>Difficulty</InputLabel>
+                              <StyledSelect
+                                value={templateStaging.difficulty}
+                                label="Difficulty"
+                                onChange={(e) =>
+                                  updateTemplateStaging('difficulty', e.target.value as CodingQuestion['difficulty'])
+                                }
+                              >
+                                <MenuItem value="easy">Easy</MenuItem>
+                                <MenuItem value="medium">Medium</MenuItem>
+                                <MenuItem value="hard">Hard</MenuItem>
+                              </StyledSelect>
+                            </FormControl>
+                          </Grid>
+                          <Grid item xs={12}>
+                            <StyledTextField
+                              fullWidth
+                              label="Description"
+                              multiline
+                              rows={3}
+                              value={templateStaging.description}
+                              onChange={(e) => updateTemplateStaging('description', e.target.value)}
+                            />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <StyledTextField
+                              fullWidth
+                              label="Starter code"
+                              multiline
+                              minRows={4}
+                              value={templateStaging.starterCode || ''}
+                              onChange={(e) => updateTemplateStaging('starterCode', e.target.value)}
+                              InputProps={{
+                                sx: { fontFamily: '"Fira Code", Consolas, monospace', fontSize: '0.875rem' },
+                              }}
+                            />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <Typography variant="caption" sx={{ fontWeight: 600, color: colors.textLight, display: 'block', mb: 1 }}>
+                              Allowed languages
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                              {CODING_LANGUAGE_OPTIONS.map((opt) => {
+                                const selected = (templateStaging.allowedLanguages || []).some(
+                                  (l) => l.toLowerCase() === opt.value
+                                );
+                                return (
+                                  <Chip
+                                    key={opt.value}
+                                    label={opt.label}
+                                    onClick={() => toggleTemplateStagingLanguage(opt.value)}
+                                    color={selected ? 'primary' : 'default'}
+                                    variant={selected ? 'filled' : 'outlined'}
+                                    sx={{ fontWeight: 600 }}
+                                  />
+                                );
+                              })}
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <StyledTextField
+                              fullWidth
+                              type="number"
+                              label="Time limit (minutes)"
+                              value={templateStaging.timeLimitMinutes ?? 30}
+                              onChange={(e) =>
+                                updateTemplateStaging(
+                                  'timeLimitMinutes',
+                                  Math.max(5, parseInt(e.target.value, 10) || 30)
+                                )
+                              }
+                              inputProps={{ min: 5, max: 240 }}
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <StyledTextField
+                              fullWidth
+                              label="Sample input (shown to candidate)"
+                              multiline
+                              minRows={2}
+                              value={templateStaging.sampleInput || ''}
+                              onChange={(e) => updateTemplateStaging('sampleInput', e.target.value)}
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <StyledTextField
+                              fullWidth
+                              label="Sample output (shown to candidate)"
+                              multiline
+                              minRows={2}
+                              value={templateStaging.sampleOutput || ''}
+                              onChange={(e) => updateTemplateStaging('sampleOutput', e.target.value)}
+                            />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: colors.textLight, display: 'block', mb: 1 }}>
+                              Hidden test cases (auto-judge)
+                            </Typography>
+                            {(templateStaging.testCases || []).map((tc, tcIdx) => (
+                              <Grid container spacing={1} key={tc.id || tcIdx} sx={{ mb: 1, alignItems: 'flex-start' }}>
+                                <Grid item xs={12} md={5}>
+                                  <StyledTextField
+                                    fullWidth
+                                    size="small"
+                                    label={`Test ${tcIdx + 1} — Input`}
+                                    multiline
+                                    minRows={2}
+                                    value={tc.input}
+                                    onChange={(e) => updateTemplateStagingTestCase(tcIdx, 'input', e.target.value)}
+                                  />
+                                </Grid>
+                                <Grid item xs={12} md={5}>
+                                  <StyledTextField
+                                    fullWidth
+                                    size="small"
+                                    label={`Test ${tcIdx + 1} — Expected output`}
+                                    multiline
+                                    minRows={2}
+                                    value={tc.expectedOutput}
+                                    onChange={(e) =>
+                                      updateTemplateStagingTestCase(tcIdx, 'expectedOutput', e.target.value)
+                                    }
+                                  />
+                                </Grid>
+                              </Grid>
+                            ))}
+                          </Grid>
+                          <Grid item xs={12}>
+                            <Button
+                              variant="contained"
+                              onClick={addTemplateStagingToJob}
+                              sx={{
+                                textTransform: 'none',
+                                fontWeight: 700,
+                                background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
+                              }}
+                            >
+                              Add this question to job
+                            </Button>
+                          </Grid>
+                        </Grid>
+                      </Paper>
+                    )}
+                  </Collapse>
+                </Paper>
 
                 {/* Coding Questions List */}
                 {formData.codingQuestions.map((question, index) => (
@@ -915,6 +1378,268 @@ const CreateJobPost: React.FC = () => {
                               placeholder="Provide detailed instructions, examples, and expected behavior..."
                             />
                           </Grid>
+
+                          <Grid item xs={12}>
+                            <Button
+                              type="button"
+                              startIcon={<TuneIcon />}
+                              onClick={() => toggleCodingAdv(question.id)}
+                              sx={{
+                                mt: 0.5,
+                                textTransform: 'none',
+                                fontWeight: 700,
+                                color: colors.primary,
+                                borderRadius: 2,
+                              }}
+                            >
+                              {codingAdvOpen[question.id] ? 'Hide' : 'Starter code, languages & proctoring'}
+                            </Button>
+                          </Grid>
+
+                          <Grid item xs={12}>
+                            <Collapse in={Boolean(codingAdvOpen[question.id])}>
+                              <Paper
+                                elevation={0}
+                                sx={{
+                                  p: 2.5,
+                                  borderRadius: 3,
+                                  border: `1px solid ${colors.accent}60`,
+                                  bgcolor: alpha(colors.primary, 0.03),
+                                }}
+                              >
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 2, color: colors.secondary }}>
+                                  Candidate IDE & assessment rules
+                                </Typography>
+                                <Grid container spacing={2}>
+                                  <Grid item xs={12}>
+                                    <StyledTextField
+                                      fullWidth
+                                      label="Starter code (optional)"
+                                      multiline
+                                      minRows={6}
+                                      value={question.starterCode || ''}
+                                      onChange={(e) =>
+                                        handleUpdateCodingQuestion(index, 'starterCode', e.target.value)
+                                      }
+                                      placeholder="// Candidates see this when they open the question"
+                                      InputProps={{
+                                        sx: { fontFamily: '"Fira Code", Consolas, monospace', fontSize: '0.875rem' },
+                                      }}
+                                    />
+                                  </Grid>
+
+                                  <Grid item xs={12}>
+                                    <Typography variant="caption" sx={{ fontWeight: 600, color: colors.textLight, display: 'block', mb: 1 }}>
+                                      Allowed languages
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                      {CODING_LANGUAGE_OPTIONS.map((opt) => {
+                                        const selected = (question.allowedLanguages || []).some(
+                                          (l) => l.toLowerCase() === opt.value
+                                        );
+                                        return (
+                                          <Chip
+                                            key={opt.value}
+                                            label={opt.label}
+                                            onClick={() => toggleAllowedLanguage(index, opt.value)}
+                                            color={selected ? 'primary' : 'default'}
+                                            variant={selected ? 'filled' : 'outlined'}
+                                            sx={{
+                                              fontWeight: 600,
+                                              borderColor: colors.accent,
+                                              ...(selected && {
+                                                background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
+                                                color: '#fff',
+                                              }),
+                                            }}
+                                          />
+                                        );
+                                      })}
+                                    </Box>
+                                  </Grid>
+
+                                  {(question.allowedLanguages || []).some((l) => l.toLowerCase() === 'sql') && (
+                                    <Grid item xs={12}>
+                                      <StyledTextField
+                                        fullWidth
+                                        label="SQLite schema (DDL) for SQL auto-evaluation"
+                                        multiline
+                                        minRows={4}
+                                        value={question.sqlSchema || ''}
+                                        onChange={(e) =>
+                                          handleUpdateCodingQuestion(index, 'sqlSchema', e.target.value)
+                                        }
+                                        placeholder={
+                                          'CREATE TABLE employees (id INTEGER PRIMARY KEY, name TEXT, salary REAL);'
+                                        }
+                                        InputProps={{
+                                          sx: {
+                                            fontFamily: '"Fira Code", Consolas, monospace',
+                                            fontSize: '0.875rem',
+                                          },
+                                        }}
+                                      />
+                                    </Grid>
+                                  )}
+
+                                  <Grid item xs={12} sm={6}>
+                                    <StyledTextField
+                                      fullWidth
+                                      type="number"
+                                      label="Time limit (minutes per question)"
+                                      value={question.timeLimitMinutes ?? 30}
+                                      onChange={(e) =>
+                                        handleUpdateCodingQuestion(
+                                          index,
+                                          'timeLimitMinutes',
+                                          Math.max(5, parseInt(e.target.value, 10) || 30)
+                                        )
+                                      }
+                                      inputProps={{ min: 5, max: 240 }}
+                                    />
+                                  </Grid>
+                                  <Grid item xs={12} sm={6}>
+                                    <StyledTextField
+                                      fullWidth
+                                      type="number"
+                                      label="Max tab switches before lock"
+                                      value={question.maxTabSwitches ?? 2}
+                                      onChange={(e) =>
+                                        handleUpdateCodingQuestion(
+                                          index,
+                                          'maxTabSwitches',
+                                          Math.max(0, parseInt(e.target.value, 10) || 0)
+                                        )
+                                      }
+                                      inputProps={{ min: 0, max: 20 }}
+                                    />
+                                  </Grid>
+
+                                  <Grid item xs={12} sm={6}>
+                                    <StyledTextField
+                                      fullWidth
+                                      label="Sample input (shown to candidate)"
+                                      multiline
+                                      minRows={2}
+                                      value={question.sampleInput || ''}
+                                      onChange={(e) =>
+                                        handleUpdateCodingQuestion(index, 'sampleInput', e.target.value)
+                                      }
+                                    />
+                                  </Grid>
+                                  <Grid item xs={12} sm={6}>
+                                    <StyledTextField
+                                      fullWidth
+                                      label="Sample output (shown to candidate)"
+                                      multiline
+                                      minRows={2}
+                                      value={question.sampleOutput || ''}
+                                      onChange={(e) =>
+                                        handleUpdateCodingQuestion(index, 'sampleOutput', e.target.value)
+                                      }
+                                    />
+                                  </Grid>
+                                  <Grid item xs={12}>
+                                    <StyledTextField
+                                      fullWidth
+                                      label="Expected result / hint (optional)"
+                                      multiline
+                                      minRows={2}
+                                      value={question.expectedOutput || ''}
+                                      onChange={(e) =>
+                                        handleUpdateCodingQuestion(index, 'expectedOutput', e.target.value)
+                                      }
+                                    />
+                                  </Grid>
+
+                                  <Grid item xs={12}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                                      <Typography variant="caption" sx={{ fontWeight: 600, color: colors.textLight }}>
+                                        Reference test cases (for your rubric; auto-judge can use later)
+                                      </Typography>
+                                      <Button
+                                        size="small"
+                                        startIcon={<AddCaseIcon />}
+                                        onClick={() => addTestCase(index)}
+                                        sx={{ textTransform: 'none', fontWeight: 600 }}
+                                      >
+                                        Add case
+                                      </Button>
+                                    </Box>
+                                    {(question.testCases || []).map((tc, tcIdx) => (
+                                      <Grid container spacing={1} key={tc.id} sx={{ mt: 0.5, mb: 1, alignItems: 'flex-start' }}>
+                                        <Grid item xs={12} md={5}>
+                                          <StyledTextField
+                                            fullWidth
+                                            size="small"
+                                            label="Input"
+                                            multiline
+                                            minRows={2}
+                                            value={tc.input}
+                                            onChange={(e) => updateTestCase(index, tcIdx, 'input', e.target.value)}
+                                          />
+                                        </Grid>
+                                        <Grid item xs={12} md={5}>
+                                          <StyledTextField
+                                            fullWidth
+                                            size="small"
+                                            label="Expected output"
+                                            multiline
+                                            minRows={2}
+                                            value={tc.expectedOutput}
+                                            onChange={(e) =>
+                                              updateTestCase(index, tcIdx, 'expectedOutput', e.target.value)
+                                            }
+                                          />
+                                        </Grid>
+                                        <Grid item xs={12} md={2}>
+                                          <Tooltip title="Remove test case">
+                                            <IconButton
+                                              color="error"
+                                              size="small"
+                                              onClick={() => removeTestCase(index, tcIdx)}
+                                              sx={{ mt: 1 }}
+                                            >
+                                              <DeleteIcon fontSize="small" />
+                                            </IconButton>
+                                          </Tooltip>
+                                        </Grid>
+                                      </Grid>
+                                    ))}
+                                  </Grid>
+
+                                  <Grid item xs={12} sm={6}>
+                                    <FormControlLabel
+                                      control={
+                                        <Switch
+                                          checked={question.requireFullScreen !== false}
+                                          onChange={(e) =>
+                                            handleUpdateCodingQuestion(index, 'requireFullScreen', e.target.checked)
+                                          }
+                                          color="primary"
+                                        />
+                                      }
+                                      label="Require fullscreen to start"
+                                    />
+                                  </Grid>
+                                  <Grid item xs={12} sm={6}>
+                                    <FormControlLabel
+                                      control={
+                                        <Switch
+                                          checked={question.blockCopyPaste !== false}
+                                          onChange={(e) =>
+                                            handleUpdateCodingQuestion(index, 'blockCopyPaste', e.target.checked)
+                                          }
+                                          color="primary"
+                                        />
+                                      }
+                                      label="Block copy / paste in editor"
+                                    />
+                                  </Grid>
+                                </Grid>
+                              </Paper>
+                            </Collapse>
+                          </Grid>
                         </Grid>
                       </Box>
                     </Collapse>
@@ -922,14 +1647,16 @@ const CreateJobPost: React.FC = () => {
                 ))}
 
                 {/* Add Question Button */}
-                <AddQuestionButton
-                  fullWidth
-                  variant="outlined"
-                  startIcon={<AddIcon />}
-                  onClick={handleAddCodingQuestion}
-                >
-                  Add Coding Question
-                </AddQuestionButton>
+                <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1.5, flexWrap: 'wrap' }}>
+                  <AddQuestionButton
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={handleAddCodingQuestion}
+                  >
+                    Add Coding Question
+                  </AddQuestionButton>
+                </Box>
               </Grid>
 
               {/* Submit Button */}
@@ -967,6 +1694,7 @@ const CreateJobPost: React.FC = () => {
           </Box>
         </Box>
       </Container>
+
     </PageContainer>
   );
 };

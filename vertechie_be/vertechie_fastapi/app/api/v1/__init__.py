@@ -7,7 +7,7 @@ from app.api.v1 import (
     auth, users, jobs, courses, calendar, calendar_sync,
     chat, network, community, unified_network,
     companies, schools, practice, hiring, blog, ide,
-    notifications, places
+    notifications, places, skills
 )
 
 api_router = APIRouter()
@@ -37,6 +37,7 @@ api_router.include_router(blog.router, prefix="/blog", tags=["Blog"])
 api_router.include_router(ide.router, prefix="/ide", tags=["IDE"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 api_router.include_router(places.router)
+api_router.include_router(skills.router)
 
 # ============= Admin Routes =============
 

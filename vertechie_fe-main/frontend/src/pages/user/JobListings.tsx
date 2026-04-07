@@ -49,7 +49,22 @@ import { formatDistanceToNow } from 'date-fns';
 import { Job, JOB_TYPES, EXPERIENCE_LEVELS, JobFilters } from '../../types/jobPortal';
 import { jobService, applicationService, getUserInfo } from '../../services/jobPortalService';
 import { getAccessToken } from '../../services/apiClient';
+import { ABOVE_BOTTOM_NAV_OFFSET_PX } from '../../constants/layout';
 import { Snackbar } from '@mui/material';
+
+const getCodingDraftStorageKey = (jobId: string) => `job-application-coding-draft:${jobId}`;
+
+const hasLockedAssessmentDraft = (jobId?: string): boolean => {
+  if (!jobId || typeof window === 'undefined') return false;
+  const raw = window.sessionStorage.getItem(getCodingDraftStorageKey(jobId));
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw);
+    return Boolean(parsed?.assessmentLocked);
+  } catch {
+    return false;
+  }
+};
 
 // Theme Colors - VerTechie Blue Palette (Matching App Theme)
 const colors = {
@@ -537,12 +552,21 @@ const JobListings: React.FC = () => {
     if (appliedJobIds.has(jobId)) {
       return;
     }
+    if (hasLockedAssessmentDraft(jobId)) {
+      navigate(`/techie/jobs/${jobId}/coding-test`);
+      return;
+    }
     navigate(`/techie/jobs/${jobId}`);
   };
 
   return (
     <PageContainer>
-      <Container maxWidth="xl">
+      <Container
+        maxWidth="xl"
+        sx={{
+          pb: `calc(${ABOVE_BOTTOM_NAV_OFFSET_PX}px + env(safe-area-inset-bottom, 0px))`,
+        }}
+      >
         {/* Hero Section */}
         <HeroSection elevation={0}>
           <Box sx={{ position: 'relative', zIndex: 1 }}>
@@ -922,10 +946,23 @@ const JobListings: React.FC = () => {
                                   borderColor: colors.success,
                                   color: colors.success,
                                 }
+                              : hasLockedAssessmentDraft(job.id)
+                                ? {
+                                    background: `linear-gradient(135deg, ${colors.warning} 0%, ${colors.error} 100%)`,
+                                    color: 'white',
+                                    '&:hover': {
+                                      background: `linear-gradient(135deg, ${colors.error} 0%, ${colors.warning} 100%)`,
+                                      color: 'white',
+                                    },
+                                  }
                               : undefined
                           }
                         >
-                          {appliedJobIds.has(job.id) ? 'Applied' : 'Apply'}
+                          {appliedJobIds.has(job.id)
+                            ? 'Applied'
+                            : hasLockedAssessmentDraft(job.id)
+                              ? 'Assessment Locked'
+                              : 'Apply'}
                         </ApplyButton>
                       </Box>
                     </Box>
@@ -957,6 +994,3 @@ const JobListings: React.FC = () => {
 };
 
 export default JobListings;
-
-
-

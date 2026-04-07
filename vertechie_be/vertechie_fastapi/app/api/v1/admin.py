@@ -37,6 +37,7 @@ from app.core.access_role_utils import (
     build_permission_summary,
     generate_internal_name,
     get_or_create_empty_permission_role,
+    get_or_create_default_permission_role,
 )
 from sqlalchemy.orm import selectinload
 
@@ -485,6 +486,7 @@ def _infer_role_type_from_name(name: str) -> Optional[RoleType]:
         "techie_admin": RoleType.TECHIE,
         "school_admin": RoleType.SCHOOL_ADMIN,
         "bdm_admin": RoleType.BDM_ADMIN,
+        "learn_admin": RoleType.LEARN_ADMIN,
     }
     return mapping.get(key)
 
@@ -497,6 +499,7 @@ _VALID_ROLE_TYPE_VALUES = (
     "hiring_manager",
     "techie",
     "bdm_admin",
+    "learn_admin",
 )
 
 
@@ -506,7 +509,7 @@ class GroupCreateRequest(BaseModel):
     role_type: str = Field(
         ...,
         min_length=1,
-        description="One of: super_admin, company_admin, school_admin, hiring_manager, techie, bdm_admin",
+        description="One of: super_admin, company_admin, school_admin, hiring_manager, techie, bdm_admin, learn_admin",
     )
     description: Optional[str] = None
     permission_ids: List[Any] = []
@@ -992,6 +995,19 @@ async def list_pending_approvals(
         result = await db.execute(query)
         all_users = result.scalars().all()
         logger.info(f"[PENDING_APPROVALS] Fetched {len(all_users)} users from database")
+
+        # Explicit user_id -> first RoleType from association (reliable if selectinload(User.roles) is empty)
+        role_map: Dict[UUID, RoleType] = {}
+        if all_users:
+            uids = [u.id for u in all_users]
+            rr = await db.execute(
+                select(user_roles.c.user_id, UserRole.role_type).select_from(
+                    user_roles.join(UserRole, user_roles.c.role_id == UserRole.id)
+                ).where(user_roles.c.user_id.in_(uids))
+            )
+            for uid, rt in rr.all():
+                if uid not in role_map:
+                    role_map[uid] = rt
         
         # When filtering by user_type (hr, company, school), include users with that role even if
         # they have admin_roles (e.g. hm_admin), so the HR/Company/School tabs show all users of that type.
@@ -1013,15 +1029,12 @@ async def list_pending_approvals(
         query_role_key = _role_key(query_role_type) if query_role_type else None
         for user in users:
             try:
-                # Determine user's role type
-                user_role_type = None
-                
-                # Access roles (should be loaded via selectinload)
-                if hasattr(user, 'roles') and user.roles:
+                user_role_type = role_map.get(user.id)
+                if user_role_type is None and hasattr(user, "roles") and user.roles:
                     for role in user.roles:
-                        if hasattr(role, 'role_type'):
+                        if hasattr(role, "role_type"):
                             user_role_type = role.role_type
-                            break  # Take first role
+                            break
                 
                 logger.debug(f"[PENDING_APPROVALS] User {user.email}: role_type={user_role_type}")
                 
@@ -1979,11 +1992,11 @@ async def update_admin_roles(
         )
     user.admin_roles = roles
     user.is_superuser = "superadmin" in [r.lower() for r in roles if r]
-    # Learn Admin (legacy): sync user_roles to TECHIE association only
+    # Learn Admin: sync to canonical LEARN_ADMIN UserRole with default learning permissions
     if roles and str(roles[0]).lower() == "learn_admin":
         await db.execute(delete(user_roles).where(user_roles.c.user_id == user.id))
-        ur = await get_or_create_empty_permission_role(
-            db, RoleType.TECHIE, description="techie user role"
+        ur = await get_or_create_default_permission_role(
+            db, RoleType.LEARN_ADMIN, description="Learn Admin (default permissions)"
         )
         await db.execute(insert(user_roles).values(user_id=user.id, role_id=ur.id))
     await db.commit()
@@ -2017,8 +2030,6 @@ def _access_role_id_from_user_and_roles(
 ) -> Optional[str]:
     """Pick UserRole id for staff admin; same rules as former per-row query (in-memory)."""
     ar = user.admin_roles or []
-    if ar and str(ar[0]).lower().strip() == "learn_admin":
-        return None
     if not urs:
         return None
     want = ar[0] if ar else None

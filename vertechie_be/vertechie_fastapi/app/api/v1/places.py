@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_, func, case, literal
 from pydantic import BaseModel
 
 from app.db.session import get_db
@@ -29,7 +29,7 @@ class PlaceSuggestion(BaseModel):
 async def autocomplete(
     q: str = Query(..., min_length=1),
     country: str = Query(..., description="Country code: US, IN, GB, CA"),
-    limit: int = Query(10, ge=1, le=20),
+    limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ) -> List[PlaceSuggestion]:
     """
@@ -39,7 +39,17 @@ async def autocomplete(
     country_upper = country.strip().upper()
     if country_upper not in ("US", "IN", "GB", "CA"):
         return []
-    search = f"%{q.strip()}%"
+    q_stripped = q.strip()
+    if not q_stripped:
+        return []
+    search = f"%{q_stripped}%"
+    # Prefer: exact name → prefix on name → prefix on display_name → substring matches (better than alphabetical-only)
+    match_rank = case(
+        (func.lower(Place.name) == func.lower(literal(q_stripped)), literal(0)),
+        (Place.name.ilike(f"{q_stripped}%"), literal(1)),
+        (Place.display_name.ilike(f"{q_stripped}%"), literal(2)),
+        else_=literal(3),
+    )
     stmt = (
         select(Place)
         .where(Place.country_code == country_upper)
@@ -50,7 +60,7 @@ async def autocomplete(
                 Place.admin1.ilike(search),
             )
         )
-        .order_by(Place.display_name)
+        .order_by(match_rank, Place.display_name)
         .limit(limit)
     )
     result = await db.execute(stmt)

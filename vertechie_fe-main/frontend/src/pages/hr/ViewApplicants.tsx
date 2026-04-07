@@ -38,6 +38,9 @@ import {
   TextField,
   InputAdornment,
   keyframes,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
@@ -55,10 +58,20 @@ import {
   Visibility as VisibilityIcon,
   Star as StarIcon,
   Groups as GroupsIcon,
+  ExpandMore as ExpandMoreAccordionIcon,
+  Security as SecurityIcon,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
-import { Job, Application, ApplicationStatus, APPLICATION_STATUS_LABELS } from '../../types/jobPortal';
-import { jobService, applicationService } from '../../services/jobPortalService';
+import {
+  Job,
+  Application,
+  ApplicationStatus,
+  APPLICATION_STATUS_LABELS,
+  AssessmentIntegritySummary,
+  formatCodingTestPassSummary,
+  getCodingEvalForQuestionId,
+} from '../../types/jobPortal';
+import { jobService, applicationService, resolveUploadsPublicUrl } from '../../services/jobPortalService';
 
 // Theme Colors - Poncho Palette
 const colors = {
@@ -225,6 +238,48 @@ const ScoreChip = styled(Chip)<{ score: number }>(({ score }) => ({
     border: `1px solid ${alpha(colors.error, 0.3)}`,
   }),
 }));
+
+function renderIntegrityChips(i: AssessmentIntegritySummary) {
+  const chipSx = { fontWeight: 600, borderColor: `${colors.accent}99` };
+  const screening = i.screening_session;
+  const screeningTabs =
+    screening && typeof screening === 'object' && screening !== null && 'tabSwitchCount' in screening
+      ? Number((screening as { tabSwitchCount?: unknown }).tabSwitchCount)
+      : NaN;
+  return (
+    <>
+      {!Number.isNaN(screeningTabs) && screeningTabs > 0 && (
+        <Chip
+          size="small"
+          variant="outlined"
+          label={`Screening tab switches: ${screeningTabs}`}
+          sx={chipSx}
+        />
+      )}
+      {i.tabSwitchCount != null && (
+        <Chip size="small" variant="outlined" label={`Tab switches: ${i.tabSwitchCount}`} sx={chipSx} />
+      )}
+      {i.fullscreenExitCount != null && i.fullscreenExitCount > 0 && (
+        <Chip size="small" variant="outlined" label={`Fullscreen exits: ${i.fullscreenExitCount}`} sx={chipSx} />
+      )}
+      {i.pasteAttempts != null && i.pasteAttempts > 0 && (
+        <Chip size="small" variant="outlined" label={`Paste attempts: ${i.pasteAttempts}`} sx={chipSx} />
+      )}
+      {i.copyAttempts != null && i.copyAttempts > 0 && (
+        <Chip size="small" variant="outlined" label={`Copy attempts: ${i.copyAttempts}`} sx={chipSx} />
+      )}
+      {i.rightClickAttempts != null && i.rightClickAttempts > 0 && (
+        <Chip size="small" variant="outlined" label={`Right-click: ${i.rightClickAttempts}`} sx={chipSx} />
+      )}
+      {i.suspiciousScore != null && i.suspiciousScore > 0 && (
+        <Chip size="small" color="warning" label={`Integrity score: ${i.suspiciousScore}`} sx={{ fontWeight: 600 }} />
+      )}
+      {i.autoSubmitted && (
+        <Chip size="small" label="Auto-submitted (timer)" sx={{ fontWeight: 600 }} />
+      )}
+    </>
+  );
+}
 
 const ActionButton = styled(Button)(({ theme }) => ({
   borderRadius: 12,
@@ -671,13 +726,13 @@ const ViewApplicants: React.FC = () => {
                                 Applied {format(new Date(applicant.appliedAt), 'MMM d, yyyy')}
                               </Typography>
                             </Box>
-                            {applicant.codingScore !== undefined && (
+                            {(applicant.skillMatchPercent ?? applicant.match_score) != null && (
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                                 <AssessmentIcon fontSize="small" sx={{ color: colors.primary }} />
                                 <ScoreChip
-                                  label={`Score: ${applicant.codingScore}%`}
+                                  label={`Skill match: ${applicant.skillMatchPercent ?? applicant.match_score}%`}
                                   size="small"
-                                  score={applicant.codingScore}
+                                  score={applicant.skillMatchPercent ?? applicant.match_score ?? 0}
                                 />
                               </Box>
                             )}
@@ -849,40 +904,167 @@ const ViewApplicants: React.FC = () => {
             </Box>
           </DialogTitle>
           <DialogContent sx={{ p: 0 }}>
-            {selectedApplicant?.codingAnswers.map((answer, index) => {
-              const question = job?.codingQuestions.find((q) => q.id === answer.questionId);
-              return (
-                <Box key={answer.questionId} sx={{ borderBottom: `1px solid ${colors.accent}40` }}>
-                  <Box sx={{ p: 3, bgcolor: `${colors.accent}20` }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1, color: colors.secondary }}>
-                      Question {index + 1}: {question?.question || 'Question'}
+            {selectedApplicant && (
+              <Box sx={{ p: 3, pb: 2, borderBottom: `1px solid ${colors.accent}40`, bgcolor: alpha(colors.background, 0.8) }}>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+                  {(selectedApplicant.skillMatchPercent ?? selectedApplicant.match_score) != null && (
+                    <Chip
+                      icon={<AssessmentIcon sx={{ color: `${colors.primary} !important` }} />}
+                      label={`Skill match (job skills): ${selectedApplicant.skillMatchPercent ?? selectedApplicant.match_score}%`}
+                      sx={{ fontWeight: 600, border: `1px solid ${colors.accent}` }}
+                    />
+                  )}
+                  {selectedApplicant.codingScore != null && (
+                    <Chip
+                      label={`Coding score: ${selectedApplicant.codingScore}%`}
+                      color="primary"
+                      sx={{ fontWeight: 600 }}
+                    />
+                  )}
+                </Box>
+                {(selectedApplicant.screeningAnswersDetail?.length ||
+                  (job?.screeningQuestions && job.screeningQuestions.length > 0) ||
+                  selectedApplicant.screeningIntegrityStage) && (
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      mt: 2,
+                      p: 2,
+                      borderRadius: 3,
+                      border: `1px solid ${colors.accent}60`,
+                      bgcolor: alpha(colors.info, 0.06),
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color: colors.secondary, mb: 1.5 }}>
+                      Screening
                     </Typography>
-                    <Typography variant="body2" sx={{ color: colors.textLight }}>
-                      {question?.description}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ p: 3 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, alignItems: 'center' }}>
-                      <Chip 
-                        label={`Language: ${answer.language}`} 
-                        size="small"
-                        sx={{
-                          background: `${colors.accent}50`,
-                          color: colors.secondary,
-                          fontWeight: 600,
-                          border: `1px solid ${colors.accent}`,
-                        }}
-                      />
-                      <Typography variant="caption" sx={{ color: colors.textLight }}>
-                        Submitted: {format(new Date(answer.submittedAt), 'MMM d, yyyy h:mm a')}
+                    {selectedApplicant.screeningIntegrityStage &&
+                      Number((selectedApplicant.screeningIntegrityStage as { tabSwitchCount?: unknown }).tabSwitchCount) >
+                        0 && (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={`Screening tab switches: ${Number(
+                              (selectedApplicant.screeningIntegrityStage as { tabSwitchCount?: unknown }).tabSwitchCount
+                            )}`}
+                            sx={{ fontWeight: 600, borderColor: `${colors.accent}99` }}
+                          />
+                        </Box>
+                      )}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {(job?.screeningQuestions?.length
+                        ? job.screeningQuestions
+                        : (selectedApplicant.screeningAnswersDetail || []).map((s) => ({
+                            id: s.questionId,
+                            question: s.question || 'Screening question',
+                            type: (s.language === 'video' ? 'video' : 'text') as 'text' | 'video',
+                          }))
+                      ).map((sq) => {
+                        const row = selectedApplicant.screeningAnswersDetail?.find((r) => r.questionId === sq.id);
+                        const raw = row?.code?.trim() || '';
+                        const isVideo =
+                          sq.type === 'video' ||
+                          (row?.language || '').toLowerCase() === 'video' ||
+                          /\.(webm|mp4|mov|mkv)(\?|$)/i.test(raw);
+                        return (
+                          <Box key={sq.id}>
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: colors.secondary, display: 'block', mb: 0.5 }}>
+                              {sq.question}
+                            </Typography>
+                            {isVideo && raw ? (
+                              <Box sx={{ maxWidth: 480 }}>
+                                <video
+                                  src={resolveUploadsPublicUrl(raw)}
+                                  controls
+                                  playsInline
+                                  style={{ width: '100%', borderRadius: 12, background: '#000' }}
+                                />
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                  {raw}
+                                </Typography>
+                              </Box>
+                            ) : (
+                              <Typography variant="body2" sx={{ color: colors.textLight, whiteSpace: 'pre-wrap' }}>
+                                {raw || '—'}
+                              </Typography>
+                            )}
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  </Paper>
+                )}
+                {selectedApplicant.assessmentIntegrity && (
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      mt: 2,
+                      p: 2,
+                      borderRadius: 3,
+                      border: `1px solid ${colors.accent}60`,
+                      bgcolor: alpha(colors.primary, 0.04),
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                      <SecurityIcon sx={{ fontSize: 20, color: colors.primary }} />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700, color: colors.secondary }}>
+                        Assessment session summary
                       </Typography>
                     </Box>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+                      {renderIntegrityChips(selectedApplicant.assessmentIntegrity)}
+                    </Box>
+                  </Paper>
+                )}
+              </Box>
+            )}
+
+            {selectedApplicant?.codingAnswers.map((answer, index) => {
+              const question = job?.codingQuestions.find((q) => q.id === answer.questionId);
+              const lines = (answer.code || '').split('\n').length;
+              const evalRow = getCodingEvalForQuestionId(selectedApplicant.codingEvaluation, answer.questionId);
+              const passLabel = formatCodingTestPassSummary(evalRow);
+              return (
+                <Accordion
+                  key={answer.questionId}
+                  defaultExpanded={index === 0}
+                  disableGutters
+                  sx={{
+                    borderBottom: `1px solid ${colors.accent}40`,
+                    '&:before': { display: 'none' },
+                    boxShadow: 'none',
+                  }}
+                >
+                  <AccordionSummary expandIcon={<ExpandMoreAccordionIcon sx={{ color: colors.primary }} />}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.5, pr: 1 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: colors.secondary }}>
+                        Q{index + 1}: {question?.question || answer.question || 'Coding question'}
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+                        <Chip size="small" label={`Lang: ${answer.language}`} sx={{ fontWeight: 600 }} />
+                        <Chip size="small" label={`Tests: ${passLabel}`} variant="outlined" sx={{ fontWeight: 600 }} />
+                        <Typography variant="caption" sx={{ color: colors.textLight }}>
+                          {lines} lines · {format(new Date(answer.submittedAt), 'MMM d, yyyy h:mm a')}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ pt: 0, px: 3, pb: 3 }}>
+                    {question?.description && (
+                      <Typography variant="body2" sx={{ color: colors.textLight, mb: 2, whiteSpace: 'pre-line' }}>
+                        {question.description}
+                      </Typography>
+                    )}
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: colors.secondary, display: 'block', mb: 1 }}>
+                      Submitted code
+                    </Typography>
                     <Paper
                       sx={{
                         p: 2.5,
                         bgcolor: colors.secondary,
                         borderRadius: 3,
-                        maxHeight: 300,
+                        maxHeight: 360,
                         overflow: 'auto',
                         border: `1px solid ${colors.secondaryLight}`,
                       }}
@@ -901,8 +1083,8 @@ const ViewApplicants: React.FC = () => {
                         {answer.code || '// No code submitted'}
                       </pre>
                     </Paper>
-                  </Box>
-                </Box>
+                  </AccordionDetails>
+                </Accordion>
               );
             })}
             {(!selectedApplicant?.codingAnswers || selectedApplicant.codingAnswers.length === 0) && (

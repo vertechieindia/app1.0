@@ -36,6 +36,7 @@ from app.core.role_mapping import (
     admin_role_code_from_user_role,
     is_assignable_admin_user_role,
 )
+from app.services.company_matching import find_company_id_by_normalized_name
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -177,10 +178,13 @@ async def register(
             except (ValueError, TypeError):
                 pass
             
+            cname = (exp_data.get('client_name') if isinstance(exp_data, dict) else getattr(exp_data, 'client_name', '')) or "Company"
+            exp_company_id = await find_company_id_by_normalized_name(db, cname)
             experience = Experience(
                 user_id=user.id,
                 title=(exp_data.get('job_title') if isinstance(exp_data, dict) else getattr(exp_data, 'job_title', '')) or "Position",
-                company_name=(exp_data.get('client_name') if isinstance(exp_data, dict) else getattr(exp_data, 'client_name', '')) or "Company",
+                company_name=cname,
+                company_id=exp_company_id,
                 location=exp_data.get('work_location') if isinstance(exp_data, dict) else getattr(exp_data, 'work_location', None),
                 start_date=start_date or datetime.utcnow().date(),
                 end_date=end_date,
@@ -347,7 +351,13 @@ async def login(
     )
     user_role_list = roles_result.scalars().all()
     role_values = [r.role_type.value for r in user_role_list] if user_role_list else []
-    
+
+    company_row = await db.execute(
+        select(CompanyAdmin.company_id).where(CompanyAdmin.user_id == user.id).limit(1)
+    )
+    company_id_val = company_row.scalar_one_or_none()
+    company_id_str = str(company_id_val) if company_id_val else None
+
     # Create tokens
     access_token = create_access_token(
         subject=str(user.id),
@@ -383,8 +393,10 @@ async def login(
         "user_permissions": [],
         "verification_status": user.verification_status.value if user.verification_status else "PENDING",
         "role": user_role_list[0].role_type.value if user_role_list else "techie",
+        "company_id": company_id_str,
+        "has_company": bool(company_id_str),
     }
-    
+
     return {
         "access": access_token,
         "refresh": refresh_token_value,
@@ -699,9 +711,8 @@ async def admin_create_user(
                     detail="Only one admin role can be assigned per user",
                 )
 
-            # Learn Admin: no UserRole row in Option 1 seed; link user_roles via TECHIE for association only
             if admin_roles and str(admin_roles[0]).lower() == "learn_admin":
-                role_type = RoleType.TECHIE
+                role_type = RoleType.LEARN_ADMIN
 
         # Determine if user is superuser - only if admin_roles includes "superadmin"
         is_superuser = "superadmin" in admin_roles if admin_roles else False
@@ -750,9 +761,17 @@ async def admin_create_user(
                 )
             )
         else:
-            from app.core.access_role_utils import get_or_create_empty_permission_role
+            from app.core.access_role_utils import (
+                get_or_create_empty_permission_role,
+                get_or_create_default_permission_role,
+            )
 
-            role = await get_or_create_empty_permission_role(db, role_type)
+            if admin_roles and str(admin_roles[0]).lower() == "learn_admin":
+                role = await get_or_create_default_permission_role(
+                    db, RoleType.LEARN_ADMIN, description="Learn Admin (default permissions)"
+                )
+            else:
+                role = await get_or_create_empty_permission_role(db, role_type)
 
             await db.execute(
                 insert(user_roles).values(user_id=user.id, role_id=role.id)
@@ -773,10 +792,13 @@ async def admin_create_user(
                 except (ValueError, TypeError):
                     pass
                 
+                cname = exp_data.client_name or "Company"
+                exp_company_id = await find_company_id_by_normalized_name(db, cname)
                 experience = Experience(
                     user_id=user.id,
                     title=exp_data.job_title or "Position",
-                    company_name=exp_data.client_name or "Company",
+                    company_name=cname,
+                    company_id=exp_company_id,
                     location=exp_data.work_location,
                     start_date=start_date or datetime.utcnow().date(),
                     end_date=end_date,

@@ -36,6 +36,7 @@ import {
 import { styled, alpha } from '@mui/material/styles';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
 import resolveAssetPath from '../../utils/assetResolver';
+import { getApiUrl } from '../../config/api';
 import { chatService } from '../../services/chatService';
 import { notificationService } from '../../services/interviewService';
 
@@ -192,10 +193,18 @@ const roleLabels: { [key: string]: string } = {
   super_admin: 'Super Admin',
 };
 
+const UNREAD_FETCH_DEDUPE_MS = 5000;
+let notificationCountInflight: Promise<number> | null = null;
+let messageCountInflight: Promise<number> | null = null;
+let lastNotificationFetchAt = 0;
+let lastMessageFetchAt = 0;
+
 const AppHeader = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileAnchor, setProfileAnchor] = useState<null | HTMLElement>(null);
   const [userRole, setUserRole] = useState<UserRole>('techie');
+  const [displayRoleLabel, setDisplayRoleLabel] = useState(roleLabels.techie);
+  const [secondaryRoleLabel, setSecondaryRoleLabel] = useState('');
   const [userName, setUserName] = useState('');
   const [userAvatar, setUserAvatar] = useState('');
   const [notifications, setNotifications] = useState(0);
@@ -212,6 +221,12 @@ const AppHeader = () => {
   useEffect(() => {
     loadUserData();
   }, [location.pathname]);
+
+  useEffect(() => {
+    const onUserData = () => loadUserData();
+    window.addEventListener('vertechie-userdata-updated', onUserData);
+    return () => window.removeEventListener('vertechie-userdata-updated', onUserData);
+  }, []);
 
   // Fetch counts on mount and listen for real-time updates
   useEffect(() => {
@@ -235,67 +250,197 @@ const AppHeader = () => {
   }, []);
 
   const fetchNotificationCount = async () => {
-    try {
-      const data = await notificationService.getUnreadCount();
-      setNotifications(data.unread_count || 0);
-    } catch {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+    if (!token) {
       setNotifications(0);
+      window.dispatchEvent(new CustomEvent('vertechie-unread-counts-updated', {
+        detail: { notifications: 0 },
+      }));
+      return;
+    }
+
+    const now = Date.now();
+    if (notificationCountInflight) {
+      const unreadCount = await notificationCountInflight;
+      setNotifications(unreadCount);
+      return;
+    }
+    if (now - lastNotificationFetchAt < UNREAD_FETCH_DEDUPE_MS) {
+      return;
+    }
+
+    try {
+      lastNotificationFetchAt = now;
+      notificationCountInflight = notificationService
+        .getUnreadCount()
+        .then((data) => data.unread_count || 0)
+        .catch(() => 0);
+      const unreadCount = await notificationCountInflight;
+      setNotifications(unreadCount);
+      window.dispatchEvent(new CustomEvent('vertechie-unread-counts-updated', {
+        detail: { notifications: unreadCount },
+      }));
+    } finally {
+      notificationCountInflight = null;
     }
   };
 
   const fetchMessageCount = async () => {
-    try {
-      const data = await chatService.getUnreadCount();
-      setMessages(data.unread_count || 0);
-    } catch {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+    if (!token) {
       setMessages(0);
+      window.dispatchEvent(new CustomEvent('vertechie-unread-counts-updated', {
+        detail: { messages: 0 },
+      }));
+      return;
+    }
+
+    const now = Date.now();
+    if (messageCountInflight) {
+      const unreadCount = await messageCountInflight;
+      setMessages(unreadCount);
+      return;
+    }
+    if (now - lastMessageFetchAt < UNREAD_FETCH_DEDUPE_MS) {
+      return;
+    }
+
+    try {
+      lastMessageFetchAt = now;
+      messageCountInflight = chatService
+        .getUnreadCount()
+        .then((data) => data.unread_count || 0)
+        .catch(() => 0);
+      const unreadCount = await messageCountInflight;
+      setMessages(unreadCount);
+      window.dispatchEvent(new CustomEvent('vertechie-unread-counts-updated', {
+        detail: { messages: unreadCount },
+      }));
+    } finally {
+      messageCountInflight = null;
+    }
+  };
+
+  const applyUserJson = (user: Record<string, any>) => {
+    const firstName = user.first_name || '';
+    const lastName = user.last_name || '';
+    setUserName(`${firstName} ${lastName}`.trim() || user.email || 'User');
+    setUserAvatar(user.profile_image || '');
+
+    const userRoles = user.roles || [];
+    const userGroups = user.groups || [];
+    const adminRoles = Array.isArray(user.admin_roles) ? user.admin_roles : [];
+    const hasRole = (roleType: string) =>
+      user.role === roleType ||
+      userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType) ||
+      userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType);
+    const hasCompanyAdminAccess = adminRoles.includes('company_admin') || hasRole('company_admin') || Boolean(user.company_id);
+    const hasSchoolAdminAccess = adminRoles.includes('school_admin') || hasRole('school_admin') || Boolean(user.school_id);
+    const isHiringManagerAccount = hasRole('hiring_manager');
+    const isTechieAccount = hasRole('techie');
+
+    const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
+    const countRoleAdmins = roleAdminTypes.filter((r: string) => adminRoles.includes(r)).length;
+
+    if (user.is_superuser || adminRoles.includes('superadmin')) {
+      setUserRole('super_admin');
+      setDisplayRoleLabel(roleLabels.super_admin);
+      setSecondaryRoleLabel('');
+    } else if (countRoleAdmins > 1) {
+      setUserRole('multi_admin');
+      setDisplayRoleLabel(roleLabels.multi_admin);
+      setSecondaryRoleLabel('');
+    } else if (adminRoles.includes('techie_admin')) {
+      setUserRole('techie_admin');
+      setDisplayRoleLabel(roleLabels.techie_admin);
+      setSecondaryRoleLabel('');
+    } else if (adminRoles.includes('hm_admin')) {
+      setUserRole('hm_admin');
+      setDisplayRoleLabel(roleLabels.hm_admin);
+      setSecondaryRoleLabel('');
+    } else if (hasCompanyAdminAccess) {
+      setUserRole('company_admin');
+      if (isHiringManagerAccount) {
+        setDisplayRoleLabel(roleLabels.hiring_manager);
+        setSecondaryRoleLabel(roleLabels.company_admin);
+      } else if (isTechieAccount) {
+        setDisplayRoleLabel(roleLabels.techie);
+        setSecondaryRoleLabel(roleLabels.company_admin);
+      } else {
+        setDisplayRoleLabel(roleLabels.company_admin);
+        setSecondaryRoleLabel('');
+      }
+    } else if (hasSchoolAdminAccess) {
+      setUserRole('school_admin');
+      setDisplayRoleLabel(roleLabels.school_admin);
+      setSecondaryRoleLabel('');
+    } else if (user.is_staff || adminRoles.length > 0) {
+      setUserRole('admin');
+      setDisplayRoleLabel(roleLabels.admin);
+      setSecondaryRoleLabel('');
+    } else if (isHiringManagerAccount) {
+      setUserRole('hiring_manager');
+      setDisplayRoleLabel(roleLabels.hiring_manager);
+      setSecondaryRoleLabel('');
+    } else {
+      setUserRole('techie');
+      setDisplayRoleLabel(isTechieAccount ? roleLabels.techie : roleLabels.techie);
+      setSecondaryRoleLabel('');
     }
   };
 
   const loadUserData = () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+    if (token) {
+      const rawSync = localStorage.getItem('userData');
+      if (rawSync) {
+        try {
+          applyUserJson(JSON.parse(rawSync));
+        } catch {
+          /* ignore */
+        }
+      }
+      void (async () => {
+        try {
+          const res = await fetch(getApiUrl('/users/me'), {
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          });
+          if (res.ok) {
+            const me = await res.json();
+            const prev = JSON.parse(localStorage.getItem('userData') || '{}');
+            const merged = {
+              ...prev,
+              ...me,
+              groups: me.groups ?? prev.groups,
+              role: me.role ?? prev.role,
+              admin_roles: Array.isArray(me.admin_roles) ? me.admin_roles : prev.admin_roles ?? [],
+              verification_status: me.verification_status ?? prev.verification_status,
+              is_verified: me.is_verified ?? prev.is_verified,
+              company_id: me.company_id ?? prev.company_id,
+              has_company: me.has_company ?? prev.has_company,
+            };
+            localStorage.setItem('userData', JSON.stringify(merged));
+            applyUserJson(merged);
+            return;
+          }
+        } catch {
+          /* use sync parse below */
+        }
+        const raw = localStorage.getItem('userData');
+        if (raw) {
+          try {
+            applyUserJson(JSON.parse(raw));
+          } catch (e) {
+            console.error('Error parsing user data:', e);
+          }
+        }
+      })();
+      return;
+    }
     const userData = localStorage.getItem('userData');
     if (userData) {
       try {
-        const user = JSON.parse(userData);
-
-        // Set user name
-        const firstName = user.first_name || '';
-        const lastName = user.last_name || '';
-        setUserName(`${firstName} ${lastName}`.trim() || user.email || 'User');
-        setUserAvatar(user.profile_image || '');
-
-        // Determine role - check user.role, user.roles array, user.groups array, and admin_roles
-        const userRoles = user.roles || [];
-        const userGroups = user.groups || [];
-        const adminRoles = user.admin_roles || [];
-        const hasRole = (roleType: string) =>
-          user.role === roleType ||
-          userRoles.some((r: any) => r.role_type === roleType || r.name?.toLowerCase() === roleType) ||
-          userGroups.some((g: any) => g.name === roleType || g.name?.toLowerCase() === roleType);
-
-        const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
-        const countRoleAdmins = roleAdminTypes.filter((r: string) => adminRoles.includes(r)).length;
-
-        if (user.is_superuser || adminRoles.includes('superadmin')) {
-          setUserRole('super_admin');
-        } else if (countRoleAdmins > 1) {
-          setUserRole('multi_admin');
-        } else if (adminRoles.includes('techie_admin')) {
-          setUserRole('techie_admin');
-        } else if (adminRoles.includes('hm_admin')) {
-          setUserRole('hm_admin');
-        } else if (adminRoles.includes('company_admin') || hasRole('company_admin') || user.company_id) {
-          setUserRole('company_admin');
-        } else if (adminRoles.includes('school_admin') || hasRole('school_admin') || user.school_id) {
-          setUserRole('school_admin');
-        } else if (user.is_staff || adminRoles.length > 0) {
-          setUserRole('admin');
-        } else if (hasRole('hiring_manager')) {
-          setUserRole('hiring_manager');
-        } else {
-          setUserRole('techie');
-        }
-
+        applyUserJson(JSON.parse(userData));
       } catch (e) {
         console.error('Error parsing user data:', e);
       }
@@ -631,9 +776,14 @@ const AppHeader = () => {
                 <Typography variant="body2" sx={{ color: 'white', fontWeight: 600, lineHeight: 1.2 }}>
                   {userName}
                 </Typography>
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
-                  {roleLabels[userRole]}
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', display: 'block' }}>
+                  {displayRoleLabel}
                 </Typography>
+                {secondaryRoleLabel && (
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', display: 'block' }}>
+                    {secondaryRoleLabel}
+                  </Typography>
+                )}
               </Box>
             )}
             <KeyboardArrowDownIcon sx={{ color: 'rgba(255,255,255,0.6)' }} />
@@ -658,7 +808,10 @@ const AppHeader = () => {
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                 {userName}
               </Typography>
-              <ProfileChip label={roleLabels[userRole]} size="small" sx={{ mt: 0.5 }} />
+              <ProfileChip label={displayRoleLabel} size="small" sx={{ mt: 0.5 }} />
+              {secondaryRoleLabel && (
+                <ProfileChip label={secondaryRoleLabel} size="small" sx={{ mt: 0.75, ml: 0.75 }} />
+              )}
             </Box>
             <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
             <MenuItem
@@ -749,4 +902,3 @@ const AppHeader = () => {
 };
 
 export default AppHeader;
-

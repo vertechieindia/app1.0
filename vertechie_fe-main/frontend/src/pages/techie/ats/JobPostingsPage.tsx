@@ -4,16 +4,17 @@
  * Integrated with Backend API
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { jobService, applicationService, userService, getHRUserInfo, Candidate } from '../../../services/jobPortalService';
-import { Job, Application } from '../../../types/jobPortal';
+import { Job, Application, type TestCase, type CodingQuestion } from '../../../types/jobPortal';
+import { buildAssessmentTemplatePack } from '../../../data/assessmentQuestionTemplate';
 import {
   Box, Typography, Card, CardContent, Chip, IconButton, TextField, Button,
   Grid, InputAdornment, Avatar, Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Select, MenuItem, Menu, Checkbox, FormControlLabel,
   FormGroup, Divider, Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, Paper, LinearProgress, CircularProgress, Snackbar, Alert, Tabs, Tab, Switch, Tooltip, List, Autocomplete, FormHelperText,
+  TableRow, Paper, LinearProgress, CircularProgress, Snackbar, Alert, Tabs, Tab, Switch, Tooltip, List, ListItemButton, ListItemText, Autocomplete, FormHelperText, Collapse,
 } from '@mui/material';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
@@ -45,8 +46,16 @@ import ATSLayout from './ATSLayout';
 import ScheduleInterviewModal, { ScheduleInterviewContext } from '../../../components/ats/ScheduleInterviewModal';
 import { interviewService } from '../../../services/interviewService';
 import { calendarService } from '../../../services/calendarService';
-import { API_ENDPOINTS, getApiUrl } from '../../../config/api';
+import {
+  API_ENDPOINTS,
+  getApiUrl,
+  LOCATION_AUTOCOMPLETE_COUNTRY_CODES,
+  LOCATION_AUTOCOMPLETE_PER_COUNTRY_LIMIT,
+  LOCATION_AUTOCOMPLETE_MERGED_MAX,
+} from '../../../config/api';
 import { fetchWithAuth } from '../../../utils/apiInterceptor';
+import { fetchJobTitleSuggestions } from '../../../utils/jobTitleSuggestions';
+import { fetchSkillSuggestions, SUGGESTED_SKILL_CHIPS } from '../../../utils/skillSuggestions';
 
 const JobCard = styled(Card)(({ theme }) => ({
   height: '100%',
@@ -145,6 +154,7 @@ interface DisplayJob {
   skills?: string[];
   requiredSkills?: string[];
   screeningQuestions?: Array<{ id: string; question: string; type?: string; required?: boolean; options?: string[] }>;
+  codingQuestions?: CodingAssessmentQuestion[];
   salaryMin?: number;
   salaryMax?: number;
   salaryCurrency?: string;
@@ -152,6 +162,105 @@ interface DisplayJob {
   workAuthorizations?: string[];
   openForSponsorship?: boolean | null;
   collectApplicantLocation?: boolean;
+}
+
+type ScreeningQuestionType = 'text' | 'yesno' | 'multiple' | 'number' | 'verbal' | 'video';
+
+interface ScreeningQuestion {
+  id: string;
+  question: string;
+  type: ScreeningQuestionType;
+  required: boolean;
+  options?: string[];
+  maxVideoSeconds?: number;
+}
+
+interface CodingAssessmentQuestion {
+  id: string;
+  question: string;
+  description: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  required: boolean;
+  timeLimitMinutes: number;
+  allowedLanguages: string[];
+  sampleInput?: string;
+  sampleOutput?: string;
+  expectedOutput?: string;
+  starterCode?: string;
+  /** Hidden test cases for auto-eval (stdin/stdout), when present on the job payload. */
+  testCases?: TestCase[];
+  requireFullScreen: boolean;
+  preventTabSwitch: boolean;
+  blockCopyPaste: boolean;
+  autoSubmitOnTimeout: boolean;
+  trackSuspiciousActivity: boolean;
+  maxTabSwitches: number;
+}
+
+const CODING_LANGUAGE_OPTIONS = ['JavaScript', 'TypeScript', 'Python', 'Java', 'C++', 'Go'];
+
+const createEmptyCodingQuestion = (): CodingAssessmentQuestion => ({
+  id: `code-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  question: '',
+  description: '',
+  difficulty: 'medium',
+  required: true,
+  timeLimitMinutes: 30,
+  allowedLanguages: ['JavaScript', 'Python'],
+  sampleInput: '',
+  sampleOutput: '',
+  expectedOutput: '',
+  starterCode: '',
+  requireFullScreen: true,
+  preventTabSwitch: true,
+  blockCopyPaste: true,
+  autoSubmitOnTimeout: true,
+  trackSuspiciousActivity: true,
+  maxTabSwitches: 2,
+});
+
+const TEMPLATE_LANGUAGE_LABELS: Record<string, string> = {
+  javascript: 'JavaScript',
+  typescript: 'TypeScript',
+  python: 'Python',
+  java: 'Java',
+  cpp: 'C++',
+  cplusplus: 'C++',
+  go: 'Go',
+};
+
+function templatePackToAtsCodingQuestions(pack: CodingQuestion[]): CodingAssessmentQuestion[] {
+  return pack.map((q) => {
+    const base = createEmptyCodingQuestion();
+    const langs = (q.allowedLanguages || []).map((lang) =>
+      TEMPLATE_LANGUAGE_LABELS[String(lang || '').trim().toLowerCase()]
+    ).filter((lang): lang is string => Boolean(lang));
+    const allowedLanguages = langs.length > 0 ? Array.from(new Set(langs)) : base.allowedLanguages;
+    const rawCases = Array.isArray(q.testCases) ? q.testCases : [];
+    const testCases: TestCase[] = rawCases.map((t, j) => ({
+      id: t.id || `tc-${q.id}-${j}`,
+      input: String(t.input ?? ''),
+      expectedOutput: String(t.expectedOutput ?? ''),
+    }));
+    return {
+      ...base,
+      id: q.id,
+      question: q.question ?? '',
+      description: q.description ?? '',
+      difficulty: q.difficulty ?? 'medium',
+      required: q.required !== false,
+      timeLimitMinutes: q.timeLimitMinutes ?? 30,
+      allowedLanguages,
+      sampleInput: q.sampleInput ?? '',
+      sampleOutput: q.sampleOutput ?? '',
+      expectedOutput: q.expectedOutput ?? '',
+      starterCode: q.starterCode ?? '',
+      testCases: testCases.length > 0 ? testCases : undefined,
+      requireFullScreen: q.requireFullScreen !== false,
+      blockCopyPaste: q.blockCopyPaste !== false,
+      maxTabSwitches: typeof q.maxTabSwitches === 'number' ? q.maxTabSwitches : 2,
+    };
+  });
 }
 
 /** Split combined description (from create flow) into description and responsibilities. */
@@ -170,14 +279,61 @@ function parseDescriptionAndResponsibilities(combined: string | undefined): { de
 function normalizeScreeningQuestions(
   raw: unknown,
   parseRequired: (v: unknown) => boolean
-): { id: string; question: string; type: 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal'; required: boolean; options?: string[] }[] {
+): ScreeningQuestion[] {
   const list = Array.isArray(raw) ? raw : [];
   return list.map((q: any, idx: number) => ({
     id: q.id || `q-${idx}-${Date.now()}`,
     question: (q.question ?? q.question_text ?? q.title ?? '').toString().trim(),
-    type: (q.type === 'yesno' || q.type === 'multiple' || q.type === 'number' || q.type === 'code' || q.type === 'verbal' ? q.type : 'text') as 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal',
+    type: (q.type === 'yesno' || q.type === 'multiple' || q.type === 'number' || q.type === 'verbal' || q.type === 'video'
+      ? q.type
+      : 'text') as ScreeningQuestionType,
     required: parseRequired(q.required),
     options: Array.isArray(q.options) ? q.options : [],
+    maxVideoSeconds:
+      typeof q.maxVideoSeconds === 'number'
+        ? q.maxVideoSeconds
+        : typeof q.max_video_seconds === 'number'
+          ? q.max_video_seconds
+          : 120,
+  }));
+}
+
+function normalizeCodingQuestions(raw: unknown): CodingAssessmentQuestion[] {
+  const list = Array.isArray(raw) ? raw : [];
+  return list.map((q: any, idx: number) => ({
+    ...createEmptyCodingQuestion(),
+    id: q.id || `code-${idx}-${Date.now()}`,
+    question: (q.question ?? q.title ?? '').toString().trim(),
+    description: (q.description ?? q.prompt ?? '').toString(),
+    difficulty: q.difficulty === 'easy' || q.difficulty === 'hard' ? q.difficulty : 'medium',
+    required: typeof q.required === 'boolean' ? q.required : true,
+    timeLimitMinutes: Number.isFinite(Number(q.timeLimitMinutes ?? q.time_limit_minutes))
+      ? Math.max(5, Number(q.timeLimitMinutes ?? q.time_limit_minutes))
+      : 30,
+    allowedLanguages: Array.isArray(q.allowedLanguages ?? q.allowed_languages) && (q.allowedLanguages ?? q.allowed_languages).length > 0
+      ? (q.allowedLanguages ?? q.allowed_languages)
+      : ['JavaScript', 'Python'],
+    sampleInput: (q.sampleInput ?? q.sample_input ?? '').toString(),
+    sampleOutput: (q.sampleOutput ?? q.sample_output ?? '').toString(),
+    expectedOutput: (q.expectedOutput ?? q.expected_output ?? '').toString(),
+    starterCode: (q.starterCode ?? q.starter_code ?? '').toString(),
+    testCases: (() => {
+      const rawTc = q.testCases ?? q.test_cases;
+      if (!Array.isArray(rawTc) || rawTc.length === 0) return undefined;
+      return rawTc.map((t: any, j: number) => ({
+        id: String(t.id || `tc-${idx}-${j}`),
+        input: String(t.input ?? ''),
+        expectedOutput: String(t.expectedOutput ?? t.expected_output ?? ''),
+      }));
+    })(),
+    requireFullScreen: Boolean(q.requireFullScreen ?? q.require_full_screen ?? true),
+    preventTabSwitch: Boolean(q.preventTabSwitch ?? q.prevent_tab_switch ?? true),
+    blockCopyPaste: Boolean(q.blockCopyPaste ?? q.block_copy_paste ?? true),
+    autoSubmitOnTimeout: Boolean(q.autoSubmitOnTimeout ?? q.auto_submit_on_timeout ?? true),
+    trackSuspiciousActivity: Boolean(q.trackSuspiciousActivity ?? q.track_suspicious_activity ?? true),
+    maxTabSwitches: Number.isFinite(Number(q.maxTabSwitches ?? q.max_tab_switches))
+      ? Math.max(0, Number(q.maxTabSwitches ?? q.max_tab_switches))
+      : 2,
   }));
 }
 
@@ -255,6 +411,7 @@ const JobPostingsPage: React.FC = () => {
             skills: job.requiredSkills || [],
             requiredSkills: job.requiredSkills || [],
             screeningQuestions: (job as any).screening_questions ?? job.screeningQuestions ?? [],
+            codingQuestions: (job as any).coding_questions ?? job.codingQuestions ?? [],
             salaryMin: job.salary_min,
             salaryMax: job.salary_max,
             salaryCurrency: job.salary_currency,
@@ -378,18 +535,14 @@ const outlinedSelectLabelSx = {
   px: 0.5,
 };
 
-const ALL_SKILLS = [
-    'React', 'Angular', 'Vue.js', 'TypeScript', 'JavaScript', 'HTML5', 'CSS3', 'Tailwind CSS', 'Next.js', 'Redux', 'Svelte',
-    'Python', 'Node.js', 'Java', 'Go', 'Rust', 'C#', '.NET', 'Ruby', 'PHP', 'Django', 'FastAPI', 'Express.js', 'Spring Boot',
-    'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'Elasticsearch', 'Oracle', 'SQL Server', 'DynamoDB', 'Cassandra',
-    'Docker', 'Kubernetes', 'AWS', 'Azure', 'GCP', 'Jenkins', 'GitLab CI', 'Terraform', 'Ansible', 'Linux',
-    'React Native', 'Flutter', 'Swift', 'Kotlin', 'iOS', 'Android', 'Xamarin',
-    'Machine Learning', 'TensorFlow', 'PyTorch', 'Pandas', 'NumPy', 'Data Science', 'NLP', 'Computer Vision', 'LLMs',
-    'Git', 'VS Code', 'Jira', 'Figma', 'Postman', 'Slack', 'Notion'
-  ].sort();
-  
   // Available locations for suggestions
   const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+  const [createJobTitleOptions, setCreateJobTitleOptions] = useState<string[]>([]);
+  const [editJobTitleOptions, setEditJobTitleOptions] = useState<string[]>([]);
+  const createJobTitleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editJobTitleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [createSkillOptions, setCreateSkillOptions] = useState<string[]>([]);
+  const createSkillDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Location Search Handler
   const handleLocationSearch = async (query: string) => {
@@ -399,41 +552,70 @@ const ALL_SKILLS = [
     }
     try {
       const q = encodeURIComponent(query.trim());
-      const countries = ['IN', 'US'];
+      const lim = LOCATION_AUTOCOMPLETE_PER_COUNTRY_LIMIT;
       const responses = await Promise.all(
-        countries.map(async (country) => {
-          const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${q}&country=${country}&limit=10`;
+        LOCATION_AUTOCOMPLETE_COUNTRY_CODES.map(async (country) => {
+          const url = `${getApiUrl(API_ENDPOINTS.PLACES_AUTOCOMPLETE)}?q=${q}&country=${country}&limit=${lim}`;
           const response = await fetchWithAuth(url);
           if (!response.ok) return [];
           const data = await response.json();
           return Array.isArray(data) ? data.map((place: any) => place.display_name).filter(Boolean) : [];
         })
       );
-      const suggestions = Array.from(new Set(responses.flat())).slice(0, 20);
+      const suggestions = Array.from(new Set(responses.flat())).slice(0, LOCATION_AUTOCOMPLETE_MERGED_MAX);
       setLocationSuggestions(suggestions);
     } catch (error) {
       console.error('Error fetching location suggestions:', error);
       setLocationSuggestions([]);
     }
   };
-  
+
+  const onCreateJobTitleInputChange = (_: unknown, newInputValue: string) => {
+    setNewJob((prev) => ({ ...prev, title: newInputValue }));
+    setNewJobErrors((prev) => ({ ...prev, title: false }));
+    if (createJobTitleDebounceRef.current) clearTimeout(createJobTitleDebounceRef.current);
+    createJobTitleDebounceRef.current = setTimeout(async () => {
+      if (!newInputValue || newInputValue.trim().length < 2) {
+        setCreateJobTitleOptions([]);
+        return;
+      }
+      setCreateJobTitleOptions(await fetchJobTitleSuggestions(newInputValue));
+    }, 300);
+  };
+
   // Skills state for create dialog (no default selection; HR chooses required skills)
   const [skills, setSkills] = useState<string[]>([]);
   const [newSkill, setNewSkill] = useState('');
+
+  const onCreateSkillInputChange = (_: unknown, newInputValue: string) => {
+    setNewSkill(newInputValue);
+    if (skillsFieldError) setSkillsFieldError(false);
+    if (createSkillDebounceRef.current) clearTimeout(createSkillDebounceRef.current);
+    createSkillDebounceRef.current = setTimeout(async () => {
+      if (!newInputValue || newInputValue.trim().length < 1) {
+        setCreateSkillOptions([]);
+        return;
+      }
+      setCreateSkillOptions(await fetchSkillSuggestions(newInputValue));
+    }, 300);
+  };
   
   // Screening Questions state for create dialog
-  interface ScreeningQuestion {
-    id: string;
-    question: string;
-    type: 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal';
-    required: boolean;
-    options?: string[];
-  }
   const [questions, setQuestions] = useState<ScreeningQuestion[]>([]);
   const [newQuestion, setNewQuestion] = useState('');
-  const [questionType, setQuestionType] = useState<'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal'>('text');
+  const [questionType, setQuestionType] = useState<ScreeningQuestionType>('text');
   const [questionRequired, setQuestionRequired] = useState(true);
   const [questionOptions, setQuestionOptions] = useState<string[]>(['']);
+  const [videoMaxSeconds, setVideoMaxSeconds] = useState(120);
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  const [codingQuestions, setCodingQuestions] = useState<CodingAssessmentQuestion[]>([]);
+  const [editingCodingQuestionId, setEditingCodingQuestionId] = useState<string | null>(null);
+  const [codingDraft, setCodingDraft] = useState<CodingAssessmentQuestion>(createEmptyCodingQuestion());
+  const templatePackList = useMemo(() => buildAssessmentTemplatePack(), []);
+  const templatePackAts = useMemo(
+    () => templatePackToAtsCodingQuestions(templatePackList),
+    [templatePackList]
+  );
 
   const resetCreateJobForm = () => {
     setNewJob({ title: '', department: '', location: '', type: '', experience: '', salaryMin: '', salaryMax: '', salaryCurrency: 'USD', description: '', responsibilities: '' });
@@ -453,8 +635,14 @@ const ALL_SKILLS = [
     setQuestionType('text');
     setQuestionRequired(true);
     setQuestionOptions(['']);
+    setEditingQuestionId(null);
+    setCodingQuestions([]);
+    setEditingCodingQuestionId(null);
+    setCodingDraft(createEmptyCodingQuestion());
     setCreateTab(0);
     setLocationSuggestions([]);
+    setCreateJobTitleOptions([]);
+    setCreateSkillOptions([]);
   };
 
   const openCreateDialog = () => {
@@ -568,7 +756,7 @@ const ALL_SKILLS = [
   const handleCreateNextTab = () => {
     if (createTab === 0 && !validateCreateJobDetailsStep()) return;
     if (createTab === 1 && !validateCreateSkillsStep()) return;
-    setCreateTab((prev) => Math.min(prev + 1, 2));
+    setCreateTab((prev) => Math.min(prev + 1, 3));
   };
 
   const validateEditJobDetailsStep = (): boolean => {
@@ -651,7 +839,7 @@ const ALL_SKILLS = [
   const handleEditNextTab = () => {
     if (editTab === 0 && !validateEditJobDetailsStep()) return;
     if (editTab === 1 && !validateEditSkillsStep()) return;
-    setEditTab((prev) => Math.min(prev + 1, 2));
+    setEditTab((prev) => Math.min(prev + 1, 3));
   };
 
   const handleAddSkill = () => {
@@ -669,33 +857,164 @@ const ALL_SKILLS = [
   const handleAddQuestion = () => {
     if (newQuestion.trim()) {
       const question: ScreeningQuestion = {
-        id: Date.now().toString(),
+        id: editingQuestionId ?? Date.now().toString(),
         question: newQuestion.trim(),
         type: questionType,
         required: questionRequired,
         options: questionType === 'multiple' ? questionOptions.filter(o => o.trim()) : undefined,
+        maxVideoSeconds: questionType === 'video' ? Math.min(600, Math.max(15, videoMaxSeconds)) : undefined,
       };
-      setQuestions([...questions, question]);
+      setQuestions(
+        editingQuestionId
+          ? questions.map((q) => (q.id === editingQuestionId ? question : q))
+          : [...questions, question]
+      );
       setNewQuestion('');
       setQuestionType('text');
       setQuestionRequired(true);
       setQuestionOptions(['']);
+      setVideoMaxSeconds(120);
+      setEditingQuestionId(null);
     }
   };
 
   const handleRemoveQuestion = (id: string) => {
     setQuestions(questions.filter(q => q.id !== id));
+    if (editingQuestionId === id) {
+      setNewQuestion('');
+      setQuestionType('text');
+      setQuestionRequired(true);
+      setQuestionOptions(['']);
+      setEditingQuestionId(null);
+    }
+  };
+
+  const handleEditQuestion = (question: ScreeningQuestion) => {
+    setEditingQuestionId(question.id);
+    setNewQuestion(question.question);
+    setQuestionType(question.type);
+    setQuestionRequired(question.required);
+    setQuestionOptions(question.type === 'multiple' && question.options && question.options.length > 0 ? question.options : ['']);
+    setVideoMaxSeconds(question.maxVideoSeconds ?? 120);
+  };
+
+  const resetQuestionForm = () => {
+    setNewQuestion('');
+    setQuestionType('text');
+    setQuestionRequired(true);
+    setQuestionOptions(['']);
+    setVideoMaxSeconds(120);
+    setEditingQuestionId(null);
   };
 
   const getScreeningQuestionTypeLabel = (type: ScreeningQuestion['type']) => {
     if (type === 'yesno') return 'Yes / No';
     if (type === 'multiple') return 'Multiple Choice';
     if (type === 'number') return 'Number';
-    if (type === 'code') return 'Coding';
     if (type === 'verbal') return 'Verbal';
+    if (type === 'video') return 'Video';
     return 'Normal';
   };
-  
+
+  const handleSaveCodingQuestion = () => {
+    if (!codingDraft.question.trim() || !codingDraft.description.trim()) return;
+    const normalizedQuestion = {
+      ...codingDraft,
+      question: codingDraft.question.trim(),
+      description: codingDraft.description.trim(),
+      allowedLanguages: codingDraft.allowedLanguages.length > 0 ? codingDraft.allowedLanguages : ['JavaScript', 'Python'],
+      timeLimitMinutes: Math.max(5, Number(codingDraft.timeLimitMinutes) || 30),
+      maxTabSwitches: Math.max(0, Number(codingDraft.maxTabSwitches) || 0),
+    };
+    setCodingQuestions((prev) => (
+      editingCodingQuestionId
+        ? prev.map((item) => (item.id === editingCodingQuestionId ? normalizedQuestion : item))
+        : [...prev, normalizedQuestion]
+    ));
+    setEditingCodingQuestionId(null);
+    setCodingDraft(createEmptyCodingQuestion());
+  };
+
+  const handleEditCodingQuestion = (question: CodingAssessmentQuestion) => {
+    setEditingCodingQuestionId(question.id);
+    setCodingDraft({ ...question });
+  };
+
+  const handleRemoveCodingQuestion = (id: string) => {
+    setCodingQuestions((prev) => prev.filter((item) => item.id !== id));
+    if (editingCodingQuestionId === id) {
+      setEditingCodingQuestionId(null);
+      setCodingDraft(createEmptyCodingQuestion());
+    }
+  };
+
+  const resetCodingQuestionForm = () => {
+    setEditingCodingQuestionId(null);
+    setCodingDraft(createEmptyCodingQuestion());
+  };
+
+  const pickTemplatePackForCreate = (index: number) => {
+    const q = templatePackAts[index];
+    const fresh = createEmptyCodingQuestion();
+    setCodingDraft({ ...q, id: fresh.id });
+    setEditingCodingQuestionId(null);
+  };
+
+  const pickTemplatePackForEdit = (index: number) => {
+    const q = templatePackAts[index];
+    const fresh = createEmptyCodingQuestion();
+    setEditCodingDraft({ ...q, id: fresh.id });
+    setEditEditingCodingQuestionId(null);
+  };
+
+  const addAllTemplatePackToCreate = () => {
+    setCodingQuestions((prev) => [
+      ...prev,
+      ...templatePackAts.map((q, i) => ({
+        ...q,
+        id: `code-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+      })),
+    ]);
+    setSnackbar({
+      open: true,
+      message: 'Added 6 coding questions from the template pack (3 test cases each).',
+      severity: 'success',
+    });
+  };
+
+  const addAllTemplatePackToEdit = () => {
+    setEditCodingQuestions((prev) => [
+      ...prev,
+      ...templatePackAts.map((q, i) => ({
+        ...q,
+        id: `code-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+      })),
+    ]);
+    setSnackbar({
+      open: true,
+      message: 'Added 6 coding questions from the template pack (3 test cases each).',
+      severity: 'success',
+    });
+  };
+
+  const updateCodingDraftTestCase = (tcIdx: number, field: 'input' | 'expectedOutput', value: string) => {
+    setCodingDraft((d) => {
+      const list = [...(d.testCases || [])];
+      if (!list[tcIdx]) return d;
+      list[tcIdx] = { ...list[tcIdx], [field]: value };
+      return { ...d, testCases: list };
+    });
+  };
+
+  const updateEditCodingDraftTestCase = (tcIdx: number, field: 'input' | 'expectedOutput', value: string) => {
+    setEditCodingDraft((d) => {
+      const list = [...(d.testCases || [])];
+      if (!list[tcIdx]) return d;
+      list[tcIdx] = { ...list[tcIdx], [field]: value };
+      return { ...d, testCases: list };
+    });
+  };
+
   // Filter Menu
   const [filterAnchor, setFilterAnchor] = useState<null | HTMLElement>(null);
   const [filters, setFilters] = useState({
@@ -717,12 +1036,45 @@ const ALL_SKILLS = [
   const [editTab, setEditTab] = useState(0);
   const [editSkills, setEditSkills] = useState<string[]>([]);
   const [editNewSkill, setEditNewSkill] = useState('');
-  const [editQuestions, setEditQuestions] = useState<{ id: string; question: string; type: 'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal'; required: boolean; options?: string[] }[]>([]);
+  const [editSkillOptions, setEditSkillOptions] = useState<string[]>([]);
+  const editSkillDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [editQuestions, setEditQuestions] = useState<ScreeningQuestion[]>([]);
   const [editNewQuestion, setEditNewQuestion] = useState('');
-  const [editQuestionType, setEditQuestionType] = useState<'text' | 'yesno' | 'multiple' | 'number' | 'code' | 'verbal'>('text');
+  const [editQuestionType, setEditQuestionType] = useState<ScreeningQuestionType>('text');
   const [editQuestionRequired, setEditQuestionRequired] = useState(true);
   const [editQuestionOptions, setEditQuestionOptions] = useState<string[]>(['']);
-  
+  const [editVideoMaxSeconds, setEditVideoMaxSeconds] = useState(120);
+  const [editEditingQuestionId, setEditEditingQuestionId] = useState<string | null>(null);
+  const [editCodingQuestions, setEditCodingQuestions] = useState<CodingAssessmentQuestion[]>([]);
+  const [editEditingCodingQuestionId, setEditEditingCodingQuestionId] = useState<string | null>(null);
+  const [editCodingDraft, setEditCodingDraft] = useState<CodingAssessmentQuestion>(createEmptyCodingQuestion());
+
+  const onEditJobTitleInputChange = (_: unknown, newInputValue: string) => {
+    setEditingJob((prev: any) => (prev ? { ...prev, title: newInputValue } : prev));
+    setEditJobErrors((prev) => ({ ...prev, title: false }));
+    if (editJobTitleDebounceRef.current) clearTimeout(editJobTitleDebounceRef.current);
+    editJobTitleDebounceRef.current = setTimeout(async () => {
+      if (!newInputValue || newInputValue.trim().length < 2) {
+        setEditJobTitleOptions([]);
+        return;
+      }
+      setEditJobTitleOptions(await fetchJobTitleSuggestions(newInputValue));
+    }, 300);
+  };
+
+  const onEditSkillInputChange = (_: unknown, newInputValue: string) => {
+    setEditNewSkill(newInputValue);
+    if (editSkillsFieldError) setEditSkillsFieldError(false);
+    if (editSkillDebounceRef.current) clearTimeout(editSkillDebounceRef.current);
+    editSkillDebounceRef.current = setTimeout(async () => {
+      if (!newInputValue || newInputValue.trim().length < 1) {
+        setEditSkillOptions([]);
+        return;
+      }
+      setEditSkillOptions(await fetchSkillSuggestions(newInputValue));
+    }, 300);
+  };
+
   // Applicants Dialog
   const [applicantsDialogOpen, setApplicantsDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<any>(null);
@@ -812,14 +1164,6 @@ const ALL_SKILLS = [
         'freelance': 'contract',
       };
 
-      // Convert screening questions to coding questions format
-      const codingQuestions = questions.map((q) => ({
-        id: q.id,
-        question: q.question,
-        description: `Type: ${q.type}${q.options ? ` | Options: ${q.options.join(', ')}` : ''}${q.required ? ' (Required)' : ''}`,
-        difficulty: 'easy' as const,
-      }));
-      
       // Create job via API - include salary (optional), hiring countries, work auth, sponsorship
       const salaryCurrency = newJob.salaryCurrency || getSalaryCurrencyForCountries(hiringCountries);
       const createdJob = await jobService.createJob({
@@ -837,6 +1181,7 @@ const ALL_SKILLS = [
           type: q.type,
           required: q.required,
           options: q.options || [],
+          ...(q.type === 'video' && q.maxVideoSeconds ? { maxVideoSeconds: q.maxVideoSeconds } : {}),
         })),
         salaryMin: newJob.salaryMin ? parseInt(newJob.salaryMin) : undefined,
         salaryMax: newJob.salaryMax ? parseInt(newJob.salaryMax) : undefined,
@@ -888,6 +1233,8 @@ const ALL_SKILLS = [
         postedAt: new Date().toISOString(),
         experience: newJob.experience,
         experienceLevel: createExperienceLevel,
+        codingQuestions,
+        screeningQuestions: questions,
       };
       
       setJobs([displayJob, ...jobs]);
@@ -938,19 +1285,14 @@ const ALL_SKILLS = [
         companyName: getHRUserInfo()?.companyName || 'Company',
         requiredSkills: editSkills,
         experienceLevel: expMap[editingJob.experience as string] || 'mid',
-        codingQuestions: editQuestions.map(q => ({
-          id: q.id,
-          question: q.question,
-          description: q.question,
-          difficulty: 'medium' as const,
-          expectedOutput: q.type === 'yesno' ? 'Yes/No' : q.type === 'multiple' ? q.options?.join(',') || '' : '',
-        })),
+        codingQuestions: editCodingQuestions,
         screeningQuestions: editQuestions.map((q) => ({
           id: q.id,
           question: q.question,
           type: q.type,
           required: q.required,
           options: q.options || [],
+          ...(q.type === 'video' && q.maxVideoSeconds ? { maxVideoSeconds: q.maxVideoSeconds } : {}),
         })),
         salaryMin: editingJob.salaryMin ? parseInt(editingJob.salaryMin) : undefined,
         salaryMax: editingJob.salaryMax ? parseInt(editingJob.salaryMax) : undefined,
@@ -972,6 +1314,7 @@ const ALL_SKILLS = [
         ...editingJob,
         skills: editSkills,
         screeningQuestions: editQuestions,
+        codingQuestions: editCodingQuestions,
         salary: salaryDisplay,
         salaryCurrency,
       };
@@ -979,6 +1322,8 @@ const ALL_SKILLS = [
       setEditDialogOpen(false);
       setEditingJob(null);
       setEditTab(0);
+      setEditEditingQuestionId(null);
+      setEditJobTitleOptions([]);
       setSnackbar({ open: true, message: 'Job updated successfully!', severity: 'success' });
     } catch (error: any) {
       console.error('Error updating job:', error);
@@ -1054,6 +1399,12 @@ const ALL_SKILLS = [
     }
     if (!Array.isArray(screeningQuestionsRaw)) screeningQuestionsRaw = [];
     const screeningQuestions = normalizeScreeningQuestions(screeningQuestionsRaw, parseQuestionRequired);
+    let codingQuestionsRaw: unknown = j.codingQuestions ?? j.coding_questions ?? [];
+    if (typeof codingQuestionsRaw === 'string') {
+      try { codingQuestionsRaw = JSON.parse(codingQuestionsRaw); } catch { codingQuestionsRaw = []; }
+    }
+    if (!Array.isArray(codingQuestionsRaw)) codingQuestionsRaw = [];
+    const normalizedCodingQuestions = normalizeCodingQuestions(codingQuestionsRaw);
     setEditingJob({
       ...fullJob,
       type: formType,
@@ -1071,6 +1422,7 @@ const ALL_SKILLS = [
     } as any);
     setEditSkills(Array.isArray(skills) ? [...skills] : []);
     setEditQuestions(screeningQuestions);
+    setEditCodingQuestions(normalizedCodingQuestions);
   };
 
   const openEditDialog = async (job: DisplayJob) => {
@@ -1088,6 +1440,12 @@ const ALL_SKILLS = [
     }
     if (!Array.isArray(listQuestionsRaw)) listQuestionsRaw = [];
     const listQuestions = normalizeScreeningQuestions(listQuestionsRaw, parseQuestionRequired);
+    let listCodingQuestionsRaw: unknown = (listJob as any).coding_questions ?? listJob.codingQuestions ?? [];
+    if (typeof listCodingQuestionsRaw === 'string') {
+      try { listCodingQuestionsRaw = JSON.parse(listCodingQuestionsRaw); } catch { listCodingQuestionsRaw = []; }
+    }
+    if (!Array.isArray(listCodingQuestionsRaw)) listCodingQuestionsRaw = [];
+    const listCodingQuestions = normalizeCodingQuestions(listCodingQuestionsRaw);
     setEditingJob({
       ...listJob,
       type: formType,
@@ -1101,12 +1459,17 @@ const ALL_SKILLS = [
     } as any);
     setEditSkills(Array.isArray(listSkills) ? [...listSkills] : []);
     setEditQuestions(listQuestions);
+    setEditCodingQuestions(listCodingQuestions);
     setEditTab(0);
     setEditNewSkill('');
+    setEditSkillOptions([]);
     setEditNewQuestion('');
     setEditQuestionType('text');
     setEditQuestionRequired(true);
     setEditQuestionOptions(['']);
+    setEditEditingQuestionId(null);
+    setEditEditingCodingQuestionId(null);
+    setEditCodingDraft(createEmptyCodingQuestion());
     setEditDialogOpen(true);
     setEditDialogLoading(true);
     try {
@@ -1124,9 +1487,10 @@ const ALL_SKILLS = [
           description: d,
           responsibilities: r,
           skills: fetched.requiredSkills || [],
-          requiredSkills: fetched.requiredSkills || [],
-          screeningQuestions: (fetched as any).screening_questions ?? fetched.screeningQuestions ?? [],
-          salaryMin: fetched.salary_min ?? job.salaryMin,
+           requiredSkills: fetched.requiredSkills || [],
+           screeningQuestions: (fetched as any).screening_questions ?? fetched.screeningQuestions ?? [],
+           codingQuestions: (fetched as any).coding_questions ?? fetched.codingQuestions ?? [],
+           salaryMin: fetched.salary_min ?? job.salaryMin,
           salaryMax: fetched.salary_max ?? job.salaryMax,
           salaryCurrency: fetched.salary_currency ?? job.salaryCurrency ?? getSalaryCurrencyForCountries((fetched as any).hiringCountries ?? job.hiringCountries ?? []),
           status: fetched.status || job.status,
@@ -1160,23 +1524,94 @@ const ALL_SKILLS = [
   // Edit dialog question handlers
   const handleAddEditQuestion = () => {
     if (editNewQuestion.trim()) {
-      const newQ = {
-        id: Date.now().toString(),
+      const newQ: ScreeningQuestion = {
+        id: editEditingQuestionId ?? Date.now().toString(),
         question: editNewQuestion.trim(),
         type: editQuestionType,
         required: editQuestionRequired,
         ...(editQuestionType === 'multiple' ? { options: editQuestionOptions.filter(o => o.trim()) } : {}),
+        maxVideoSeconds:
+          editQuestionType === 'video' ? Math.min(600, Math.max(15, editVideoMaxSeconds)) : undefined,
       };
-      setEditQuestions([...editQuestions, newQ]);
+      setEditQuestions(
+        editEditingQuestionId
+          ? editQuestions.map((q) => (q.id === editEditingQuestionId ? newQ : q))
+          : [...editQuestions, newQ]
+      );
       setEditNewQuestion('');
       setEditQuestionType('text');
       setEditQuestionRequired(true);
       setEditQuestionOptions(['']);
+      setEditVideoMaxSeconds(120);
+      setEditEditingQuestionId(null);
     }
   };
   
   const handleRemoveEditQuestion = (id: string) => {
     setEditQuestions(editQuestions.filter((q) => q.id !== id));
+    if (editEditingQuestionId === id) {
+      setEditNewQuestion('');
+      setEditQuestionType('text');
+      setEditQuestionRequired(true);
+      setEditQuestionOptions(['']);
+      setEditVideoMaxSeconds(120);
+      setEditEditingQuestionId(null);
+    }
+  };
+
+  const handleStartEditQuestion = (question: ScreeningQuestion) => {
+    setEditEditingQuestionId(question.id);
+    setEditNewQuestion(question.question);
+    setEditQuestionType(question.type);
+    setEditQuestionRequired(question.required);
+    setEditQuestionOptions(question.type === 'multiple' && question.options && question.options.length > 0 ? question.options : ['']);
+    setEditVideoMaxSeconds(question.maxVideoSeconds ?? 120);
+  };
+
+  const resetEditQuestionForm = () => {
+    setEditNewQuestion('');
+    setEditQuestionType('text');
+    setEditQuestionRequired(true);
+    setEditQuestionOptions(['']);
+    setEditVideoMaxSeconds(120);
+    setEditEditingQuestionId(null);
+  };
+
+  const handleSaveEditCodingQuestion = () => {
+    if (!editCodingDraft.question.trim() || !editCodingDraft.description.trim()) return;
+    const normalizedQuestion = {
+      ...editCodingDraft,
+      question: editCodingDraft.question.trim(),
+      description: editCodingDraft.description.trim(),
+      allowedLanguages: editCodingDraft.allowedLanguages.length > 0 ? editCodingDraft.allowedLanguages : ['JavaScript', 'Python'],
+      timeLimitMinutes: Math.max(5, Number(editCodingDraft.timeLimitMinutes) || 30),
+      maxTabSwitches: Math.max(0, Number(editCodingDraft.maxTabSwitches) || 0),
+    };
+    setEditCodingQuestions((prev) => (
+      editEditingCodingQuestionId
+        ? prev.map((item) => (item.id === editEditingCodingQuestionId ? normalizedQuestion : item))
+        : [...prev, normalizedQuestion]
+    ));
+    setEditEditingCodingQuestionId(null);
+    setEditCodingDraft(createEmptyCodingQuestion());
+  };
+
+  const handleStartEditCodingQuestion = (question: CodingAssessmentQuestion) => {
+    setEditEditingCodingQuestionId(question.id);
+    setEditCodingDraft({ ...question });
+  };
+
+  const handleRemoveEditCodingQuestion = (id: string) => {
+    setEditCodingQuestions((prev) => prev.filter((item) => item.id !== id));
+    if (editEditingCodingQuestionId === id) {
+      setEditEditingCodingQuestionId(null);
+      setEditCodingDraft(createEmptyCodingQuestion());
+    }
+  };
+
+  const resetEditCodingQuestionForm = () => {
+    setEditEditingCodingQuestionId(null);
+    setEditCodingDraft(createEmptyCodingQuestion());
   };
 
   // When Edit dialog is on Screening Questions tab and editQuestions is empty but job has questions, sync from editingJob so they become visible and editable
@@ -1241,7 +1676,7 @@ const ALL_SKILLS = [
           phone: details?.phone || '',
           title: details?.title || 'Candidate',
           experience: formatApplicantExperience(details?.experienceYears),
-          matchScore: app.codingScore || app.match_score || 0,
+          matchScore: app.skillMatchPercent ?? app.match_score ?? app.codingScore ?? 0,
           status: app.status === 'applied' || (app.status as string) === 'submitted' ? 'new' : app.status,
           appliedDate: formatTimeAgo(app.appliedAt),
           location: details?.location || '',
@@ -1686,6 +2121,7 @@ const ALL_SKILLS = [
             <Tab label="Job Details" sx={{ minHeight: 40, textTransform: 'none' }} />
             <Tab label="Required Skills" sx={{ minHeight: 40, textTransform: 'none' }} />
             <Tab label="Screening Questions" sx={{ minHeight: 40, textTransform: 'none' }} />
+            <Tab label="Coding Questions" sx={{ minHeight: 40, textTransform: 'none' }} />
           </Tabs>
         </DialogTitle>
         <DialogContent sx={{ pt: 3, minHeight: 400 }}>
@@ -1693,18 +2129,63 @@ const ALL_SKILLS = [
           {createTab === 0 && (
             <Grid container spacing={2} sx={{ mt: 1 }}>
               <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Job Title"
-                  value={newJob.title}
-                  onChange={(e) => { setNewJob({ ...newJob, title: e.target.value }); setNewJobErrors({ ...newJobErrors, title: false }); }}
-                  placeholder="e.g., Senior Software Engineer"
-                  required
-                  variant="outlined"
-                  InputLabelProps={{ shrink: true }}
-                  error={!!newJobErrors.title}
-                  helperText={newJobErrors.title ? "Job Title is required" : ""}
-                />
+                <FormControl fullWidth required error={!!newJobErrors.hiringCountries}>
+                  <InputLabel shrink sx={outlinedSelectLabelSx}>Hiring countries</InputLabel>
+                  <Select
+                    multiple
+                    value={hiringCountries}
+                    label="Hiring countries"
+                    open={hiringCountriesSelectOpen}
+                    onOpen={() => setHiringCountriesSelectOpen(true)}
+                    onClose={() => setHiringCountriesSelectOpen(false)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setHiringCountries(typeof v === 'string' ? v.split(',') : v);
+                      setNewJobErrors({ ...newJobErrors, hiringCountries: false });
+                      setHiringCountriesSelectOpen(false);
+                    }}
+                    renderValue={(selected) => selected.map((code) => HIRING_COUNTRIES.find((c) => c.value === code)?.label || code).join(', ')}
+                  >
+                    {HIRING_COUNTRIES.map((c) => (
+                      <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
+                    ))}
+                  </Select>
+                  <FormHelperText>Job will be visible only to techies from the selected countries.</FormHelperText>
+                  {newJobErrors.hiringCountries && <FormHelperText error>Select at least one country</FormHelperText>}
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                  <Autocomplete
+                    freeSolo
+                    options={createJobTitleOptions}
+                    value={newJob.title}
+                    onChange={(_, newValue) => {
+                      setNewJob({ ...newJob, title: newValue || '' });
+                      setNewJobErrors({ ...newJobErrors, title: false });
+                    }}
+                    onInputChange={onCreateJobTitleInputChange}
+                    filterOptions={(options) => options}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        fullWidth
+                        label="Job Title"
+                        placeholder="e.g., Senior Software Engineer"
+                        required
+                        variant="outlined"
+                        InputLabelProps={{ shrink: true }}
+                        error={!!newJobErrors.title}
+                        helperText={newJobErrors.title ? "Job Title is required" : ""}
+                      />
+                    )}
+                    slotProps={{
+                      paper: {
+                        sx: {
+                          maxHeight: 240,
+                        },
+                      },
+                    }}
+                  />
               </Grid>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth required error={!!newJobErrors.department}>
@@ -1808,32 +2289,6 @@ const ALL_SKILLS = [
                     <MenuItem value="12_leadership">12 to leadership</MenuItem>
                   </Select>
                   {newJobErrors.experience && <FormHelperText>Experience Level is required</FormHelperText>}
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <FormControl fullWidth required error={!!newJobErrors.hiringCountries}>
-                  <InputLabel shrink sx={outlinedSelectLabelSx}>Hiring countries</InputLabel>
-                  <Select
-                    multiple
-                    value={hiringCountries}
-                    label="Hiring countries"
-                    open={hiringCountriesSelectOpen}
-                    onOpen={() => setHiringCountriesSelectOpen(true)}
-                    onClose={() => setHiringCountriesSelectOpen(false)}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setHiringCountries(typeof v === 'string' ? v.split(',') : v);
-                      setNewJobErrors({ ...newJobErrors, hiringCountries: false });
-                      setHiringCountriesSelectOpen(false);
-                    }}
-                    renderValue={(selected) => selected.map((code) => HIRING_COUNTRIES.find((c) => c.value === code)?.label || code).join(', ')}
-                  >
-                    {HIRING_COUNTRIES.map((c) => (
-                      <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
-                    ))}
-                  </Select>
-                  <FormHelperText>Job will be visible only to techies from the selected countries.</FormHelperText>
-                  {newJobErrors.hiringCountries && <FormHelperText error>Select at least one country</FormHelperText>}
                 </FormControl>
               </Grid>
               {hiringCountries.includes('US') && (
@@ -1997,8 +2452,8 @@ const ALL_SKILLS = [
               {/* Add new skill */}
               <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
                 <Autocomplete
-                  freeSolo={false}
-                  options={ALL_SKILLS.filter(s => !skills.includes(s))}
+                  freeSolo
+                  options={createSkillOptions.filter((s) => !skills.includes(s))}
                   value={newSkill || null}
                   onChange={(_, newValue) => {
                     if (newValue) {
@@ -2006,9 +2461,8 @@ const ALL_SKILLS = [
                       if (skillsFieldError) setSkillsFieldError(false);
                     }
                   }}
-                  onInputChange={(_, newInputValue) => {
-                    setNewSkill(newInputValue);
-                  }}
+                  onInputChange={onCreateSkillInputChange}
+                  filterOptions={(options) => options}
                   fullWidth
                   renderInput={(params) => (
                     <TextField
@@ -2059,8 +2513,7 @@ const ALL_SKILLS = [
                   Suggested Skills (click to add)
                 </Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                  {['Python', 'Java', 'TypeScript', 'AWS', 'Docker', 'Kubernetes', 'SQL', 'MongoDB', 'GraphQL', 'REST API', 'CI/CD', 'Git']
-                    .filter(s => !skills.includes(s))
+                  {SUGGESTED_SKILL_CHIPS.filter((s) => !skills.includes(s))
                     .map((skill) => (
                       <Chip
                         key={skill}
@@ -2082,7 +2535,7 @@ const ALL_SKILLS = [
                 Screening Questions
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Add only the questions you want. You can create normal, coding, verbal, numeric, yes/no, or multiple choice questions and mark each one as required or optional.
+                Add only the questions you want for pre-screening. Keep these short and recruiter-friendly so candidates can finish them quickly.
               </Typography>
 
               {/* Existing questions */}
@@ -2103,6 +2556,9 @@ const ALL_SKILLS = [
                           {q.options && ` • Options: ${q.options.join(', ')}`}
                         </Typography>
                       </Box>
+                      <IconButton size="small" onClick={() => handleEditQuestion(q)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
                       <IconButton size="small" onClick={() => handleRemoveQuestion(q.id)}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
@@ -2114,7 +2570,7 @@ const ALL_SKILLS = [
               {/* Add new question */}
               <Paper sx={{ p: 2, border: '2px dashed #ddd' }}>
                 <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>
-                  Add New Question
+                  {editingQuestionId ? 'Edit Question' : 'Add New Question'}
                 </Typography>
                 <Grid container spacing={2}>
                   <Grid item xs={12}>
@@ -2136,10 +2592,8 @@ const ALL_SKILLS = [
                         onChange={(e) => setQuestionType(e.target.value as any)}
                       >
                           <MenuItem value="text">Normal Question</MenuItem>
-                          <MenuItem value="code">Coding Question</MenuItem>
                           <MenuItem value="verbal">Verbal Question</MenuItem>
-                          <MenuItem value="yesno">Yes / No</MenuItem>
-                          <MenuItem value="number">Number</MenuItem>
+                          <MenuItem value="video">Video Response</MenuItem>
                           <MenuItem value="multiple">Multiple Choice</MenuItem>
                       </Select>
                     </FormControl>
@@ -2156,6 +2610,20 @@ const ALL_SKILLS = [
                       label="Required question"
                     />
                   </Grid>
+                  {questionType === 'video' && (
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        label="Max video length (seconds)"
+                        value={videoMaxSeconds}
+                        onChange={(e) => setVideoMaxSeconds(Math.min(600, Math.max(15, parseInt(e.target.value, 10) || 120)))}
+                        inputProps={{ min: 15, max: 600 }}
+                        InputLabelProps={{ shrink: true }}
+                        helperText="Recording stops automatically at this limit (15–600s)."
+                      />
+                    </Grid>
+                  )}
                   {questionType === 'multiple' && (
                     <Grid item xs={12}>
                       <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
@@ -2187,14 +2655,19 @@ const ALL_SKILLS = [
                     </Grid>
                   )}
                   <Grid item xs={12}>
-                    <Button
-                      variant="contained"
-                      onClick={handleAddQuestion}
-                      disabled={!newQuestion.trim()}
-                      sx={{ bgcolor: '#0d47a1' }}
-                    >
-                      Add Question
-                    </Button>
+                      <Button
+                        variant="contained"
+                        onClick={handleAddQuestion}
+                        disabled={!newQuestion.trim()}
+                        sx={{ bgcolor: '#0d47a1' }}
+                      >
+                        {editingQuestionId ? 'Update Question' : 'Add Question'}
+                      </Button>
+                      {editingQuestionId && (
+                        <Button onClick={resetQuestionForm} sx={{ ml: 1 }}>
+                          Cancel Edit
+                        </Button>
+                      )}
                   </Grid>
                 </Grid>
               </Paper>
@@ -2222,6 +2695,304 @@ const ALL_SKILLS = [
               </Paper>
             </Box>
           )}
+          {createTab === 3 && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                Coding Assessment
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Add coding questions only if this role needs a technical assessment. Each question can carry time, language, and integrity settings for a more SaaS-style candidate experience.
+              </Typography>
+
+              <List sx={{ mb: 3 }}>
+                {codingQuestions.map((q, index) => (
+                  <Paper key={q.id} sx={{ mb: 1.5, p: 2, bgcolor: alpha('#0d47a1', 0.02) }}>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                      <DragIndicatorIcon sx={{ color: '#888', mt: 0.5, cursor: 'grab' }} />
+                      <Box sx={{ flex: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
+                          <Typography variant="body1" fontWeight={500}>
+                            {index + 1}. {q.question}
+                          </Typography>
+                          <Chip label={q.required ? 'Required' : 'Optional'} size="small" color={q.required ? 'error' : 'default'} sx={{ height: 20, fontSize: '0.7rem' }} />
+                          <Chip label={q.difficulty.toUpperCase()} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          <Chip label={`${q.timeLimitMinutes} min`} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                        </Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                          Languages: {q.allowedLanguages.join(', ')}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                          Guardrails: {[
+                            q.requireFullScreen ? 'Full screen' : null,
+                            q.preventTabSwitch ? `Tab limit ${q.maxTabSwitches}` : null,
+                            q.blockCopyPaste ? 'Paste blocked' : null,
+                            q.autoSubmitOnTimeout ? 'Auto submit' : null,
+                            q.trackSuspiciousActivity ? 'Suspicious activity tracking' : null,
+                          ].filter(Boolean).join(' • ')}
+                        </Typography>
+                      </Box>
+                      <IconButton size="small" onClick={() => handleEditCodingQuestion(q)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton size="small" onClick={() => handleRemoveCodingQuestion(q.id)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  </Paper>
+                ))}
+              </List>
+
+              <Paper sx={{ p: 2, border: '2px dashed #ddd' }}>
+                <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                  VerTechie template pack
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                  6 questions (2 easy, 2 medium, 2 hard), each with 3 test cases. Click one to fill the form below.
+                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+                  <Button size="small" variant="contained" onClick={addAllTemplatePackToCreate} sx={{ bgcolor: '#0d47a1', textTransform: 'none' }}>
+                    Add all 6 to list
+                  </Button>
+                </Box>
+                <List dense disablePadding sx={{ mb: 2 }}>
+                  {templatePackList.map((q, index) => (
+                    <ListItemButton
+                      key={q.id}
+                      onClick={() => pickTemplatePackForCreate(index)}
+                      sx={{ borderRadius: 1, mb: 0.5, border: '1px solid #e0e0e0' }}
+                    >
+                      <ListItemText
+                        primaryTypographyProps={{ fontWeight: 600 }}
+                        primary={`${index + 1}. ${q.question}`}
+                        secondary={`${q.difficulty} · ${(q.testCases || []).length} test cases`}
+                      />
+                    </ListItemButton>
+                  ))}
+                </List>
+                <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>
+                  {editingCodingQuestionId ? 'Edit Coding Question' : 'Add Coding Question'}
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Question Title"
+                      value={codingDraft.question}
+                      onChange={(e) => setCodingDraft({ ...codingDraft, question: e.target.value })}
+                      placeholder="e.g., Print Hello World"
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={4}
+                      label="Problem Statement"
+                      value={codingDraft.description}
+                      onChange={(e) => setCodingDraft({ ...codingDraft, description: e.target.value })}
+                      placeholder="Explain the task, input/output expectation, and evaluation notes."
+                      InputLabelProps={{ shrink: true }}
+                      InputProps={{ inputProps: { 'data-allow-paste': 'true' } as any }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <FormControl fullWidth>
+                      <InputLabel shrink>Difficulty</InputLabel>
+                      <Select
+                        value={codingDraft.difficulty}
+                        label="Difficulty"
+                        onChange={(e) => setCodingDraft({ ...codingDraft, difficulty: e.target.value as CodingAssessmentQuestion['difficulty'] })}
+                      >
+                        <MenuItem value="easy">Easy</MenuItem>
+                        <MenuItem value="medium">Medium</MenuItem>
+                        <MenuItem value="hard">Hard</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Time Limit (minutes)"
+                      value={codingDraft.timeLimitMinutes}
+                      onChange={(e) => setCodingDraft({ ...codingDraft, timeLimitMinutes: Number(e.target.value) })}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <FormControlLabel
+                      control={<Switch checked={codingDraft.required} onChange={(e) => setCodingDraft({ ...codingDraft, required: e.target.checked })} color="primary" />}
+                      label="Required question"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Autocomplete
+                      multiple
+                      options={CODING_LANGUAGE_OPTIONS}
+                      value={codingDraft.allowedLanguages}
+                      onChange={(_, value) => setCodingDraft({ ...codingDraft, allowedLanguages: value })}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Allowed Languages"
+                          placeholder="Choose languages"
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      label="Sample Input"
+                      value={codingDraft.sampleInput}
+                      onChange={(e) => setCodingDraft({ ...codingDraft, sampleInput: e.target.value })}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      label="Sample Output"
+                      value={codingDraft.sampleOutput}
+                      onChange={(e) => setCodingDraft({ ...codingDraft, sampleOutput: e.target.value })}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Expected Output / Test Hint"
+                      value={codingDraft.expectedOutput}
+                      onChange={(e) => setCodingDraft({ ...codingDraft, expectedOutput: e.target.value })}
+                      placeholder="Optional hint for evaluation or visible test guidance"
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={4}
+                      label="Starter Code"
+                      value={codingDraft.starterCode}
+                      onChange={(e) => setCodingDraft({ ...codingDraft, starterCode: e.target.value })}
+                      placeholder="Optional starter template candidates will begin with"
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                      Hidden test cases (auto-judge)
+                    </Typography>
+                    <Collapse in={Boolean((codingDraft.testCases || []).length)}>
+                      <Grid container spacing={1}>
+                        {(codingDraft.testCases || []).map((tc, tcIdx) => (
+                          <React.Fragment key={tc.id || `tc-${tcIdx}`}>
+                            <Grid item xs={12} md={6}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                multiline
+                                minRows={2}
+                                label={`Test ${tcIdx + 1} — Input`}
+                                value={tc.input}
+                                onChange={(e) => updateCodingDraftTestCase(tcIdx, 'input', e.target.value)}
+                                InputLabelProps={{ shrink: true }}
+                              />
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                multiline
+                                minRows={2}
+                                label={`Test ${tcIdx + 1} — Expected output`}
+                                value={tc.expectedOutput}
+                                onChange={(e) => updateCodingDraftTestCase(tcIdx, 'expectedOutput', e.target.value)}
+                                InputLabelProps={{ shrink: true }}
+                              />
+                            </Grid>
+                          </React.Fragment>
+                        ))}
+                      </Grid>
+                    </Collapse>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" fontWeight={600}>
+                      Assessment Integrity
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <FormControlLabel
+                      control={<Switch checked={codingDraft.requireFullScreen} onChange={(e) => setCodingDraft({ ...codingDraft, requireFullScreen: e.target.checked })} color="primary" />}
+                      label="Require full screen"
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <FormControlLabel
+                      control={<Switch checked={codingDraft.preventTabSwitch} onChange={(e) => setCodingDraft({ ...codingDraft, preventTabSwitch: e.target.checked })} color="primary" />}
+                      label="Track tab switching"
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <FormControlLabel
+                      control={<Switch checked={codingDraft.blockCopyPaste} onChange={(e) => setCodingDraft({ ...codingDraft, blockCopyPaste: e.target.checked })} color="primary" />}
+                      label="Block copy / paste"
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <FormControlLabel
+                      control={<Switch checked={codingDraft.autoSubmitOnTimeout} onChange={(e) => setCodingDraft({ ...codingDraft, autoSubmitOnTimeout: e.target.checked })} color="primary" />}
+                      label="Auto-submit on timeout"
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <FormControlLabel
+                      control={<Switch checked={codingDraft.trackSuspiciousActivity} onChange={(e) => setCodingDraft({ ...codingDraft, trackSuspiciousActivity: e.target.checked })} color="primary" />}
+                      label="Track suspicious activity"
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Allowed Tab Switches"
+                      value={codingDraft.maxTabSwitches}
+                      onChange={(e) => setCodingDraft({ ...codingDraft, maxTabSwitches: Number(e.target.value) })}
+                      InputLabelProps={{ shrink: true }}
+                      disabled={!codingDraft.preventTabSwitch}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Button
+                      variant="contained"
+                      onClick={handleSaveCodingQuestion}
+                      disabled={!codingDraft.question.trim() || !codingDraft.description.trim()}
+                      sx={{ bgcolor: '#0d47a1' }}
+                    >
+                      {editingCodingQuestionId ? 'Update Coding Question' : 'Add Coding Question'}
+                    </Button>
+                    {editingCodingQuestionId && (
+                      <Button onClick={resetCodingQuestionForm} sx={{ ml: 1 }}>
+                        Cancel Edit
+                      </Button>
+                    )}
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              <Paper sx={{ p: 2, mt: 3, bgcolor: alpha('#0d47a1', 0.05), border: '1px solid', borderColor: alpha('#0d47a1', 0.2) }}>
+                <Typography variant="subtitle2" fontWeight={600} color="#0d47a1">
+                  Candidate Experience Preview
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  Candidates will first finish screening questions. If coding questions exist, the application can continue into a timed assessment experience with language restrictions, anti-paste rules, tab-switch monitoring, and suspicious activity logging for recruiter review.
+                </Typography>
+              </Paper>
+            </Box>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 2, borderTop: '1px solid #eee', justifyContent: 'space-between' }}>
           <Box>
@@ -2237,7 +3008,7 @@ const ALL_SKILLS = [
             >
               Cancel
             </Button>
-            {createTab < 2 ? (
+            {createTab < 3 ? (
               <Button variant="contained" onClick={handleCreateNextTab} sx={{ bgcolor: '#0d47a1' }}>
                 Next
               </Button>
@@ -2257,7 +3028,7 @@ const ALL_SKILLS = [
       </Dialog>
 
       {/* Edit Job Dialog - Same structure as Create Job */}
-      <Dialog open={editDialogOpen} onClose={() => { if (!editDialogLoading) setEditDialogOpen(false); }} maxWidth="md" fullWidth>
+      <Dialog open={editDialogOpen} onClose={() => { if (!editDialogLoading) { setEditDialogOpen(false); setEditJobTitleOptions([]); resetEditQuestionForm(); resetEditCodingQuestionForm(); } }} maxWidth="md" fullWidth>
         <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid #eee', pb: 0 }}>
           <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>Edit Job</Typography>
         </DialogTitle>
@@ -2271,6 +3042,7 @@ const ALL_SKILLS = [
           <Tab label="Job Details" sx={{ minHeight: 40, textTransform: 'none' }} />
           <Tab label="Required Skills" sx={{ minHeight: 40, textTransform: 'none' }} />
           <Tab label="Screening Questions" sx={{ minHeight: 40, textTransform: 'none' }} />
+          <Tab label="Coding Questions" sx={{ minHeight: 40, textTransform: 'none' }} />
         </Tabs>
         
         <DialogContent sx={{ pt: 3, minHeight: 400, position: 'relative' }}>
@@ -2298,17 +3070,60 @@ const ALL_SKILLS = [
               {editTab === 0 && (
                 <Grid container spacing={2} sx={{ mt: 1 }}>
                   <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Job Title"
-                      value={editingJob.title}
-                      onChange={(e) => { setEditingJob({ ...editingJob, title: e.target.value }); setEditJobErrors({ ...editJobErrors, title: false }); }}
-                      placeholder="e.g., Senior Software Engineer"
-                      required
-                      variant="outlined"
-                      InputLabelProps={{ shrink: true }}
-                      error={!!editJobErrors.title}
-                      helperText={editJobErrors.title ? "Job Title is required" : ""}
+                    <FormControl fullWidth>
+                      <InputLabel shrink sx={outlinedSelectLabelSx}>Hiring countries</InputLabel>
+                      <Select
+                        multiple
+                        value={editingJob.hiringCountries ?? []}
+                        label="Hiring countries"
+                        open={editHiringCountriesSelectOpen}
+                        onOpen={() => setEditHiringCountriesSelectOpen(true)}
+                        onClose={() => setEditHiringCountriesSelectOpen(false)}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setEditingJob({ ...editingJob, hiringCountries: typeof v === 'string' ? v.split(',') : v });
+                          setEditHiringCountriesSelectOpen(false);
+                        }}
+                        renderValue={(selected) => (selected as string[]).map((code) => HIRING_COUNTRIES.find((c) => c.value === code)?.label || code).join(', ')}
+                      >
+                        {HIRING_COUNTRIES.map((c) => (
+                          <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
+                        ))}
+                        </Select>
+                        <FormHelperText>Job will be visible only to techies from the selected countries.</FormHelperText>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                    <Autocomplete
+                      freeSolo
+                      options={editJobTitleOptions}
+                      value={editingJob.title || ''}
+                      onChange={(_, newValue) => {
+                        setEditingJob({ ...editingJob, title: newValue || '' });
+                        setEditJobErrors({ ...editJobErrors, title: false });
+                      }}
+                      onInputChange={onEditJobTitleInputChange}
+                      filterOptions={(options) => options}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          fullWidth
+                          label="Job Title"
+                          placeholder="e.g., Senior Software Engineer"
+                          required
+                          variant="outlined"
+                          InputLabelProps={{ shrink: true }}
+                          error={!!editJobErrors.title}
+                          helperText={editJobErrors.title ? "Job Title is required" : ""}
+                        />
+                      )}
+                      slotProps={{
+                        paper: {
+                          sx: {
+                            maxHeight: 240,
+                          },
+                        },
+                      }}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
@@ -2418,30 +3233,6 @@ const ALL_SKILLS = [
                       {editJobErrors.experience && <FormHelperText>Experience Level is required</FormHelperText>}
                     </FormControl>
                   </Grid>
-                  <Grid item xs={12} md={6}>
-                    <FormControl fullWidth>
-                      <InputLabel shrink sx={outlinedSelectLabelSx}>Hiring countries</InputLabel>
-                      <Select
-                        multiple
-                        value={editingJob.hiringCountries ?? []}
-                        label="Hiring countries"
-                        open={editHiringCountriesSelectOpen}
-                        onOpen={() => setEditHiringCountriesSelectOpen(true)}
-                        onClose={() => setEditHiringCountriesSelectOpen(false)}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setEditingJob({ ...editingJob, hiringCountries: typeof v === 'string' ? v.split(',') : v });
-                          setEditHiringCountriesSelectOpen(false);
-                        }}
-                        renderValue={(selected) => (selected as string[]).map((code) => HIRING_COUNTRIES.find((c) => c.value === code)?.label || code).join(', ')}
-                      >
-                        {HIRING_COUNTRIES.map((c) => (
-                          <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
-                        ))}
-                        </Select>
-                        <FormHelperText>Job will be visible only to techies from the selected countries.</FormHelperText>
-                      </FormControl>
-                    </Grid>
                   {(editingJob.hiringCountries ?? []).includes('US') && (
                     <Grid item xs={12} md={6}>
                       <FormControl fullWidth>
@@ -2610,8 +3401,8 @@ const ALL_SKILLS = [
                   {/* Add skill input */}
                   <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
                     <Autocomplete
-                      freeSolo={false}
-                      options={ALL_SKILLS.filter(s => !editSkills.includes(s))}
+                      freeSolo
+                      options={editSkillOptions.filter((s) => !editSkills.includes(s))}
                       value={editNewSkill || null}
                       onChange={(_, newValue) => {
                         if (newValue) {
@@ -2619,9 +3410,8 @@ const ALL_SKILLS = [
                           if (editSkillsFieldError) setEditSkillsFieldError(false);
                         }
                       }}
-                      onInputChange={(_, newInputValue) => {
-                        setEditNewSkill(newInputValue);
-                      }}
+                      onInputChange={onEditSkillInputChange}
+                      filterOptions={(options) => options}
                       fullWidth
                       renderInput={(params) => (
                         <TextField
@@ -2673,8 +3463,7 @@ const ALL_SKILLS = [
                     Suggested Skills
                   </Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                    {['JavaScript', 'TypeScript', 'React', 'Node.js', 'Python', 'Java', 'AWS', 'Docker', 'Kubernetes', 'SQL', 'MongoDB', 'GraphQL', 'REST API', 'Git', 'Agile', 'CI/CD']
-                      .filter((skill) => !editSkills.includes(skill))
+                    {SUGGESTED_SKILL_CHIPS.filter((skill) => !editSkills.includes(skill))
                       .map((skill) => (
                       <Chip
                         key={skill}
@@ -2713,6 +3502,9 @@ const ALL_SKILLS = [
                               {q.options && ` • Options: ${q.options.join(', ')}`}
                             </Typography>
                           </Box>
+                          <IconButton size="small" onClick={() => handleStartEditQuestion(q)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
                           <IconButton size="small" onClick={() => handleRemoveEditQuestion(q.id)}>
                             <DeleteIcon fontSize="small" />
                           </IconButton>
@@ -2724,7 +3516,7 @@ const ALL_SKILLS = [
                   {/* Add new question */}
                   <Paper sx={{ p: 2, border: '2px dashed #ddd' }}>
                     <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>
-                      Add New Question
+                      {editEditingQuestionId ? 'Edit Question' : 'Add New Question'}
                     </Typography>
                     <Grid container spacing={2}>
                       <Grid item xs={12}>
@@ -2746,10 +3538,8 @@ const ALL_SKILLS = [
                             onChange={(e) => setEditQuestionType(e.target.value as any)}
                           >
                             <MenuItem value="text">Normal Question</MenuItem>
-                            <MenuItem value="code">Coding Question</MenuItem>
                             <MenuItem value="verbal">Verbal Question</MenuItem>
-                            <MenuItem value="yesno">Yes / No</MenuItem>
-                            <MenuItem value="number">Number</MenuItem>
+                            <MenuItem value="video">Video Response</MenuItem>
                             <MenuItem value="multiple">Multiple Choice</MenuItem>
                           </Select>
                         </FormControl>
@@ -2766,6 +3556,22 @@ const ALL_SKILLS = [
                           label="Required question"
                         />
                       </Grid>
+                      {editQuestionType === 'video' && (
+                        <Grid item xs={12} md={6}>
+                          <TextField
+                            fullWidth
+                            type="number"
+                            label="Max video length (seconds)"
+                            value={editVideoMaxSeconds}
+                            onChange={(e) =>
+                              setEditVideoMaxSeconds(Math.min(600, Math.max(15, parseInt(e.target.value, 10) || 120)))
+                            }
+                            inputProps={{ min: 15, max: 600 }}
+                            InputLabelProps={{ shrink: true }}
+                            helperText="15–600 seconds"
+                          />
+                        </Grid>
+                      )}
                       {editQuestionType === 'multiple' && (
                         <Grid item xs={12}>
                           <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
@@ -2803,8 +3609,297 @@ const ALL_SKILLS = [
                           disabled={!editNewQuestion.trim()}
                           sx={{ bgcolor: '#0d47a1' }}
                         >
-                          Add Question
+                          {editEditingQuestionId ? 'Update Question' : 'Add Question'}
                         </Button>
+                        {editEditingQuestionId && (
+                          <Button onClick={resetEditQuestionForm} sx={{ ml: 1 }}>
+                            Cancel Edit
+                          </Button>
+                        )}
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                </Box>
+              )}
+              {editTab === 3 && (
+                <Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Keep coding questions optional. When enabled, these settings shape the candidate assessment flow and the integrity signals recruiters will later review.
+                  </Typography>
+
+                  <List sx={{ mb: 3 }}>
+                    {editCodingQuestions.map((q, index) => (
+                      <Paper key={q.id} sx={{ mb: 1.5, p: 2, bgcolor: alpha('#0d47a1', 0.02) }}>
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                          <DragIndicatorIcon sx={{ color: '#888', mt: 0.5, cursor: 'grab' }} />
+                          <Box sx={{ flex: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
+                              <Typography variant="body1" fontWeight={500}>
+                                {index + 1}. {q.question}
+                              </Typography>
+                              <Chip label={q.required ? 'Required' : 'Optional'} size="small" color={q.required ? 'error' : 'default'} sx={{ height: 20, fontSize: '0.7rem' }} />
+                              <Chip label={q.difficulty.toUpperCase()} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              <Chip label={`${q.timeLimitMinutes} min`} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            </Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                              Languages: {q.allowedLanguages.join(', ')}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                              Guardrails: {[
+                                q.requireFullScreen ? 'Full screen' : null,
+                                q.preventTabSwitch ? `Tab limit ${q.maxTabSwitches}` : null,
+                                q.blockCopyPaste ? 'Paste blocked' : null,
+                                q.autoSubmitOnTimeout ? 'Auto submit' : null,
+                                q.trackSuspiciousActivity ? 'Suspicious activity tracking' : null,
+                              ].filter(Boolean).join(' • ')}
+                            </Typography>
+                          </Box>
+                          <IconButton size="small" onClick={() => handleStartEditCodingQuestion(q)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton size="small" onClick={() => handleRemoveEditCodingQuestion(q.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Paper>
+                    ))}
+                  </List>
+
+                  <Paper sx={{ p: 2, border: '2px dashed #ddd' }}>
+                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                      VerTechie template pack
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                      6 questions, 3 test cases each. Click one to fill the form below.
+                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+                      <Button size="small" variant="contained" onClick={addAllTemplatePackToEdit} sx={{ bgcolor: '#0d47a1', textTransform: 'none' }}>
+                        Add all 6 to list
+                      </Button>
+                    </Box>
+                    <List dense disablePadding sx={{ mb: 2 }}>
+                      {templatePackList.map((q, index) => (
+                        <ListItemButton
+                          key={`edit-${q.id}`}
+                          onClick={() => pickTemplatePackForEdit(index)}
+                          sx={{ borderRadius: 1, mb: 0.5, border: '1px solid #e0e0e0' }}
+                        >
+                          <ListItemText
+                            primaryTypographyProps={{ fontWeight: 600 }}
+                            primary={`${index + 1}. ${q.question}`}
+                            secondary={`${q.difficulty} · ${(q.testCases || []).length} test cases`}
+                          />
+                        </ListItemButton>
+                      ))}
+                    </List>
+                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>
+                      {editEditingCodingQuestionId ? 'Edit Coding Question' : 'Add Coding Question'}
+                    </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Question Title"
+                          value={editCodingDraft.question}
+                          onChange={(e) => setEditCodingDraft({ ...editCodingDraft, question: e.target.value })}
+                          placeholder="e.g., Print Hello World"
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          multiline
+                          rows={4}
+                          label="Problem Statement"
+                          value={editCodingDraft.description}
+                          onChange={(e) => setEditCodingDraft({ ...editCodingDraft, description: e.target.value })}
+                          placeholder="Explain the task, input/output expectation, and evaluation notes."
+                          InputLabelProps={{ shrink: true }}
+                          InputProps={{ inputProps: { 'data-allow-paste': 'true' } as any }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <FormControl fullWidth>
+                          <InputLabel shrink>Difficulty</InputLabel>
+                          <Select
+                            value={editCodingDraft.difficulty}
+                            label="Difficulty"
+                            onChange={(e) => setEditCodingDraft({ ...editCodingDraft, difficulty: e.target.value as CodingAssessmentQuestion['difficulty'] })}
+                          >
+                            <MenuItem value="easy">Easy</MenuItem>
+                            <MenuItem value="medium">Medium</MenuItem>
+                            <MenuItem value="hard">Hard</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <TextField
+                          fullWidth
+                          type="number"
+                          label="Time Limit (minutes)"
+                          value={editCodingDraft.timeLimitMinutes}
+                          onChange={(e) => setEditCodingDraft({ ...editCodingDraft, timeLimitMinutes: Number(e.target.value) })}
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <FormControlLabel
+                          control={<Switch checked={editCodingDraft.required} onChange={(e) => setEditCodingDraft({ ...editCodingDraft, required: e.target.checked })} color="primary" />}
+                          label="Required question"
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Autocomplete
+                          multiple
+                          options={CODING_LANGUAGE_OPTIONS}
+                          value={editCodingDraft.allowedLanguages}
+                          onChange={(_, value) => setEditCodingDraft({ ...editCodingDraft, allowedLanguages: value })}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="Allowed Languages"
+                              placeholder="Choose languages"
+                              InputLabelProps={{ shrink: true }}
+                            />
+                          )}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Sample Input"
+                          value={editCodingDraft.sampleInput}
+                          onChange={(e) => setEditCodingDraft({ ...editCodingDraft, sampleInput: e.target.value })}
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Sample Output"
+                          value={editCodingDraft.sampleOutput}
+                          onChange={(e) => setEditCodingDraft({ ...editCodingDraft, sampleOutput: e.target.value })}
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Expected Output / Test Hint"
+                          value={editCodingDraft.expectedOutput}
+                          onChange={(e) => setEditCodingDraft({ ...editCodingDraft, expectedOutput: e.target.value })}
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          multiline
+                          rows={4}
+                          label="Starter Code"
+                          value={editCodingDraft.starterCode}
+                          onChange={(e) => setEditCodingDraft({ ...editCodingDraft, starterCode: e.target.value })}
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                          Hidden test cases (auto-judge)
+                        </Typography>
+                        <Collapse in={Boolean((editCodingDraft.testCases || []).length)}>
+                          <Grid container spacing={1}>
+                            {(editCodingDraft.testCases || []).map((tc, tcIdx) => (
+                              <React.Fragment key={tc.id || `edit-tc-${tcIdx}`}>
+                                <Grid item xs={12} md={6}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    multiline
+                                    minRows={2}
+                                    label={`Test ${tcIdx + 1} — Input`}
+                                    value={tc.input}
+                                    onChange={(e) => updateEditCodingDraftTestCase(tcIdx, 'input', e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                  />
+                                </Grid>
+                                <Grid item xs={12} md={6}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    multiline
+                                    minRows={2}
+                                    label={`Test ${tcIdx + 1} — Expected output`}
+                                    value={tc.expectedOutput}
+                                    onChange={(e) => updateEditCodingDraftTestCase(tcIdx, 'expectedOutput', e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                  />
+                                </Grid>
+                              </React.Fragment>
+                            ))}
+                          </Grid>
+                        </Collapse>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Typography variant="subtitle2" fontWeight={600}>
+                          Assessment Integrity
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <FormControlLabel
+                          control={<Switch checked={editCodingDraft.requireFullScreen} onChange={(e) => setEditCodingDraft({ ...editCodingDraft, requireFullScreen: e.target.checked })} color="primary" />}
+                          label="Require full screen"
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <FormControlLabel
+                          control={<Switch checked={editCodingDraft.preventTabSwitch} onChange={(e) => setEditCodingDraft({ ...editCodingDraft, preventTabSwitch: e.target.checked })} color="primary" />}
+                          label="Track tab switching"
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <FormControlLabel
+                          control={<Switch checked={editCodingDraft.blockCopyPaste} onChange={(e) => setEditCodingDraft({ ...editCodingDraft, blockCopyPaste: e.target.checked })} color="primary" />}
+                          label="Block copy / paste"
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <FormControlLabel
+                          control={<Switch checked={editCodingDraft.autoSubmitOnTimeout} onChange={(e) => setEditCodingDraft({ ...editCodingDraft, autoSubmitOnTimeout: e.target.checked })} color="primary" />}
+                          label="Auto-submit on timeout"
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <FormControlLabel
+                          control={<Switch checked={editCodingDraft.trackSuspiciousActivity} onChange={(e) => setEditCodingDraft({ ...editCodingDraft, trackSuspiciousActivity: e.target.checked })} color="primary" />}
+                          label="Track suspicious activity"
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <TextField
+                          fullWidth
+                          type="number"
+                          label="Allowed Tab Switches"
+                          value={editCodingDraft.maxTabSwitches}
+                          onChange={(e) => setEditCodingDraft({ ...editCodingDraft, maxTabSwitches: Number(e.target.value) })}
+                          InputLabelProps={{ shrink: true }}
+                          disabled={!editCodingDraft.preventTabSwitch}
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Button
+                          variant="contained"
+                          onClick={handleSaveEditCodingQuestion}
+                          disabled={!editCodingDraft.question.trim() || !editCodingDraft.description.trim()}
+                          sx={{ bgcolor: '#0d47a1' }}
+                        >
+                          {editEditingCodingQuestionId ? 'Update Coding Question' : 'Add Coding Question'}
+                        </Button>
+                        {editEditingCodingQuestionId && (
+                          <Button onClick={resetEditCodingQuestionForm} sx={{ ml: 1 }}>
+                            Cancel Edit
+                          </Button>
+                        )}
                       </Grid>
                     </Grid>
                   </Paper>
@@ -2822,8 +3917,8 @@ const ALL_SKILLS = [
             )}
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button onClick={() => { setEditDialogOpen(false); setEditJobErrors({}); setEditSkillsFieldError(false); setEditTab(0); }}>Cancel</Button>
-            {editTab < 2 ? (
+            <Button onClick={() => { setEditDialogOpen(false); setEditJobTitleOptions([]); setEditJobErrors({}); setEditSkillsFieldError(false); setEditTab(0); resetEditQuestionForm(); resetEditCodingQuestionForm(); }}>Cancel</Button>
+            {editTab < 3 ? (
               <Button variant="contained" onClick={handleEditNextTab} sx={{ bgcolor: '#0d47a1' }}>
                 Next
               </Button>
@@ -3104,7 +4199,7 @@ const ALL_SKILLS = [
                                 <SmsIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Share vtCalendar link">
+                            <Tooltip title="Share VTCalendar link">
                               <IconButton
                                 size="small"
                                 sx={{ color: '#00897b' }}

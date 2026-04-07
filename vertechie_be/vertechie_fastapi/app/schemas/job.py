@@ -5,7 +5,7 @@ Job schemas.
 from typing import Optional, List
 from datetime import datetime, date
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class JobCreate(BaseModel):
@@ -131,6 +131,26 @@ class JobResponse(BaseModel):
     
     published_at: Optional[datetime] = None
     created_at: datetime
+
+    @field_validator(
+        "skills_required",
+        "benefits",
+        "coding_questions",
+        "screening_questions",
+        "hiring_countries",
+        "hiring_states",
+        "work_authorizations",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_legacy_json_lists(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            return []
+        return [value]
     
     class Config:
         from_attributes = True
@@ -149,6 +169,7 @@ class JobApplicationCreate(BaseModel):
     # Only when job.collect_applicant_location and user consented; backend adds IP snapshot
     applicant_location_lat: Optional[float] = None
     applicant_location_lng: Optional[float] = None
+    applicant_location_context: Optional[dict] = None
 
 
 class JobApplicationResponse(BaseModel):

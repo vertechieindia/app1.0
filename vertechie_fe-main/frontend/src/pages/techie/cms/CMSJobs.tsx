@@ -43,6 +43,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import CloseIcon from '@mui/icons-material/Close';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import CMSLayout from './CMSLayout';
+import { fetchMyCompanyForCMS } from './cmsCompanyFetch';
 import { api } from '../../../services/apiClient';
 import { API_ENDPOINTS } from '../../../config/api';
 
@@ -88,21 +89,7 @@ const CMSJobs: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      // Try getting user first to find their company
-      const me = await api.get<any>(API_ENDPOINTS.AUTH.ME);
-      let myCompany = null;
-      if (me?.id) {
-        const result = await api.get<any>(API_ENDPOINTS.COMPANY, { params: { user_id: me.id } });
-        if (Array.isArray(result) && result.length > 0) myCompany = result[0];
-        else if (result?.id) myCompany = result;
-      }
-
-      // Fallback
-      if (!myCompany) {
-        try {
-          myCompany = await api.get<any>(API_ENDPOINTS.CMS.MY_COMPANY);
-        } catch (e) { }
-      }
+      const myCompany = await fetchMyCompanyForCMS();
 
       if (myCompany?.id) {
         setCompanyId(myCompany.id);

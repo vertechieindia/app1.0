@@ -108,10 +108,14 @@ const pulse = keyframes`
 
 // Styled Components - Light Theme
 const PageContainer = styled(Box)({
-  minHeight: '100vh',
+  /* Let <main> scroll; avoid clipping sections below the fold (Skills, Experience, etc.) */
+  flexShrink: 0,
+  width: '100%',
+  minHeight: 0,
   background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%)',
   position: 'relative',
-  overflow: 'hidden',
+  overflowX: 'hidden',
+  overflowY: 'visible',
   '&::before': {
     content: '""',
     position: 'absolute',
@@ -773,9 +777,12 @@ const ProfilePage: React.FC = () => {
           const shouldFetchCompany =
             roleNames.includes('hiring_manager') ||
             roleNames.includes('hr') ||
+            roleNames.includes('techie') ||
             roleNames.includes('company_admin') ||
             adminRoleNames.includes('company_admin') ||
-            adminRoleNames.includes('hr_admin');
+            adminRoleNames.includes('hr_admin') ||
+            parsedUserData.has_company ||
+            parsedUserData.company_id;
 
           if (shouldFetchCompany) {
             const companyUrl = getApiUrl('/users/me/company');
@@ -884,27 +891,73 @@ const ProfilePage: React.FC = () => {
   const parsedStored = storedData ? JSON.parse(storedData) : {};
   const userRoles = parsedStored.roles || parsedStored.groups || [];
   const adminRoles = parsedStored.admin_roles || [];
-  const isHiringManager = userRoles.some((r: any) =>
-    r.role_type === 'hiring_manager' ||
-    r.role_type === 'HIRING_MANAGER' ||
-    r.name?.toLowerCase() === 'hiring_manager' ||
-    r.name?.toLowerCase() === 'hr'
-  ) || !!companyData;
+  const primaryRoleFromToken = String(parsedStored.role || '').toLowerCase();
+
+  /** Signup / account type only — do not use companyData (approved company page does not change HR vs techie). */
+  const isHiringManager =
+    primaryRoleFromToken === 'hiring_manager' ||
+    primaryRoleFromToken === 'hr' ||
+    userRoles.some((r: any) =>
+      r.role_type === 'hiring_manager' ||
+      r.role_type === 'HIRING_MANAGER' ||
+      r.name?.toLowerCase() === 'hiring_manager' ||
+      r.name?.toLowerCase() === 'hr'
+    );
+
+  const isTechieAccount =
+    primaryRoleFromToken === 'techie' ||
+    userRoles.some((r: any) =>
+      r.role_type === 'techie' ||
+      r.name?.toLowerCase() === 'techie'
+    );
+
+  const signupAccountLabel = isHiringManager
+    ? 'Signed up as Hiring Manager'
+    : isTechieAccount
+      ? 'Signed up as Tech Professional'
+      : null;
+
+  const adminRolesLower = (Array.isArray(adminRoles) ? adminRoles : []).map((r: unknown) =>
+    String(r).toLowerCase(),
+  );
+  const groupNamesLower = (Array.isArray(parsedStored.groups) ? parsedStored.groups : [])
+    .map((g: any) => (typeof g === 'string' ? g.toLowerCase() : String(g?.name || '').toLowerCase()))
+    .filter(Boolean);
+  /** Slugs from both `admin_roles` and Django groups (e.g. `{ name: "bdm_admin" }`) */
+  const roleSlugsLower = [...new Set([...adminRolesLower, ...groupNamesLower])];
+  const hasCompanyAdminAccess = roleSlugsLower.includes('company_admin') || Boolean(parsedStored.company_id);
+  const hasSchoolAdminAccess = roleSlugsLower.includes('school_admin') || Boolean(parsedStored.school_id);
 
   // Check if user is a Techie Admin
-  const isTechieAdmin = adminRoles.includes('techie_admin') ||
+  const isTechieAdmin =
+    roleSlugsLower.includes('techie_admin') ||
     userRoles.some((r: any) => r.role_type === 'techie_admin' || r.name?.toLowerCase() === 'techie_admin');
 
-  // Determine display title based on role
+  // Role / account type must win over profile headline & job title (those can be "Admin" or other text)
   const getDisplayTitle = () => {
-    if (profile?.headline) return profile.headline;
-    if (profile?.current_position) return profile.current_position;
-    if (isHiringManager) return 'Hiring Manager';
+    if (roleSlugsLower.includes('bdm_admin')) return 'BDM Admin';
     if (isTechieAdmin) return 'Techie Admin';
+    if (roleSlugsLower.includes('hm_admin')) return 'HM Admin';
+    if (hasCompanyAdminAccess && !isHiringManager && !isTechieAccount) return 'Company Admin';
+    if (hasSchoolAdminAccess && !isHiringManager && !isTechieAccount) return 'School Admin';
+    if (roleSlugsLower.includes('learn_admin')) return 'Learn Admin';
     if (parsedStored.is_superuser) return 'Super Admin';
-    if (parsedStored.is_staff || adminRoles.length > 0) return 'Admin';
+    if (isHiringManager) return 'Hiring Manager';
+    if (isTechieAccount) return 'Tech Professional';
+    if (parsedStored.is_staff || adminRolesLower.length > 0) return 'Admin';
+    const h = profile?.headline?.trim();
+    if (h) return h;
+    const pos = profile?.current_position?.trim();
+    if (pos) return pos;
     return 'Tech Professional';
   };
+
+  const secondaryRoleLabel =
+    hasCompanyAdminAccess && (isHiringManager || isTechieAccount)
+      ? 'Company Admin'
+      : hasSchoolAdminAccess && (isHiringManager || isTechieAccount)
+        ? 'School Admin'
+        : null;
 
   // Derived data for display
   const preferredProfileName = user?.profile_name?.trim() || '';
@@ -920,9 +973,11 @@ const ProfilePage: React.FC = () => {
     firstName: displayNameParts[0] || 'User',
     lastName: displayNameParts.slice(1).join(' '),
     title: getDisplayTitle(),
+    secondaryTitle: secondaryRoleLabel,
     tagline: profile?.bio || (isHiringManager
       ? `${profile?.current_company ? `@ ${profile.current_company}` : 'Finding great talent'} 💼`
       : 'Building amazing things with code 🚀'),
+    signupAccountLabel,
     location: profile?.location || user?.country || 'Location not set',
     email: user?.email || '',
     isVerified: user?.is_verified || false,
@@ -1667,6 +1722,7 @@ const ProfilePage: React.FC = () => {
           address: address || undefined,
           emails: email ? [email] : [],
           phone_numbers: phone ? [phone] : [],
+          invite_flow: 'outreach',
         }),
       });
       if (response.ok) {
@@ -1961,6 +2017,37 @@ const ProfilePage: React.FC = () => {
                   <Typography variant="h6" sx={{ color: 'rgba(0,0,0,0.7)', mb: 1, fontWeight: 500 }}>
                     {displayUser.title}
                   </Typography>
+
+                  {displayUser.secondaryTitle && (
+                    <Chip
+                      label={displayUser.secondaryTitle}
+                      size="small"
+                      sx={{
+                        mb: 1,
+                        alignSelf: 'flex-start',
+                        background: 'rgba(99, 102, 241, 0.08)',
+                        color: '#4f46e5',
+                        fontWeight: 700,
+                        border: '1px solid rgba(99, 102, 241, 0.2)',
+                      }}
+                    />
+                  )}
+
+                  {displayUser.signupAccountLabel && (
+                    <Chip
+                      label={displayUser.signupAccountLabel}
+                      size="small"
+                      variant="outlined"
+                      sx={{
+                        mb: 1.5,
+                        alignSelf: 'flex-start',
+                        borderColor: 'rgba(99, 102, 241, 0.45)',
+                        color: '#475569',
+                        fontWeight: 600,
+                        fontSize: '0.75rem',
+                      }}
+                    />
+                  )}
 
                   <Typography variant="body1" sx={{ color: 'rgba(0,0,0,0.5)', mb: 2 }}>
                     {displayUser.tagline}

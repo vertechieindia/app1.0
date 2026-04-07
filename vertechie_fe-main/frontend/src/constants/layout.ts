@@ -4,7 +4,11 @@
  */
 export const HEADER_HEIGHT_XS = 64;
 export const HEADER_HEIGHT_MD_UP = 70;
-export const BOTTOM_NAV_HEIGHT = 80;
+/** Visual height of fixed BottomNav (icons + labels + padding) — 80px was too small on real devices */
+export const BOTTOM_NAV_HEIGHT = 96;
+
+/** Extra scroll inset so the last row of content clears the nav (avoids half-visible cards) */
+export const AUTH_MAIN_BOTTOM_SCROLL_BUFFER_PX = 24;
 
 /** Gap between fixed chrome and scrollable content */
 export const AUTH_MAIN_CHROME_GAP_PX = 16;
@@ -12,8 +16,9 @@ export const AUTH_MAIN_CHROME_GAP_PX = 16;
 /** Padding inside <main> below fixed AppBar + gap (legacy single breakpoint — prefer responsive in App.tsx) */
 export const AUTH_MAIN_PADDING_TOP_PX = HEADER_HEIGHT_MD_UP + AUTH_MAIN_CHROME_GAP_PX;
 
-/** Padding inside <main> above fixed BottomNav + gap */
-export const AUTH_MAIN_PADDING_BOTTOM_PX = BOTTOM_NAV_HEIGHT + AUTH_MAIN_CHROME_GAP_PX;
+/** Padding inside <main> above fixed BottomNav + gap + buffer */
+export const AUTH_MAIN_PADDING_BOTTOM_PX =
+  BOTTOM_NAV_HEIGHT + AUTH_MAIN_CHROME_GAP_PX + AUTH_MAIN_BOTTOM_SCROLL_BUFFER_PX;
 
 /** Total vertical inset (using larger header for worst-case estimates) */
 export const AUTH_MAIN_VERTICAL_INSET_PX =

@@ -10,7 +10,7 @@
  * - Company Account: CMS (Company Management System)
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   BottomNavigation as MuiBottomNav,
@@ -32,8 +32,6 @@ import {
 import { styled, alpha } from '@mui/material/styles';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
 import { API_BASE_URL } from '../../config/api';
-import { chatService } from '../../services/chatService';
-import { notificationService } from '../../services/interviewService';
 
 // Icons
 import HomeIcon from '@mui/icons-material/Home';
@@ -47,7 +45,8 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import PersonIcon from '@mui/icons-material/Person';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import DashboardIcon from '@mui/icons-material/Dashboard';
-import BusinessIcon from '@mui/icons-material/Business';
+import DomainIcon from '@mui/icons-material/Domain';
+import StorefrontIcon from '@mui/icons-material/Storefront';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -134,8 +133,24 @@ interface NavItemConfig {
   badge?: number;
 }
 
+/** Roles that see Business → Create Company / Create School in bottom nav */
+const BUSINESS_NAV_ROLES = new Set([
+  'techie',
+  'hiring_manager',
+  'hm_admin',
+  'techie_admin',
+  'company_admin',
+  'school_admin',
+  'super_admin',
+  'multi_admin',
+  'admin',
+  'company',
+  'school',
+]);
+
 const BottomNav: React.FC = () => {
   const [moreAnchor, setMoreAnchor] = useState<null | HTMLElement>(null);
+  const [businessAnchor, setBusinessAnchor] = useState<null | HTMLElement>(null);
   const [profileAnchor, setProfileAnchor] = useState<null | HTMLElement>(null);
   const [userRole, setUserRole] = useState<string>('techie');
   const [userName, setUserName] = useState('');
@@ -150,62 +165,26 @@ const BottomNav: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Fetch unread notification count from backend
-  const fetchNotificationCount = async () => {
-    try {
-      const data = await notificationService.getUnreadCount();
-      setNotifications(data.unread_count || 0);
-    } catch {
-      setNotifications(0);
-    }
-  };
-
-  // Poll control
-  const consecutive404 = useRef(0);
-  const [stopMessagePolling, setStopMessagePolling] = useState(false);
-
-  // Fetch unread message count from backend
-  const fetchMessageCount = async () => {
-    if (stopMessagePolling) return;
-    try {
-      const data = await chatService.getUnreadCount();
-      setMessages(data.unread_count || 0);
-      consecutive404.current = 0;
-    } catch (error: any) {
-      const status = error?.response?.status;
-      setMessages(0);
-      if (status === 404) {
-        consecutive404.current += 1;
-        if (consecutive404.current > 3) setStopMessagePolling(true);
-      }
-    }
-  };
-
   useEffect(() => {
     loadUserData();
   }, [location.pathname]);
 
-  // Fetch counts only on mount and then every 30 seconds
+  // AppHeader is the single polling source; BottomNav only mirrors its latest counts.
   useEffect(() => {
-    fetchNotificationCount();
-    fetchMessageCount();
-
-    // Listen for real-time chat updates
-    const handleChatUpdate = () => {
-      fetchMessageCount();
+    const handleUnreadCounts = (event: Event) => {
+      const detail = (event as CustomEvent<{ notifications?: number; messages?: number }>).detail;
+      if (typeof detail?.notifications === 'number') {
+        setNotifications(detail.notifications);
+      }
+      if (typeof detail?.messages === 'number') {
+        setMessages(detail.messages);
+      }
     };
-    window.addEventListener('chat-message-received', handleChatUpdate);
-
-    // Refresh counts every 30 seconds
-    const interval = setInterval(() => {
-      fetchNotificationCount();
-      fetchMessageCount();
-    }, 30000);
+    window.addEventListener('vertechie-unread-counts-updated', handleUnreadCounts as EventListener);
     return () => {
-      clearInterval(interval);
-      window.removeEventListener('chat-message-received', handleChatUpdate);
+      window.removeEventListener('vertechie-unread-counts-updated', handleUnreadCounts as EventListener);
     };
-  }, []); // Run only on mount to prevent frequent API calls during navigation
+  }, []);
 
   const loadUserData = () => {
     const userData = localStorage.getItem('userData');
@@ -257,7 +236,13 @@ const BottomNav: React.FC = () => {
         } else if (user.has_school || user.school_id) {
           setUserRole('school');
         } else if (user.has_company || user.company_id) {
-          setUserRole('company');
+          const primary = String(user.role || userGroups[0]?.name || '').toLowerCase();
+          // Tech professionals keep role "techie" so ATS+CMS can both show when linked as company owner
+          if (primary === 'techie') {
+            setUserRole('techie');
+          } else {
+            setUserRole('company');
+          }
         } else {
           setUserRole('techie');
         }
@@ -303,8 +288,21 @@ const BottomNav: React.FC = () => {
   const getRoleSpecificItems = (): NavItemConfig[] => {
     const items: NavItemConfig[] = [];
 
-    // ATS for Hiring Managers and Admins (user-side job posting management)
-    if (userRole === 'hiring_manager' || userRole === 'hm_admin' || isAnyAdmin) {
+    let companyLinked = false;
+    try {
+      const raw = JSON.parse(localStorage.getItem('userData') || '{}');
+      companyLinked = !!(raw.has_company || raw.company_id);
+    } catch {
+      companyLinked = false;
+    }
+
+    const atsEligible =
+      userRole === 'hiring_manager' ||
+      userRole === 'hm_admin' ||
+      isAnyAdmin ||
+      (userRole === 'techie' && companyLinked);
+
+    if (atsEligible) {
       items.push({
         key: 'ats',
         label: 'ATS',
@@ -318,13 +316,18 @@ const BottomNav: React.FC = () => {
       items.push({
         key: 'sms',
         label: 'SMS',
-        icon: <BusinessIcon />,
+        icon: <DomainIcon />,
         path: '/techie/sms'
       });
     }
 
-    // CMS - visible only to company users and superusers (not to other admins or school users)
-    if (userRole === 'company' || userRole === 'company_admin' || userRole === 'super_admin') {
+    const cmsEligible =
+      userRole === 'company' ||
+      userRole === 'company_admin' ||
+      userRole === 'super_admin' ||
+      (companyLinked && (userRole === 'hiring_manager' || userRole === 'techie'));
+
+    if (cmsEligible) {
       items.push({
         key: 'cms',
         label: 'CMS',
@@ -385,6 +388,15 @@ const BottomNav: React.FC = () => {
       });
     }
 
+    if (BUSINESS_NAV_ROLES.has(userRole)) {
+      items.push({
+        key: 'business',
+        label: 'Business',
+        icon: <StorefrontIcon />,
+        path: '/techie/create-company',
+      });
+    }
+
     return items;
   };
 
@@ -401,6 +413,7 @@ const BottomNav: React.FC = () => {
         { key: 'learn', label: 'Learn', icon: <SchoolIcon />, path: '/techie/learn' },
         { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat' },
         { key: 'blogs', label: 'Blog', icon: <ArticleIcon />, path: '/techie/blogs' },
+        { key: 'business', label: 'Business', icon: <StorefrontIcon />, path: '/techie/create-company' },
         { key: 'admin', label: 'Admin', icon: <AdminPanelSettingsIcon />, path: '/vertechie/techieadmin' },
         // Profile is always shown separately at the end, so not included here
       ];
@@ -416,6 +429,7 @@ const BottomNav: React.FC = () => {
         { key: 'learn', label: 'Learn', icon: <SchoolIcon />, path: '/techie/learn' },
         { key: 'chat', label: 'Chat', icon: <ChatIcon />, path: '/techie/chat' },
         { key: 'blogs', label: 'Blog', icon: <ArticleIcon />, path: '/techie/blogs' },
+        { key: 'business', label: 'Business', icon: <StorefrontIcon />, path: '/techie/create-company' },
         { key: 'admin', label: 'Admin', icon: <AdminPanelSettingsIcon />, path: '/vertechie/role-admin' },
       ];
       if (isMobile) return multiAdminItems.slice(0, 4);
@@ -458,8 +472,18 @@ const BottomNav: React.FC = () => {
         {visibleItems.map((item) => (
           <NavItem
             key={item.key}
-            active={isActive(item.path)}
-            onClick={() => navigate(item.path)}
+            active={
+              item.key === 'business'
+                ? isActive('/techie/create-company') || isActive('/techie/create-school')
+                : isActive(item.path)
+            }
+            onClick={(e) => {
+              if (item.key === 'business') {
+                setBusinessAnchor(e.currentTarget as HTMLElement);
+              } else {
+                navigate(item.path);
+              }
+            }}
           >
             <NavIcon>
               {item.badge ? (
@@ -529,33 +553,112 @@ const BottomNav: React.FC = () => {
                 },
               }}
             >
-              {moreItems.map((item) => (
-                <MenuItem
-                  key={item.key}
-                  onClick={() => {
-                    navigate(item.path);
-                    setMoreAnchor(null);
-                  }}
-                  sx={{
-                    py: 1.5,
-                    '&:hover': { bgcolor: alpha('#5AC8FA', 0.15) },
-                  }}
-                >
-                  <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                    {item.badge ? (
-                      <Badge badgeContent={item.badge} color="error">
-                        {item.icon}
-                      </Badge>
-                    ) : (
-                      item.icon
-                    )}
-                  </ListItemIcon>
-                  <ListItemText primary={item.label} />
-                </MenuItem>
-              ))}
+              {moreItems.map((item) =>
+                item.key === 'business' ? (
+                  <React.Fragment key="business-submenu">
+                    <MenuItem
+                      onClick={() => {
+                        navigate('/techie/create-company');
+                        setMoreAnchor(null);
+                      }}
+                      sx={{
+                        py: 1.5,
+                        '&:hover': { bgcolor: alpha('#5AC8FA', 0.15) },
+                      }}
+                    >
+                      <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                        <StorefrontIcon />
+                      </ListItemIcon>
+                      <ListItemText primary="Create Company" />
+                    </MenuItem>
+                    <MenuItem
+                      onClick={() => {
+                        navigate('/techie/create-school');
+                        setMoreAnchor(null);
+                      }}
+                      sx={{
+                        py: 1.5,
+                        '&:hover': { bgcolor: alpha('#5AC8FA', 0.15) },
+                      }}
+                    >
+                      <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                        <SchoolIcon />
+                      </ListItemIcon>
+                      <ListItemText primary="Create School" />
+                    </MenuItem>
+                  </React.Fragment>
+                ) : (
+                  <MenuItem
+                    key={item.key}
+                    onClick={() => {
+                      navigate(item.path);
+                      setMoreAnchor(null);
+                    }}
+                    sx={{
+                      py: 1.5,
+                      '&:hover': { bgcolor: alpha('#5AC8FA', 0.15) },
+                    }}
+                  >
+                    <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                      {item.badge ? (
+                        <Badge badgeContent={item.badge} color="error">
+                          {item.icon}
+                        </Badge>
+                      ) : (
+                        item.icon
+                      )}
+                    </ListItemIcon>
+                    <ListItemText primary={item.label} />
+                  </MenuItem>
+                )
+              )}
             </Menu>
           </>
         )}
+
+        {/* Business: Create Company / Create School (same routes as profile flow; company stays pending until BDM approves) */}
+        <Menu
+          anchorEl={businessAnchor}
+          open={Boolean(businessAnchor)}
+          onClose={() => setBusinessAnchor(null)}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+          transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+          PaperProps={{
+            sx: {
+              background: 'linear-gradient(180deg, #1a237e 0%, #0d47a1 100%)',
+              color: 'white',
+              border: '1px solid rgba(90, 200, 250, 0.2)',
+              boxShadow: '0 8px 32px rgba(13, 71, 161, 0.3)',
+              minWidth: 200,
+              mb: 1,
+            },
+          }}
+        >
+          <MenuItem
+            onClick={() => {
+              navigate('/techie/create-company');
+              setBusinessAnchor(null);
+            }}
+            sx={{ py: 1.5, '&:hover': { bgcolor: alpha('#5AC8FA', 0.15) } }}
+          >
+            <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
+              <StorefrontIcon />
+            </ListItemIcon>
+            <ListItemText primary="Create Company" />
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              navigate('/techie/create-school');
+              setBusinessAnchor(null);
+            }}
+            sx={{ py: 1.5, '&:hover': { bgcolor: alpha('#5AC8FA', 0.15) } }}
+          >
+            <ListItemIcon sx={{ color: 'rgba(255,255,255,0.8)' }}>
+              <SchoolIcon />
+            </ListItemIcon>
+            <ListItemText primary="Create School" />
+          </MenuItem>
+        </Menu>
 
         {/* Profile */}
         <NavItem
@@ -682,40 +785,7 @@ const BottomNav: React.FC = () => {
             <ListItemText primary="Settings" />
           </MenuItem> */}
 
-          {/* Create School/Company Account Option */}
           <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-
-          {(userRole === 'techie' || userRole === 'hiring_manager') && (
-            <>
-              {/* <MenuItem
-                onClick={() => {
-                  navigate('/techie/create-company');
-                  setProfileAnchor(null);
-                }}
-                sx={{ py: 1.5 }}
-              >
-                <ListItemIcon sx={{ color: '#5AC8FA' }}>
-                  <BusinessIcon />
-                </ListItemIcon>
-                <ListItemText primary="Create Company Page" />
-              </MenuItem> */}
-
-              {/* <MenuItem
-                onClick={() => {
-                  navigate('/techie/create-school');
-                  setProfileAnchor(null);
-                }}
-                sx={{ py: 1.5 }}
-              >
-                <ListItemIcon sx={{ color: '#5AC8FA' }}>
-                  <SchoolIcon />
-                </ListItemIcon>
-                <ListItemText primary="Create School Page" />
-              </MenuItem> */}
-
-              <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-            </>
-          )}
 
           <MenuItem
             onClick={() => {
@@ -746,4 +816,3 @@ const BottomNav: React.FC = () => {
 };
 
 export default BottomNav;
-

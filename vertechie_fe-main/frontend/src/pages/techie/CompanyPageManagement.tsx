@@ -174,7 +174,9 @@ const CompanyPageManagement: React.FC = () => {
   ];
 
   // Your company invite requests (from HR signup — status visible in profile review)
-  const [myCompanyInvites, setMyCompanyInvites] = useState<{ id: string; company_name: string; status: string; created_at?: string }[]>([]);
+  const [myCompanyInvites, setMyCompanyInvites] = useState<
+    { id: string; company_name: string; status: string; created_at?: string; invite_flow?: string }[]
+  >([]);
   useEffect(() => {
     const token = localStorage.getItem('authToken');
     if (!token) return;
@@ -352,20 +354,29 @@ const CompanyPageManagement: React.FC = () => {
               <Card sx={{ mb: 3, border: '1px solid', borderColor: 'divider' }}>
                 <CardContent>
                   <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-                    Your company invite requests (profile review)
+                    Your company-related requests
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Companies you invited during signup. Status is managed by BDM admins.
+                    <strong>Profile request</strong> = Business → Create Company (BDM approves your company page).{' '}
+                    <strong>Outreach</strong> = invite from signup/profile to an external company — not the BDM profile queue.
                   </Typography>
                   <List dense disablePadding>
                     {myCompanyInvites.map((inv) => (
                       <ListItem key={inv.id} sx={{ py: 0.5, px: 0 }}>
                         <ListItemText primary={inv.company_name} />
-                        <Chip
-                          size="small"
-                          label={(inv.status || 'pending').toUpperCase()}
-                          color={inv.status === 'accepted' ? 'success' : inv.status === 'sent' ? 'info' : inv.status === 'declined' ? 'error' : 'warning'}
-                        />
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={inv.invite_flow === 'registration' ? 'Profile request' : 'Outreach'}
+                            color={inv.invite_flow === 'registration' ? 'primary' : 'default'}
+                          />
+                          <Chip
+                            size="small"
+                            label={(inv.status || 'pending').toUpperCase()}
+                            color={inv.status === 'accepted' ? 'success' : inv.status === 'sent' ? 'info' : inv.status === 'declined' ? 'error' : 'warning'}
+                          />
+                        </Box>
                       </ListItem>
                     ))}
                   </List>

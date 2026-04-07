@@ -1,6 +1,12 @@
 /**
  * Centralized redirect path for authenticated users based on role and verification status.
  * Used by Login, Home, and StatusProcessing to keep redirect logic consistent.
+ *
+ * Product flow (high level):
+ * 1) Techie signup → pending until Techie Admin approves (`/vertechie/techieadmin`).
+ * 2) HR signup → pending until HM Admin approves (`/vertechie/hmadmin`).
+ * 3) Creating a *company page* (CMS) after that is separate: Business → `/techie/create-company`
+ *    submits `invite_flow: registration` → BDM queue under VerTechie Admin → User Management (`/vertechie/admin?bdm=1`). CMS unlocks only after BDM provisions the company.
  */
 
 export interface UserDataForRedirect {
@@ -12,7 +18,32 @@ export interface UserDataForRedirect {
   admin_roles?: string[];
   groups?: Array<{ name?: string }>;
   role?: string;
+  /** Login/API hint: techie | hr | company | school */
   user_type?: string;
+  /** True when user is linked to a provisioned company (CompanyAdmin / BDM-approved). */
+  has_company?: boolean;
+  company_id?: string | null;
+}
+
+function hasCompanyLink(user: UserDataForRedirect): boolean {
+  if (user.has_company === true) return true;
+  const cid = user.company_id;
+  return typeof cid === 'string' && cid.length > 0;
+}
+
+/** Match role from groups or primary `role` / `user_type` (used when /users/me omits groups). */
+function hasAccountRole(user: UserDataForRedirect, names: string[]): boolean {
+  const want = names.map((n) => n.toLowerCase());
+  if (user.groups?.some((g) => want.includes((g.name || '').toLowerCase()))) {
+    return true;
+  }
+  const r = (user.role || '').toLowerCase();
+  if (want.includes(r)) return true;
+  const ut = (user.user_type || '').toLowerCase();
+  if (ut === 'hr' && want.includes('hiring_manager')) return true;
+  if (ut === 'company' && want.includes('company_admin')) return true;
+  if (ut === 'school' && want.includes('school_admin')) return true;
+  return false;
 }
 
 /**
@@ -32,10 +63,6 @@ export function getRedirectPathForUser(user: UserDataForRedirect): string | null
   const adminRoles = user.admin_roles || [];
   const roleAdminTypes = ['techie_admin', 'hm_admin', 'company_admin', 'school_admin'];
   const hasMultipleRoleAdmins = roleAdminTypes.filter((r) => adminRoles.includes(r)).length > 1;
-  const isHR = user.groups?.some(
-    (g: { name?: string }) =>
-      g.name?.toLowerCase() === 'hr' || g.name?.toLowerCase() === 'hiring_manager'
-  );
   const verified = isUserVerified(user);
 
   if (user.is_superuser || adminRoles.includes('superadmin')) {
@@ -57,7 +84,7 @@ export function getRedirectPathForUser(user: UserDataForRedirect): string | null
     return '/vertechie/techieadmin';
   }
   if (adminRoles.includes('bdm_admin')) {
-    return '/vertechie/bdmadmin';
+    return '/vertechie/admin?bdm=1';
   }
   if (adminRoles.includes('learnadmin') || adminRoles.includes('learn_admin')) {
     return '/vertechie/learnadmin';
@@ -79,6 +106,25 @@ export function getRedirectPathForUser(user: UserDataForRedirect): string | null
     return '/status/processing';
   }
   if (verified) {
+    // School page owners → SMS (not techie onboarding)
+    if (hasAccountRole(user, ['school_admin'])) {
+      return '/techie/sms';
+    }
+    // HR (hiring manager): ATS and HR features after signup/approval; CMS only after BDM approves a company page
+    if (hasAccountRole(user, ['hiring_manager'])) {
+      if (!hasCompanyLink(user)) {
+        return '/hr/dashboard';
+      }
+      return '/techie/cms';
+    }
+    // Company account owner (e.g. techie Business flow): create company via BDM before CMS
+    if (hasAccountRole(user, ['company_admin'])) {
+      if (!hasCompanyLink(user)) {
+        return '/techie/create-company';
+      }
+      return '/techie/cms';
+    }
+    // Tech professionals → existing onboarding + feed
     const profileCompletionShown = localStorage.getItem('profileCompletionShown');
     if (!profileCompletionShown) {
       return '/techie/profile-completion';
