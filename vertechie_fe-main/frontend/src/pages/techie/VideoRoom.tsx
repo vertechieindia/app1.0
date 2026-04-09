@@ -1245,7 +1245,7 @@ const VideoRoom: React.FC = () => {
               backdropFilter: 'blur(12px)',
               borderTop: { xs: '1px solid rgba(255,255,255,0.1)', md: 'none' },
               borderRadius: {
-                xs: rightPanel !== 'none' ? 2 : 0,
+                xs: 2,
                 md: '0 12px 12px 0',
               },
               boxShadow: { md: '0 2px 12px rgba(0,0,0,0.45)' },
