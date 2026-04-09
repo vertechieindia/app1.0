@@ -32,6 +32,15 @@ const VideoScreeningRecorder: React.FC<VideoScreeningRecorderProps> = ({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const getPreferredMimeType = () => {
+    const preferredTypes = [
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=vp8',
+      'video/webm',
+    ];
+    return preferredTypes.find((type) => MediaRecorder.isTypeSupported(type)) || '';
+  };
+
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -78,7 +87,8 @@ const VideoScreeningRecorder: React.FC<VideoScreeningRecorderProps> = ({
     recorderRef.current = null;
     setRecording(false);
     stopStream();
-    const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+    const mimeType = rec?.mimeType || 'video/webm';
+    const blob = new Blob(chunksRef.current, { type: mimeType });
     chunksRef.current = [];
     if (blob.size < 2000) {
       setError('Recording too short. Try again.');
@@ -86,7 +96,7 @@ const VideoScreeningRecorder: React.FC<VideoScreeningRecorderProps> = ({
     }
     setUploading(true);
     try {
-      const file = new File([blob], `screening-${Date.now()}.webm`, { type: 'video/webm' });
+      const file = new File([blob], `screening-${Date.now()}.webm`, { type: mimeType });
       const url = await uploadJobScreeningVideo(file);
       onChange(url);
     } catch (e: unknown) {
@@ -116,16 +126,22 @@ const VideoScreeningRecorder: React.FC<VideoScreeningRecorderProps> = ({
   const startRecording = async () => {
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1280, max: 1280 },
+          height: { ideal: 720, max: 720 },
+          aspectRatio: { ideal: 16 / 9 },
+        },
+        audio: true,
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
-      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-        ? 'video/webm;codecs=vp9'
-        : 'video/webm';
-      const rec = new MediaRecorder(stream, { mimeType: mime });
+      const mimeType = getPreferredMimeType();
+      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       recorderRef.current = rec;
       chunksRef.current = [];
       rec.ondataavailable = (e) => {
@@ -171,19 +187,32 @@ const VideoScreeningRecorder: React.FC<VideoScreeningRecorderProps> = ({
         )}
       </Box>
       {recording && (
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          style={{
+        <Box
+          sx={{
             width: '100%',
-            maxHeight: 260,
-            borderRadius: 12,
-            background: '#000',
-            objectFit: 'cover',
+            maxWidth: 920,
+            aspectRatio: '16 / 9',
+            maxHeight: { xs: 220, sm: 280, md: 320 },
+            borderRadius: 3,
+            overflow: 'hidden',
+            bgcolor: '#000',
+            border: '1px solid rgba(15, 23, 42, 0.08)',
           }}
-        />
+        >
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            style={{
+              width: '100%',
+              height: '100%',
+              display: 'block',
+              background: '#000',
+              objectFit: 'contain',
+            }}
+          />
+        </Box>
       )}
       <Box sx={{ display: 'flex', gap: 1, mt: 2, flexWrap: 'wrap' }}>
         {!recording && !uploading && (
@@ -219,7 +248,30 @@ const VideoScreeningRecorder: React.FC<VideoScreeningRecorderProps> = ({
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
             Uploaded video
           </Typography>
-          <video src={previewSrc} controls style={{ width: '100%', maxHeight: 280, borderRadius: 12 }} />
+          <Box
+            sx={{
+              width: '100%',
+              maxWidth: 920,
+              aspectRatio: '16 / 9',
+              maxHeight: { xs: 220, sm: 280, md: 320 },
+              borderRadius: 3,
+              overflow: 'hidden',
+              bgcolor: '#000',
+            }}
+          >
+            <video
+              src={previewSrc}
+              controls
+              playsInline
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'block',
+                background: '#000',
+                objectFit: 'contain',
+              }}
+            />
+          </Box>
         </Box>
       )}
     </Box>

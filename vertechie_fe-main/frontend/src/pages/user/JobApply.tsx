@@ -194,7 +194,7 @@ interface Job {
   codingQuestionCount: number;
 }
 
-const getScreeningAnswersStorageKey = (jobId: string) => `job-application-screening:${jobId}`;
+const getScreeningAnswersStorageKey = (jobId: string, userId: string) => `job-application-screening:${jobId}:${userId}`;
 
 const JobApply: React.FC = () => {
   const navigate = useNavigate();
@@ -695,7 +695,8 @@ const JobApply: React.FC = () => {
           applicantLocation,
           savedAt: new Date().toISOString(),
         };
-        sessionStorage.setItem(getScreeningAnswersStorageKey(job.id), JSON.stringify(payload));
+        const userId = user.id || user.user_id || 'anonymous';
+        sessionStorage.setItem(getScreeningAnswersStorageKey(job.id, userId), JSON.stringify(payload));
         setSubmitting(false);
         stopAllDocumentMediaStreams();
         navigate(`/techie/jobs/${job.id}/coding-test`);
