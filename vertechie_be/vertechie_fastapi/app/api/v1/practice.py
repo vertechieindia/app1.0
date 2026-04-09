@@ -3,6 +3,7 @@ Practice/Coding API Routes
 Problems, Contests, and Submissions
 """
 
+import asyncio
 from typing import List, Optional
 from uuid import UUID
 
@@ -23,6 +24,7 @@ from app.models.activity import ActivityType
 from app.models.user import User, UserProfile
 from app.core.security import get_current_user, get_current_admin_user, get_optional_user
 from app.services import activity_service
+from app.services.code_judge import ExecutionRequest, run_execute
 from pydantic import BaseModel, field_validator
 from datetime import datetime, date, timedelta
 
@@ -780,160 +782,114 @@ async def execute_submission(
     submission.test_cases_passed = 0
     await db.commit()
     
-    # Try to call judge service if available
-    # In production, this should be queued to a background worker (Celery, etc.)
+    # Embedded code judge (same process as API). In production, consider a sandboxed worker queue.
     try:
-        import httpx
-        
-        # Try calling judge service (if available at localhost:8001 or configured URL)
-        judge_url = "http://localhost:8001/execute"
-        
         try:
-            # Use shorter timeout for "run" mode (sample test cases only)
-            # Use longer timeout for "submit" mode (all test cases)
-            timeout_seconds = 10.0 if use_sample_only else 30.0
-            
-            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-                response = await client.post(
-                    judge_url,
-                    json={
-                        "language": submission.language,
-                        "code": submission.code,
-                        "problem_id": str(problem.id),
-                        "test_cases": [
-                            {
-                                "input": tc.input_data,
-                                "expected_output": tc.expected_output,
-                            }
-                            for tc in test_cases
-                        ],
-                        "time_limit_ms": 2000 if use_sample_only else 5000,  # Shorter timeout for run mode
-                    },
+            exec_req = ExecutionRequest(
+                language=submission.language,
+                code=submission.code,
+                problem_id=str(problem.id),
+                test_cases=[
+                    {"input": tc.input_data, "expected_output": tc.expected_output}
+                    for tc in test_cases
+                ],
+                time_limit_ms=2000 if use_sample_only else 5000,
+            )
+            result = await asyncio.to_thread(run_execute, exec_req)
+
+            if result.get("status") == "ACCEPTED":
+                submission.status = SubmissionStatus.ACCEPTED
+                submission.test_cases_passed = submission.test_cases_total
+                problem.accepted_count += 1
+                progress_result = await db.execute(
+                    select(UserProgress)
+                    .where(UserProgress.user_id == submission.user_id)
+                    .order_by(UserProgress.updated_at.desc(), UserProgress.id.desc())
+                    .limit(1)
                 )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    # Update submission based on judge response
-                    if result.get("status") == "ACCEPTED":
-                        submission.status = SubmissionStatus.ACCEPTED
-                        submission.test_cases_passed = submission.test_cases_total
-                        # Update problem accepted count
-                        problem.accepted_count += 1
-                        # Get or create user progress (for both first-solve counts and streak)
-                        progress_result = await db.execute(
-                            select(UserProgress)
-                            .where(UserProgress.user_id == submission.user_id)
-                            .order_by(UserProgress.updated_at.desc(), UserProgress.id.desc())
-                            .limit(1)
-                        )
-                        progress = progress_result.scalar_one_or_none()
-                        if not progress:
-                            progress = UserProgress(user_id=submission.user_id)
-                            db.add(progress)
-                            await db.flush()
-                        # First time solving this problem? Update solved counts
-                        prev_count_result = await db.execute(
-                            select(func.count(Submission.id)).where(
-                                Submission.user_id == submission.user_id,
-                                Submission.problem_id == problem.id,
-                                Submission.status == SubmissionStatus.ACCEPTED,
-                                Submission.id != submission.id,
-                            )
-                        )
-                        if (prev_count_result.scalar() or 0) == 0:
-                            progress.total_solved = (progress.total_solved or 0) + 1
-                            if problem.difficulty == Difficulty.EASY:
-                                progress.easy_solved = (progress.easy_solved or 0) + 1
-                            elif problem.difficulty == Difficulty.MEDIUM:
-                                progress.medium_solved = (progress.medium_solved or 0) + 1
-                            else:
-                                progress.hard_solved = (progress.hard_solved or 0) + 1
-                        # Update streak and last submission date for every accepted
-                        sub_date = submission.submitted_at.date() if submission.submitted_at else date.today()
-                        last_date = progress.last_submission_date.date() if progress.last_submission_date else None
-                        if last_date is None:
-                            progress.current_streak = 1
-                            progress.max_streak = max(progress.max_streak or 0, 1)
-                        elif sub_date == last_date:
-                            pass  # same day, streak unchanged
-                        elif sub_date == last_date + timedelta(days=1):
-                            progress.current_streak = (progress.current_streak or 0) + 1
-                            progress.max_streak = max(progress.max_streak or 0, progress.current_streak)
-                        else:
-                            progress.current_streak = 1
-                            progress.max_streak = max(progress.max_streak or 0, 1)
-                        progress.last_submission_date = submission.submitted_at or datetime.utcnow()
-                        try:
-                            await activity_service.log_activity(
-                                db=db,
-                                user_id=submission.user_id,
-                                activity_type=ActivityType.PRACTICE,
-                                data={
-                                    "problem_id": str(problem.id),
-                                    "difficulty": str(problem.difficulty.value if hasattr(problem.difficulty, "value") else problem.difficulty),
-                                    "submission_id": str(submission.id),
-                                },
-                            )
-                        except Exception:
-                            pass
-                    elif result.get("status") == "WRONG_ANSWER":
-                        submission.status = SubmissionStatus.WRONG_ANSWER
-                        submission.test_cases_passed = result.get("passed", 0)
-                    elif result.get("status") == "RUNTIME_ERROR":
-                        submission.status = SubmissionStatus.RUNTIME_ERROR
-                        submission.error_message = result.get("stderr") or "Runtime error (No details provided)"
-                    elif result.get("status") == "TIME_LIMIT":
-                        submission.status = SubmissionStatus.TIME_LIMIT
-                        submission.error_message = "Time Limit Exceeded"
-                    elif result.get("status") == "COMPILE_ERROR":
-                        submission.status = SubmissionStatus.COMPILE_ERROR
-                        submission.error_message = result.get("stderr") or "Compile error (No details provided)"
+                progress = progress_result.scalar_one_or_none()
+                if not progress:
+                    progress = UserProgress(user_id=submission.user_id)
+                    db.add(progress)
+                    await db.flush()
+                prev_count_result = await db.execute(
+                    select(func.count(Submission.id)).where(
+                        Submission.user_id == submission.user_id,
+                        Submission.problem_id == problem.id,
+                        Submission.status == SubmissionStatus.ACCEPTED,
+                        Submission.id != submission.id,
+                    )
+                )
+                if (prev_count_result.scalar() or 0) == 0:
+                    progress.total_solved = (progress.total_solved or 0) + 1
+                    if problem.difficulty == Difficulty.EASY:
+                        progress.easy_solved = (progress.easy_solved or 0) + 1
+                    elif problem.difficulty == Difficulty.MEDIUM:
+                        progress.medium_solved = (progress.medium_solved or 0) + 1
                     else:
-                        submission.status = SubmissionStatus.INTERNAL_ERROR
-                    
-                    submission.runtime_ms = result.get("runtime_ms")
-                    submission.memory_kb = result.get("memory_kb")
-                    
-                    # Save test results
-                    if result.get("test_results"):
-                        for idx, test_result in enumerate(result["test_results"]):
-                            test_result_obj = SubmissionTestResult(
-                                submission_id=submission.id,
-                                test_case_number=idx + 1,
-                                status="passed" if test_result.get("passed") else "failed",
-                                input_data=test_cases[idx].input_data if idx < len(test_cases) else None,
-                                expected_output=test_cases[idx].expected_output if idx < len(test_cases) else None,
-                                actual_output=test_result.get("actual"),
-                                runtime_ms=test_result.get("runtime_ms"),
-                            )
-                            db.add(test_result_obj)
-                    
-                    await db.commit()
-                    return
+                        progress.hard_solved = (progress.hard_solved or 0) + 1
+                sub_date = submission.submitted_at.date() if submission.submitted_at else date.today()
+                last_date = progress.last_submission_date.date() if progress.last_submission_date else None
+                if last_date is None:
+                    progress.current_streak = 1
+                    progress.max_streak = max(progress.max_streak or 0, 1)
+                elif sub_date == last_date:
+                    pass
+                elif sub_date == last_date + timedelta(days=1):
+                    progress.current_streak = (progress.current_streak or 0) + 1
+                    progress.max_streak = max(progress.max_streak or 0, progress.current_streak)
                 else:
-                    # Judge service returned non-200 status
-                    print(f"Judge service returned status {response.status_code}: {response.text}")
-                    submission.status = SubmissionStatus.INTERNAL_ERROR
-                    submission.error_message = f"Judge service error: {response.status_code}"
-                    await db.commit()
-                    return
-        except httpx.ConnectError as connect_error:
-            # Judge service not running
-            print(f"Judge service unavailable (connection error): {connect_error}")
-            submission.status = SubmissionStatus.PENDING
-            submission.error_message = "Execution service temporarily unavailable. Please ensure the judge service is running on localhost:8001"
-            await db.commit()
-            return
-        except httpx.TimeoutException as timeout_error:
-            # Judge service timeout
-            print(f"Judge service timeout: {timeout_error}")
-            submission.status = SubmissionStatus.TIME_LIMIT
-            submission.error_message = "Execution timed out"
+                    progress.current_streak = 1
+                    progress.max_streak = max(progress.max_streak or 0, 1)
+                progress.last_submission_date = submission.submitted_at or datetime.utcnow()
+                try:
+                    await activity_service.log_activity(
+                        db=db,
+                        user_id=submission.user_id,
+                        activity_type=ActivityType.PRACTICE,
+                        data={
+                            "problem_id": str(problem.id),
+                            "difficulty": str(problem.difficulty.value if hasattr(problem.difficulty, "value") else problem.difficulty),
+                            "submission_id": str(submission.id),
+                        },
+                    )
+                except Exception:
+                    pass
+            elif result.get("status") == "WRONG_ANSWER":
+                submission.status = SubmissionStatus.WRONG_ANSWER
+                submission.test_cases_passed = result.get("passed", 0)
+            elif result.get("status") == "RUNTIME_ERROR":
+                submission.status = SubmissionStatus.RUNTIME_ERROR
+                submission.error_message = result.get("stderr") or "Runtime error (No details provided)"
+            elif result.get("status") == "TIME_LIMIT":
+                submission.status = SubmissionStatus.TIME_LIMIT
+                submission.error_message = "Time Limit Exceeded"
+            elif result.get("status") == "COMPILE_ERROR":
+                submission.status = SubmissionStatus.COMPILE_ERROR
+                submission.error_message = result.get("stderr") or "Compile error (No details provided)"
+            else:
+                submission.status = SubmissionStatus.INTERNAL_ERROR
+
+            submission.runtime_ms = result.get("runtime_ms")
+            submission.memory_kb = result.get("memory_kb")
+
+            if result.get("test_results"):
+                for idx, test_result in enumerate(result["test_results"]):
+                    test_result_obj = SubmissionTestResult(
+                        submission_id=submission.id,
+                        test_case_number=idx + 1,
+                        status="passed" if test_result.get("passed") else "failed",
+                        input_data=test_cases[idx].input_data if idx < len(test_cases) else None,
+                        expected_output=test_cases[idx].expected_output if idx < len(test_cases) else None,
+                        actual_output=test_result.get("actual"),
+                        runtime_ms=test_result.get("runtime_ms"),
+                    )
+                    db.add(test_result_obj)
+
             await db.commit()
             return
         except Exception as judge_error:
-            # Other judge service errors
-            print(f"Judge service error: {type(judge_error).__name__}: {judge_error}")
+            print(f"Code judge error: {type(judge_error).__name__}: {judge_error}")
             submission.status = SubmissionStatus.INTERNAL_ERROR
             submission.error_message = f"Execution failed: {str(judge_error)}"
             await db.commit()

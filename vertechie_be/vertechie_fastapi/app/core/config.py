@@ -91,20 +91,17 @@ class Settings(BaseSettings):
     AZURE_FACE_ENDPOINT: str = ""
     AZURE_FACE_KEY: str = ""
 
-    # Optional code judge service (HTTP) for job coding auto-evaluation; e.g. http://localhost:8001
+    # Optional remote judge base URL (HTTP POST {url}/execute). Unset = embedded judge in main API (port 8000).
     JUDGE_SERVICE_URL: Optional[str] = None
 
     def resolved_judge_service_url(self) -> Optional[str]:
         """
-        URL for the HTTP judge (backup_folder/judge_service.py, default port 8001).
-        If JUDGE_SERVICE_URL is unset and DEBUG is True, defaults to local judge so Run/Test works in dev
-        after starting: python backup_folder/judge_service.py
+        Remote judge only: e.g. http://judge:8001 if you run a separate runner.
+        If unset, code execution uses the embedded judge (no extra process).
         """
         raw = self.JUDGE_SERVICE_URL
         if raw is not None and str(raw).strip():
             return str(raw).strip().rstrip("/")
-        if self.DEBUG:
-            return "http://127.0.0.1:8001"
         return None
     
     # Always resolve .env relative to backend project root, not process CWD.

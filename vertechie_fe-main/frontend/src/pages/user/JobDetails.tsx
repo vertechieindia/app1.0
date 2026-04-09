@@ -46,11 +46,13 @@ import { Job, JOB_TYPES, EXPERIENCE_LEVELS, DIFFICULTY_LABELS } from '../../type
 import { jobService, applicationService, getUserInfo } from '../../services/jobPortalService';
 import { ABOVE_BOTTOM_NAV_OFFSET_PX } from '../../constants/layout';
 
-const getCodingDraftStorageKey = (jobId: string) => `job-application-coding-draft:${jobId}`;
+const getCodingDraftStorageKey = (jobId: string, userId?: string) =>
+  `job-application-coding-draft:${jobId}:${userId || 'anonymous'}`;
 
 const hasLockedAssessmentDraft = (jobId?: string): boolean => {
   if (!jobId || typeof window === 'undefined') return false;
-  const raw = window.sessionStorage.getItem(getCodingDraftStorageKey(jobId));
+  const userId = getUserInfo()?.id || 'anonymous';
+  const raw = window.sessionStorage.getItem(getCodingDraftStorageKey(jobId, userId));
   if (!raw) return false;
   try {
     const parsed = JSON.parse(raw);

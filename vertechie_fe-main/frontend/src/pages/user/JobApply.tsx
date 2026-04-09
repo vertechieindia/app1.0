@@ -53,6 +53,7 @@ import VideoScreeningRecorder from '../../components/screening/VideoScreeningRec
 import { getApiUrl } from '../../config/api';
 import { ABOVE_BOTTOM_NAV_OFFSET_PX } from '../../constants/layout';
 import { fetchWithAuth } from '../../utils/apiInterceptor';
+import { stopAllDocumentMediaStreams } from '../../utils/stopMediaCapture';
 
 // Theme Colors
 const colors = {
@@ -696,6 +697,7 @@ const JobApply: React.FC = () => {
         };
         sessionStorage.setItem(getScreeningAnswersStorageKey(job.id), JSON.stringify(payload));
         setSubmitting(false);
+        stopAllDocumentMediaStreams();
         navigate(`/techie/jobs/${job.id}/coding-test`);
         return;
       }
@@ -712,8 +714,9 @@ const JobApply: React.FC = () => {
           screening_answers: screeningAnswers,
         }
       );
-      
+
       setSubmitting(false);
+      stopAllDocumentMediaStreams();
       setSubmitted(true);
       setSnackbar({ open: true, message: 'Application submitted successfully!', severity: 'success' });
     } catch (error: any) {

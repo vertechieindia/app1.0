@@ -11,13 +11,25 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import type { ImageSegmenter } from '@mediapipe/tasks-vision';
+import {
+  createLobbyImageSegmenter,
+  paintLobbyVirtualBackground,
+} from '../../utils/lobbySelfieBackground';
 import { api } from '../../services/apiClient';
+import {
+  VIRTUAL_BACKGROUNDS,
+  VBG_SESSION_CUSTOM_KEY,
+  VBG_SESSION_ID_KEY,
+  LOBBY_MEDIA_INTENT_KEY,
+  resetLobbyVbgConsumptionCache,
+  resetLobbyMediaIntentCache,
+} from '../../constants/virtualBackgrounds';
 import {
   Box,
   Typography,
   Button,
   Paper,
-  Avatar,
   Select,
   MenuItem,
   FormControl,
@@ -38,6 +50,9 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Menu,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 import { styled, alpha } from '@mui/material/styles';
 
@@ -48,16 +63,18 @@ import VideocamIcon from '@mui/icons-material/Videocam';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff';
 import SettingsIcon from '@mui/icons-material/Settings';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import BlurOnIcon from '@mui/icons-material/BlurOn';
 import WallpaperIcon from '@mui/icons-material/Wallpaper';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 import SecurityIcon from '@mui/icons-material/Security';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import GroupsIcon from '@mui/icons-material/Groups';
 import EventIcon from '@mui/icons-material/Event';
 import PersonIcon from '@mui/icons-material/Person';
+import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
 
 // Styled Components
 const LobbyContainer = styled(Box)({
@@ -83,19 +100,23 @@ const VideoPreview = styled(Box)({
   aspectRatio: '16/9',
   borderRadius: 16,
   overflow: 'hidden',
-  background: '#1e1e2d',
+  background: '#3c4043',
 });
 
-const ControlButton = styled(IconButton)<{ active?: boolean }>(({ active }) => ({
+/** Meet-style: gray when device on, red when muted / camera off */
+const MeetLobbyToggle = styled(IconButton, {
+  shouldForwardProp: (p) => p !== '$deviceOn',
+})<{ $deviceOn: boolean }>(({ $deviceOn }) => ({
   width: 56,
   height: 56,
-  borderRadius: 16,
-  background: active ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)',
-  color: active === false ? '#ff4444' : 'white',
-  transition: 'all 0.2s ease',
+  padding: 0,
+  borderRadius: '50%',
+  backgroundColor: $deviceOn ? '#3c4043' : '#ea4335',
+  color: '#fff',
+  transition: 'background-color 0.2s ease, transform 0.15s ease',
   '&:hover': {
-    background: 'rgba(255,255,255,0.2)',
-    transform: 'scale(1.05)',
+    backgroundColor: $deviceOn ? '#5f6368' : '#d93025',
+    transform: 'scale(1.04)',
   },
 }));
 
@@ -139,21 +160,19 @@ const JoinButton = styled(Button)({
   },
 });
 
-// Virtual backgrounds
-const virtualBackgrounds = [
-  { id: 'none', type: 'none', label: 'None' },
-  { id: 'blur', type: 'blur', label: 'Blur' },
-  { id: 'office1', type: 'image', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=400', label: 'Modern Office' },
-  { id: 'office2', type: 'image', url: 'https://images.unsplash.com/photo-1497366811353-6870744d04b2?w=400', label: 'Bright Office' },
-  { id: 'home', type: 'image', url: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=400', label: 'Home' },
-  { id: 'nature', type: 'image', url: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=400', label: 'Nature' },
-];
-
 const MeetingLobby: React.FC = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const bgImageRef = useRef<HTMLImageElement | null>(null);
+  const segmenterRef = useRef<ImageSegmenter | null>(null);
+  const vbgRafRef = useRef<number>(0);
+  const vbgPaintRef = useRef({
+    previewBlur: false,
+    previewBgImageUrl: null as string | null,
+  });
 
   // State
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -166,13 +185,18 @@ const MeetingLobby: React.FC = () => {
   const [selectedVideoDevice, setSelectedVideoDevice] = useState('');
   const [selectedSpeaker, setSelectedSpeaker] = useState('');
   const [selectedBackground, setSelectedBackground] = useState('none');
-  const [audioLevel, setAudioLevel] = useState(0);
+  /** Data URL from user upload — used when selectedBackground === 'custom' */
+  const [customBackgroundDataUrl, setCustomBackgroundDataUrl] = useState<string | null>(null);
   const [isTestingAudio, setIsTestingAudio] = useState(false);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [permissionError, setPermissionError] = useState<'system' | 'user' | 'unknown' | null>(null);
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [showBackgroundDialog, setShowBackgroundDialog] = useState(false);
+  const [showHelpDialog, setShowHelpDialog] = useState(false);
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const menuOpen = Boolean(menuAnchorEl);
   const [userName, setUserName] = useState('John Doe');
 
   // Meeting info from URL params (fallbacks until API loads)
@@ -313,25 +337,6 @@ const MeetingLobby: React.FC = () => {
         if (defaultAudio) setSelectedAudioDevice(defaultAudio.deviceId);
         if (defaultVideo) setSelectedVideoDevice(defaultVideo.deviceId);
 
-        // Start audio level monitoring if we have audio
-        if (mediaStream.getAudioTracks().length > 0) {
-          const audioContext = new AudioContext();
-          const analyser = audioContext.createAnalyser();
-          const source = audioContext.createMediaStreamSource(mediaStream);
-          source.connect(analyser);
-          analyser.fftSize = 256;
-
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          const checkLevel = () => {
-            if (audioContext.state === 'closed') return;
-            analyser.getByteFrequencyData(dataArray);
-            const avg = dataArray.reduce((a, b) => a + b) / dataArray.length;
-            setAudioLevel(avg);
-            requestAnimationFrame(checkLevel);
-          };
-          checkLevel();
-        }
-
       } catch (err: any) {
         console.error('Error accessing media devices:', err);
         if (err.name === 'NotAllowedError') {
@@ -352,21 +357,23 @@ const MeetingLobby: React.FC = () => {
   }, []);
 
   const toggleMute = () => {
+    const nextMuted = !isMuted;
     if (stream) {
-      stream.getAudioTracks().forEach(track => {
-        track.enabled = isMuted;
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !nextMuted;
       });
     }
-    setIsMuted(!isMuted);
+    setIsMuted(nextMuted);
   };
 
   const toggleVideo = () => {
+    const nextVideoOff = !isVideoOff;
     if (stream) {
-      stream.getVideoTracks().forEach(track => {
-        track.enabled = isVideoOff;
+      stream.getVideoTracks().forEach((track) => {
+        track.enabled = !nextVideoOff;
       });
     }
-    setIsVideoOff(!isVideoOff);
+    setIsVideoOff(nextVideoOff);
   };
 
   // When camera is turned back on, the <video> element is re-mounted and needs the stream reattached
@@ -375,6 +382,104 @@ const MeetingLobby: React.FC = () => {
       videoRef.current.srcObject = stream;
     }
   }, [isVideoOff, stream]);
+
+  const activeVbg = VIRTUAL_BACKGROUNDS.find((b) => b.id === selectedBackground);
+  const previewBgImageUrl =
+    selectedBackground === 'custom' && customBackgroundDataUrl
+      ? customBackgroundDataUrl
+      : activeVbg?.type === 'image' && activeVbg.url
+        ? activeVbg.url
+        : null;
+  const previewBlur = selectedBackground === 'blur';
+  const previewNeedsVbg = Boolean(
+    stream && !isVideoOff && (previewBgImageUrl || previewBlur),
+  );
+
+  useEffect(() => {
+    vbgPaintRef.current = { previewBlur, previewBgImageUrl };
+  }, [previewBlur, previewBgImageUrl]);
+
+  useEffect(() => {
+    if (!previewBgImageUrl) {
+      bgImageRef.current = null;
+      return;
+    }
+    const img = new Image();
+    if (!previewBgImageUrl.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
+    img.onload = () => {
+      bgImageRef.current = img;
+    };
+    img.onerror = () => {
+      bgImageRef.current = null;
+    };
+    img.src = previewBgImageUrl;
+  }, [previewBgImageUrl]);
+
+  const [vbgEngineReady, setVbgEngineReady] = useState(false);
+
+  useEffect(() => {
+    if (!previewNeedsVbg) {
+      setVbgEngineReady(false);
+      if (vbgRafRef.current) {
+        cancelAnimationFrame(vbgRafRef.current);
+        vbgRafRef.current = 0;
+      }
+      segmenterRef.current?.close();
+      segmenterRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+    let raf = 0;
+
+    (async () => {
+      try {
+        const seg = await createLobbyImageSegmenter();
+        if (cancelled) {
+          seg.close();
+          return;
+        }
+        segmenterRef.current = seg;
+        setVbgEngineReady(true);
+
+        const loop = (t: number) => {
+          if (cancelled) return;
+          const video = videoRef.current;
+          const canvas = canvasRef.current;
+          const { previewBlur: pb } = vbgPaintRef.current;
+          if (seg && video && canvas && video.readyState >= 2) {
+            paintLobbyVirtualBackground({
+              segmenter: seg,
+              video,
+              out: canvas,
+              mode: pb ? 'blur' : 'image',
+              bgImage: bgImageRef.current,
+              timestamp: t,
+            });
+          }
+          raf = requestAnimationFrame(loop);
+          vbgRafRef.current = raf;
+        };
+        raf = requestAnimationFrame(loop);
+        vbgRafRef.current = raf;
+      } catch {
+        if (!cancelled) setVbgEngineReady(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (vbgRafRef.current) {
+        cancelAnimationFrame(vbgRafRef.current);
+        vbgRafRef.current = 0;
+      }
+      segmenterRef.current?.close();
+      segmenterRef.current = null;
+      setVbgEngineReady(false);
+    };
+  }, [previewNeedsVbg]);
 
   const testAudio = () => {
     setIsTestingAudio(true);
@@ -387,10 +492,6 @@ const MeetingLobby: React.FC = () => {
 
   const joinMeeting = () => {
     setJoining(true);
-    // Stop the preview stream before joining
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-    }
     const params = new URLSearchParams(searchParams.toString());
     params.set('type', meetingType);
     if (!params.has('interviewId') && roomId) {
@@ -399,10 +500,32 @@ const MeetingLobby: React.FC = () => {
     if (meetingTitle && !params.has('title')) {
       params.set('title', encodeURIComponent(meetingTitle));
     }
+    try {
+      resetLobbyVbgConsumptionCache();
+      resetLobbyMediaIntentCache();
+      sessionStorage.setItem(VBG_SESSION_ID_KEY, selectedBackground);
+      if (selectedBackground === 'custom' && customBackgroundDataUrl) {
+        sessionStorage.setItem(VBG_SESSION_CUSTOM_KEY, customBackgroundDataUrl);
+      } else {
+        sessionStorage.removeItem(VBG_SESSION_CUSTOM_KEY);
+      }
+      sessionStorage.setItem(
+        LOBBY_MEDIA_INTENT_KEY,
+        JSON.stringify({ muted: isMuted, videoOff: isVideoOff }),
+      );
+    } catch {
+      // ignore
+    }
+    // Keep tracks alive until navigate so "Camera/Mic ready" stay green during "Joining…"
     setTimeout(() => {
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
       navigate(`/techie/meet/${roomId}?${params.toString()}`);
     }, 1000);
   };
+
+  const showCanvasVbg = previewNeedsVbg && vbgEngineReady;
 
   return (
     <LobbyContainer>
@@ -411,48 +534,205 @@ const MeetingLobby: React.FC = () => {
         <Grid item xs={12} md={7}>
           <PreviewCard sx={{ p: 3 }}>
             <VideoPreview>
-              {isVideoOff ? (
-                <Box
-                  sx={{
-                    width: '100%',
-                    height: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'linear-gradient(135deg, #1e1e2d 0%, #2d2d44 100%)',
-                  }}
-                >
-                  <Avatar
+              <Box
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 0,
+                  overflow: 'hidden',
+                  borderRadius: 'inherit',
+                }}
+              >
+                {isVideoOff ? (
+                  <Box
                     sx={{
-                      width: 120,
-                      height: 120,
-                      fontSize: 48,
-                      bgcolor: '#0d47a1',
-                      mb: 2,
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      ...(previewBgImageUrl
+                        ? {
+                            backgroundImage: `url(${previewBgImageUrl})`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                          }
+                        : { bgcolor: '#3c4043' }),
                     }}
                   >
-                    {userName.charAt(0)}
-                  </Avatar>
-                  <Typography variant="h6" sx={{ color: 'white' }}>
-                    Camera is off
-                  </Typography>
-                </Box>
-              ) : (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                    transform: 'scaleX(-1)',
-                    display: isVideoOff ? 'none' : 'block'
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        color: 'rgba(255,255,255,0.95)',
+                        fontWeight: 400,
+                        textShadow: '0 1px 10px rgba(0,0,0,0.85)',
+                      }}
+                    >
+                      Camera is off
+                    </Typography>
+                  </Box>
+                ) : showCanvasVbg ? (
+                  <>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        opacity: 0,
+                        pointerEvents: 'none',
+                        zIndex: 0,
+                      }}
+                    />
+                    <canvas
+                      ref={canvasRef}
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        transform: 'scaleX(-1)',
+                        zIndex: 1,
+                      }}
+                    />
+                  </>
+                ) : (
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      objectPosition: 'center',
+                      transform: 'scaleX(-1)',
+                      zIndex: 1,
+                      display: 'block',
+                    }}
+                  />
+                )}
+              </Box>
+
+              {/* Transparent layer so taps open background dialog (above video) */}
+              {!permissionError && (
+                <Box
+                  onClick={() => setShowBackgroundDialog(true)}
+                  aria-hidden
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    zIndex: 2,
+                    cursor: 'pointer',
+                    borderRadius: 'inherit',
                   }}
                 />
               )}
+
+              {/* Top: name + overflow menu */}
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  p: 1.5,
+                  zIndex: 5,
+                  pointerEvents: 'none',
+                  '& > *': { pointerEvents: 'auto' },
+                }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: 'rgba(255,255,255,0.95)',
+                    fontWeight: 500,
+                    textShadow: '0 1px 4px rgba(0,0,0,0.6)',
+                    maxWidth: '70%',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {userName}
+                </Typography>
+                <Tooltip title="More options">
+                  <IconButton
+                    size="small"
+                    onClick={(e) => setMenuAnchorEl(e.currentTarget)}
+                    sx={{
+                      color: 'rgba(255,255,255,0.95)',
+                      bgcolor: 'rgba(0,0,0,0.35)',
+                      '&:hover': { bgcolor: 'rgba(0,0,0,0.5)' },
+                    }}
+                  >
+                    <MoreVertIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+
+              <Menu
+                anchorEl={menuAnchorEl}
+                open={menuOpen}
+                onClose={() => setMenuAnchorEl(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                PaperProps={{
+                  sx: {
+                    bgcolor: '#2d2d2d',
+                    color: 'rgba(255,255,255,0.95)',
+                    borderRadius: 2,
+                    minWidth: 200,
+                    border: '1px solid rgba(255,255,255,0.12)',
+                  },
+                }}
+              >
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchorEl(null);
+                    setShowSettingsDialog(true);
+                  }}
+                >
+                  <ListItemIcon>
+                    <SettingsIcon fontSize="small" sx={{ color: 'rgba(255,255,255,0.85)' }} />
+                  </ListItemIcon>
+                  <ListItemText>Settings</ListItemText>
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchorEl(null);
+                    setShowBackgroundDialog(true);
+                  }}
+                >
+                  <ListItemIcon>
+                    <WallpaperIcon fontSize="small" sx={{ color: 'rgba(255,255,255,0.85)' }} />
+                  </ListItemIcon>
+                  <ListItemText>Background</ListItemText>
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchorEl(null);
+                    setShowHelpDialog(true);
+                  }}
+                >
+                  <ListItemIcon>
+                    <HelpOutlineIcon fontSize="small" sx={{ color: 'rgba(255,255,255,0.85)' }} />
+                  </ListItemIcon>
+                  <ListItemText>Help</ListItemText>
+                </MenuItem>
+              </Menu>
 
               {/* Error overlay if permissions failed */}
               {permissionError && (
@@ -470,7 +750,7 @@ const MeetingLobby: React.FC = () => {
                     justifyContent: 'center',
                     p: 3,
                     textAlign: 'center',
-                    zIndex: 2
+                    zIndex: 6,
                   }}
                 >
                   <ErrorIcon sx={{ color: '#ff4444', fontSize: 48, mb: 1 }} />
@@ -494,69 +774,77 @@ const MeetingLobby: React.FC = () => {
                 </Box>
               )}
 
-              {/* Audio Level Indicator */}
-              <Box
-                sx={{
-                  position: 'absolute',
-                  bottom: 16,
-                  left: 16,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  p: 1,
-                  px: 2,
-                  borderRadius: 2,
-                  bgcolor: 'rgba(0,0,0,0.6)',
-                  backdropFilter: 'blur(10px)',
-                }}
-              >
-                {isMuted ? (
-                  <MicOffIcon sx={{ color: '#ff4444' }} />
-                ) : (
-                  <MicIcon sx={{ color: audioLevel > 30 ? '#00ff88' : 'white' }} />
-                )}
-                <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'flex-end', height: 20 }}>
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <Box
-                      key={i}
-                      sx={{
-                        width: 4,
-                        height: Math.min(20, Math.max(4, audioLevel / 5 * (i + 1))),
-                        borderRadius: 1,
-                        bgcolor: audioLevel > 30 && !isMuted ? '#00ff88' : 'rgba(255,255,255,0.3)',
-                        transition: 'height 0.1s ease',
+              {/* Mic / camera — bottom center inside preview */}
+              {!permissionError && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    bottom: 20,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    display: 'flex',
+                    gap: 2,
+                    zIndex: 4,
+                  }}
+                >
+                  <Tooltip title={isMuted ? 'Unmute' : 'Mute'}>
+                    <MeetLobbyToggle
+                      disableRipple
+                      $deviceOn={!isMuted}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleMute();
                       }}
-                    />
-                  ))}
+                      aria-label={isMuted ? 'Unmute' : 'Mute'}
+                    >
+                      {isMuted ? <MicOffIcon /> : <MicIcon />}
+                    </MeetLobbyToggle>
+                  </Tooltip>
+                  <Tooltip title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
+                    <MeetLobbyToggle
+                      disableRipple
+                      $deviceOn={!isVideoOff}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleVideo();
+                      }}
+                      aria-label={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+                    >
+                      {isVideoOff ? <VideocamOffIcon /> : <VideocamIcon />}
+                    </MeetLobbyToggle>
+                  </Tooltip>
                 </Box>
-              </Box>
+              )}
+
+              {/* Backgrounds & effects — bottom right (above tap layer; stopPropagation avoids double-toggle with parent) */}
+              {!permissionError && (
+                <IconButton
+                  type="button"
+                  title="Backgrounds and effects"
+                  disableRipple
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowBackgroundDialog(true);
+                  }}
+                  sx={{
+                    position: 'absolute',
+                    bottom: 16,
+                    right: 16,
+                    zIndex: 5,
+                    width: 44,
+                    height: 44,
+                    bgcolor: 'rgba(0,0,0,0.55)',
+                    color: 'rgba(255,255,255,0.95)',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' },
+                  }}
+                  aria-label="Backgrounds and effects"
+                >
+                  <AutoAwesomeIcon sx={{ fontSize: 22 }} />
+                </IconButton>
+              )}
             </VideoPreview>
 
-            {/* Controls */}
-            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 3 }}>
-              <Tooltip title={isMuted ? 'Unmute' : 'Mute'}>
-                <ControlButton active={!isMuted} onClick={toggleMute}>
-                  {isMuted ? <MicOffIcon /> : <MicIcon />}
-                </ControlButton>
-              </Tooltip>
-              <Tooltip title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
-                <ControlButton active={!isVideoOff} onClick={toggleVideo}>
-                  {isVideoOff ? <VideocamOffIcon /> : <VideocamIcon />}
-                </ControlButton>
-              </Tooltip>
-              <Tooltip title="Test speakers">
-                <ControlButton onClick={testAudio}>
-                  <VolumeUpIcon />
-                </ControlButton>
-              </Tooltip>
-              <Tooltip title="Settings">
-                <ControlButton onClick={() => setShowSettingsDialog(true)}>
-                  <SettingsIcon />
-                </ControlButton>
-              </Tooltip>
-            </Box>
-
-            {/* Device Selection */}
+            {/* Device selection — Meet order: mic, speaker, camera */}
             <Grid container spacing={2} sx={{ mt: 2 }}>
               <Grid item xs={12} md={4}>
                 <DeviceSelect fullWidth size="small">
@@ -569,22 +857,6 @@ const MeetingLobby: React.FC = () => {
                     {audioDevices.map((device) => (
                       <MenuItem key={device.deviceId} value={device.deviceId}>
                         {device.label || 'Microphone'}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </DeviceSelect>
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <DeviceSelect fullWidth size="small">
-                  <InputLabel>Camera</InputLabel>
-                  <Select
-                    value={selectedVideoDevice}
-                    onChange={(e) => setSelectedVideoDevice(e.target.value)}
-                    label="Camera"
-                  >
-                    {videoDevices.map((device) => (
-                      <MenuItem key={device.deviceId} value={device.deviceId}>
-                        {device.label || 'Camera'}
                       </MenuItem>
                     ))}
                   </Select>
@@ -606,41 +878,23 @@ const MeetingLobby: React.FC = () => {
                   </Select>
                 </DeviceSelect>
               </Grid>
+              <Grid item xs={12} md={4}>
+                <DeviceSelect fullWidth size="small">
+                  <InputLabel>Camera</InputLabel>
+                  <Select
+                    value={selectedVideoDevice}
+                    onChange={(e) => setSelectedVideoDevice(e.target.value)}
+                    label="Camera"
+                  >
+                    {videoDevices.map((device) => (
+                      <MenuItem key={device.deviceId} value={device.deviceId}>
+                        {device.label || 'Camera'}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </DeviceSelect>
+              </Grid>
             </Grid>
-
-            {/* Virtual Backgrounds - options with real labels from config */}
-            <Box sx={{ mt: 3 }}>
-              <Typography variant="subtitle2" sx={{ color: 'rgba(255,255,255,0.7)', mb: 1.5 }}>
-                Virtual Background
-              </Typography>
-              {selectedBackground && (
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', mb: 1, display: 'block' }}>
-                  Selected: {virtualBackgrounds.find(b => b.id === selectedBackground)?.label ?? selectedBackground}
-                </Typography>
-              )}
-              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                {virtualBackgrounds.map((bg) => (
-                  <Tooltip key={bg.id} title={bg.label}>
-                    <BackgroundOption
-                      selected={selectedBackground === bg.id}
-                      onClick={() => setSelectedBackground(bg.id)}
-                      sx={{
-                        background: bg.type === 'none' ? 'transparent' :
-                          bg.type === 'blur' ? 'linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.1))' :
-                            `url(${bg.url}) center/cover`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        border: bg.type === 'none' ? '2px dashed rgba(255,255,255,0.3)' : undefined,
-                      }}
-                    >
-                      {bg.type === 'blur' && <BlurOnIcon sx={{ color: 'white' }} />}
-                      {bg.type === 'none' && <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>Off</Typography>}
-                    </BackgroundOption>
-                  </Tooltip>
-                ))}
-              </Box>
-            </Box>
           </PreviewCard>
         </Grid>
 
@@ -862,22 +1116,6 @@ const MeetingLobby: React.FC = () => {
             </Grid>
             <Grid item xs={12}>
               <DeviceSelect fullWidth size="small">
-                <InputLabel>Camera</InputLabel>
-                <Select
-                  value={selectedVideoDevice}
-                  onChange={(e) => setSelectedVideoDevice(e.target.value)}
-                  label="Camera"
-                >
-                  {videoDevices.map((device) => (
-                    <MenuItem key={device.deviceId} value={device.deviceId}>
-                      {device.label || 'Camera'}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </DeviceSelect>
-            </Grid>
-            <Grid item xs={12}>
-              <DeviceSelect fullWidth size="small">
                 <InputLabel>Speaker</InputLabel>
                 <Select
                   value={selectedSpeaker}
@@ -892,8 +1130,34 @@ const MeetingLobby: React.FC = () => {
                 </Select>
               </DeviceSelect>
             </Grid>
+            <Grid item xs={12}>
+              <DeviceSelect fullWidth size="small">
+                <InputLabel>Camera</InputLabel>
+                <Select
+                  value={selectedVideoDevice}
+                  onChange={(e) => setSelectedVideoDevice(e.target.value)}
+                  label="Camera"
+                >
+                  {videoDevices.map((device) => (
+                    <MenuItem key={device.deviceId} value={device.deviceId}>
+                      {device.label || 'Camera'}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </DeviceSelect>
+            </Grid>
           </Grid>
-          <Box sx={{ mt: 2 }}>
+          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<VolumeUpIcon />}
+              onClick={testAudio}
+              disabled={isTestingAudio}
+              sx={{ color: 'rgba(255,255,255,0.9)', borderColor: 'rgba(255,255,255,0.3)', alignSelf: 'flex-start' }}
+            >
+              {isTestingAudio ? 'Playing test sound…' : 'Test speaker'}
+            </Button>
             <Button
               variant="outlined"
               size="small"
@@ -902,7 +1166,7 @@ const MeetingLobby: React.FC = () => {
                 setShowSettingsDialog(false);
                 setShowPermissionDialog(true);
               }}
-              sx={{ color: 'rgba(255,255,255,0.9)', borderColor: 'rgba(255,255,255,0.3)' }}
+              sx={{ color: 'rgba(255,255,255,0.9)', borderColor: 'rgba(255,255,255,0.3)', alignSelf: 'flex-start' }}
             >
               Troubleshoot camera / microphone
             </Button>
@@ -910,6 +1174,151 @@ const MeetingLobby: React.FC = () => {
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setShowSettingsDialog(false)} sx={{ color: 'white' }}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Background — same options as sparkle button */}
+      <Dialog
+        open={showBackgroundDialog}
+        onClose={() => setShowBackgroundDialog(false)}
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            background: '#1a1a2e',
+            color: 'white',
+            border: '1px solid rgba(255,255,255,0.1)',
+            minWidth: 360,
+            maxWidth: 480,
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <AutoAwesomeIcon color="primary" />
+          Backgrounds and effects
+        </DialogTitle>
+        <DialogContent dividers sx={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+          {selectedBackground !== 'none' && (
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.55)', mb: 2, display: 'block' }}>
+              Selected:{' '}
+              {selectedBackground === 'custom'
+                ? 'Custom image'
+                : VIRTUAL_BACKGROUNDS.find((b) => b.id === selectedBackground)?.label ?? selectedBackground}
+            </Typography>
+          )}
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            {VIRTUAL_BACKGROUNDS.map((bg) => (
+              <Tooltip key={bg.id} title={bg.label}>
+                <BackgroundOption
+                  selected={selectedBackground === bg.id}
+                  onClick={() => {
+                    setSelectedBackground(bg.id);
+                    setCustomBackgroundDataUrl(null);
+                  }}
+                  sx={{
+                    background:
+                      bg.type === 'none'
+                        ? 'transparent'
+                        : bg.type === 'blur'
+                          ? 'linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.1))'
+                          : `url(${bg.url}) center/cover`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    border: bg.type === 'none' ? '2px dashed rgba(255,255,255,0.3)' : undefined,
+                  }}
+                >
+                  {bg.type === 'blur' && <BlurOnIcon sx={{ color: 'white' }} />}
+                  {bg.type === 'none' && (
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+                      Off
+                    </Typography>
+                  )}
+                </BackgroundOption>
+              </Tooltip>
+            ))}
+          </Box>
+          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Button
+              variant="outlined"
+              component="label"
+              size="small"
+              startIcon={<AddPhotoAlternateIcon />}
+              sx={{ alignSelf: 'flex-start', color: 'white', borderColor: 'rgba(255,255,255,0.35)' }}
+            >
+              Upload custom image
+              <input
+                type="file"
+                hidden
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  if (f.size > 4 * 1024 * 1024) {
+                    setError('Please choose an image under 4 MB');
+                    e.target.value = '';
+                    return;
+                  }
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    setCustomBackgroundDataUrl(reader.result as string);
+                    setSelectedBackground('custom');
+                    setError(null);
+                  };
+                  reader.readAsDataURL(f);
+                  e.target.value = '';
+                }}
+              />
+            </Button>
+            {customBackgroundDataUrl && (
+              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+                Custom image will apply in the meeting after you join.
+              </Typography>
+            )}
+          </Box>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', mt: 2, display: 'block' }}>
+            Close this dialog to see the live preview. The lobby uses on-device person segmentation (MediaPipe)
+            so only you stay sharp over the chosen background. First load may take a few seconds.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShowBackgroundDialog(false)} sx={{ color: 'white' }}>
+            Done
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={showHelpDialog}
+        onClose={() => setShowHelpDialog(false)}
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            background: '#1a1a2e',
+            color: 'white',
+            border: '1px solid rgba(255,255,255,0.1)',
+            maxWidth: 440,
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <HelpOutlineIcon color="primary" />
+          Help
+        </DialogTitle>
+        <DialogContent dividers sx={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)', mb: 2 }}>
+            Use the microphone and camera buttons in the preview to mute or turn your camera off before you join.
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)', mb: 2 }}>
+            Open <strong>Settings</strong> from the menu to pick your mic, speaker, and camera, or test your speaker.
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+            Use <strong>Background</strong> or the effects icon to choose a virtual background for the meeting.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShowHelpDialog(false)} sx={{ color: 'white' }}>
             Close
           </Button>
         </DialogActions>
