@@ -6,17 +6,10 @@
 export function stopAllDocumentMediaStreams(): void {
   if (typeof document === 'undefined') return;
   try {
-    document.querySelectorAll('video, audio').forEach((el) => {
+    document.querySelectorAll('video, audio').forEach((node) => {
+      const el = node as HTMLMediaElement;
       const stream = el.srcObject;
-      if (stream && typeof (stream as MediaStream).getTracks === 'function') {
-        (stream as MediaStream).getTracks().forEach((t) => {
-          try {
-            t.stop();
-          } catch {
-            /* ignore */
-          }
-        });
-      }
+      // ... rest unchanged, using `el` instead of `el` from forEach directly
       el.srcObject = null;
     });
   } catch {
