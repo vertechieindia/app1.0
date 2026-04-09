@@ -35,6 +35,28 @@ const VideoScreeningRecorder: React.FC<VideoScreeningRecorderProps> = ({
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  /** Stop recorder + tracks + detach preview — required on unmount (e.g. after submit) or camera may stay on. */
+  const releaseAllCapture = useCallback(() => {
+    clearTick();
+    const rec = recorderRef.current;
+    if (rec && rec.state !== 'inactive') {
+      try {
+        rec.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    recorderRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
   }, []);
 
   const clearTick = () => {
@@ -76,10 +98,9 @@ const VideoScreeningRecorder: React.FC<VideoScreeningRecorderProps> = ({
 
   useEffect(() => {
     return () => {
-      clearTick();
-      stopStream();
+      releaseAllCapture();
     };
-  }, [stopStream]);
+  }, [releaseAllCapture]);
 
   useEffect(() => {
     const video = videoRef.current;

@@ -88,7 +88,7 @@ const AssessmentCodeEditor: React.FC<AssessmentCodeEditorProps> = ({
         onMount={handleMount}
         options={{
           readOnly,
-          minimap: { enabled: true },
+          minimap: { enabled: false },
           fontSize: 14,
           fontFamily: '"Fira Code", "Monaco", "Consolas", monospace',
           scrollBeyondLastLine: false,

@@ -7,7 +7,7 @@ from app.api.v1 import (
     auth, users, jobs, courses, calendar, calendar_sync,
     chat, network, community, unified_network,
     companies, schools, practice, hiring, blog, ide,
-    notifications, places, skills
+    notifications, places, skills, judge_api
 )
 
 api_router = APIRouter()
@@ -32,6 +32,7 @@ api_router.include_router(unified_network.router, prefix="/unified-network", tag
 api_router.include_router(companies.router, prefix="/companies", tags=["Companies"])
 api_router.include_router(schools.router, prefix="/schools", tags=["Schools"])
 api_router.include_router(practice.router, prefix="/practice", tags=["Practice"])
+api_router.include_router(judge_api.router, prefix="/judge", tags=["Code Judge"])
 api_router.include_router(hiring.router, prefix="/hiring", tags=["Hiring"])
 api_router.include_router(blog.router, prefix="/blog", tags=["Blog"])
 api_router.include_router(ide.router, prefix="/ide", tags=["IDE"])

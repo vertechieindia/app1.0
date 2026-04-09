@@ -1,5 +1,5 @@
 """
-Evaluate job application coding answers against test cases (HTTP judge or local SQL sandbox).
+Evaluate job application coding answers against test cases (embedded judge, optional remote HTTP, or local SQL sandbox).
 """
 
 from __future__ import annotations
@@ -88,16 +88,33 @@ def evaluate_sql_local(code: str, test_cases: List[Dict[str, str]], schema_sql: 
     }
 
 
-# Judge service (backup_folder/judge_service.py) supports these languages over HTTP.
-_JUDGE_HTTP_LANGS = frozenset({"python", "javascript", "java", "cpp"})
+_JUDGE_LANGS = frozenset({"python", "javascript", "java", "cpp"})
 
 
-async def _call_judge_http(
-    base_url: str, language: str, code: str, test_cases: List[Dict[str, str]], timeout: float = 45.0
+def _parse_judge_response_json(data: Dict[str, Any], test_cases: List[Dict[str, str]]) -> Dict[str, Any]:
+    st = data.get("status") or "UNKNOWN"
+    passed = data.get("passed")
+    if passed is None and isinstance(data.get("summary"), dict):
+        passed = data["summary"].get("passed")
+    total = len(test_cases)
+    if passed is None:
+        passed = 0
+    return {
+        "status": st,
+        "passed": int(passed),
+        "total": total,
+        "raw": data,
+    }
+
+
+async def _call_judge_execute(
+    base_url: Optional[str], language: str, code: str, test_cases: List[Dict[str, str]], timeout: float = 45.0
 ) -> Dict[str, Any]:
+    """Embedded judge when base_url is None; otherwise HTTP to remote judge."""
     import httpx
 
-    url = base_url.rstrip("/") + "/execute"
+    from app.services.code_judge import ExecutionRequest, run_execute
+
     payload = {
         "language": language,
         "code": code,
@@ -106,6 +123,12 @@ async def _call_judge_http(
         "memory_limit_mb": 256,
     }
     try:
+        if not base_url:
+            req = ExecutionRequest(**payload)
+            data = await asyncio.to_thread(run_execute, req)
+            return _parse_judge_response_json(data, test_cases)
+
+        url = base_url.rstrip("/") + "/execute"
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code != 200:
@@ -116,21 +139,9 @@ async def _call_judge_http(
                     "total": len(test_cases),
                 }
             data = resp.json()
-            st = data.get("status") or "UNKNOWN"
-            passed = data.get("passed")
-            if passed is None and isinstance(data.get("summary"), dict):
-                passed = data["summary"].get("passed")
-            total = len(test_cases)
-            if passed is None:
-                passed = 0
-            return {
-                "status": st,
-                "passed": int(passed),
-                "total": total,
-                "raw": data,
-            }
+            return _parse_judge_response_json(data, test_cases)
     except Exception as e:
-        logger.warning("Judge HTTP error: %s", e)
+        logger.warning("Judge execution error: %s", e)
         return {"status": "JUDGE_UNAVAILABLE", "error": str(e), "passed": 0, "total": len(test_cases)}
 
 
@@ -190,7 +201,7 @@ async def evaluate_job_coding_submissions(
             scores.append(pct)
             continue
 
-        if lang_l not in _JUDGE_HTTP_LANGS:
+        if lang_l not in _JUDGE_LANGS:
             by_question.append(
                 {
                     "questionId": qid,
@@ -203,19 +214,7 @@ async def evaluate_job_coding_submissions(
             scores.append(0.0)
             continue
 
-        if not judge_service_url:
-            by_question.append(
-                {
-                    "questionId": qid,
-                    "status": "JUDGE_NOT_CONFIGURED",
-                    "passed": 0,
-                    "total": len(tests),
-                }
-            )
-            scores.append(0.0)
-            continue
-
-        res = await _call_judge_http(judge_service_url, lang_l, code, tests)
+        res = await _call_judge_execute(judge_service_url, lang_l, code, tests)
         by_question.append({"questionId": qid, **res})
         total = int(res.get("total") or len(tests)) or 1
         passed = int(res.get("passed") or 0)
@@ -235,16 +234,17 @@ async def evaluate_job_coding_submissions(
 
 
 async def _call_judge_run_only(
-    base_url: str,
+    base_url: Optional[str],
     language: str,
     code: str,
     stdin: str,
     timeout: float = 45.0,
 ) -> Dict[str, Any]:
-    """Single run with stdin, no test cases (matches backup_folder/judge_service /execute)."""
+    """Single run with stdin, no test cases (embedded or remote /execute)."""
     import httpx
 
-    url = base_url.rstrip("/") + "/execute"
+    from app.services.code_judge import ExecutionRequest, run_execute
+
     payload = {
         "language": language,
         "code": code,
@@ -253,6 +253,19 @@ async def _call_judge_run_only(
         "memory_limit_mb": 256,
     }
     try:
+        if not base_url:
+            req = ExecutionRequest(**payload)
+            data = await asyncio.to_thread(run_execute, req)
+            return {
+                "execution_available": True,
+                "status": str(data.get("status") or "UNKNOWN"),
+                "stdout": str(data.get("stdout") or ""),
+                "stderr": str(data.get("stderr") or ""),
+                "runtime_ms": data.get("runtime_ms"),
+                "raw": data,
+            }
+
+        url = base_url.rstrip("/") + "/execute"
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code != 200:
@@ -273,7 +286,7 @@ async def _call_judge_run_only(
                 "raw": data,
             }
     except Exception as e:
-        logger.warning("Judge run-only HTTP error: %s", e)
+        logger.warning("Judge run-only error: %s", e)
         return {
             "execution_available": False,
             "status": "JUDGE_UNAVAILABLE",
@@ -349,20 +362,11 @@ async def run_assessment_preview(
         res = await asyncio.to_thread(evaluate_sql_local, code, sql_tests, schema or None)
         return _format_sql_preview_dict(res)
 
-    if lang_l not in _JUDGE_HTTP_LANGS:
+    if lang_l not in _JUDGE_LANGS:
         return {
             "execution_available": False,
             "status": "UNSUPPORTED",
             "message": f"Live preview is not available for {language} in this environment.",
-            "stdout": "",
-            "stderr": "",
-        }
-
-    if not judge_service_url:
-        return {
-            "execution_available": False,
-            "status": "JUDGE_NOT_CONFIGURED",
-            "message": "Code execution is not configured on the server.",
             "stdout": "",
             "stderr": "",
         }
@@ -398,7 +402,7 @@ async def run_assessment_preview(
             "tests": [],
         }
 
-    res = await _call_judge_http(judge_service_url, lang_l, code, tests)
+    res = await _call_judge_execute(judge_service_url, lang_l, code, tests)
     raw = res.get("raw") if isinstance(res.get("raw"), dict) else {}
     test_rows = raw.get("tests") or raw.get("test_results") or []
     details: List[Dict[str, Any]] = []

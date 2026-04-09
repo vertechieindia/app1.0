@@ -611,6 +611,7 @@ const outlinedSelectLabelSx = {
   const [codingQuestions, setCodingQuestions] = useState<CodingAssessmentQuestion[]>([]);
   const [editingCodingQuestionId, setEditingCodingQuestionId] = useState<string | null>(null);
   const [codingDraft, setCodingDraft] = useState<CodingAssessmentQuestion>(createEmptyCodingQuestion());
+  const [createCodingTemplateDialogOpen, setCreateCodingTemplateDialogOpen] = useState(false);
   const templatePackList = useMemo(() => buildAssessmentTemplatePack(), []);
   const templatePackAts = useMemo(
     () => templatePackToAtsCodingQuestions(templatePackList),
@@ -639,6 +640,7 @@ const outlinedSelectLabelSx = {
     setCodingQuestions([]);
     setEditingCodingQuestionId(null);
     setCodingDraft(createEmptyCodingQuestion());
+    setCreateCodingTemplateDialogOpen(false);
     setCreateTab(0);
     setLocationSuggestions([]);
     setCreateJobTitleOptions([]);
@@ -958,6 +960,7 @@ const outlinedSelectLabelSx = {
     const fresh = createEmptyCodingQuestion();
     setCodingDraft({ ...q, id: fresh.id });
     setEditingCodingQuestionId(null);
+    setCreateCodingTemplateDialogOpen(false);
   };
 
   const pickTemplatePackForEdit = (index: number) => {
@@ -965,6 +968,7 @@ const outlinedSelectLabelSx = {
     const fresh = createEmptyCodingQuestion();
     setEditCodingDraft({ ...q, id: fresh.id });
     setEditEditingCodingQuestionId(null);
+    setEditCodingTemplateDialogOpen(false);
   };
 
   const addAllTemplatePackToCreate = () => {
@@ -980,6 +984,7 @@ const outlinedSelectLabelSx = {
       message: 'Added 6 coding questions from the template pack (3 test cases each).',
       severity: 'success',
     });
+    setCreateCodingTemplateDialogOpen(false);
   };
 
   const addAllTemplatePackToEdit = () => {
@@ -995,6 +1000,7 @@ const outlinedSelectLabelSx = {
       message: 'Added 6 coding questions from the template pack (3 test cases each).',
       severity: 'success',
     });
+    setEditCodingTemplateDialogOpen(false);
   };
 
   const updateCodingDraftTestCase = (tcIdx: number, field: 'input' | 'expectedOutput', value: string) => {
@@ -1048,6 +1054,7 @@ const outlinedSelectLabelSx = {
   const [editCodingQuestions, setEditCodingQuestions] = useState<CodingAssessmentQuestion[]>([]);
   const [editEditingCodingQuestionId, setEditEditingCodingQuestionId] = useState<string | null>(null);
   const [editCodingDraft, setEditCodingDraft] = useState<CodingAssessmentQuestion>(createEmptyCodingQuestion());
+  const [editCodingTemplateDialogOpen, setEditCodingTemplateDialogOpen] = useState(false);
 
   const onEditJobTitleInputChange = (_: unknown, newInputValue: string) => {
     setEditingJob((prev: any) => (prev ? { ...prev, title: newInputValue } : prev));
@@ -1322,6 +1329,7 @@ const outlinedSelectLabelSx = {
       setEditDialogOpen(false);
       setEditingJob(null);
       setEditTab(0);
+      setEditCodingTemplateDialogOpen(false);
       setEditEditingQuestionId(null);
       setEditJobTitleOptions([]);
       setSnackbar({ open: true, message: 'Job updated successfully!', severity: 'success' });
@@ -1470,6 +1478,7 @@ const outlinedSelectLabelSx = {
     setEditEditingQuestionId(null);
     setEditEditingCodingQuestionId(null);
     setEditCodingDraft(createEmptyCodingQuestion());
+    setEditCodingTemplateDialogOpen(false);
     setEditDialogOpen(true);
     setEditDialogLoading(true);
     try {
@@ -2592,8 +2601,7 @@ const outlinedSelectLabelSx = {
                         onChange={(e) => setQuestionType(e.target.value as any)}
                       >
                           <MenuItem value="text">Normal Question</MenuItem>
-                          <MenuItem value="verbal">Verbal Question</MenuItem>
-                          <MenuItem value="video">Video Response</MenuItem>
+                          <MenuItem value="video">Verbal Question</MenuItem>
                           <MenuItem value="multiple">Multiple Choice</MenuItem>
                       </Select>
                     </FormControl>
@@ -2743,34 +2751,21 @@ const outlinedSelectLabelSx = {
               </List>
 
               <Paper sx={{ p: 2, border: '2px dashed #ddd' }}>
-                <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
-                  VerTechie template pack
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                  6 questions (2 easy, 2 medium, 2 hard), each with 3 test cases. Click one to fill the form below.
-                </Typography>
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
-                  <Button size="small" variant="contained" onClick={addAllTemplatePackToCreate} sx={{ bgcolor: '#0d47a1', textTransform: 'none' }}>
-                    Add all 6 to list
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={600}>
+                    {editingCodingQuestionId ? 'Edit Coding Question' : 'Add Coding Question'}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onClick={() => setCreateCodingTemplateDialogOpen(true)}
+                    sx={{ bgcolor: '#0d47a1', textTransform: 'none' }}
+                  >
+                    Import questions
                   </Button>
                 </Box>
-                <List dense disablePadding sx={{ mb: 2 }}>
-                  {templatePackList.map((q, index) => (
-                    <ListItemButton
-                      key={q.id}
-                      onClick={() => pickTemplatePackForCreate(index)}
-                      sx={{ borderRadius: 1, mb: 0.5, border: '1px solid #e0e0e0' }}
-                    >
-                      <ListItemText
-                        primaryTypographyProps={{ fontWeight: 600 }}
-                        primary={`${index + 1}. ${q.question}`}
-                        secondary={`${q.difficulty} · ${(q.testCases || []).length} test cases`}
-                      />
-                    </ListItemButton>
-                  ))}
-                </List>
                 <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>
-                  {editingCodingQuestionId ? 'Edit Coding Question' : 'Add Coding Question'}
+                  {editingCodingQuestionId ? 'Edit Question Details' : 'Question Details'}
                 </Typography>
                 <Grid container spacing={2}>
                   <Grid item xs={12}>
@@ -3024,6 +3019,37 @@ const outlinedSelectLabelSx = {
               </Button>
             )}
           </Box>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={createCodingTemplateDialogOpen}
+        onClose={() => setCreateCodingTemplateDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid #eee' }}>
+          Import Coding Questions
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2.5 }}>
+          <List dense disablePadding>
+            {templatePackList.map((q, index) => (
+              <ListItemButton
+                key={`create-template-${q.id}`}
+                onClick={() => pickTemplatePackForCreate(index)}
+                sx={{ borderRadius: 1.5, mb: 0.75, border: '1px solid #e0e0e0' }}
+              >
+                <ListItemText
+                  primaryTypographyProps={{ fontWeight: 600 }}
+                  primary={`${index + 1}. ${q.question}`}
+                  secondary={`${q.difficulty} - ${(q.testCases || []).length} test cases`}
+                />
+              </ListItemButton>
+            ))}
+          </List>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setCreateCodingTemplateDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 
@@ -3538,8 +3564,7 @@ const outlinedSelectLabelSx = {
                             onChange={(e) => setEditQuestionType(e.target.value as any)}
                           >
                             <MenuItem value="text">Normal Question</MenuItem>
-                            <MenuItem value="verbal">Verbal Question</MenuItem>
-                            <MenuItem value="video">Video Response</MenuItem>
+                            <MenuItem value="video">Verbal Question</MenuItem>
                             <MenuItem value="multiple">Multiple Choice</MenuItem>
                           </Select>
                         </FormControl>
@@ -3666,34 +3691,21 @@ const outlinedSelectLabelSx = {
                   </List>
 
                   <Paper sx={{ p: 2, border: '2px dashed #ddd' }}>
-                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
-                      VerTechie template pack
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                      6 questions, 3 test cases each. Click one to fill the form below.
-                    </Typography>
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
-                      <Button size="small" variant="contained" onClick={addAllTemplatePackToEdit} sx={{ bgcolor: '#0d47a1', textTransform: 'none' }}>
-                        Add all 6 to list
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
+                      <Typography variant="subtitle2" fontWeight={600}>
+                        {editEditingCodingQuestionId ? 'Edit Coding Question' : 'Add Coding Question'}
+                      </Typography>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => setEditCodingTemplateDialogOpen(true)}
+                        sx={{ bgcolor: '#0d47a1', textTransform: 'none' }}
+                      >
+                        Import questions
                       </Button>
                     </Box>
-                    <List dense disablePadding sx={{ mb: 2 }}>
-                      {templatePackList.map((q, index) => (
-                        <ListItemButton
-                          key={`edit-${q.id}`}
-                          onClick={() => pickTemplatePackForEdit(index)}
-                          sx={{ borderRadius: 1, mb: 0.5, border: '1px solid #e0e0e0' }}
-                        >
-                          <ListItemText
-                            primaryTypographyProps={{ fontWeight: 600 }}
-                            primary={`${index + 1}. ${q.question}`}
-                            secondary={`${q.difficulty} · ${(q.testCases || []).length} test cases`}
-                          />
-                        </ListItemButton>
-                      ))}
-                    </List>
                     <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>
-                      {editEditingCodingQuestionId ? 'Edit Coding Question' : 'Add Coding Question'}
+                      {editEditingCodingQuestionId ? 'Edit Question Details' : 'Question Details'}
                     </Typography>
                     <Grid container spacing={2}>
                       <Grid item xs={12}>
@@ -3928,6 +3940,37 @@ const outlinedSelectLabelSx = {
               </Button>
             )}
           </Box>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={editCodingTemplateDialogOpen}
+        onClose={() => setEditCodingTemplateDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid #eee' }}>
+          Import Coding Questions
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2.5 }}>
+          <List dense disablePadding>
+            {templatePackList.map((q, index) => (
+              <ListItemButton
+                key={`edit-template-${q.id}`}
+                onClick={() => pickTemplatePackForEdit(index)}
+                sx={{ borderRadius: 1.5, mb: 0.75, border: '1px solid #e0e0e0' }}
+              >
+                <ListItemText
+                  primaryTypographyProps={{ fontWeight: 600 }}
+                  primary={`${index + 1}. ${q.question}`}
+                  secondary={`${q.difficulty} - ${(q.testCases || []).length} test cases`}
+                />
+              </ListItemButton>
+            ))}
+          </List>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setEditCodingTemplateDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 

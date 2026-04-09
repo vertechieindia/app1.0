@@ -33,7 +33,6 @@ import {
   Tooltip,
   IconButton,
   CircularProgress,
-  Snackbar,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
@@ -52,10 +51,8 @@ import {
   Tab as TabIcon,
   ContentPaste as ContentPasteIcon,
   InfoOutlined as InfoOutlinedIcon,
-  PlayArrow as PlayArrowIcon,
   Science as ScienceIcon,
   RestartAlt as RestartAltIcon,
-  Save as SaveIcon,
   MenuBook as MenuBookIcon,
   LightbulbOutlined as LightbulbOutlinedIcon,
 } from '@mui/icons-material';
@@ -63,9 +60,10 @@ import { Job, CodingQuestion, CodingAnswer, DIFFICULTY_LABELS, CodingAssessmentR
 import { jobService, applicationService, getUserInfo } from '../../services/jobPortalService';
 import { ABOVE_BOTTOM_NAV_OFFSET_PX } from '../../constants/layout';
 import AssessmentCodeEditor from '../../components/assessment/AssessmentCodeEditor';
+import { stopAllDocumentMediaStreams } from '../../utils/stopMediaCapture';
 
-const getScreeningAnswersStorageKey = (jobId: string) => `job-application-screening:${jobId}`;
-const getCodingDraftStorageKey = (jobId: string) => `job-application-coding-draft:${jobId}`;
+const getScreeningAnswersStorageKey = (jobId: string, userId: string) => `job-application-screening:${jobId}:${userId}`;
+const getCodingDraftStorageKey = (jobId: string, userId: string) => `job-application-coding-draft:${jobId}:${userId}`;
 
 // Theme Colors - Vine Palette (Dark Version)
 // Theme Colors - VerTechie Blue Palette (Matching App Theme)
@@ -106,12 +104,12 @@ const fadeInUp = keyframes`
 `;
 
 // Styled Components
-const PageContainer = styled(Box)(({ theme }) => ({
+const PageContainer = styled(Box)(() => ({
   minHeight: '100%',
   background: `linear-gradient(160deg, #e8eef7 0%, #f0f4fa 30%, #f5f7fa 60%, #fafbfd 100%)`,
 }));
 
-const QuestionCard = styled(Card)(({ theme }) => ({
+const QuestionCard = styled(Card)(() => ({
   background: colors.surface,
   borderRadius: 24,
   boxShadow: `0 10px 40px ${colors.primary}10`,
@@ -119,7 +117,7 @@ const QuestionCard = styled(Card)(({ theme }) => ({
   animation: `${fadeInUp} 0.6s ease-out`,
 }));
 
-const SubmitButton = styled(Button)(({ theme }) => ({
+const SubmitButton = styled(Button)(() => ({
   borderRadius: 14,
   textTransform: 'none',
   fontWeight: 700,
@@ -203,6 +201,12 @@ interface AssessmentIntegrityState {
   startedAt?: string;
 }
 
+interface ApplicantLocationSnapshot {
+  lat: number;
+  lng: number;
+  context?: Record<string, unknown>;
+}
+
 const dispatchAssessmentImmersiveMode = (enabled: boolean) => {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('vt-assessment-immersive-mode', { detail: enabled }));
@@ -247,21 +251,21 @@ const CodingTest: React.FC = () => {
   const [lockReason, setLockReason] = useState('');
   const timerExpiredRef = useRef(false);
   const screeningIntegrityRef = useRef<Record<string, unknown> | null>(null);
+  const applicantLocationRef = useRef<ApplicantLocationSnapshot | null>(null);
 
   const [runOutput, setRunOutput] = useState<CodingAssessmentRunResult | null>(null);
   const [runLoading, setRunLoading] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
-  const [draftSavedOpen, setDraftSavedOpen] = useState(false);
-  const [integritySnackbarOpen, setIntegritySnackbarOpen] = useState(false);
+  const [desktopSplit, setDesktopSplit] = useState(49);
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
+  const splitDragStateRef = useRef<{ startX: number; startSplit: number } | null>(null);
 
   const showIntegrityNotice = useCallback((message: string) => {
     setIntegrityBanner(message);
-    setIntegritySnackbarOpen(true);
   }, []);
 
   const clearIntegrityNotice = useCallback(() => {
     setIntegrityBanner('');
-    setIntegritySnackbarOpen(false);
   }, []);
 
   useEffect(() => {
@@ -301,6 +305,7 @@ const CodingTest: React.FC = () => {
 
       // Check if user already applied
       const user = getUserInfo();
+      const userId = user?.id || 'anonymous';
       if (user) {
         const hasApplied = await applicationService.hasUserApplied(jobId, user.id);
         if (hasApplied) {
@@ -311,7 +316,7 @@ const CodingTest: React.FC = () => {
 
       setJob(jobData);
 
-      const screeningStateRaw = sessionStorage.getItem(getScreeningAnswersStorageKey(jobId));
+      const screeningStateRaw = sessionStorage.getItem(getScreeningAnswersStorageKey(jobId, userId));
       let screeningState: any = null;
       if (screeningStateRaw) {
         try {
@@ -333,6 +338,21 @@ const CodingTest: React.FC = () => {
         screeningState?.screening_integrity && typeof screeningState.screening_integrity === 'object'
           ? (screeningState.screening_integrity as Record<string, unknown>)
           : null;
+      applicantLocationRef.current =
+        screeningState?.applicantLocation &&
+        typeof screeningState.applicantLocation === 'object' &&
+        typeof screeningState.applicantLocation.lat === 'number' &&
+        typeof screeningState.applicantLocation.lng === 'number'
+          ? {
+              lat: screeningState.applicantLocation.lat,
+              lng: screeningState.applicantLocation.lng,
+              context:
+                screeningState.applicantLocation.context &&
+                typeof screeningState.applicantLocation.context === 'object'
+                  ? (screeningState.applicantLocation.context as Record<string, unknown>)
+                  : undefined,
+            }
+          : null;
 
       // Initialize answers for all questions
       const initialAnswers: Record<string, { code: string; language: string }> = {};
@@ -340,7 +360,7 @@ const CodingTest: React.FC = () => {
         const defaultLanguage = mapAllowedLanguageToValue(q.allowedLanguages?.[0]);
         initialAnswers[q.id] = { code: q.starterCode || '', language: defaultLanguage };
       });
-      const draftRaw = sessionStorage.getItem(getCodingDraftStorageKey(jobId));
+      const draftRaw = sessionStorage.getItem(getCodingDraftStorageKey(jobId, userId));
       if (draftRaw) {
         try {
           const draft = JSON.parse(draftRaw);
@@ -391,9 +411,10 @@ const CodingTest: React.FC = () => {
   const persistCodingDraftToStorage = useCallback(() => {
     if (!jobId || !job) return;
     if (!assessmentStarted && !assessmentLocked) return;
+    const userId = getUserInfo()?.id || 'anonymous';
     try {
       sessionStorage.setItem(
-        getCodingDraftStorageKey(jobId),
+        getCodingDraftStorageKey(jobId, userId),
         JSON.stringify({
           assessmentStarted,
           assessmentLocked,
@@ -432,12 +453,49 @@ const CodingTest: React.FC = () => {
     };
   }, [assessmentStarted, successDialogOpen]);
 
+  /** Stop webcam/mic from the apply flow (or any leak) when opening this page or leaving it. */
+  useEffect(() => {
+    stopAllDocumentMediaStreams();
+    return () => {
+      stopAllDocumentMediaStreams();
+    };
+  }, []);
+
   /** Keep step in range when job / question count changes (avoids crash + blank screen). */
   useEffect(() => {
     if (!job?.codingQuestions?.length) return;
     const max = job.codingQuestions.length - 1;
     setActiveStep((s) => Math.max(0, Math.min(max, s)));
   }, [job?.id, job?.codingQuestions?.length]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = splitDragStateRef.current;
+      const container = splitContainerRef.current;
+      if (!dragState || !container) return;
+
+      const deltaX = event.clientX - dragState.startX;
+      const containerWidth = container.getBoundingClientRect().width;
+      if (!containerWidth) return;
+
+      const nextSplit = dragState.startSplit + (deltaX / containerWidth) * 100;
+      setDesktopSplit(Math.min(70, Math.max(30, nextSplit)));
+    };
+
+    const handlePointerUp = () => {
+      splitDragStateRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, []);
 
   useEffect(() => {
     if (!assessmentStarted || timeRemainingSeconds == null || timerExpiredRef.current) return;
@@ -550,6 +608,16 @@ const CodingTest: React.FC = () => {
     setActiveStep((prev) => prev - 1);
   };
 
+  const handleSplitDragStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (window.innerWidth < 900) return;
+    splitDragStateRef.current = {
+      startX: event.clientX,
+      startSplit: desktopSplit,
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
   const handleStartAssessment = async () => {
     if (anyFullscreenRequired && document.fullscreenElement == null && document.documentElement.requestFullscreen) {
       try {
@@ -585,6 +653,7 @@ const CodingTest: React.FC = () => {
       setError('Please login to submit your application');
       return;
     }
+    const userId = user.id || 'anonymous';
 
     try {
       setSubmitting(true);
@@ -613,7 +682,7 @@ const CodingTest: React.FC = () => {
         user.name,
         user.email,
         combinedAnswers,
-        undefined,
+        applicantLocationRef.current,
         {
           screening_answers: screeningAnswers,
           coding_answers: codingAnswers,
@@ -629,9 +698,10 @@ const CodingTest: React.FC = () => {
         }
       );
 
-      sessionStorage.removeItem(getScreeningAnswersStorageKey(job.id));
-      sessionStorage.removeItem(getCodingDraftStorageKey(job.id));
+      sessionStorage.removeItem(getScreeningAnswersStorageKey(job.id, userId));
+      sessionStorage.removeItem(getCodingDraftStorageKey(job.id, userId));
       await exitFullscreenIfNeeded();
+      stopAllDocumentMediaStreams();
       setAssessmentStarted(false);
       setAssessmentLocked(false);
       setSuccessDialogOpen(true);
@@ -646,12 +716,6 @@ const CodingTest: React.FC = () => {
     if (!job) return 0;
     const answeredCount = Object.values(answers).filter((a) => a.code.trim()).length;
     return (answeredCount / job.codingQuestions.length) * 100;
-  };
-
-  const isCurrentQuestionAnswered = () => {
-    if (!job || !job.codingQuestions[activeStep]) return false;
-    const questionId = job.codingQuestions[activeStep].id;
-    return answers[questionId]?.code.trim().length > 0;
   };
 
   const canSubmit = () => {
@@ -672,34 +736,6 @@ const CodingTest: React.FC = () => {
     setRunOutput(null);
     setRunLoading(false);
   }, [activeStep]);
-
-  const handleRunPreview = async () => {
-    if (!job || !jobId || assessmentLocked || !assessmentStarted) return;
-    const q = job.codingQuestions[activeStep];
-    if (!q) return;
-    setRunLoading(true);
-    setRunOutput(null);
-    try {
-      const res = await jobService.runCodingAssessmentPreview(jobId, {
-        questionId: q.id,
-        code: answers[q.id]?.code || '',
-        language: answers[q.id]?.language || 'javascript',
-        mode: 'run',
-      });
-      setRunOutput(res);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Request failed';
-      setRunOutput({
-        executionAvailable: false,
-        message: msg,
-        status: 'ERROR',
-        stdout: '',
-        stderr: '',
-      });
-    } finally {
-      setRunLoading(false);
-    }
-  };
 
   const handleTestPreview = async () => {
     if (!job || !jobId || assessmentLocked || !assessmentStarted) return;
@@ -741,11 +777,6 @@ const CodingTest: React.FC = () => {
     persistCodingDraftToStorage();
     setResetConfirmOpen(false);
     setRunOutput(null);
-  };
-
-  const handleSaveDraftClick = () => {
-    persistCodingDraftToStorage();
-    setDraftSavedOpen(true);
   };
 
   if (loading) {
@@ -799,6 +830,7 @@ const CodingTest: React.FC = () => {
         setError('Please login to apply');
         return;
       }
+      const userId = user.id || 'anonymous';
 
       try {
         setSubmitting(true);
@@ -808,7 +840,7 @@ const CodingTest: React.FC = () => {
             ? { ...screeningIntegrityRef.current, stage: 'screening_only' }
             : { stage: 'screening_only' },
         });
-        sessionStorage.removeItem(getScreeningAnswersStorageKey(job.id));
+        sessionStorage.removeItem(getScreeningAnswersStorageKey(job.id, userId));
         setSuccessDialogOpen(true);
       } catch (err: any) {
         setError(err.message || 'Failed to submit application');
@@ -985,24 +1017,25 @@ const CodingTest: React.FC = () => {
                   sx={{
                     flexShrink: 0,
                     maxWidth: { sm: 420 },
-                    px: 1.25,
-                    py: 1,
-                    borderRadius: 1.5,
-                    bgcolor: 'rgba(251, 191, 36, 0.1)',
-                    border: '1px solid rgba(251, 191, 36, 0.28)',
+                    px: 1.75,
+                    py: 1.35,
+                    borderRadius: 2,
+                    bgcolor: 'rgba(251, 191, 36, 0.16)',
+                    border: '2px solid rgba(251, 191, 36, 0.45)',
+                    boxShadow: '0 10px 24px rgba(245, 158, 11, 0.12)',
                   }}
                 >
-                  <WarningIcon sx={{ fontSize: 18, color: '#fbbf24', flexShrink: 0, mt: 0.1 }} />
+                  <WarningIcon sx={{ fontSize: 24, color: '#f59e0b', flexShrink: 0, mt: 0.05 }} />
                   <Typography
                     variant="caption"
-                    sx={{ color: 'text.primary', lineHeight: 1.45, flex: 1, fontWeight: 500, fontSize: '0.75rem' }}
+                    sx={{ color: '#92400e', lineHeight: 1.55, flex: 1, fontWeight: 700, fontSize: '0.92rem' }}
                   >
                     {integrityBanner}
                   </Typography>
                   <IconButton
                     size="small"
                     onClick={clearIntegrityNotice}
-                    sx={{ color: 'text.secondary', p: 0.25, mt: -0.25 }}
+                    sx={{ color: '#92400e', p: 0.25, mt: -0.15 }}
                     aria-label="Dismiss notice"
                   >
                     <CloseIcon fontSize="small" />
@@ -1632,18 +1665,28 @@ const CodingTest: React.FC = () => {
             }}
           >
             <Box
+              ref={splitContainerRef}
               sx={{
                 flex: '1 1 0%',
                 minHeight: 0,
                 display: 'flex',
                 flexDirection: { xs: 'column', md: 'row' },
-                gap: 2,
+                gap: { xs: 2, md: 0 },
                 overflow: 'hidden',
                 alignItems: 'stretch',
               }}
             >
             {/* Left: problem statement + examples */}
-            <Box sx={{ flex: '1 1 0%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Box
+              sx={{
+                flex: { xs: '1 1 auto', md: `0 0 calc(${desktopSplit}% - 8px)` },
+                minHeight: 0,
+                minWidth: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+              }}
+            >
               <Paper
                 elevation={0}
                 sx={{
@@ -1651,6 +1694,8 @@ const CodingTest: React.FC = () => {
                   borderRadius: 2,
                   flex: 1,
                   minHeight: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
                   overflow: 'auto',
                   border: '1px solid rgba(148, 163, 184, 0.22)',
                   bgcolor: 'rgba(255,255,255,0.96)',
@@ -1714,7 +1759,7 @@ const CodingTest: React.FC = () => {
                 </Box>
 
                 {(currentQuestion.sampleInput || currentQuestion.sampleOutput || currentQuestion.expectedOutput) && (
-                  <Box>
+                  <Box sx={{ mt: 0.5 }}>
                     <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
                       <LightbulbOutlinedIcon sx={{ fontSize: 20, color: 'warning.main' }} />
                       <Typography variant="overline" sx={{ fontWeight: 800, letterSpacing: 1, color: 'text.secondary' }}>
@@ -1754,8 +1799,49 @@ const CodingTest: React.FC = () => {
               </Paper>
             </Box>
 
+            <Box
+              role="separator"
+              aria-orientation="vertical"
+              onPointerDown={handleSplitDragStart}
+              onDoubleClick={() => setDesktopSplit(49)}
+              sx={{
+                display: { xs: 'none', md: 'flex' },
+                width: 16,
+                flex: '0 0 16px',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'col-resize',
+                userSelect: 'none',
+                touchAction: 'none',
+              }}
+            >
+              <Box
+                sx={{
+                  width: 6,
+                  height: '22%',
+                  minHeight: 96,
+                  borderRadius: 999,
+                  bgcolor: 'rgba(148, 163, 184, 0.55)',
+                  boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.65)',
+                  transition: 'background-color 0.2s ease',
+                  '&:hover': {
+                    bgcolor: 'rgba(59, 130, 246, 0.7)',
+                  },
+                }}
+              />
+            </Box>
+
             {/* Right: IDE + output */}
-            <Box sx={{ flex: '1 1 0%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Box
+              sx={{
+                flex: { xs: '1 1 auto', md: `0 0 calc(${100 - desktopSplit}% - 8px)` },
+                minHeight: 0,
+                minWidth: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+              }}
+            >
               <Paper
                 elevation={0}
                 sx={{
@@ -1764,6 +1850,7 @@ const CodingTest: React.FC = () => {
                   display: 'flex',
                   flexDirection: 'column',
                   flex: 1,
+                  height: '100%',
                   minHeight: 0,
                   border: '1px solid rgba(203, 213, 225, 0.95)',
                   boxShadow: '0 12px 32px rgba(15, 23, 42, 0.08)',
@@ -1820,26 +1907,6 @@ const CodingTest: React.FC = () => {
                         ))}
                       </Select>
                     </FormControl>
-                    <Tooltip title={!assessmentStarted || assessmentLocked ? 'Available after you start the assessment' : 'Run with sample input'}>
-                      <span>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="inherit"
-                          startIcon={<PlayArrowIcon sx={{ fontSize: 18 }} />}
-                          disabled={!assessmentStarted || assessmentLocked || runLoading || submitting}
-                          onClick={() => void handleRunPreview()}
-                          sx={{
-                            color: colors.primaryDark,
-                            borderColor: 'rgba(148, 163, 184, 0.6)',
-                            textTransform: 'none',
-                            fontWeight: 600,
-                          }}
-                        >
-                          Run
-                        </Button>
-                      </span>
-                    </Tooltip>
                     <Tooltip title={!assessmentStarted || assessmentLocked ? 'Available after you start' : 'Run all test cases'}>
                       <span>
                         <Button
@@ -1877,26 +1944,6 @@ const CodingTest: React.FC = () => {
                           }}
                         >
                           Reset
-                        </Button>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title="Save draft to browser">
-                      <span>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="inherit"
-                          startIcon={<SaveIcon sx={{ fontSize: 18 }} />}
-                          disabled={!assessmentStarted || assessmentLocked || submitting}
-                          onClick={handleSaveDraftClick}
-                          sx={{
-                            color: colors.primaryDark,
-                            borderColor: 'rgba(148, 163, 184, 0.6)',
-                            textTransform: 'none',
-                            fontWeight: 600,
-                          }}
-                        >
-                          Save
                         </Button>
                       </span>
                     </Tooltip>
@@ -1972,12 +2019,12 @@ const CodingTest: React.FC = () => {
                     </Box>
                   </Box>
 
-                  {/* Bottom: Run / Test output */}
+                  {/* Bottom: Test output */}
                   <Box
                     sx={{
-                      flex: '1 1 0%',
+                      flex: { xs: '1 1 auto', md: '0 0 38%' },
                       minHeight: 112,
-                      maxHeight: { xs: '46vh', md: '44vh' },
+                      maxHeight: { xs: '46vh', md: '40%' },
                       display: 'flex',
                       flexDirection: 'column',
                       overflow: 'hidden',
@@ -1999,10 +2046,10 @@ const CodingTest: React.FC = () => {
                       <ScienceIcon sx={{ fontSize: 22, color: 'primary.main' }} />
                       <Box sx={{ minWidth: 0 }}>
                         <Typography variant="subtitle2" sx={{ fontWeight: 800, color: colors.primaryDark, lineHeight: 1.25 }}>
-                          Run &amp; test results
+                          Test results
                         </Typography>
                         <Typography variant="caption" sx={{ color: colors.textLight, display: 'block' }}>
-                          Output from Run or Test appears below
+                          Output from Test appears below
                         </Typography>
                       </Box>
                     </Stack>
@@ -2145,9 +2192,8 @@ const CodingTest: React.FC = () => {
                                     variant="outlined"
                                     sx={{ height: 22, fontSize: '0.7rem' }}
                                   />
-                                  <Typography variant="caption" sx={{ color: '#334155', flex: 1, whiteSpace: 'pre-wrap' }}>
-                                    {t.input ? `in: ${t.input} → ` : ''}
-                                    expected: {t.expected || '—'} | got: {t.actual || '—'}
+                                  <Typography variant="caption" sx={{ color: '#334155', flex: 1, fontWeight: 600 }}>
+                                    Test case {i + 1}
                                   </Typography>
                                 </Stack>
                               ))}
@@ -2157,7 +2203,7 @@ const CodingTest: React.FC = () => {
                       )}
                       {!runLoading && !runOutput && assessmentStarted && !assessmentLocked && (
                         <Typography variant="body2" sx={{ color: colors.textLight, fontStyle: 'italic' }}>
-                          Use Run or Test to see output here.
+                          Use Test to see output here.
                         </Typography>
                       )}
                     </Box>
@@ -2190,8 +2236,8 @@ const CodingTest: React.FC = () => {
                   >
                     Previous
                   </Button>
-                  <Box sx={{ display: 'flex', gap: 2 }}>
-                    {activeStep < job.codingQuestions.length - 1 ? (
+                  {activeStep < job.codingQuestions.length - 1 && (
+                    <Box sx={{ display: 'flex', gap: 2 }}>
                       <Button
                         variant="contained"
                         endIcon={<ArrowForwardIcon />}
@@ -2204,16 +2250,8 @@ const CodingTest: React.FC = () => {
                       >
                         Next question
                       </Button>
-                    ) : (
-                      <SubmitButton
-                        disabled={!canSubmit() || submitting}
-                        onClick={() => setConfirmDialogOpen(true)}
-                        startIcon={<SendIcon />}
-                      >
-                        Submit application
-                      </SubmitButton>
-                    )}
-                  </Box>
+                    </Box>
+                  )}
                 </Box>
               </Box>
           </Box>
@@ -2321,33 +2359,6 @@ const CodingTest: React.FC = () => {
           </DialogActions>
         </Dialog>
 
-        <Snackbar
-          open={draftSavedOpen}
-          autoHideDuration={3200}
-          onClose={() => setDraftSavedOpen(false)}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        >
-          <Alert onClose={() => setDraftSavedOpen(false)} severity="success" sx={{ width: '100%' }} variant="filled">
-            Draft saved
-          </Alert>
-        </Snackbar>
-
-        <Snackbar
-          open={integritySnackbarOpen && Boolean(integrityBanner)}
-          autoHideDuration={9000}
-          onClose={() => setIntegritySnackbarOpen(false)}
-          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-          sx={{ mt: { xs: 7, sm: 2 } }}
-        >
-          <Alert
-            severity="warning"
-            variant="filled"
-            onClose={() => setIntegritySnackbarOpen(false)}
-            sx={{ maxWidth: 560, width: '100%', alignItems: 'flex-start' }}
-          >
-            {integrityBanner}
-          </Alert>
-        </Snackbar>
       </Container>
     </PageContainer>
   );

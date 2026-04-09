@@ -52,11 +52,13 @@ import { getAccessToken } from '../../services/apiClient';
 import { ABOVE_BOTTOM_NAV_OFFSET_PX } from '../../constants/layout';
 import { Snackbar } from '@mui/material';
 
-const getCodingDraftStorageKey = (jobId: string) => `job-application-coding-draft:${jobId}`;
+const getCodingDraftStorageKey = (jobId: string, userId?: string) =>
+  `job-application-coding-draft:${jobId}:${userId || 'anonymous'}`;
 
 const hasLockedAssessmentDraft = (jobId?: string): boolean => {
   if (!jobId || typeof window === 'undefined') return false;
-  const raw = window.sessionStorage.getItem(getCodingDraftStorageKey(jobId));
+  const userId = getUserInfo()?.id || 'anonymous';
+  const raw = window.sessionStorage.getItem(getCodingDraftStorageKey(jobId, userId));
   if (!raw) return false;
   try {
     const parsed = JSON.parse(raw);
