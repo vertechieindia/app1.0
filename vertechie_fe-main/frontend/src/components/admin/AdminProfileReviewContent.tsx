@@ -19,6 +19,7 @@ import {
   CheckCircle,
   Cancel,
 } from '@mui/icons-material';
+import VerificationCaptureGallery from './VerificationCaptureGallery';
 
 export interface AdminProfileReviewContentProps {
   /** Response from GET /users/{id}/full-profile */
@@ -356,6 +357,11 @@ const AdminProfileReviewContent: React.FC<AdminProfileReviewContentProps> = ({ p
       </Box>
         </>
       )}
+
+      <VerificationCaptureGallery
+        faceVerification={reviewData.face_verification}
+        documentVerification={reviewData.document_verification}
+      />
 
       <Divider sx={{ my: 2 }} />
       <Box sx={{ px: 2.5, pb: 2.5 }}>

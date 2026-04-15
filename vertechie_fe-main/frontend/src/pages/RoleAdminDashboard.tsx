@@ -61,10 +61,12 @@ import {
   LockReset,
   Block as BlockIcon,
   FileDownload as FileDownloadIcon,
+  RestartAlt as RestartAltIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl, API_ENDPOINTS } from '../config/api';
 import AdminCreateUserWizard from '../components/admin/AdminCreateUserWizard';
+import VerificationCaptureGallery from '../components/admin/VerificationCaptureGallery';
 
 interface RoleAdminDashboardProps {
   userType: 'techie' | 'hr' | 'company' | 'school';
@@ -78,7 +80,8 @@ const PageContainer = styled(Box)(({ theme }) => ({
   minHeight: '100vh',
   background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
   paddingTop: theme.spacing(3),
-  paddingBottom: theme.spacing(6),
+  // Extra space so list + TablePagination clear the fixed BottomNav when scrolled to the end
+  paddingBottom: theme.spacing(10),
 }));
 
 const GlassCard = styled(Card)(() => ({
@@ -97,6 +100,29 @@ const SummaryCard = styled(Card)(({ theme }) => ({
   flexDirection: 'column',
   justifyContent: 'center',
 }));
+
+/** Avoid treating `total` as missing when JSON sends a string; never fall back to page length when a real total exists. */
+function parsePendingApprovalsPayload(raw: unknown): { results: any[]; total: number } {
+  if (raw == null) return { results: [], total: 0 };
+  if (Array.isArray(raw)) return { results: raw, total: raw.length };
+  if (typeof raw !== 'object') return { results: [], total: 0 };
+  const o = raw as Record<string, unknown>;
+  const nested = o.data && typeof o.data === 'object' ? (o.data as Record<string, unknown>) : null;
+  const results = Array.isArray(o.results)
+    ? o.results
+    : nested && Array.isArray(nested.results)
+      ? nested.results
+      : [];
+  const totalRaw = (o.total ?? nested?.total ?? (o as { Total?: unknown }).Total) as unknown;
+  if (typeof totalRaw === 'number' && Number.isFinite(totalRaw)) {
+    return { results, total: totalRaw };
+  }
+  if (totalRaw != null && totalRaw !== '') {
+    const n = Number(totalRaw);
+    if (Number.isFinite(n)) return { results, total: n };
+  }
+  return { results, total: results.length };
+}
 
 
 const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title, icon, embedded }) => {
@@ -200,8 +226,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
 
       if (response.ok) {
         const data = await response.json();
-        const approvals = Array.isArray(data) ? data : (data.results ?? []);
-        const total = typeof data?.total === 'number' ? data.total : approvals.length;
+        const { results: approvals, total } = parsePendingApprovalsPayload(data);
         setTotalCount(total);
         if (total > 0 && skip >= total) setPage(0);
 
@@ -243,6 +268,20 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
         statsData = safeStats;
         setStats(safeStats);
         setTopStats((prev) => ({ ...prev, totalUsers: safeStats.total, pendingUsers: safeStats.pending }));
+        // When no search/filters, row count should match summary "Total"; fixes bad/missing `total` on list payload
+        const listHasOnlyDefaultFilters =
+          !searchQuery.trim() &&
+          !statusFilter &&
+          !(userType === 'techie' && educationVerificationFilter && educationVerificationFilter !== 'all') &&
+          !(userType === 'techie' && experienceVerificationFilter && experienceVerificationFilter !== 'all') &&
+          !(
+            ['hr', 'company', 'school'].includes(userType) &&
+            companyVerificationFilter &&
+            companyVerificationFilter !== 'all'
+          );
+        if (listHasOnlyDefaultFilters) {
+          setTotalCount((c) => Math.max(c, safeStats.total));
+        }
       } else if (statsResponse.status !== 401) {
         const errBody = await statsResponse.json().catch(() => ({}));
         const msg = Array.isArray(errBody.detail) ? errBody.detail.map((e: any) => e.msg || e).join(', ') : (errBody.detail || 'Failed to load stats');
@@ -304,6 +343,16 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
     setExperienceVerificationFilter('');
     setCompanyVerificationFilter('');
   }, [userType]);
+
+  const resetFilters = useCallback(() => {
+    setSearchInput('');
+    setSearchQuery('');
+    setStatusFilter('');
+    setEducationVerificationFilter('');
+    setExperienceVerificationFilter('');
+    setCompanyVerificationFilter('');
+    setPage(0);
+  }, []);
 
   // Handle approve
   const handleApprove = async (approvalId: string) => {
@@ -664,6 +713,15 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
               </Select>
             </FormControl>
           )}
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<RestartAltIcon />}
+            onClick={resetFilters}
+            sx={{ alignSelf: 'center', flexShrink: 0 }}
+          >
+            Reset filters
+          </Button>
         </Box>
 
         {/* Table */}
@@ -849,7 +907,17 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
               </TableBody>
             </Table>
           </TableContainer>
-          <Box sx={{ overflowX: 'auto', width: '100%', border: '1px solid #e2e8f0', borderTop: '1px solid #e2e8f0', borderBottomLeftRadius: 12, borderBottomRightRadius: 12, bgcolor: 'background.paper' }}>
+          <Box
+            sx={{
+              overflowX: 'auto',
+              width: '100%',
+              border: '1px solid #e2e8f0',
+              borderTop: '1px solid #e2e8f0',
+              borderBottomLeftRadius: 12,
+              borderBottomRightRadius: 12,
+              bgcolor: 'background.paper',
+            }}
+          >
             <TablePagination
               component="div"
               count={totalCount}
@@ -860,7 +928,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
               rowsPerPageOptions={[10, 20, 50, 100]}
               labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : to}`}
               labelRowsPerPage="Rows:"
-              sx={{ borderTop: 'none' }}
+              sx={{ borderTop: 'none', width: '100%' }}
             />
           </Box>
           </>
@@ -1339,6 +1407,10 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
               </Box>
               </>
               )}
+              <VerificationCaptureGallery
+                faceVerification={reviewData.face_verification}
+                documentVerification={reviewData.document_verification}
+              />
               <Divider sx={{ my: 2 }} />
               <Box sx={{ px: 2.5, pb: 2.5 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 0.5, mb: 1.5 }}>
@@ -1457,7 +1529,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   if (embedded) {
     return (
       <Box>
-        <GlassCard sx={{ overflow: 'hidden' }}>{innerContent}</GlassCard>
+        <GlassCard sx={{ overflow: 'visible' }}>{innerContent}</GlassCard>
         {rest}
       </Box>
     );
@@ -1465,7 +1537,7 @@ const RoleAdminDashboard: React.FC<RoleAdminDashboardProps> = ({ userType, title
   return (
     <PageContainer>
       <Container maxWidth="xl">
-        <GlassCard sx={{ overflow: 'hidden' }}>{innerContent}</GlassCard>
+        <GlassCard sx={{ overflow: 'visible' }}>{innerContent}</GlassCard>
       </Container>
       {rest}
     </PageContainer>
@@ -1574,7 +1646,7 @@ export const MultiRoleAdminDashboard: React.FC = () => {
   return (
     <PageContainer>
       <Container maxWidth="xl">
-        <GlassCard sx={{ overflow: 'hidden' }}>
+        <GlassCard sx={{ overflow: 'visible' }}>
           <Tabs
             value={tabIndex}
             onChange={(_, v) => setTabIndex(v)}

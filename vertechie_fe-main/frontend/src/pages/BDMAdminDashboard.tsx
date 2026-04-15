@@ -1,7 +1,7 @@
 /**
  * BDM queue: `invite_flow=registration` only — company page requests from `/techie/create-company` (after user is approved by Techie/HM admin).
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Container,
@@ -35,6 +35,7 @@ import {
   Tooltip,
   Link,
   CircularProgress,
+  TablePagination,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
@@ -50,6 +51,7 @@ import {
   Visibility,
   Block,
   Person,
+  RestartAlt as RestartAltIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl, API_ENDPOINTS } from '../config/api';
@@ -184,6 +186,8 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
   const [stats, setStats] = useState({ total: 0, pending: 0, sent: 0, accepted: 0, declined: 0 });
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   
   // Detail dialog
@@ -304,6 +308,29 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
     );
   });
 
+  const sortedFilteredInvites = useMemo(() => {
+    return [...filteredInvites].sort((a, b) => {
+      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return tb - ta;
+    });
+  }, [filteredInvites]);
+
+  const pagedInvites = useMemo(
+    () => sortedFilteredInvites.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [sortedFilteredInvites, page, rowsPerPage],
+  );
+
+  useEffect(() => {
+    setPage(0);
+  }, [searchQuery, statusFilter]);
+
+  const resetBdmFilters = useCallback(() => {
+    setSearchQuery('');
+    setStatusFilter('');
+    setPage(0);
+  }, []);
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'warning';
@@ -318,7 +345,7 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
 
   const handleExportCSV = useCallback(() => {
     const headers = ['Company', 'Legal name', 'Email', 'Status', 'Submitted', 'GST'];
-    const rows = filteredInvites.map((inv) => [
+    const rows = sortedFilteredInvites.map((inv) => [
       inv.company_name ?? '',
       inv.legal_name ?? '',
       inv.emails?.[0] ?? '',
@@ -334,7 +361,7 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
     link.click();
     URL.revokeObjectURL(link.href);
     setSnackbar({ open: true, message: 'Export downloaded', severity: 'success' });
-  }, [filteredInvites]);
+  }, [sortedFilteredInvites]);
 
   const handleQuickApprove = async (inviteId: string, opts?: { closeDetail?: boolean }) => {
     setApprovingId(inviteId);
@@ -396,7 +423,7 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
 
   const queueBody = (
     <>
-        <GlassCard sx={{ overflow: 'hidden' }}>
+        <GlassCard sx={{ overflow: 'visible' }}>
           <Box sx={{ p: 3 }}>
             {/* Toolbar — aligned with Techie Admin (RoleAdminDashboard): title + actions */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 2 }}>
@@ -424,7 +451,7 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
                   startIcon={<FileDownloadIcon />}
                   onClick={handleExportCSV}
                   size="medium"
-                  disabled={filteredInvites.length === 0}
+                  disabled={sortedFilteredInvites.length === 0}
                 >
                   Export
                 </Button>
@@ -494,6 +521,15 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
                   <MenuItem value="declined">Declined</MenuItem>
                 </Select>
               </FormControl>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<RestartAltIcon />}
+                onClick={resetBdmFilters}
+                sx={{ alignSelf: 'center', flexShrink: 0 }}
+              >
+                Reset filters
+              </Button>
             </Box>
 
             {/* Table */}
@@ -504,7 +540,7 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
                   Loading invitations...
                 </Typography>
               </Box>
-            ) : filteredInvites.length === 0 ? (
+            ) : sortedFilteredInvites.length === 0 ? (
               <Paper elevation={0} sx={{ p: 6, textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                 <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2, bgcolor: '#ede9fe' }}>
                   <Business sx={{ fontSize: 40, color: '#7c3aed' }} />
@@ -515,6 +551,7 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
                 </Typography>
               </Paper>
             ) : (
+              <>
               <TableContainer
                 component={Paper}
                 elevation={0}
@@ -541,7 +578,7 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {filteredInvites.map((invite) => (
+                    {pagedInvites.map((invite) => (
                       <TableRow key={invite.id} hover>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -762,6 +799,34 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
                   </TableBody>
                 </Table>
               </TableContainer>
+              <Box
+                sx={{
+                  overflowX: 'auto',
+                  width: '100%',
+                  border: '1px solid #e2e8f0',
+                  borderTop: '1px solid #e2e8f0',
+                  borderBottomLeftRadius: 12,
+                  borderBottomRightRadius: 12,
+                  bgcolor: 'background.paper',
+                }}
+              >
+                <TablePagination
+                  component="div"
+                  count={sortedFilteredInvites.length}
+                  page={page}
+                  onPageChange={(_, newPage) => setPage(newPage)}
+                  rowsPerPage={rowsPerPage}
+                  onRowsPerPageChange={(e) => {
+                    setRowsPerPage(parseInt(e.target.value, 10));
+                    setPage(0);
+                  }}
+                  rowsPerPageOptions={[10, 20, 50, 100]}
+                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : to}`}
+                  labelRowsPerPage="Rows:"
+                  sx={{ borderTop: 'none' }}
+                />
+              </Box>
+              </>
             )}
           </Box>
         </GlassCard>

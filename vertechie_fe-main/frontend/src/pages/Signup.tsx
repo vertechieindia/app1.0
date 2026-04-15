@@ -26,6 +26,10 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { getPrimaryColor } from '../components/signup/utils/colors';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
+import {
+  normalizeFaceVerificationPayload,
+  buildDocumentVerificationPayload,
+} from '../utils/signupVerificationPayload';
 
 type CountryCode = 'US' | 'IN' | 'UK' | 'CA' | 'DE' | 'CH' | 'CN';
 
@@ -189,7 +193,8 @@ const Signup = () => {
         country: mapCountryToBackend(data.country),
         role: role,
         gov_id: getGovId(data),
-        face_verification: data.livePhoto || '',
+        face_verification: normalizeFaceVerificationPayload(data.livePhoto),
+        document_verification: buildDocumentVerificationPayload(data),
         visa_status: data.visaStatus || '',
         email_verified: data.emailVerified || false,
         mobile_verified: data.phoneVerified || false,

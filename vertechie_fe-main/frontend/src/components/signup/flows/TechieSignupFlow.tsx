@@ -84,6 +84,7 @@ const TechieSignupFlow: React.FC<TechieSignupFlowProps> = ({
     
     // Terms
     termsAccepted: false,
+    identityCaptureDisclaimerAccepted: false,
   });
 
   const config = getSignupConfig('techie', location);

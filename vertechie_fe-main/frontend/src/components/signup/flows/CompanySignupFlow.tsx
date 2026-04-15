@@ -71,6 +71,7 @@ const CompanySignupFlow: React.FC<CompanySignupFlowProps> = ({
     
     // Terms
     termsAccepted: false,
+    identityCaptureDisclaimerAccepted: false,
   });
 
   const config = getSignupConfig('company', location);

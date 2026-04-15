@@ -20,6 +20,7 @@ import CreditCardIcon from '@mui/icons-material/CreditCard';
 import CloseIcon from '@mui/icons-material/Close';
 import { useDocumentCapture } from '../../shared/hooks/useDocumentCapture';
 import { preloadFaceDetector } from '../../../../utils/faceDetection';
+import { useIdentityDisclaimerGate } from './IdentityDisclaimerContext';
 
 const UKDocumentVerification: React.FC<StepComponentProps> = ({
   formData,
@@ -44,9 +45,12 @@ const UKDocumentVerification: React.FC<StepComponentProps> = ({
     });
   }, []);
 
+  const ensureIdentityDisclaimer = useIdentityDisclaimerGate();
+
   // Live Photo Hook
   const livePhotoHook = useDocumentCapture({
     cameraType: 'live',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ livePhoto: data });
       setLivePhotoCaptured(true);
@@ -57,6 +61,7 @@ const UKDocumentVerification: React.FC<StepComponentProps> = ({
   const govIdHook = useDocumentCapture({
     cameraType: 'govId',
     country: 'UK',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ governmentId: data });
     },
@@ -81,6 +86,7 @@ const UKDocumentVerification: React.FC<StepComponentProps> = ({
   const ninoHook = useDocumentCapture({
     cameraType: 'ssn', // Reuse SSN type for tax ID documents
     country: 'UK',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ nino: data });
     },

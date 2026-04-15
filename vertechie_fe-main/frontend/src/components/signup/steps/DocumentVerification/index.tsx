@@ -7,28 +7,43 @@ import CanadaDocumentVerification from './CanadaDocumentVerification';
 import GermanyDocumentVerification from './GermanyDocumentVerification';
 import SwitzerlandDocumentVerification from './SwitzerlandDocumentVerification';
 import ChinaDocumentVerification from './ChinaDocumentVerification';
+import { IdentityDisclaimerProvider } from './IdentityDisclaimerContext';
 
 const DocumentVerification: React.FC<StepComponentProps> = (props) => {
-  const { location } = props;
+  const { location, formData, updateFormData } = props;
 
+  let Step: React.FC<StepComponentProps>;
   switch (location) {
     case 'US':
-      return <USDocumentVerification {...props} />;
+      Step = USDocumentVerification;
+      break;
     case 'IN':
-      return <IndiaDocumentVerification {...props} />;
+      Step = IndiaDocumentVerification;
+      break;
     case 'UK':
-      return <UKDocumentVerification {...props} />;
+      Step = UKDocumentVerification;
+      break;
     case 'CA':
-      return <CanadaDocumentVerification {...props} />;
+      Step = CanadaDocumentVerification;
+      break;
     case 'DE':
-      return <GermanyDocumentVerification {...props} />;
+      Step = GermanyDocumentVerification;
+      break;
     case 'CH':
-      return <SwitzerlandDocumentVerification {...props} />;
+      Step = SwitzerlandDocumentVerification;
+      break;
     case 'CN':
-      return <ChinaDocumentVerification {...props} />;
+      Step = ChinaDocumentVerification;
+      break;
     default:
-      return <USDocumentVerification {...props} />;
+      Step = USDocumentVerification;
   }
+
+  return (
+    <IdentityDisclaimerProvider formData={formData} updateFormData={updateFormData}>
+      <Step {...props} />
+    </IdentityDisclaimerProvider>
+  );
 };
 
 export default DocumentVerification;

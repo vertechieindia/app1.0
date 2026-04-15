@@ -8,6 +8,10 @@ import { getPrimaryColor } from '../utils/colors';
 import { getApiUrl, API_ENDPOINTS } from '../../../config/api';
 import SuccessScreen from '../steps/ReviewSubmit/SuccessScreen';
 import { isValidLastName, isValidPersonName } from '../../../utils/validation';
+import {
+  normalizeFaceVerificationPayload,
+  buildDocumentVerificationPayload,
+} from '../../../utils/signupVerificationPayload';
 
 interface SignupFlowContainerProps {
   config: SignupFlowConfig;
@@ -454,7 +458,8 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
           mobile_number: formData.phone || '',
           email_verified: !!formData.emailVerified,
           mobile_verified: !!formData.phoneVerified,
-          face_verification: formData.livePhoto || null,
+          face_verification: normalizeFaceVerificationPayload(formData.livePhoto),
+          document_verification: buildDocumentVerificationPayload(formData as Record<string, unknown>),
         };
 
         // Add work_authorization only for US

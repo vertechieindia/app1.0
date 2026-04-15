@@ -2,7 +2,9 @@
 Authentication schemas.
 """
 
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
+
+from app.core.face_verification_normalize import normalize_stored_face_verification
 from datetime import date
 from pydantic import BaseModel, EmailStr, Field, field_validator
 import json
@@ -48,6 +50,8 @@ class UserRegister(BaseModel):
     experiences: Optional[List[Any]] = None
     educations: Optional[List[Any]] = None
     face_verification: Optional[List[str]] = None
+    # Captured ID images for admin review (cleared when profile is approved)
+    document_verification: Optional[Dict[str, str]] = None
     
     # Additional organization fields
     ein: Optional[str] = None
@@ -77,19 +81,43 @@ class UserRegister(BaseModel):
     @field_validator('face_verification', mode='before')
     @classmethod
     def normalize_face_verification(cls, v):
-        """Accept legacy stringified JSON and normalize to list[str]."""
+        """Normalize to list[str]: single data URL, JSON array string, or list."""
         if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            if not s or s.lower() == "null":
+                return None
+            if s.startswith("["):
+                try:
+                    v = json.loads(s)
+                except json.JSONDecodeError as exc:
+                    raise ValueError("face_verification must be a valid JSON list of strings") from exc
+            else:
+                return [v]
+        if not isinstance(v, list):
+            raise ValueError("face_verification must be a list of strings")
+        if not all(isinstance(item, str) for item in v):
+            raise ValueError("face_verification must be a list of strings")
+        return normalize_stored_face_verification(v)
+
+    @field_validator("document_verification", mode="before")
+    @classmethod
+    def normalize_document_verification(cls, v: Any) -> Optional[Dict[str, str]]:
+        if v is None or v == "" or v == {}:
             return None
         if isinstance(v, str):
             try:
                 v = json.loads(v)
-            except json.JSONDecodeError as exc:
-                raise ValueError('face_verification must be a valid JSON list of strings') from exc
-        if not isinstance(v, list):
-            raise ValueError('face_verification must be a list of strings')
-        if not all(isinstance(item, str) for item in v):
-            raise ValueError('face_verification must be a list of strings')
-        return v
+            except json.JSONDecodeError:
+                return None
+        if not isinstance(v, dict):
+            raise ValueError("document_verification must be an object with string values")
+        out: Dict[str, str] = {}
+        for key, val in v.items():
+            if isinstance(key, str) and isinstance(val, str) and val.strip():
+                out[key] = val
+        return out or None
 
 
 class UserLogin(BaseModel):
