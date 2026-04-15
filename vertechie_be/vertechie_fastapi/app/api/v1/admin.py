@@ -30,6 +30,7 @@ from app.core.role_mapping import (
 from app.core.permissions import collect_effective_permission_codes, user_has_permission
 from app.core.permissions_catalog import PERMISSION_DEFINITIONS
 from app.core.config import get_settings
+from app.core.face_verification_normalize import normalize_stored_face_verification
 from app.core.access_role_utils import (
     sorted_unique_permission_codes,
     compute_permission_signature,
@@ -989,7 +990,8 @@ async def list_pending_approvals(
             query = query.where(has_exp, no_pending_exp)
             logger.info("[PENDING_APPROVALS] Filtering by experience verification: verified")
         
-        query = query.order_by(User.created_at.asc())
+        # Newest registrations first (Submitted column) for all role-admin queues
+        query = query.order_by(User.created_at.desc().nulls_last())
         logger.info(f"[PENDING_APPROVALS] Query built, executing...")
         
         result = await db.execute(query)
@@ -1352,6 +1354,9 @@ async def approve_user(
     user.email_verified = True
     user.reviewed_by_id = current_admin.id
     user.reviewed_at = datetime.utcnow()
+    # Drop sensitive capture payloads after approval (admin has completed review)
+    user.face_verification = None
+    user.document_verification = None
     
     await db.commit()
     
@@ -1586,6 +1591,7 @@ class UserFullProfile(BaseModel):
     email_verified: bool = False
     mobile_verified: bool = False
     face_verification: Optional[List[str]] = None
+    document_verification: Optional[dict] = None
     verification_status: Optional[str] = None
     
     # Review Info
@@ -1613,12 +1619,29 @@ class UserFullProfile(BaseModel):
         if value is None:
             return None
         if isinstance(value, str):
+            s = value.strip()
+            if not s:
+                return None
+            if not s.startswith("["):
+                return [value]
             try:
                 value = json.loads(value)
             except json.JSONDecodeError:
                 return None
-        if isinstance(value, list):
-            return [item for item in value if isinstance(item, str)]
+        return normalize_stored_face_verification(value)
+
+    @field_validator("document_verification", mode="before")
+    @classmethod
+    def normalize_document_verification(cls, value: Any) -> Optional[dict]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return None
+        if isinstance(value, dict):
+            return {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str)}
         return None
 
 
@@ -1815,6 +1838,7 @@ async def get_user_full_profile(
         email_verified=user.email_verified,
         mobile_verified=user.mobile_verified or False,
         face_verification=user.face_verification,
+        document_verification=user.document_verification,
         verification_status=user.verification_status or None,
         reviewed_at=str(user.reviewed_at) if user.reviewed_at else None,
         reviewed_by=reviewed_by_name,

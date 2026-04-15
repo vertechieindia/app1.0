@@ -10,9 +10,11 @@ interface UseDocumentCaptureProps {
   onCaptureComplete?: (data: string) => void;
   onDataExtracted?: (extractedData: { firstName?: string; lastName?: string; dateOfBirth?: string; address?: string; panNumber?: string; idNumber?: string }) => void;
   country?: 'US' | 'IN' | 'UK' | 'CA' | 'DE' | 'CH' | 'CN';
+  /** If set, called before requesting camera; return false to abort (e.g. user dismissed identity disclaimer). */
+  beforeStartCamera?: () => Promise<boolean>;
 }
 
-export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtracted, country }: UseDocumentCaptureProps) => {
+export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtracted, country, beforeStartCamera }: UseDocumentCaptureProps) => {
   const [showCamera, setShowCamera] = useState(false);
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [captured, setCaptured] = useState(false);
@@ -241,6 +243,13 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
   // Start camera
   const startCamera = useCallback(async () => {
     try {
+      if (beforeStartCamera) {
+        const allowed = await beforeStartCamera();
+        if (!allowed) {
+          return;
+        }
+      }
+
       // Stop any existing stream
       if (videoStream) {
         videoStream.getTracks().forEach(track => track.stop());
@@ -389,7 +398,7 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
 
       setErrors({ camera: errorMessage });
     }
-  }, [cameraType, videoStream]);
+  }, [cameraType, videoStream, beforeStartCamera]);
 
   // Stop camera
   const stopCamera = useCallback(() => {

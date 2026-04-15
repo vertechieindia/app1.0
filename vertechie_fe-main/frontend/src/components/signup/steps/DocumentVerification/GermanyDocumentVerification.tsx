@@ -20,6 +20,7 @@ import CreditCardIcon from '@mui/icons-material/CreditCard';
 import CloseIcon from '@mui/icons-material/Close';
 import { useDocumentCapture } from '../../shared/hooks/useDocumentCapture';
 import { preloadFaceDetector } from '../../../../utils/faceDetection';
+import { useIdentityDisclaimerGate } from './IdentityDisclaimerContext';
 
 const GermanyDocumentVerification: React.FC<StepComponentProps> = ({
   formData,
@@ -44,8 +45,11 @@ const GermanyDocumentVerification: React.FC<StepComponentProps> = ({
     });
   }, []);
 
+  const ensureIdentityDisclaimer = useIdentityDisclaimerGate();
+
   const livePhotoHook = useDocumentCapture({
     cameraType: 'live',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ livePhoto: data });
       setLivePhotoCaptured(true);
@@ -55,6 +59,7 @@ const GermanyDocumentVerification: React.FC<StepComponentProps> = ({
   const govIdHook = useDocumentCapture({
     cameraType: 'govId',
     country: 'DE',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ governmentId: data });
     },
@@ -75,6 +80,7 @@ const GermanyDocumentVerification: React.FC<StepComponentProps> = ({
   const svnrHook = useDocumentCapture({
     cameraType: 'ssn',
     country: 'DE',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ svnr: data });
     },

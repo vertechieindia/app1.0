@@ -61,6 +61,7 @@ const SchoolSignupFlow: React.FC<SchoolSignupFlowProps> = ({
     
     // Terms
     termsAccepted: false,
+    identityCaptureDisclaimerAccepted: false,
   });
 
   const config = getSignupConfig('school', location);

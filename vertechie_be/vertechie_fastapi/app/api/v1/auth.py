@@ -5,7 +5,6 @@ Authentication API endpoints.
 from __future__ import annotations
 
 import logging
-import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import uuid4
@@ -60,21 +59,7 @@ async def register(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Register a new user."""
-    # Accept legacy stringified JSON payloads for face verification.
-    if isinstance(user_in.face_verification, str):
-        try:
-            user_in.face_verification = json.loads(user_in.face_verification)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid face_verification JSON format"
-            ) from exc
-    if user_in.face_verification is not None:
-        if not isinstance(user_in.face_verification, list) or not all(isinstance(item, str) for item in user_in.face_verification):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="face_verification must be a list of strings"
-            )
+    # face_verification / document_verification are validated on UserRegister (Pydantic).
     
     # Check if email exists
     result = await db.execute(
@@ -128,6 +113,7 @@ async def register(
         email_verified=user_in.email_verified,
         mobile_verified=user_in.mobile_verified or bool(user_in.phone_verified),
         face_verification=user_in.face_verification,
+        document_verification=user_in.document_verification,
     )
     
     db.add(user)
@@ -292,7 +278,6 @@ async def register(
         "is_verified": user.is_verified,
         "email_verified": user.email_verified,
         "mobile_verified": user.mobile_verified,
-        "face_verification": user.face_verification,
         "country": user.country,
         "dob": str(user.dob) if user.dob else None,
         "address": user.address,

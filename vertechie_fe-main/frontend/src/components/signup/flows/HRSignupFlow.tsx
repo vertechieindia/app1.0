@@ -89,6 +89,7 @@ const HRSignupFlow: React.FC<HRSignupFlowProps> = ({
     
     // Terms
     termsAccepted: false,
+    identityCaptureDisclaimerAccepted: false,
   });
 
   const config = getSignupConfig('hr', location);

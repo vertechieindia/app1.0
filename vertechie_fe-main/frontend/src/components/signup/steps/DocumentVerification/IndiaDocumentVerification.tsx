@@ -23,6 +23,7 @@ import CreditCardIcon from '@mui/icons-material/CreditCard';
 import CloseIcon from '@mui/icons-material/Close';
 import { useDocumentCapture } from '../../shared/hooks/useDocumentCapture';
 import { preloadFaceDetector } from '../../../../utils/faceDetection';
+import { useIdentityDisclaimerGate } from './IdentityDisclaimerContext';
 
 const IndiaDocumentVerification: React.FC<StepComponentProps> = ({
   formData,
@@ -68,9 +69,12 @@ const IndiaDocumentVerification: React.FC<StepComponentProps> = ({
     });
   }, []);
 
+  const ensureIdentityDisclaimer = useIdentityDisclaimerGate();
+
   // Live Photo Hook
   const livePhotoHook = useDocumentCapture({
     cameraType: 'live',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ livePhoto: data });
       setLivePhotoCaptured(true);
@@ -81,6 +85,7 @@ const IndiaDocumentVerification: React.FC<StepComponentProps> = ({
   const aadhaarHook = useDocumentCapture({
     cameraType: 'govId',
     country: location || 'IN',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ aadhaar: data });
       // Don't set aadhaarCaptured here - wait for onDataExtracted to validate required fields
@@ -124,6 +129,7 @@ const IndiaDocumentVerification: React.FC<StepComponentProps> = ({
   const panHook = useDocumentCapture({
     cameraType: 'pan',
     country: location || 'IN',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ panCard: data });
       // Don't set panCaptured here - wait for onDataExtracted to validate PAN number

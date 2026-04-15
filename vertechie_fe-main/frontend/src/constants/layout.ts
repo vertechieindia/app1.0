@@ -7,8 +7,8 @@ export const HEADER_HEIGHT_MD_UP = 70;
 /** Visual height of fixed BottomNav (icons + labels + padding) — 80px was too small on real devices */
 export const BOTTOM_NAV_HEIGHT = 96;
 
-/** Extra scroll inset so the last row of content clears the nav (avoids half-visible cards) */
-export const AUTH_MAIN_BOTTOM_SCROLL_BUFFER_PX = 24;
+/** Extra scroll inset so the last row of content clears the nav (avoids half-visible cards + table pagination) */
+export const AUTH_MAIN_BOTTOM_SCROLL_BUFFER_PX = 56;
 
 /** Gap between fixed chrome and scrollable content */
 export const AUTH_MAIN_CHROME_GAP_PX = 16;

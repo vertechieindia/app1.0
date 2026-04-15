@@ -23,6 +23,7 @@ import CreditCardIcon from '@mui/icons-material/CreditCard';
 import CloseIcon from '@mui/icons-material/Close';
 import { useDocumentCapture } from '../../shared/hooks/useDocumentCapture';
 import { preloadFaceDetector } from '../../../../utils/faceDetection';
+import { useIdentityDisclaimerGate } from './IdentityDisclaimerContext';
 
 const USDocumentVerification: React.FC<StepComponentProps> = ({
   formData,
@@ -72,9 +73,12 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
     });
   }, []);
 
+  const ensureIdentityDisclaimer = useIdentityDisclaimerGate();
+
   // Live Photo Hook
   const livePhotoHook = useDocumentCapture({
     cameraType: 'live',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ livePhoto: data });
       // Only mark as captured when liveness_ok=true (handled in hook)
@@ -91,6 +95,7 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
   const govIdHook = useDocumentCapture({
     cameraType: 'govId',
     country: location || 'US',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       console.log('📸 [USDocumentVerification] Government ID image captured:', {
         hasData: !!data,
@@ -245,6 +250,7 @@ const USDocumentVerification: React.FC<StepComponentProps> = ({
   const ssnHook = useDocumentCapture({
     cameraType: 'ssn',
     country: location || 'US',
+    beforeStartCamera: ensureIdentityDisclaimer,
     onCaptureComplete: (data) => {
       updateFormData({ ssn: data });
       // Don't set ssnCaptured here - wait for onDataExtracted to validate SSN number

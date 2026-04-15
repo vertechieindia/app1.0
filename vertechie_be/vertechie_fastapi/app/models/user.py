@@ -111,8 +111,10 @@ class User(Base, UUIDMixin, TimestampMixin):
     blocked_reason = Column(Text, nullable=True)
     blocked_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     
-    # Face verification
+    # Face verification (list of data URLs / base64 capture strings for admin review)
     face_verification = Column(JSON, nullable=True)
+    # ID document captures: e.g. pan_card, aadhaar, government_id (admin review; cleared on approve)
+    document_verification = Column(JSON, nullable=True)
     
     # Admin roles (supports multiple)
     admin_roles = Column(JSON, default=list)

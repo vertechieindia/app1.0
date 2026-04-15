@@ -16,6 +16,10 @@ import { isValidLastName, isValidPersonName } from '../../../utils/validation';
 
 // Validation functions
 const validateDocumentVerification = (data: any, location?: SignupLocation): boolean | string => {
+  if (!data.identityCaptureDisclaimerAccepted) {
+    return 'Please read the identity verification notice and confirm you understand before continuing.';
+  }
+
   // Check live photo - required for all
   if (!data.livePhoto) {
     return 'Live photo is required. Please complete the live photo verification.';

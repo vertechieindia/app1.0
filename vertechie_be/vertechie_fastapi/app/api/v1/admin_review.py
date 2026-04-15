@@ -19,6 +19,7 @@ from app.models.user import (
     VerificationStatus, ProfileReviewHistory, RoleType, UserRole
 )
 from app.core.security import get_current_admin_user
+from app.core.face_verification_normalize import normalize_stored_face_verification
 from app.core.config import get_settings
 
 import aiosmtplib
@@ -139,8 +140,9 @@ class TechieDetailResponse(BaseModel):
     rejection_reason: Optional[str] = None
     admin_notes: Optional[str] = None
     
-    # Face verification
-    face_verification: Optional[dict] = None
+    # Face / ID captures for admin review (cleared on approve)
+    face_verification: Optional[Any] = None
+    document_verification: Optional[dict] = None
     
     # Timestamps
     created_at: Optional[datetime] = None
@@ -533,7 +535,8 @@ async def get_techie_details(
         reviewed_at=user.reviewed_at,
         rejection_reason=user.rejection_reason,
         admin_notes=user.admin_notes,
-        face_verification=user.face_verification,
+        face_verification=normalize_stored_face_verification(user.face_verification),
+        document_verification=user.document_verification,
         created_at=user.created_at,
         updated_at=user.updated_at,
         profile=profile_data,
@@ -590,6 +593,8 @@ async def review_techie(
         user.is_verified = True
         user.verified_at = datetime.utcnow()
         user.rejection_reason = None
+        user.face_verification = None
+        user.document_verification = None
     elif review.action == "reject":
         user.verification_status = VerificationStatus.REJECTED
         user.is_verified = False
