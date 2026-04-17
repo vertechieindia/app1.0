@@ -26,6 +26,7 @@ import {
   Close as CloseIcon,
 } from '@mui/icons-material';
 import { getApiUrl, API_ENDPOINTS } from '../config/api';
+import { authService } from '../services/authService';
 import Logger from '../utils/logger';
 import { getRedirectPathForUser, isUserVerified } from '../utils/authRedirect';
 
@@ -134,59 +135,27 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const loginApiUrl = getApiUrl(API_ENDPOINTS.AUTH.LOGIN);
-      const response = await fetch(loginApiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: email,
-          password: password,
-        }),
-      });
-
-      let data: any;
-      const contentType = response.headers.get('content-type') || '';
+      let data: { access: string; refresh: string; user_data: any };
       try {
-        const text = await response.text();
-        if (contentType.includes('application/json') && text) {
-          data = JSON.parse(text);
-        } else if (!response.ok && text) {
-          data = { detail: response.status === 404 ? 'Login endpoint not found. Is the backend running?' : 'Request failed.' };
-        } else {
-          data = {};
-        }
-      } catch {
-        data = {};
-        if (response.status === 404) {
-          setError('Login service unavailable (404). Please ensure the backend is running.');
-          setLoading(false);
-          return;
-        }
-      }
-
-      if (!response.ok) {
-        const errorMessage =
-          data.detail ||
-          data.message ||
-          data.error ||
-          (typeof data === 'string' ? data : 'Login failed. Please check your credentials.');
-        Logger.apiError('TOKEN', response.status, data, 'Login');
-        setError(errorMessage);
+        const loginResult = await authService.login({ email, password });
+        data = {
+          access: loginResult.access_token,
+          refresh: loginResult.refresh_token,
+          user_data: loginResult.user_data,
+        };
+      } catch (loginErr: unknown) {
+        const ax = loginErr as { message?: string; response?: { status?: number; data?: { detail?: unknown } } };
+        const d = ax.response?.data?.detail;
+        const msg =
+          ax.message ||
+          (typeof d === 'string' ? d : Array.isArray(d) && d[0]?.msg ? String(d[0].msg) : null) ||
+          'Login failed. Please check your credentials.';
+        Logger.apiError('LOGIN', ax.response?.status ?? 0, ax.response?.data, 'Login');
+        setError(msg);
         setLoading(false);
         return;
       }
 
-      if (!data.access || !data.refresh || !data.user_data) {
-        setError('Invalid response from server. Please try again.');
-        setLoading(false);
-        return;
-      }
-
-      localStorage.setItem('authToken', data.access);
-      localStorage.setItem('refreshToken', data.refresh);
-      localStorage.setItem('userData', JSON.stringify(data.user_data));
       Logger.info('Login successful', { userId: data.user_data.id, email: data.user_data.email }, 'Login');
 
       let userData = data.user_data;
@@ -269,6 +238,7 @@ const Login = () => {
       }
 
       // Redirect using centralized logic (respects verification_status APPROVED and is_verified)
+      setLoading(false);
       if (safeNextPath) {
         navigate(safeNextPath, { replace: true });
         return;

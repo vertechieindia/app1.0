@@ -88,6 +88,14 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def user_is_connected_to_conversation(conversation_id: UUID, user_id: UUID) -> bool:
+    """True if this user has an active WebSocket for the conversation (skip FCM)."""
+    conv = manager.active_connections.get(conversation_id)
+    if not conv:
+        return False
+    return user_id in conv
+
+
 async def get_current_user_from_websocket(
     websocket: WebSocket,
     token: str = Query(...)

@@ -20,6 +20,15 @@ export const AUTH_MAIN_PADDING_TOP_PX = HEADER_HEIGHT_MD_UP + AUTH_MAIN_CHROME_G
 export const AUTH_MAIN_PADDING_BOTTOM_PX =
   BOTTOM_NAV_HEIGHT + AUTH_MAIN_CHROME_GAP_PX + AUTH_MAIN_BOTTOM_SCROLL_BUFFER_PX;
 
+/**
+ * Full-height routes (e.g. chat): only clear fixed BottomNav + small gap — no scroll buffer,
+ * so the chat shell sits closer to the bottom nav.
+ */
+export const AUTH_MAIN_PADDING_BOTTOM_COMPACT_PX = BOTTOM_NAV_HEIGHT + 8;
+
+/** Fixed UI on compact routes — sit above bottom nav + safe area */
+export const ABOVE_BOTTOM_NAV_COMPACT_PX = AUTH_MAIN_PADDING_BOTTOM_COMPACT_PX;
+
 /** Total vertical inset (using larger header for worst-case estimates) */
 export const AUTH_MAIN_VERTICAL_INSET_PX =
   AUTH_MAIN_PADDING_TOP_PX + AUTH_MAIN_PADDING_BOTTOM_PX;

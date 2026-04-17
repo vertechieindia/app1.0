@@ -12,12 +12,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
-
-logger = logging.getLogger(__name__)
-
 
 def _upload_dir() -> Path:
     """Get upload directory for chat files."""
@@ -34,7 +31,9 @@ def _ext(filename: str) -> str:
     return ".bin"
 
 from app.db.session import get_db
+from app.core.logger import get_logger
 from app.models.chat import Conversation, Message, ChatMember, ConversationType, MessageType, MemberRole, ChatPollVote
+from app.models.fcm_token import UserFcmToken
 from app.models.user import User
 from app.models.network import Connection, ConnectionStatus
 from app.schemas.chat import (
@@ -42,8 +41,12 @@ from app.schemas.chat import (
     MessageCreate, MessageResponse,
     ChatMemberResponse, MessageReaction, MessageEdit, ChatUserCandidateResponse,
 )
+from app.schemas.fcm import FcmTokenRegister, FcmTokenUnregister
 from app.core.security import get_current_user
 from app.api.v1.chat_ws import broadcast_new_message, broadcast_message_edit, broadcast_message_delete, broadcast_poll_vote_update
+from app.services.fcm_push import send_chat_message_fcm_notifications
+
+logger = get_logger("app.api.v1.chat")
 
 router = APIRouter()
 
@@ -633,6 +636,12 @@ async def send_message(
                 detail="Failed to save message. Run: alembic upgrade head"
             ) from e
     
+    # FCM push (after DB commit; best-effort; skip recipients on active WebSocket in fcm_push)
+    try:
+        await send_chat_message_fcm_notifications(db, conv_id, current_user, message)
+    except Exception as e:
+        logger.warning("FCM chat notify failed: %s", e)
+
     # Broadcast via WebSocket
     try:
         await broadcast_new_message(message, conv_id, current_user.id, db)
@@ -966,9 +975,38 @@ async def mark_conversation_read(
     )
     latest_message = result.scalar_one_or_none()
     if latest_message:
-        member.last_read_message_id = latest_message[0]
+        member.last_read_message_id = latest_message
     
     member.unread_count = 0
     
     await db.commit()
 
+
+# ============= FCM (web push) =============
+
+@router.post("/fcm/register", status_code=status.HTTP_204_NO_CONTENT)
+async def register_fcm_token(
+    body: FcmTokenRegister,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Register this browser's FCM token for the current user (re-associates if token was used elsewhere)."""
+    await db.execute(delete(UserFcmToken).where(UserFcmToken.token == body.token))
+    db.add(UserFcmToken(user_id=current_user.id, token=body.token))
+    await db.commit()
+
+
+@router.delete("/fcm/register", status_code=status.HTTP_204_NO_CONTENT)
+async def unregister_fcm_token(
+    body: FcmTokenUnregister,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Remove an FCM token (e.g. on logout)."""
+    await db.execute(
+        delete(UserFcmToken).where(
+            UserFcmToken.user_id == current_user.id,
+            UserFcmToken.token == body.token,
+        )
+    )
+    await db.commit()

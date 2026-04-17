@@ -3,6 +3,18 @@
  * Centralized base URL and API endpoints
  */
 
+const isLocalHostname = (hostname: string): boolean => {
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+};
+
+const isPrivateNetworkHostname = (hostname: string): boolean => {
+    return (
+        /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+        /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+        /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+    );
+};
+
 // Environment-based API URL
 const getBaseUrl = (): string => {
     // In local development, always talk to the Vite proxy at /api/v1
@@ -30,7 +42,24 @@ const getBaseUrl = (): string => {
         return `${base}/api/v1`;
     }
 
-    // Production default (API host)
+    // If env is missing, prefer a browser-aware fallback:
+    // local/preview builds should target the local FastAPI server,
+    // deployed builds can use the same origin under /api/v1.
+    if (typeof window !== 'undefined') {
+        const { protocol, hostname, origin } = window.location;
+
+        if (isLocalHostname(hostname)) {
+            return 'http://localhost:8000/api/v1';
+        }
+
+        if (isPrivateNetworkHostname(hostname)) {
+            return `${protocol}//${hostname}:8000/api/v1`;
+        }
+
+        return `${origin}/api/v1`;
+    }
+
+    // Final fallback for non-browser contexts
     return 'https://api.vertechie.com/api/v1';
 };
 
@@ -279,6 +308,7 @@ export const API_ENDPOINTS = {
         // Backend expects unread-count under conversations path
         UNREAD_COUNT: '/chat/conversations/unread-count',
         MARK_READ: (conversationId: string) => `/chat/conversations/${conversationId}/mark-read`,
+        FCM_REGISTER: '/chat/fcm/register',
     },
 
     // ============================================
