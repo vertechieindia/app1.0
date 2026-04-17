@@ -4,6 +4,7 @@
  */
 
 import { api, setTokens, clearTokens, AuthTokens } from './apiClient';
+import { unregisterStoredFcmToken } from './fcmService';
 import { API_ENDPOINTS } from '../config/api';
 
 // Types
@@ -34,6 +35,11 @@ export interface User {
   roles: string[];
   created_at: string;
   updated_at: string;
+}
+
+/** Response from FastAPI POST /auth/login (JSON email + password) */
+export interface LoginResult extends AuthTokens {
+  user_data: Record<string, unknown>;
 }
 
 export interface UserProfile {
@@ -69,23 +75,32 @@ export const authService = {
   },
 
   /**
-   * Login user with email and password
+   * Login user with email and password.
+   * Uses FastAPI POST /auth/login with JSON body (same contract as Login.tsx).
    */
-  login: async (credentials: LoginCredentials): Promise<AuthTokens> => {
-    // FastAPI OAuth2 expects form data
-    const formData = new URLSearchParams();
-    formData.append('username', credentials.email);
-    formData.append('password', credentials.password);
-
-    const tokens = await api.post<AuthTokens>(API_ENDPOINTS.AUTH.LOGIN, formData, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+  login: async (credentials: LoginCredentials): Promise<LoginResult> => {
+    const data = await api.post<{
+      access: string;
+      refresh: string;
+      user_data: Record<string, unknown>;
+    }>(API_ENDPOINTS.AUTH.LOGIN, {
+      email: credentials.email,
+      password: credentials.password,
     });
 
-    // Store tokens
-    setTokens(tokens.access_token, tokens.refresh_token);
-    return tokens;
+    if (!data?.access || !data?.refresh || !data?.user_data) {
+      throw new Error('Invalid response from server');
+    }
+
+    setTokens(data.access, data.refresh);
+    localStorage.setItem('userData', JSON.stringify(data.user_data));
+
+    return {
+      access_token: data.access,
+      refresh_token: data.refresh,
+      token_type: 'bearer',
+      user_data: data.user_data,
+    };
   },
 
   /**
@@ -99,6 +114,7 @@ export const authService = {
    * Logout user
    */
   logout: (): void => {
+    void unregisterStoredFcmToken();
     clearTokens();
     window.location.href = '/login';
   },

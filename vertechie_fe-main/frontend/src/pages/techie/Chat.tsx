@@ -92,8 +92,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import DescriptionIcon from '@mui/icons-material/Description';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import { useLocation } from 'react-router-dom';
-import { ABOVE_BOTTOM_NAV_OFFSET_PX } from '../../constants/layout';
+import { useLocation, useSearchParams } from 'react-router-dom';
+import { ABOVE_BOTTOM_NAV_COMPACT_PX } from '../../constants/layout';
 
 // WhatsApp-like shell: flex column, only message list scrolls (header + input stay visible).
 // Height comes from AuthenticatedLayout <main> (not raw 100vh — avoids overlap with top/bottom nav).
@@ -498,6 +498,7 @@ const mockMessages: Message[] = [
 
 const Chat: React.FC = () => {
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -568,6 +569,7 @@ const Chat: React.FC = () => {
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const autoOpenChatUserRef = useRef<string | null>(null);
   const autoOpenGroupConversationRef = useRef<string | null>(null);
+  const autoOpenFromUrlQueryRef = useRef<string | null>(null);
 
   // Fetch users for new chat
   const fetchUsers = useCallback(async (search?: string) => {
@@ -736,7 +738,7 @@ const Chat: React.FC = () => {
         fileUrl: msg.media_url,
         fileName: msg.media_name,
         reactions: msg.reactions || {},
-        poll: mapPollDataToPoll(msg.poll_data, msg.id),
+        poll: mapPollDataToPoll(msg.poll_data, msg .id),
       }));
       // Reverse to show oldest first
       setMessages(mappedMessages.reverse());
@@ -746,10 +748,19 @@ const Chat: React.FC = () => {
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (uuidRegex.test(conversationId)) {
           await chatService.markConversationRead(conversationId);
-          // Update local unread count
-          setConversations(prev => prev.map(c =>
-            c.id === conversationId ? { ...c, unreadCount: 0 } : c
-          ));
+          // Avoid state churn when unread is already zero; otherwise this can
+          // recreate selectedConversation and retrigger the thread effect.
+          setConversations(prev => {
+            let changed = false;
+            const next = prev.map(c => {
+              if (c.id !== conversationId || c.unreadCount === 0) {
+                return c;
+              }
+              changed = true;
+              return { ...c, unreadCount: 0 };
+            });
+            return changed ? next : prev;
+          });
         }
       } catch (err) {
         console.error('Error marking conversation as read:', err);
@@ -794,10 +805,23 @@ const Chat: React.FC = () => {
       if (!prev) return prev;
       const next = conversations.find((c) => c.id === prev.id);
       if (!next) return prev;
+
+      const nextMembers = next.members ?? prev.members;
+      const didChange =
+        prev.isOnline !== next.isOnline ||
+        prev.lastMessage !== next.lastMessage ||
+        prev.unreadCount !== next.unreadCount ||
+        prev.timestamp.getTime() !== next.timestamp.getTime() ||
+        prev.members !== nextMembers;
+
+      if (!didChange) {
+        return prev;
+      }
+
       return {
         ...prev,
         isOnline: next.isOnline,
-        members: next.members ?? prev.members,
+        members: nextMembers,
         lastMessage: next.lastMessage,
         unreadCount: next.unreadCount,
         timestamp: next.timestamp,
@@ -827,6 +851,35 @@ const Chat: React.FC = () => {
     autoOpenChatUserRef.current = targetId;
     handleCreateNewChat(targetId, target.name || 'User');
   }, [location.state, loading, conversations, isMobile, handleCreateNewChat]);
+
+  // Deep link: /techie/chat?conversationId=... or /hr/chat?conversationId=... (e.g. FCM notification click).
+  const conversationIdFromUrl = searchParams.get('conversationId');
+  useEffect(() => {
+    const cid = conversationIdFromUrl;
+    if (!cid) {
+      autoOpenFromUrlQueryRef.current = null;
+      return;
+    }
+    if (loading) return;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(cid)) return;
+    if (autoOpenFromUrlQueryRef.current === cid) return;
+
+    const existing = conversations.find((c) => String(c.id) === cid);
+    if (existing) {
+      autoOpenFromUrlQueryRef.current = cid;
+      setSelectedConversation(existing);
+      if (isMobile) setShowMobileChat(true);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('conversationId');
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [conversationIdFromUrl, loading, conversations, isMobile, setSearchParams]);
 
   // If navigated from groups page, auto-open that group conversation.
   useEffect(() => {
@@ -1057,7 +1110,7 @@ const Chat: React.FC = () => {
         pollingIntervalRef.current = null;
       }
     };
-  }, [selectedConversation, fetchMessages]);
+  }, [selectedConversation?.id, fetchMessages]);
 
   useEffect(() => {
     scrollToBottom();
@@ -2895,7 +2948,7 @@ const Chat: React.FC = () => {
             left: '50%',
             transform: 'translateX(-50%)',
             zIndex: 9999,
-            bottom: `calc(${ABOVE_BOTTOM_NAV_OFFSET_PX}px + env(safe-area-inset-bottom, 0px) + 8px)`,
+            bottom: `calc(${ABOVE_BOTTOM_NAV_COMPACT_PX}px + env(safe-area-inset-bottom, 0px) + 8px)`,
           }}
         >
           <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>

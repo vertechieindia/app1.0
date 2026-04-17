@@ -10,8 +10,9 @@ import theme from './styles/theme';
 import ScrollToTop from './components/layout/ScrollToTop';
 import { getRedirectPathForUser } from './utils/authRedirect';
 import './index.css';
-import { AUTH_MAIN_PADDING_BOTTOM_PX } from './constants/layout';
+import { AUTH_MAIN_PADDING_BOTTOM_PX, AUTH_MAIN_PADDING_BOTTOM_COMPACT_PX } from './constants/layout';
 import IdleTimeoutProvider from './components/auth/IdleTimeoutProvider';
+import FcmBootstrap from './components/chat/FcmBootstrap';
 import {
   RouteFallback,
   Home,
@@ -177,6 +178,11 @@ const AuthenticatedLayout: React.FC = () => {
     location.pathname.startsWith('/techie/lobby/') ||
     location.pathname.startsWith('/techie/meet/');
 
+  const isFullBleedChatRoute =
+    location.pathname === '/techie/chat' ||
+    location.pathname === '/hr/chat' ||
+    location.pathname === '/super-admin/chat';
+
   useEffect(() => {
     const handleAssessmentModeChange = (event: Event) => {
       const customEvent = event as CustomEvent<boolean>;
@@ -227,7 +233,7 @@ const AuthenticatedLayout: React.FC = () => {
             },
         pb: isMeetingPage || immersiveAssessmentMode
           ? 0
-          : `calc(${AUTH_MAIN_PADDING_BOTTOM_PX}px + env(safe-area-inset-bottom, 0px))`,
+          : `calc(${(isFullBleedChatRoute ? AUTH_MAIN_PADDING_BOTTOM_COMPACT_PX : AUTH_MAIN_PADDING_BOTTOM_PX)}px + env(safe-area-inset-bottom, 0px))`,
       }}>
         <Outlet />
       </Box>
@@ -357,6 +363,7 @@ const AppRoutes: React.FC = () => {
     <PasswordResetListener>
       <IdleTimeoutProvider>
         <ScrollToTop />
+        <FcmBootstrap />
         <Suspense fallback={<RouteFallback />}>
         <Routes>
           {/* ========== PUBLIC ROUTES ========== */}

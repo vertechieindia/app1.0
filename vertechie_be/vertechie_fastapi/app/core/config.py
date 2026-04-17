@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     # Optional remote judge base URL (HTTP POST {url}/execute). Unset = embedded judge in main API (port 8000).
     JUDGE_SERVICE_URL: Optional[str] = None
 
+    # Firebase Cloud Messaging (server): path to service account JSON (for chat push, etc.)
+    FIREBASE_SERVICE_ACCOUNT_PATH: Optional[str] = None
+
     def resolved_judge_service_url(self) -> Optional[str]:
         """
         Remote judge only: e.g. http://judge:8001 if you run a separate runner.

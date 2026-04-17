@@ -9,7 +9,7 @@ export type { AuthTokens, ApiError, PaginatedResponse } from './apiClient';
 
 // Auth Service
 export { authService } from './authService';
-export type { LoginCredentials, RegisterData, User, UserProfile } from './authService';
+export type { LoginCredentials, LoginResult, RegisterData, User, UserProfile } from './authService';
 
 // User Service
 export { userService } from './userService';

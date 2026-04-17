@@ -18,7 +18,8 @@ export interface AuthTokens {
   access_token: string;
   refresh_token: string;
   token_type: string;
-  expires_in: number;
+  /** OAuth2 password / refresh responses may omit this */
+  expires_in?: number;
 }
 
 export interface ApiError {

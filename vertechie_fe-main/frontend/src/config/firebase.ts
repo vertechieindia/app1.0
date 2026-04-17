@@ -5,6 +5,7 @@
 
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth, RecaptchaVerifier, ConfirmationResult } from 'firebase/auth';
+import { getMessaging, isSupported, Messaging } from 'firebase/messaging';
 
 // Firebase configuration
 // TODO: Replace with your actual Firebase config values from Firebase Console
@@ -28,6 +29,20 @@ if (getApps().length === 0) {
 
 // Initialize Firebase Auth
 export const auth: Auth = getAuth(app);
+
+let messagingInstance: Messaging | null = null;
+
+/** Web FCM (requires VAPID + service worker). Returns null if unsupported. */
+export async function getFirebaseMessaging(): Promise<Messaging | null> {
+  if (typeof window === 'undefined') return null;
+  if (!(await isSupported())) return null;
+  if (!messagingInstance) {
+    messagingInstance = getMessaging(app);
+  }
+  return messagingInstance;
+}
+
+export { app };
 
 // Recaptcha Verifier instance (will be created when needed)
 let recaptchaVerifier: RecaptchaVerifier | null = null;
