@@ -15,6 +15,10 @@ const isPrivateNetworkHostname = (hostname: string): boolean => {
     );
 };
 
+const isVertechieProductionHostname = (hostname: string): boolean => {
+    return hostname === 'vertechie.com' || hostname === 'www.vertechie.com';
+};
+
 // Environment-based API URL
 const getBaseUrl = (): string => {
     // In local development, always talk to the Vite proxy at /api/v1
@@ -54,6 +58,13 @@ const getBaseUrl = (): string => {
 
         if (isPrivateNetworkHostname(hostname)) {
             return `${protocol}//${hostname}:8000/api/v1`;
+        }
+
+        // Production frontend should prefer the dedicated API origin even if
+        // VITE_API_URL was not injected during build. This avoids POST requests
+        // falling back to the SPA nginx host where /api may not be proxied.
+        if (isVertechieProductionHostname(hostname)) {
+            return 'https://api.vertechie.com/api/v1';
         }
 
         return `${origin}/api/v1`;
