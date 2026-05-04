@@ -313,7 +313,7 @@ export async function installTechieHomePanelApiMocks(
           post_type: String(body.post_type || 'text'),
         };
         feedState.items = [row, ...feedState.items];
-        await fulfillJson(route, { id: newId, ...row });
+        await fulfillJson(route, row);
         return;
       }
 
