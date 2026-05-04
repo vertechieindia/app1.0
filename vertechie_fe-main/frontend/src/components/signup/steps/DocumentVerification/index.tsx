@@ -1,5 +1,6 @@
 import React from 'react';
 import { StepComponentProps } from '../../types';
+import E2EDocumentStubStep, { isE2eStub } from './E2EDocumentStubStep';
 import USDocumentVerification from './USDocumentVerification';
 import IndiaDocumentVerification from './IndiaDocumentVerification';
 import UKDocumentVerification from './UKDocumentVerification';
@@ -11,6 +12,14 @@ import { IdentityDisclaimerProvider } from './IdentityDisclaimerContext';
 
 const DocumentVerification: React.FC<StepComponentProps> = (props) => {
   const { location, formData, updateFormData } = props;
+
+  if (isE2eStub()) {
+    return (
+      <IdentityDisclaimerProvider formData={formData} updateFormData={updateFormData}>
+        <E2EDocumentStubStep {...props} />
+      </IdentityDisclaimerProvider>
+    );
+  }
 
   let Step: React.FC<StepComponentProps>;
   switch (location) {

@@ -781,8 +781,10 @@ const EducationForm: React.FC<StepComponentProps> = ({
               </Grid>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth required error={!!errors.levelOfEducation}>
-                  <InputLabel>Level of Education *</InputLabel>
+                  <InputLabel id="signup-education-level-label">Level of Education *</InputLabel>
                   <Select
+                    labelId="signup-education-level-label"
+                    id="signup-education-level"
                     value={newEducation.levelOfEducation}
                     onChange={handleLevelChange}
                     label="Level of Education *"
@@ -815,8 +817,10 @@ const EducationForm: React.FC<StepComponentProps> = ({
               </Grid>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth required error={!!errors.scoreType}>
-                  <InputLabel>Score Type *</InputLabel>
+                  <InputLabel id="signup-education-score-type-label">Score Type *</InputLabel>
                   <Select
+                    labelId="signup-education-score-type-label"
+                    id="signup-education-score-type"
                     value={newEducation.scoreType}
                     onChange={handleScoreTypeChange}
                     label="Score Type *"

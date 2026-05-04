@@ -4,6 +4,7 @@
 
 import { StepConfig, SignupFlowConfig } from '../types';
 import DocumentVerification from '../steps/DocumentVerification';
+import { isE2eStub } from '../steps/DocumentVerification/E2EDocumentStubStep';
 import PersonalInformation from '../steps/PersonalInformation';
 import WorkExperience from '../steps/WorkExperience';
 import EducationDetails from '../steps/EducationDetails';
@@ -16,6 +17,9 @@ import { isValidLastName, isValidPersonName } from '../../../utils/validation';
 
 // Validation functions
 const validateDocumentVerification = (data: any, location?: SignupLocation): boolean | string => {
+  if (isE2eStub()) {
+    return true;
+  }
   if (!data.identityCaptureDisclaimerAccepted) {
     return 'Please read the identity verification notice and confirm you understand before continuing.';
   }

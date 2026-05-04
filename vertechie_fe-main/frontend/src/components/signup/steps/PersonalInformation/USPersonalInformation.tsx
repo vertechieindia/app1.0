@@ -30,6 +30,7 @@ import { formatDateToMMDDYYYY } from '../../utils/formatters';
 import { getPrimaryColor, getLightColor } from '../../utils/colors';
 import { getPasswordValidationError } from '../../../../utils/validation';
 import AddressAutocomplete from '../../../ui/AddressAutocomplete';
+import { isE2eStub } from '../DocumentVerification/E2EDocumentStubStep';
 
 const USPersonalInformation: React.FC<StepComponentProps> = ({
   formData,
@@ -66,6 +67,13 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
       updateFormData({ emailVerified: true });
     }
   }, [otpHook.emailVerified, updateFormData]);
+
+  useEffect(() => {
+    if (!isE2eStub()) return;
+    if (!formData.email?.trim() || !formData.phone?.trim()) return;
+    if (formData.emailVerified && formData.phoneVerified) return;
+    updateFormData({ emailVerified: true, phoneVerified: true });
+  }, [formData.email, formData.phone, formData.emailVerified, formData.phoneVerified, updateFormData]);
 
   useEffect(() => {
     if (otpHook.phoneVerified) {
@@ -364,6 +372,11 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
 
         {/* Row 3: Date of Birth */}
         <Grid item xs={12} md={6}>
+          {/** Lock only when a full YYYY-MM-DD value exists (e.g. from ID extraction), not while the user is typing MM/DD/YYYY. */}
+          {(() => {
+            const dobStr = (formData.dateOfBirth || '').toString().trim();
+            const isCompleteIsoDob = /^\d{4}-\d{2}-\d{2}$/.test(dobStr);
+            return (
           <TextField
             fullWidth
             label="Date of Birth **"
@@ -375,7 +388,7 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
                 ? formatDateToMMDDYYYY(formData.dateOfBirth)
                 : ''
             }
-            disabled={!!formData.dateOfBirth}
+            disabled={isCompleteIsoDob}
             onChange={(e) => {
               // Allow input in MM/DD/YYYY format
               let inputValue = e.target.value.replace(/\D/g, '');
@@ -442,12 +455,12 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
               },
             }}
             InputProps={{
-              readOnly: !!formData.dateOfBirth,
+              readOnly: isCompleteIsoDob,
               endAdornment: (
                 <InputAdornment position="end">
                   <IconButton
                     edge="end"
-                    disabled={!!formData.dateOfBirth}
+                    disabled={isCompleteIsoDob}
                     onClick={(e) => {
                       // Find the TextField input element
                       const buttonElement = e.currentTarget;
@@ -536,6 +549,8 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
               ),
             }}
           />
+            );
+          })()}
         </Grid>
 
         {/* Row 3: Email and Phone Number with Verification */}
@@ -550,9 +565,9 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
             error={!!errors.email || !!otpHook.errors.email}
             helperText={errors.email || otpHook.errors.email || (role === 'hr' ? 'Use an email with .com or .in domain' : '')}
             required
-            disabled={otpHook.emailVerified}
+            disabled={otpHook.emailVerified && !isE2eStub()}
             InputProps={{
-              readOnly: otpHook.emailVerified,
+              readOnly: otpHook.emailVerified && !isE2eStub(),
               endAdornment: (
                 <InputAdornment position="end">
                   {otpHook.emailVerified ? (
@@ -615,7 +630,7 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
             error={!!errors.phone || !!otpHook.errors.phone}
             helperText={errors.phone || otpHook.errors.phone}
             required
-            disabled={!otpHook.emailVerified || otpHook.phoneVerified}
+            disabled={!isE2eStub() && (!otpHook.emailVerified || otpHook.phoneVerified)}
             sx={{
               '& .MuiInputBase-root.Mui-disabled': {
                 backgroundColor: 'rgba(0, 0, 0, 0.04)',
@@ -642,7 +657,7 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
                       disabled={
                         otpHook.phoneVerifying ||
                         !formData.phone ||
-                        !otpHook.emailVerified
+                        (!otpHook.emailVerified && !isE2eStub())
                       }
                       sx={{
                         color: borderColor,
@@ -677,7 +692,7 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
         </Grid>
 
         {/* Row 4: Password and Confirm Password (only show after phone verified) */}
-        {otpHook.phoneVerified && (
+        {(otpHook.phoneVerified || isE2eStub()) && (
           <>
             <Grid item xs={12} md={6}>
               <TextField
@@ -754,8 +769,10 @@ const USPersonalInformation: React.FC<StepComponentProps> = ({
         {/* Row 6: Work Authorization (US only) */}
         <Grid item xs={12}>
           <FormControl fullWidth error={!!errors.visaStatus}>
-            <InputLabel>Work Authorization **</InputLabel>
+            <InputLabel id="signup-visa-status-label">Work Authorization **</InputLabel>
             <Select
+              labelId="signup-visa-status-label"
+              id="signup-visa-status"
               name="visaStatus"
               value={formData.visaStatus || ''}
               onChange={handleSelectChange}

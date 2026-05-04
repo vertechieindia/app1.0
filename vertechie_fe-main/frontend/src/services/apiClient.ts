@@ -66,14 +66,56 @@ apiClient.interceptors.request.use(
 const isBackgroundPollingRequest = (url?: string) =>
   !!url && (url.includes('unread-count') || url.includes('notifications/unread-count'));
 
+/** Full path for matching (handles relative `url` + `baseURL`, or absolute `url`). */
+function getRequestPath(config: AxiosRequestConfig | undefined): string {
+  if (!config?.url) return '';
+  if (/^https?:\/\//i.test(config.url)) return config.url;
+  const base = (config.baseURL ?? '').replace(/\/+$/, '');
+  const path = config.url.startsWith('/') ? config.url : `/${config.url}`;
+  return base ? `${base}${path}` : path;
+}
+
+/**
+ * 401 on these routes means wrong credentials / invalid registration payload / bad reset token —
+ * not an expired access token. Do not run refresh flow or redirect to login (that hides errors and can corrupt tokens).
+ */
+function isPublicAuthFailure401(config: AxiosRequestConfig | undefined): boolean {
+  const path = getRequestPath(config);
+  return /\/auth\/(login|register|token|forgot-password|reset-password)(?:\?|$)/i.test(path);
+}
+
+function rejectWithParsedApiError(error: AxiosError<ApiError>): Promise<never> {
+  const data = error.response?.data as { detail?: unknown; error?: string } | undefined;
+  let errorMessage = error.message || 'An error occurred';
+  if (data) {
+    if (typeof data.detail === 'string') {
+      errorMessage = data.detail;
+    } else if (Array.isArray(data.detail) && data.detail[0] && typeof data.detail[0] === 'object') {
+      const first = data.detail[0] as { msg?: string };
+      if (first.msg) errorMessage = first.msg;
+    } else if (typeof data.error === 'string') {
+      errorMessage = data.error;
+    }
+  }
+  const err = new Error(errorMessage) as Error & { status?: number };
+  err.status = error.response?.status;
+  return Promise.reject(err);
+}
+
 // Response interceptor - Handle errors and token refresh
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<ApiError>) => {
-    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+    const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
+    if (!originalRequest) {
+      return rejectWithParsedApiError(error);
+    }
 
     // Handle 401 - Unauthorized (token expired)
     if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isPublicAuthFailure401(originalRequest)) {
+        return rejectWithParsedApiError(error);
+      }
       originalRequest._retry = true;
 
       // Check if this is a job creation/update request - handle differently
@@ -126,22 +168,7 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // Handle other errors (FastAPI uses `detail` string or validation array)
-    const data = error.response?.data as { detail?: unknown; error?: string } | undefined;
-    let errorMessage = error.message || 'An error occurred';
-    if (data) {
-      if (typeof data.detail === 'string') {
-        errorMessage = data.detail;
-      } else if (Array.isArray(data.detail) && data.detail[0] && typeof data.detail[0] === 'object') {
-        const first = data.detail[0] as { msg?: string };
-        if (first.msg) errorMessage = first.msg;
-      } else if (typeof data.error === 'string') {
-        errorMessage = data.error;
-      }
-    }
-    const err = new Error(errorMessage) as Error & { status?: number };
-    err.status = error.response?.status;
-    return Promise.reject(err);
+    return rejectWithParsedApiError(error);
   }
 );
 
