@@ -1,0 +1,9 @@
+{
+  "name": "vertechie-fastapi",
+  "private": true,
+  "description": "Python API. Use npm scripts here only as shims to the frontend (e.g. Playwright e2e).",
+  "scripts": {
+    "test:e2e": "npm run test:e2e --prefix ../../vertechie_fe-main/frontend",
+    "test:e2e:report": "npm run test:e2e:report --prefix ../../vertechie_fe-main/frontend"
+  }
+}

@@ -9,7 +9,11 @@
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext ts,tsx --fix",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css,md}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,md}\"",
+    "test:e2e": "playwright test",
+    "test:e2e:jobs": "playwright test e2e/panel/techie-jobs-browse.spec.ts e2e/panel/techie-jobs-apply-smoke.spec.ts e2e/panel/ats/techie-ats-shell.spec.ts e2e/panel/hr-create-job-smoke.spec.ts e2e/panel/hr-create-job-visible-on-techie-jobs.spec.ts e2e/panel/hr-create-job-keyboard-tab-flow.spec.ts --project=chromium --workers=1",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report playwright-report"
   },
   "dependencies": {
     "@emotion/react": "^11.11.4",
@@ -37,6 +41,7 @@
     "yup": "^1.6.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/jszip": "^3.4.0",
     "@types/node": "^20.11.24",
     "@types/react": "^18.2.64",

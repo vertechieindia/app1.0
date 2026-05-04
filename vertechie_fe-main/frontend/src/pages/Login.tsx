@@ -173,6 +173,7 @@ const Login = () => {
           const userApiData = await userResponse.json();
           // Preserve critical fields from login response when merging user data
           userData = {
+            ...data.user_data,
             ...userApiData,
             groups: userApiData.groups || data.user_data.groups || [],
             roles: userApiData.roles || data.user_data.roles || [],
@@ -182,6 +183,8 @@ const Login = () => {
             role: userApiData.role ?? data.user_data.role,
             company_id: userApiData.company_id ?? data.user_data.company_id,
             has_company: userApiData.has_company ?? data.user_data.has_company,
+            is_active: userApiData.is_active ?? data.user_data.is_active,
+            is_verified: userApiData.is_verified ?? data.user_data.is_verified,
           };
           localStorage.setItem('userData', JSON.stringify(userData));
         }
