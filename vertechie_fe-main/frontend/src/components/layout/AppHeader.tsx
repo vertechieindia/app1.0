@@ -37,6 +37,7 @@ import { styled, alpha } from '@mui/material/styles';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
 import resolveAssetPath from '../../utils/assetResolver';
 import { getApiUrl } from '../../config/api';
+import { ATS_NAV_ITEMS, isAtsNavItemActive } from '../../pages/techie/ats/atsNavConfig';
 import { chatService } from '../../services/chatService';
 import { notificationService } from '../../services/interviewService';
 
@@ -201,6 +202,7 @@ let lastMessageFetchAt = 0;
 
 const AppHeader = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [atsMenuAnchor, setAtsMenuAnchor] = useState<null | HTMLElement>(null);
   const [profileAnchor, setProfileAnchor] = useState<null | HTMLElement>(null);
   const [userRole, setUserRole] = useState<UserRole>('techie');
   const [displayRoleLabel, setDisplayRoleLabel] = useState(roleLabels.techie);
@@ -460,6 +462,9 @@ const AppHeader = () => {
     return location.pathname.startsWith(path);
   };
 
+  const isAtsShell = location.pathname.startsWith('/techie/ats');
+  const activeAtsItem = ATS_NAV_ITEMS.find((item) => isAtsNavItemActive(location.pathname, item.path)) || ATS_NAV_ITEMS[0];
+
   const navItems = roleNavConfig[userRole] || roleNavConfig.techie;
 
   const renderMobileDrawer = () => (
@@ -614,7 +619,8 @@ const AppHeader = () => {
             display: 'flex',
             alignItems: 'center',
             textDecoration: 'none',
-            mr: 3,
+            flexShrink: 0,
+            mr: isAtsShell ? { xs: 0.5, sm: 1 } : 3,
           }}
         >
           <LogoImage src={resolveAssetPath('images/logo/vertechie-logo.svg')} alt="VerTechie" />
@@ -633,7 +639,115 @@ const AppHeader = () => {
           </Typography>
         </Box>
 
-        <Box sx={{ flexGrow: 1 }} />
+        {isAtsShell ? (
+          isMobile ? (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                flex: '1 1 0%',
+                minWidth: 0,
+                ml: 1,
+                mr: 0.5,
+                overflow: 'hidden',
+              }}
+            >
+              <Box
+                component={RouterLink}
+                to={activeAtsItem.path}
+                aria-label={activeAtsItem.label}
+                title={activeAtsItem.label}
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 34,
+                  height: 34,
+                  textDecoration: 'none',
+                  color: '#5AC8FA',
+                  borderRadius: 1,
+                  bgcolor: alpha('#5AC8FA', 0.15),
+                  border: '1px solid rgba(90, 200, 250, 0.35)',
+                  '& svg': { fontSize: 18 },
+                }}
+              >
+                {activeAtsItem.icon}
+              </Box>
+              <Tooltip title="Switch ATS tab">
+                <IconButton
+                  onClick={(e) => setAtsMenuAnchor(e.currentTarget)}
+                  sx={{ ml: 0.5, color: 'rgba(255,255,255,0.9)', flexShrink: 0 }}
+                  size="small"
+                >
+                  <KeyboardArrowDownIcon />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          ) : (
+          <Box
+            component="nav"
+            aria-label="ATS sections"
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              flex: '1 1 0%',
+              minWidth: 0,
+              ml: { xs: 0.5, sm: 2, md: 3 },
+              gap: { xs: 0, sm: 0.25 },
+              overflowX: 'auto',
+              overflowY: 'hidden',
+              py: 0.5,
+              scrollbarWidth: 'thin',
+              '&::-webkit-scrollbar': { height: 4 },
+              '&::-webkit-scrollbar-thumb': {
+                background: 'rgba(255,255,255,0.2)',
+                borderRadius: 2,
+              },
+            }}
+          >
+            {ATS_NAV_ITEMS.map((item) => {
+              const active = isAtsNavItemActive(location.pathname, item.path);
+              return (
+                <Box
+                  key={item.path}
+                  component={RouterLink}
+                  to={item.path}
+                  aria-label={item.label}
+                  title={item.label}
+                  sx={{
+                    flexShrink: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: { xs: 0.4, sm: 0.65 },
+                    px: { xs: 0.65, sm: 1 },
+                    py: 0.5,
+                    textDecoration: 'none',
+                    color: active ? '#5AC8FA' : 'rgba(255,255,255,0.9)',
+                    borderBottom: active ? '2px solid #5AC8FA' : '2px solid transparent',
+                    fontWeight: active ? 600 : 500,
+                    fontSize: { xs: '0.7rem', sm: '0.75rem', md: '0.8125rem' },
+                    whiteSpace: 'nowrap',
+                    borderRadius: 1,
+                    '&:hover': {
+                      color: '#5AC8FA',
+                      bgcolor: alpha('#fff', 0.08),
+                    },
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', '& svg': { fontSize: { xs: 17, sm: 18 } } }}>
+                    {item.icon}
+                  </Box>
+                  <Typography component="span" variant="body2" sx={{ fontWeight: 'inherit', fontSize: 'inherit' }}>
+                    {item.label}
+                  </Typography>
+                </Box>
+              );
+            })}
+          </Box>
+          )
+        ) : (
+          <Box sx={{ flexGrow: 1 }} />
+        )}
 
         {/* Right Side Actions */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -788,6 +902,53 @@ const AppHeader = () => {
             )}
             <KeyboardArrowDownIcon sx={{ color: 'rgba(255,255,255,0.6)' }} />
           </Box>
+
+          <Menu
+            anchorEl={atsMenuAnchor}
+            open={Boolean(atsMenuAnchor)}
+            onClose={() => setAtsMenuAnchor(null)}
+            MenuListProps={{
+              dense: true,
+              sx: {
+                maxHeight: 360,
+                overflowY: 'auto',
+              },
+            }}
+            PaperProps={{
+              sx: {
+                mt: 1.2,
+                minWidth: 220,
+                maxHeight: 360,
+                background: 'linear-gradient(180deg, #1a237e 0%, #0d47a1 100%)',
+                color: 'white',
+                border: '1px solid rgba(90, 200, 250, 0.2)',
+                boxShadow: '0 8px 32px rgba(13, 71, 161, 0.3)',
+              },
+            }}
+          >
+            {ATS_NAV_ITEMS.map((item) => {
+              const active = isAtsNavItemActive(location.pathname, item.path);
+              return (
+                <MenuItem
+                  key={item.path}
+                  onClick={() => {
+                    navigate(item.path);
+                    setAtsMenuAnchor(null);
+                  }}
+                  sx={{
+                    py: 1.2,
+                    color: active ? '#5AC8FA' : 'rgba(255,255,255,0.9)',
+                    bgcolor: active ? alpha('#5AC8FA', 0.12) : 'transparent',
+                  }}
+                >
+                  <ListItemIcon sx={{ color: 'inherit', minWidth: 34 }}>
+                    {item.icon}
+                  </ListItemIcon>
+                  {item.label}
+                </MenuItem>
+              );
+            })}
+          </Menu>
 
           <Menu
             anchorEl={profileAnchor}

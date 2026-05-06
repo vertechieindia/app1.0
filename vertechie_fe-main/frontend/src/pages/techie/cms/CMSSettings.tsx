@@ -2,7 +2,7 @@
  * CMSSettings - Company Page Settings
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -26,6 +26,12 @@ import BusinessIcon from '@mui/icons-material/Business';
 import CMSLayout from './CMSLayout';
 import { api } from '../../../services/apiClient';
 import { API_ENDPOINTS } from '../../../config/api';
+import {
+  validateCompanyTaxIdOptional,
+  normalizeCompanyTaxId,
+  coerceTaxCountry,
+  taxIdHelperForCountry,
+} from '../../../utils/companyTaxId';
 
 const colors = {
   primary: '#0d47a1',
@@ -59,6 +65,11 @@ const CMSSettings: React.FC = () => {
     showContactInfo: true,
   });
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [gstFieldError, setGstFieldError] = useState<string | null>(null);
+  /** Profile `country` from API — used with tax ID validation (IN = GSTIN, US = EIN). */
+  const [profileCountry, setProfileCountry] = useState<string | null>(null);
+
+  const taxHint = useMemo(() => coerceTaxCountry(profileCountry), [profileCountry]);
 
   const formatCompanySizeLabel = (raw: string | undefined | null): string => {
     if (!raw) return '';
@@ -115,6 +126,11 @@ const CMSSettings: React.FC = () => {
         }));
 
         setLogoUrl(myCompany.logo_url || null);
+        setProfileCountry(
+          typeof myCompany.country === 'string' && myCompany.country.trim()
+            ? myCompany.country.trim()
+            : null,
+        );
       } catch (err: any) {
         console.error('Failed to fetch company data:', err);
         setError(err?.response?.data?.detail || 'Failed to load company data');
@@ -127,7 +143,9 @@ const CMSSettings: React.FC = () => {
   }, []);
 
   const handleChange = (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSettings({ ...settings, [field]: event.target.value });
+    const v = event.target.value;
+    if (field === 'gstNumber') setGstFieldError(null);
+    setSettings({ ...settings, [field]: v });
   };
 
   const handleToggle = (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -144,6 +162,13 @@ const CMSSettings: React.FC = () => {
       setSaving(true);
       setError(null);
 
+      const gstErr = validateCompanyTaxIdOptional(settings.gstNumber, taxHint);
+      if (gstErr) {
+        setGstFieldError(gstErr);
+        setSaving(false);
+        return;
+      }
+
       const updatePayload: any = {
         name: settings.name.trim(),
         legal_name: settings.legalName.trim() || undefined,
@@ -155,7 +180,8 @@ const CMSSettings: React.FC = () => {
         headquarters: settings.headquarters.trim() || undefined,
         address: settings.address.trim() || undefined,
         industry: settings.industry.trim() || undefined,
-        gst_number: settings.gstNumber.trim() || undefined,
+        country: profileCountry || undefined,
+        gst_number: normalizeCompanyTaxId(settings.gstNumber, taxHint) ?? undefined,
         description: settings.description.trim() || undefined,
         cover_image_url: settings.coverImageUrl.trim() || undefined,
       };
@@ -300,9 +326,11 @@ const CMSSettings: React.FC = () => {
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
-                      label="GST number"
+                      label={taxHint === 'IN' ? 'GSTIN' : taxHint === 'US' ? 'EIN' : 'Tax ID (GSTIN or EIN)'}
                       value={settings.gstNumber}
                       onChange={handleChange('gstNumber')}
+                      error={!!gstFieldError}
+                      helperText={gstFieldError || taxIdHelperForCountry(taxHint)}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>

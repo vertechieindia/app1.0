@@ -1,6 +1,6 @@
 /**
  * PipelinePage - Kanban-style Candidate Pipeline
- * Stages: New Applicants → Shortlisted for Screening → Interview → Offer Stage → Hired | Rejected
+ * Stages: New Applicants → Shortlisted for Screening → Interview → BGC Admin → Onboarding → Hired | Rejected
  * Proceed/Reject from New; move forward/backward; email notifications on stage changes
  */
 
@@ -104,12 +104,12 @@ const StageButton = styled(IconButton)<{ buttontype: 'forward' | 'backward' }>((
   },
 }));
 
-// 7 Pipeline Stages (including Rejected)
+// 7 Pipeline Stages (including Rejected). `bgc_admin` = post-interview background verification (maps to offered status in API).
 const stages = [
   { id: 'new', label: 'New Applicants', color: '#0d47a1', index: 0 },
   { id: 'screening', label: 'Shortlisted for Screening', color: '#FF9500', index: 1 },
   { id: 'interview', label: 'Interview', color: '#5856D6', index: 2 },
-  { id: 'offer', label: 'Offer Stage', color: '#34C759', index: 3 },
+  { id: 'bgc_admin', label: 'BGC Admin', color: '#5E35B1', index: 3 },
   { id: 'onboarding', label: 'Onboarding', color: '#00BCD4', index: 4 },
   { id: 'hired', label: 'Hired', color: '#00C853', index: 5 },
   { id: 'rejected', label: 'Rejected', color: '#FF3B30', index: 6 },
@@ -179,9 +179,15 @@ const parseSkills = (...values: unknown[]): string[] => {
   return Array.from(skillSet);
 };
 
+const normalizePipelineStageId = (stageId: string): string => {
+  const s = (stageId || '').toLowerCase();
+  return s === 'offer' ? 'bgc_admin' : s;
+};
+
 const getStageLabel = (stageId: string): string => {
-  const stage = stages.find(s => s.id === stageId);
-  return stage?.label || stageId;
+  const id = normalizePipelineStageId(stageId);
+  const stage = stages.find(s => s.id === id);
+  return stage?.label || id;
 };
 
 const PipelinePage: React.FC = () => {
@@ -276,7 +282,7 @@ const PipelinePage: React.FC = () => {
             name: candidate.name || candidate.email?.split('@')?.[0] || 'Unknown',
             email: candidate.email || '',
             role: candidate.role || candidate.job_title || '',
-            stage: candidate.stage || 'new',
+            stage: normalizePipelineStageId(candidate.stage || 'new'),
             skills: parseSkills(candidate.skills, candidate.profile?.skills, candidate.applicant_skills),
             time: typeof candidate.time === 'string' ? candidate.time : '',
             score: matchScore,
@@ -347,17 +353,17 @@ const PipelinePage: React.FC = () => {
     }
   };
 
-  // Forward path: new -> screening -> interview -> offer -> onboarding -> hired (rejected is separate)
+  // Forward path: new -> screening -> interview -> bgc_admin -> onboarding -> hired (rejected is separate)
   const getNextStageId = (stage: string): string | null => {
-    const path = ['new', 'screening', 'interview', 'offer', 'onboarding', 'hired'];
-    const idx = path.indexOf(stage);
+    const path = ['new', 'screening', 'interview', 'bgc_admin', 'onboarding', 'hired'];
+    const idx = path.indexOf(normalizePipelineStageId(stage));
     if (idx < 0 || idx >= path.length - 1) return null;
     return path[idx + 1];
   };
 
-  // Move candidate to next stage (Proceed: New -> Screening -> Interview -> Offer -> Onboarding -> Hired)
+  // Move candidate to next stage (Proceed: New → Screening → Interview → BGC Admin → Onboarding → Hired)
   const moveToNextStage = async (candidate: Candidate) => {
-    const newStage = getNextStageId(candidate.stage);
+    const newStage = getNextStageId(normalizePipelineStageId(candidate.stage));
     if (!newStage) {
       setSnackbar({ open: true, message: 'Candidate is already at the final stage', severity: 'info' });
       return;
@@ -412,11 +418,12 @@ const PipelinePage: React.FC = () => {
 
   // Move candidate to previous stage (from Rejected: Restore to New)
   const moveToPreviousStage = async (candidate: Candidate) => {
-    if (candidate.stage === 'new') {
+    const st = normalizePipelineStageId(candidate.stage);
+    if (st === 'new') {
       setSnackbar({ open: true, message: 'Candidate is already at the first stage', severity: 'info' });
       return;
     }
-    const newStage = candidate.stage === 'rejected' ? 'new' : stages[getStageIndex(candidate.stage) - 1].id;
+    const newStage = st === 'rejected' ? 'new' : stages[getStageIndex(st) - 1].id;
     const oldStage = candidate.stage;
     
     try {
@@ -513,7 +520,7 @@ const PipelinePage: React.FC = () => {
       state: {
         pipelineCandidate: {
           matchScore: candidate.matchScore,
-          stage: candidate.stage,
+          stage: normalizePipelineStageId(candidate.stage),
           time: candidate.time,
           jobId: candidate.jobId,
           jobTitle: candidate.jobTitle,
@@ -540,7 +547,7 @@ const PipelinePage: React.FC = () => {
 
   // Get stage index for a candidate
   const getStageIndex = (stageId: string): number => {
-    return stages.findIndex(s => s.id === stageId);
+    return stages.findIndex(s => s.id === normalizePipelineStageId(stageId));
   };
 
   if (loading) {
@@ -597,7 +604,7 @@ const PipelinePage: React.FC = () => {
       {/* Kanban Board */}
       <Box sx={{ display: 'flex', gap: 2, overflowX: 'auto', pb: 2 }}>
         {stages.map((stage) => {
-          const stageCandidates = filteredCandidates.filter((c) => c.stage === stage.id);
+          const stageCandidates = filteredCandidates.filter((c) => normalizePipelineStageId(c.stage) === stage.id);
           return (
             <PipelineColumn key={stage.id}>
               <Box sx={{ 
@@ -737,33 +744,33 @@ const PipelinePage: React.FC = () => {
                   }}>
                     {/* Stage Navigation */}
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      <Tooltip title={candidate.stage === 'new' ? 'First stage' : candidate.stage === 'rejected' ? 'Restore to New Applicants' : `← ${getStageLabel(stages[getStageIndex(candidate.stage) - 1]?.id)}`}>
+                      <Tooltip title={normalizePipelineStageId(candidate.stage) === 'new' ? 'First stage' : normalizePipelineStageId(candidate.stage) === 'rejected' ? 'Restore to New Applicants' : `← ${getStageLabel(stages[getStageIndex(candidate.stage) - 1]?.id)}`}>
                         <span>
                           <StageButton 
                             buttontype="backward"
                             size="small" 
-                            disabled={candidate.stage === 'new'}
+                            disabled={normalizePipelineStageId(candidate.stage) === 'new'}
                             onClick={(e) => {
                               e.stopPropagation();
                               setConfirmDialog({ open: true, action: 'backward', candidate });
                             }}
                           >
-                            <ArrowBackIcon sx={{ fontSize: 16, color: candidate.stage !== 'new' ? '#FF9500' : '#bbb' }} />
+                            <ArrowBackIcon sx={{ fontSize: 16, color: normalizePipelineStageId(candidate.stage) !== 'new' ? '#FF9500' : '#bbb' }} />
                           </StageButton>
                         </span>
                       </Tooltip>
-                      <Tooltip title={getNextStageId(candidate.stage) ? `Proceed → ${getStageLabel(getNextStageId(candidate.stage)!)}` : 'Final stage'}>
+                      <Tooltip title={getNextStageId(normalizePipelineStageId(candidate.stage)) ? `Proceed → ${getStageLabel(getNextStageId(normalizePipelineStageId(candidate.stage))!)}` : 'Final stage'}>
                         <span>
                           <StageButton 
                             buttontype="forward"
                             size="small"
-                            disabled={!getNextStageId(candidate.stage)}
+                            disabled={!getNextStageId(normalizePipelineStageId(candidate.stage))}
                             onClick={(e) => {
                               e.stopPropagation();
                               setConfirmDialog({ open: true, action: 'forward', candidate });
                             }}
                           >
-                            <ArrowForwardIcon sx={{ fontSize: 16, color: getNextStageId(candidate.stage) ? '#34C759' : '#bbb' }} />
+                            <ArrowForwardIcon sx={{ fontSize: 16, color: getNextStageId(normalizePipelineStageId(candidate.stage)) ? '#34C759' : '#bbb' }} />
                           </StageButton>
                         </span>
                       </Tooltip>
@@ -843,7 +850,7 @@ const PipelinePage: React.FC = () => {
               state: {
                 pipelineCandidate: {
                   matchScore: selectedCandidate.matchScore,
-                  stage: selectedCandidate.stage,
+                  stage: normalizePipelineStageId(selectedCandidate.stage),
                   time: selectedCandidate.time,
                   jobId: selectedCandidate.jobId,
                   jobTitle: selectedCandidate.jobTitle,
@@ -881,7 +888,7 @@ const PipelinePage: React.FC = () => {
             }
             setMenuAnchor(null);
           }}
-          disabled={selectedCandidate ? !getNextStageId(selectedCandidate.stage) : true}
+          disabled={selectedCandidate ? !getNextStageId(normalizePipelineStageId(selectedCandidate.stage)) : true}
         >
           <ArrowForwardIcon fontSize="small" sx={{ mr: 1 }} />
           Proceed to next stage
@@ -893,7 +900,7 @@ const PipelinePage: React.FC = () => {
             }
             setMenuAnchor(null);
           }}
-          disabled={selectedCandidate ? selectedCandidate.stage === 'new' : true}
+          disabled={selectedCandidate ? normalizePipelineStageId(selectedCandidate.stage) === 'new' : true}
         >
           <ArrowBackIcon fontSize="small" sx={{ mr: 1 }} />
           Move Backward
@@ -905,7 +912,7 @@ const PipelinePage: React.FC = () => {
             }
             setMenuAnchor(null);
           }}
-          disabled={selectedCandidate ? selectedCandidate.stage === 'rejected' || selectedCandidate.stage === 'hired' : true}
+          disabled={selectedCandidate ? normalizePipelineStageId(selectedCandidate.stage) === 'rejected' || normalizePipelineStageId(selectedCandidate.stage) === 'hired' : true}
           sx={{ color: 'error.main' }}
         >
           <CancelIcon fontSize="small" sx={{ mr: 1 }} />
@@ -931,14 +938,14 @@ const PipelinePage: React.FC = () => {
               <>
                 Move <strong>{confirmDialog.candidate.name}</strong> from{' '}
                 <strong>{getStageLabel(confirmDialog.candidate.stage)}</strong> to{' '}
-                <strong>{getNextStageId(confirmDialog.candidate.stage) && getStageLabel(getNextStageId(confirmDialog.candidate.stage)!)}</strong>?
+                <strong>{getNextStageId(normalizePipelineStageId(confirmDialog.candidate.stage)) && getStageLabel(getNextStageId(normalizePipelineStageId(confirmDialog.candidate.stage))!)}</strong>?
                 <br /><br />
                 An email notification will be sent to the candidate.
               </>
             )}
             {confirmDialog.candidate && confirmDialog.action === 'backward' && (
               <>
-                {confirmDialog.candidate.stage === 'rejected' ? (
+                {normalizePipelineStageId(confirmDialog.candidate.stage) === 'rejected' ? (
                   <>
                 Restore <strong>{confirmDialog.candidate.name}</strong> to <strong>New Applicants</strong>?
                 <br /><br />

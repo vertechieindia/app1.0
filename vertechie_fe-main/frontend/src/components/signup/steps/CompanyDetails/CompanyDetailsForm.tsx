@@ -25,6 +25,7 @@ import { getApiUrl, API_ENDPOINTS } from '../../../../config/api';
 import { api, getAccessToken } from '../../../../services/apiClient';
 import { getPrimaryColor, getLightColor } from '../../utils/colors';
 import { formatDateToMMDDYYYY } from '../../utils/formatters';
+import { isValidEinNineDigits } from '../../../../utils/companyTaxId';
 
 const CompanyDetailsForm: React.FC<StepComponentProps> = ({
   formData,
@@ -786,22 +787,15 @@ const CompanyDetailsForm: React.FC<StepComponentProps> = ({
         if (!ein || !ein.trim()) {
           validationErrors.ein = 'EIN is required';
         } else {
-          const einValue = ein.trim().replace(/\s/g, ''); // Remove spaces
-          // US EIN format: XX-XXXXXXX (9 digits total, with optional hyphen)
-          // Remove hyphens for validation
+          const einValue = ein.trim().replace(/\s/g, '');
           const einDigits = einValue.replace(/-/g, '');
-          
           if (einDigits.length !== 9) {
             validationErrors.ein = 'EIN must be exactly 9 digits';
           } else if (!/^\d{9}$/.test(einDigits)) {
             validationErrors.ein = 'EIN must contain only numbers';
-          } else {
-            // Validate EIN format: should be XX-XXXXXXX or XXXXXXXXX
-            // First two digits should be valid (01-94 for most cases, but we'll allow 00-99)
-            const firstTwo = parseInt(einDigits.substring(0, 2), 10);
-            if (firstTwo < 0 || firstTwo > 99) {
-              validationErrors.ein = 'EIN format is invalid';
-            }
+          } else if (!isValidEinNineDigits(einDigits)) {
+            validationErrors.ein =
+              'EIN must use a valid IRS-assigned prefix (see IRS valid EIN prefixes), e.g. 12-3456789';
           }
         }
         

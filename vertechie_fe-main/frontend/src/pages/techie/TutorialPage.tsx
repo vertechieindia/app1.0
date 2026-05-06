@@ -32,7 +32,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import HomeIcon from '@mui/icons-material/Home';
 import { getTutorialBySlug, Tutorial, Chapter, Lesson } from '../../data/curriculum';
-
+import LearnTechIcon from '../../components/learn/LearnTechIcon';
 
 import { PageContainer, Sidebar, SidebarToggle, MainContent, LessonContent, ChapterItem, LessonItem, CodeEditor, TryItEditor, EditorHeader, ResultFrame, NavigationBar, ProgressBar } from './TutorialPage.styles';
 import { getLessonContentAsync, type LessonContentPayload } from './lessons/getLessonContent';
@@ -456,12 +456,13 @@ const TutorialPage: React.FC = () => {
   const sidebarContent = (
     <Sidebar tutorialColor={tutorial.color} collapsed={!sidebarVisible}>
       <Box className="sidebar-header">
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
           <IconButton size="small" onClick={() => navigate('/techie/learn')} sx={{ color: '#fff' }}>
             <HomeIcon />
           </IconButton>
-          <Typography variant="h6" fontWeight={700}>
-            {tutorial.icon} {tutorial.shortTitle}
+          <LearnTechIcon courseSlug={tutorial.slug} size="sm" tone="onDark" title={tutorial.shortTitle} />
+          <Typography variant="h6" fontWeight={700} noWrap component="span">
+            {tutorial.shortTitle}
           </Typography>
         </Box>
         <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>

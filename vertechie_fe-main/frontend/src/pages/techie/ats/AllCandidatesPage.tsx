@@ -44,38 +44,96 @@ interface CandidateRow {
   email: string;
   role: string;
   stage: string;
+  bgcState?: string;
   source?: string;
   applied: string;
   status: string;
   avatar?: string;
 }
 
-const STAGES = ['new', 'screening', 'interview', 'offer', 'onboarding', 'hired', 'rejected'] as const;
+const STAGES = [
+  'new',
+  'screening',
+  'interview',
+  'bgc_admin',
+  'bgc_pending',
+  'bgc_in_progress',
+  'bgc_verified',
+  'onboarding',
+  'hired',
+  'rejected',
+] as const;
 type StageType = typeof STAGES[number];
+
+const normalizeClientStage = (stage?: string): string => {
+  const s = (stage || '').toLowerCase();
+  if (s === 'offer') return 'bgc_admin';
+  if (s === 'bgc_pending' || s === 'bgc_in_progress' || s === 'bgc_verified') return s;
+  return s;
+};
+
+const mapBgcStateToStage = (bgcState?: string): StageType => {
+  const state = (bgcState || '').toLowerCase();
+  if (state === 'in_progress') return 'bgc_in_progress';
+  if (state === 'verified') return 'bgc_verified';
+  if (state === 'pending') return 'bgc_pending';
+  return 'bgc_admin';
+};
 
 const statusToStage = (status?: string): StageType => {
   const s = (status || '').toLowerCase();
   if (s === 'under_review' || s === 'shortlisted') return 'screening';
   if (s === 'interview') return 'interview';
-  if (s === 'offered') return 'offer';
+  if (s === 'offered') return 'bgc_admin';
   if (s === 'onboarding') return 'onboarding';
   if (s === 'hired') return 'hired';
   if (s === 'rejected') return 'rejected';
   return 'new';
 };
 
-const stageLabel = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice(1);
+const pipelineStageDisplay = (stage: string): string => {
+  switch (normalizeClientStage(stage)) {
+    case 'new':
+      return 'New Applicants';
+    case 'screening':
+      return 'Shortlisted for Screening';
+    case 'interview':
+      return 'Interview';
+    case 'bgc_admin':
+      return 'BGC Admin';
+    case 'bgc_pending':
+      return 'BGC Admin (Pending)';
+    case 'bgc_in_progress':
+      return 'BGC Admin (In Progress)';
+    case 'bgc_verified':
+      return 'BGC Verified';
+    case 'onboarding':
+      return 'Onboarding';
+    case 'hired':
+      return 'Hired';
+    case 'rejected':
+      return 'Rejected';
+    default:
+      return stage;
+  }
+};
 
 const getStageColor = (stage: string) => {
-  switch (stage) {
+  switch (normalizeClientStage(stage)) {
     case 'new':
       return { bg: alpha('#0d47a1', 0.1), text: '#0d47a1' };
     case 'screening':
       return { bg: alpha('#FF9500', 0.1), text: '#FF9500' };
     case 'interview':
       return { bg: alpha('#5856D6', 0.1), text: '#5856D6' };
-    case 'offer':
-      return { bg: alpha('#34C759', 0.1), text: '#34C759' };
+    case 'bgc_admin':
+      return { bg: alpha('#5E35B1', 0.1), text: '#5E35B1' };
+    case 'bgc_pending':
+      return { bg: alpha('#5E35B1', 0.08), text: '#5E35B1' };
+    case 'bgc_in_progress':
+      return { bg: alpha('#7E57C2', 0.12), text: '#6A1B9A' };
+    case 'bgc_verified':
+      return { bg: alpha('#00C853', 0.12), text: '#1B5E20' };
     case 'onboarding':
       return { bg: alpha('#00BCD4', 0.1), text: '#00BCD4' };
     case 'hired':
@@ -93,7 +151,22 @@ const toCsvCell = (value: unknown) => {
   return `"${escaped}"`;
 };
 
-const AllCandidatesPage: React.FC = () => {
+const resolveCandidateStage = (candidate: CandidateRow): StageType => {
+  if (candidate.stage === 'bgc_admin') {
+    return mapBgcStateToStage(candidate.bgcState);
+  }
+  const normalized = normalizeClientStage(candidate.stage);
+  return (STAGES as readonly string[]).includes(normalized)
+    ? (normalized as StageType)
+    : 'new';
+};
+
+export interface AllCandidatesPageProps {
+  /** When set (e.g. from /techie/ats/hired), stage filter is applied and kept in sync when switching hired/rejected. */
+  initialStageFilter?: StageType;
+}
+
+const AllCandidatesPage: React.FC<AllCandidatesPageProps> = ({ initialStageFilter }) => {
   const navigate = useNavigate();
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,7 +175,7 @@ const AllCandidatesPage: React.FC = () => {
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateRow | null>(null);
   const [moreFiltersAnchor, setMoreFiltersAnchor] = useState<null | HTMLElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [stageFilter, setStageFilter] = useState('');
+  const [stageFilter, setStageFilter] = useState(() => (initialStageFilter ?? '') as string);
   const [roleFilter, setRoleFilter] = useState('');
   const [bulkStage, setBulkStage] = useState<StageType>('screening');
   const [page, setPage] = useState(1);
@@ -131,7 +204,10 @@ const AllCandidatesPage: React.FC = () => {
       if (!res.ok) throw new Error('pipeline-candidates-failed');
       const data = await res.json();
       const rows: CandidateRow[] = (Array.isArray(data) ? data : []).map((item: any) => {
-        const stage = STAGES.includes(item.stage) ? item.stage : statusToStage(item.status);
+        const raw = normalizeClientStage(item.stage || '');
+        const stage: StageType = (STAGES as readonly string[]).includes(raw)
+          ? (raw as StageType)
+          : statusToStage(item.status);
         return {
           applicationId: String(item.application_id || item.id || ''),
           candidateId: String(item.user_id || ''),
@@ -140,6 +216,7 @@ const AllCandidatesPage: React.FC = () => {
           email: item.email || '',
           role: item.job_title || item.role || '',
           stage,
+          bgcState: item.bgc_state || undefined,
           source: item.source || '',
           applied: item.time || '',
           status: item.status || stage,
@@ -167,10 +244,21 @@ const AllCandidatesPage: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (initialStageFilter) {
+      setStageFilter(initialStageFilter);
+      setPage(1);
+    } else {
+      setStageFilter('');
+      setPage(1);
+    }
+  }, [initialStageFilter]);
+
   const filteredCandidates = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return candidates.filter((c) => {
-      const matchesStage = !stageFilter || c.stage === stageFilter;
+      const candidateStage = resolveCandidateStage(c);
+      const matchesStage = !stageFilter || candidateStage === stageFilter || (stageFilter === 'bgc_admin' && c.stage === 'bgc_admin');
       const matchesRole = !roleFilter || c.role === roleFilter;
       const matchesQuery =
         !q ||
@@ -216,7 +304,7 @@ const AllCandidatesPage: React.FC = () => {
       });
       if (!res.ok) throw new Error('bulk-stage-failed');
       const data = await res.json();
-      setSnackbar({ open: true, message: `Updated ${data.count || 0} candidates to ${stageLabel(bulkStage)}`, severity: 'success' });
+      setSnackbar({ open: true, message: `Updated ${data.count || 0} candidates to ${pipelineStageDisplay(bulkStage)}`, severity: 'success' });
       setSelectedIds([]);
       await fetchCandidates();
     } catch {
@@ -265,7 +353,7 @@ const AllCandidatesPage: React.FC = () => {
           candidate.name,
           candidate.email,
           candidate.role,
-          stageLabel(candidate.stage),
+          pipelineStageDisplay(resolveCandidateStage(candidate)),
           candidate.source || 'N/A',
           candidate.applied || 'N/A',
           candidate.status,
@@ -319,7 +407,7 @@ const AllCandidatesPage: React.FC = () => {
             >
               <MenuItem value="">All Stages</MenuItem>
               {STAGES.map((stage) => (
-                <MenuItem key={stage} value={stage}>{stageLabel(stage)}</MenuItem>
+                <MenuItem key={stage} value={stage}>{pipelineStageDisplay(stage)}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -349,7 +437,7 @@ const AllCandidatesPage: React.FC = () => {
               onChange={(e) => setBulkStage(e.target.value as StageType)}
             >
               {STAGES.map((stage) => (
-                <MenuItem key={stage} value={stage}>{stageLabel(stage)}</MenuItem>
+                <MenuItem key={stage} value={stage}>{pipelineStageDisplay(stage)}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -394,7 +482,8 @@ const AllCandidatesPage: React.FC = () => {
             </TableHead>
             <TableBody>
               {paginatedCandidates.map((candidate) => {
-                const stageColor = getStageColor(candidate.stage);
+                const displayStage = resolveCandidateStage(candidate);
+                const stageColor = getStageColor(displayStage);
                 return (
                   <TableRow key={candidate.applicationId} hover>
                     <TableCell padding="checkbox">
@@ -416,7 +505,7 @@ const AllCandidatesPage: React.FC = () => {
                     </TableCell>
                     <TableCell>{candidate.role}</TableCell>
                     <TableCell>
-                      <Chip label={stageLabel(candidate.stage)} size="small" sx={{ bgcolor: stageColor.bg, color: stageColor.text, fontWeight: 500 }} />
+                      <Chip label={pipelineStageDisplay(displayStage)} size="small" sx={{ bgcolor: stageColor.bg, color: stageColor.text, fontWeight: 500 }} />
                     </TableCell>
                     <TableCell>{candidate.source || 'N/A'}</TableCell>
                     <TableCell>{candidate.applied || 'N/A'}</TableCell>

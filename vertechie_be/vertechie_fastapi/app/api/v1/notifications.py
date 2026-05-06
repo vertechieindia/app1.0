@@ -201,7 +201,7 @@ async def send_stage_change_notification(
     """
     try:
         # Determine if this is a forward or backward move
-        stage_order = ['New Applicants', 'Screening', 'Interview', 'Offer Stage', 'Hired']
+        stage_order = ['New Applicants', 'Screening', 'Interview', 'BGC Admin', 'Hired']
         old_index = stage_order.index(request.old_stage) if request.old_stage in stage_order else -1
         new_index = stage_order.index(request.new_stage) if request.new_stage in stage_order else -1
         
@@ -214,9 +214,12 @@ async def send_stage_change_notification(
         elif request.new_stage == 'Interview':
             stage_message = "Congratulations! We would like to schedule an interview with you. Our HR team will reach out to coordinate a suitable time."
             emoji = "🎉"
-        elif request.new_stage == 'Offer Stage':
-            stage_message = "Great news! We are preparing an offer for you. Our HR team will be in contact shortly with the details."
-            emoji = "🌟"
+        elif request.new_stage == 'BGC Admin' or request.new_stage == 'Offer Stage':
+            stage_message = (
+                "Your interview stage is complete. Our team will now complete a background verification (BGC). "
+                "You may be contacted if we need any additional information."
+            )
+            emoji = "🔒"
         elif request.new_stage == 'Hired':
             stage_message = "Welcome to the team! We are thrilled to have you join us. Our HR team will send you onboarding details soon."
             emoji = "🎊"

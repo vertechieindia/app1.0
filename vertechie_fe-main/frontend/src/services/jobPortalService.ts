@@ -781,7 +781,9 @@ const mapApplicationStatus = (status: string): Candidate['status'] => {
     'interview_scheduled': 'interviewed',
     'rejected': 'rejected',
     'hired': 'hired',
-    'offer': 'hired',
+    'offer': 'interviewed',
+    'offered': 'interviewed',
+    'onboarding': 'interviewed',
   };
   return statusMap[status?.toLowerCase()] || 'new';
 };

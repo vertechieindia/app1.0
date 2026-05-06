@@ -198,11 +198,39 @@ const normalizeSkills = (...values: unknown[]): string[] => {
   return Array.from(set);
 };
 
+const normalizePipelineStageSlug = (stage?: string): string | undefined => {
+  if (!stage) return undefined;
+  const s = String(stage).toLowerCase();
+  return s === 'offer' ? 'bgc_admin' : stage;
+};
+
+const formatPipelineStageLabel = (stage?: string): string => {
+  const id = String(normalizePipelineStageSlug(stage) || stage || '').toLowerCase();
+  switch (id) {
+    case 'new':
+      return 'New Applicants';
+    case 'screening':
+      return 'Shortlisted for Screening';
+    case 'interview':
+      return 'Interview';
+    case 'bgc_admin':
+      return 'BGC Admin';
+    case 'onboarding':
+      return 'Onboarding';
+    case 'hired':
+      return 'Hired';
+    case 'rejected':
+      return 'Rejected';
+    default:
+      return stage || 'N/A';
+  }
+};
+
 const mapPipelineCandidateToSnapshot = (item: any): PipelineSnapshot => ({
   matchScore: typeof item?.matchScore === 'number'
     ? item.matchScore
     : (typeof item?.match_score === 'number' ? item.match_score : null),
-  stage: item?.stage,
+  stage: normalizePipelineStageSlug(item?.stage) || item?.stage,
   time: item?.time,
   jobId: item?.jobId || item?.job_id,
   jobTitle: item?.jobTitle || item?.job_title,
@@ -243,6 +271,7 @@ const mergePipelineSnapshot = (
   jobTitle: preferred?.jobTitle || liveSnapshot.jobTitle,
   role: preferred?.role || liveSnapshot.role,
   time: preferred?.time || liveSnapshot.time,
+  stage: normalizePipelineStageSlug(liveSnapshot.stage) || normalizePipelineStageSlug(preferred?.stage) || liveSnapshot.stage,
 });
 
 const formatAssessmentQuestionType = (value?: string): string => {
@@ -735,7 +764,7 @@ const CandidateProfilePage: React.FC = () => {
                     }}
                   />
                   {pipelineSnapshot?.stage && (
-                    <Chip size="small" variant="outlined" label={pipelineSnapshot.stage} sx={{ fontWeight: 600 }} />
+                    <Chip size="small" variant="outlined" label={formatPipelineStageLabel(pipelineSnapshot.stage)} sx={{ fontWeight: 600 }} />
                   )}
                 </Stack>
               )}
@@ -914,7 +943,7 @@ const CandidateProfilePage: React.FC = () => {
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography color="text.secondary">Pipeline Stage</Typography>
                     <Typography fontWeight={600}>
-                      {pipelineSnapshot?.stage || 'N/A'}
+                      {pipelineSnapshot?.stage ? formatPipelineStageLabel(pipelineSnapshot.stage) : 'N/A'}
                     </Typography>
                   </Box>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>

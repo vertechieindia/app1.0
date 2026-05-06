@@ -26,6 +26,7 @@ class RoleType(str, enum.Enum):
     COMPANY_ADMIN = "company_admin"
     SCHOOL_ADMIN = "school_admin"
     SUPER_ADMIN = "super_admin"
+    BGC_ADMIN = "bgc_admin"
     BDM_ADMIN = "bdm_admin"
     LEARN_ADMIN = "learn_admin"
 
@@ -35,6 +36,7 @@ class AdminRole(str, enum.Enum):
     SUPERADMIN = "superadmin"
     COMPANY_ADMIN = "company_admin"
     HM_ADMIN = "hm_admin"
+    BGC_ADMIN = "bgc_admin"
     TECHIE_ADMIN = "techie_admin"
     SCHOOL_ADMIN = "school_admin"
     BDM_ADMIN = "bdm_admin"

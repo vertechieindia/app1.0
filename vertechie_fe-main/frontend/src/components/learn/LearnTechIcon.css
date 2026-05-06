@@ -1,0 +1,45 @@
+/**
+ * Shared sizing for Learn course / category tech icons (devicon SVGs).
+ * Same HTML structure everywhere: .learn-tech-icon > img
+ */
+.learn-tech-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 0;
+  box-sizing: border-box;
+}
+
+.learn-tech-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  display: block;
+}
+
+.learn-tech-icon--xs {
+  width: 18px;
+  height: 18px;
+}
+
+.learn-tech-icon--sm {
+  width: 22px;
+  height: 22px;
+}
+
+.learn-tech-icon--md {
+  width: 32px;
+  height: 32px;
+}
+
+.learn-tech-icon--lg {
+  width: 44px;
+  height: 44px;
+}
+
+.learn-tech-icon--xl {
+  width: 52px;
+  height: 52px;
+}

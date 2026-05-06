@@ -912,6 +912,7 @@ async def get_my_company(
         "industry": company.industry,
         "headquarters": company.headquarters,
         "address": company.address,
+        "country": company.country,
         "gst_number": company.gst_number,
         "logo_url": company.logo_url,
         "cover_image_url": company.cover_image_url,

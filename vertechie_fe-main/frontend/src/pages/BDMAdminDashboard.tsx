@@ -344,7 +344,7 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
   };
 
   const handleExportCSV = useCallback(() => {
-    const headers = ['Company', 'Legal name', 'Email', 'Status', 'Submitted', 'GST'];
+    const headers = ['Company', 'Legal name', 'Email', 'Status', 'Submitted', 'Tax ID'];
     const rows = sortedFilteredInvites.map((inv) => [
       inv.company_name ?? '',
       inv.legal_name ?? '',
@@ -982,7 +982,7 @@ export const BDMCompanyRegistrationQueue: React.FC<BDMCompanyRegistrationQueuePr
                       )}
                       {hasText(selectedInvite.gst_number) && (
                         <Grid item xs={12} sm={6}>
-                          <Typography variant="caption" color="text.secondary">GST number</Typography>
+                          <Typography variant="caption" color="text.secondary">Tax ID (GSTIN / EIN)</Typography>
                           <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{selectedInvite.gst_number}</Typography>
                         </Grid>
                       )}

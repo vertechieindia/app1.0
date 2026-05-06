@@ -26,17 +26,79 @@ from app.services.company_matching import (
     normalize_company_name,
 )
 from app.core.security import get_current_user, get_current_admin_user, get_optional_user
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from pydantic import BaseModel, Field, EmailStr, field_validator, ValidationInfo
 from datetime import datetime
 import aiosmtplib
 from email.message import EmailMessage
 from email.utils import formataddr
 import re
 from app.core.config import get_settings
+from app.utils.gstin import is_valid_gstin
+from app.utils.ein import is_valid_ein_nine_digits
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Companies"])
+
+def _coerce_tax_country(country: Any) -> Optional[Literal["IN", "US"]]:
+    if country is None:
+        return None
+    if not isinstance(country, str):
+        return None
+    u = country.strip().upper()
+    if u in ("IN", "IND", "INDIA"):
+        return "IN"
+    if u in ("US", "USA") or u.startswith("UNITED STATES"):
+        return "US"
+    return None
+
+
+def _normalize_ein_digits(digits: str) -> str:
+    if not is_valid_ein_nine_digits(digits):
+        raise ValueError(
+            "Invalid US EIN: use 9 digits with a valid IRS-assigned prefix (see IRS valid EIN prefixes), e.g. 12-3456789."
+        )
+    return f"{digits[:2]}-{digits[2:]}"
+
+
+def _normalize_company_tax_id_value(v: Any, country: Any = None) -> Optional[str]:
+    """Normalize `gst_number`: strict GSTIN and/or EIN. `country` IN/US restricts which form is accepted."""
+    if v is None:
+        return None
+    if not isinstance(v, str):
+        v = str(v)
+    t = v.strip()
+    if not t:
+        return None
+    hint = _coerce_tax_country(country)
+    compact = re.sub(r"\s+", "", t).upper()
+    digits = re.sub(r"\D", "", t)
+
+    if hint == "IN":
+        if is_valid_gstin(compact):
+            return compact
+        if len(digits) == 9 and digits.isdigit():
+            raise ValueError(
+                "For India, enter a valid 15-character GSTIN (US EIN is not accepted when country is India)."
+            )
+        raise ValueError("Invalid Indian GSTIN (state + PAN + Z + check digit).")
+
+    if hint == "US":
+        if len(digits) == 9 and digits.isdigit():
+            return _normalize_ein_digits(digits)
+        if len(compact) == 15:
+            raise ValueError(
+                "For the United States, enter a valid 9-digit EIN (GSTIN is not accepted when country is United States)."
+            )
+        raise ValueError("Invalid US EIN: 9 digits required (e.g. 12-3456789).")
+
+    if is_valid_gstin(compact):
+        return compact
+    if len(digits) == 9 and digits.isdigit():
+        return _normalize_ein_digits(digits)
+    raise ValueError(
+        "Invalid tax identifier: use a valid Indian GSTIN or a valid US EIN (e.g. 12-3456789)."
+    )
 
 
 # ============= Pydantic Schemas =============
@@ -74,7 +136,16 @@ class CompanyBase(BaseModel):
 
 class CompanyCreate(CompanyBase):
     """Company creation schema - accepts both backend and frontend field names."""
-    pass
+
+    @field_validator("gst_number", mode="before")
+    @classmethod
+    def _validate_create_gst_number(cls, v: Any, info: ValidationInfo) -> Optional[str]:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        country = info.data.get("country") if info.data else None
+        return _normalize_company_tax_id_value(v, country)
 
 class CompanyUpdate(BaseModel):
     name: Optional[str] = None
@@ -88,11 +159,22 @@ class CompanyUpdate(BaseModel):
     headquarters: Optional[str] = None
     address: Optional[str] = None
     industry: Optional[str] = None
+    country: Optional[str] = None
     gst_number: Optional[str] = None
     employees_count: Optional[int] = None
     # Branding fields so logo and banner can be updated from CMS
     logo_url: Optional[str] = None
     cover_image_url: Optional[str] = None
+
+    @field_validator("gst_number", mode="before")
+    @classmethod
+    def _validate_update_gst_number(cls, v: Any, info: ValidationInfo) -> Optional[str]:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        country = info.data.get("country") if info.data else None
+        return _normalize_company_tax_id_value(v, country)
 
 class CompanyResponse(CompanyBase):
     id: UUID
@@ -208,6 +290,7 @@ class CompanyInviteCreate(BaseModel):
     website: Optional[str] = None
     domain: Optional[str] = None
     legal_name: Optional[str] = None
+    tax_country: Optional[Literal["IN", "US"]] = None
     gst_number: Optional[str] = None
     industry: Optional[str] = None
     logo_url: Optional[str] = None
@@ -228,6 +311,16 @@ class CompanyInviteCreate(BaseModel):
     @classmethod
     def _none_to_empty_list_create(cls, v: Any) -> Any:
         return [] if v is None else v
+
+    @field_validator("gst_number", mode="before")
+    @classmethod
+    def _validate_invite_gst_number(cls, v: Any, info: ValidationInfo) -> Optional[str]:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        tax_c = info.data.get("tax_country") if info.data else None
+        return _normalize_company_tax_id_value(v, tax_c)
 
 
 class CompanyInviteResponse(BaseModel):
@@ -651,6 +744,13 @@ async def create_company_invite(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="invite_flow must be 'outreach' or 'registration'",
         )
+    if flow_str == "registration":
+        gn = invite.gst_number
+        if gn is None or not str(gn).strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Tax identifier (Indian GSTIN or US EIN) is required for company registration.",
+            )
 
     db_invite = CompanyInvite(
         company_name=invite.company_name,

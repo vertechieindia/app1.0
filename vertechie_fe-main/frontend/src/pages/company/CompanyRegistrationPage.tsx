@@ -24,6 +24,11 @@ import {
   Card,
   CardContent,
   CardHeader,
+  FormControl,
+  FormLabel,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
 } from '@mui/material';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -32,17 +37,22 @@ import EditIcon from '@mui/icons-material/Edit';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../../config/api';
 import { fetchWithAuth, isAuthenticated } from '../../utils/apiInterceptor';
+import type { TaxCountry } from '../../utils/companyTaxId';
+import {
+  normalizeCompanyTaxId,
+  validateCompanyTaxIdRequired,
+  taxIdHelperForCountry,
+} from '../../utils/companyTaxId';
 
 const STEP_LABELS = ['Company identity', 'Locations & team', 'Review & submit'];
 
-/** Indian GSTIN: 15 chars, e.g. 22AAAAA0000A1Z5 */
-const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FIELD_IDS = {
   legalName: 'company-legal-name',
   displayName: 'display-name',
   website: 'company-website',
   industry: 'company-industry',
+  taxCountry: 'company-tax-country',
   gst: 'company-gst',
   tagline: 'company-tagline',
   hqAddress: 'hq-address',
@@ -55,6 +65,7 @@ const STEP0_SCROLL_ORDER = [
   FIELD_IDS.displayName,
   FIELD_IDS.primaryEmail,
   FIELD_IDS.industry,
+  FIELD_IDS.taxCountry,
   FIELD_IDS.gst,
   FIELD_IDS.website,
   FIELD_IDS.tagline,
@@ -110,14 +121,6 @@ function validateOptionalPhone(value: string): string | null {
   return null;
 }
 
-function validateGstRequired(raw: string): string | null {
-  const t = raw.trim().toUpperCase();
-  if (!t) return 'GST number is required.';
-  if (t.length !== 15) return 'GST must be exactly 15 characters (Indian GSTIN).';
-  if (!GSTIN_REGEX.test(t)) return 'Invalid GSTIN format. Example: 22AAAAA0000A1Z5';
-  return null;
-}
-
 type BranchRow = {
   label: string;
   address_line1: string;
@@ -167,6 +170,7 @@ const CompanyRegistrationPage: React.FC = () => {
   const [branches, setBranches] = useState<BranchRow[]>([]);
   const [website, setWebsite] = useState('');
   const [gst, setGst] = useState('');
+  const [taxCountry, setTaxCountry] = useState<TaxCountry>('IN');
   const [industry, setIndustry] = useState('');
   const [tagline, setTagline] = useState('');
   const [about, setAbout] = useState('');
@@ -198,7 +202,7 @@ const CompanyRegistrationPage: React.FC = () => {
     if (dn.length > 200) e[FIELD_IDS.displayName] = 'Brand name must be 200 characters or less.';
     const pe = validateRequiredEmail(primaryEmail);
     if (pe) e[FIELD_IDS.primaryEmail] = pe;
-    const ge = validateGstRequired(gst);
+    const ge = validateCompanyTaxIdRequired(gst, taxCountry);
     if (ge) e[FIELD_IDS.gst] = ge;
     if (!industry.trim()) e[FIELD_IDS.industry] = 'Industry is required.';
     else if (industry.trim().length < 2) e[FIELD_IDS.industry] = 'Enter at least 2 characters.';
@@ -210,7 +214,7 @@ const CompanyRegistrationPage: React.FC = () => {
     else if (aboutTrim.length < 20) e[FIELD_IDS.about] = 'Enter at least 20 characters.';
     else if (about.length > 20000) e[FIELD_IDS.about] = 'About text is too long (max 20,000 characters).';
     return e;
-  }, [legalName, displayName, primaryEmail, gst, industry, website, tagline, about]);
+  }, [legalName, displayName, primaryEmail, gst, taxCountry, industry, website, tagline, about]);
 
   const buildStep1Errors = useCallback((): Record<string, string> => {
     const e: Record<string, string> = {};
@@ -375,7 +379,8 @@ const CompanyRegistrationPage: React.FC = () => {
       address: hqAddress.trim(),
       branch_addresses,
       website: website.trim() || undefined,
-      gst_number: gst.trim().toUpperCase() || undefined,
+      gst_number: normalizeCompanyTaxId(gst, taxCountry) ?? undefined,
+      tax_country: taxCountry,
       industry: industry.trim(),
       about: about.trim(),
       tagline: tagline.trim() || undefined,
@@ -743,20 +748,37 @@ const CompanyRegistrationPage: React.FC = () => {
                     }}
                   />
                 </Grid>
+                <Grid item xs={12}>
+                  <FormControl id={FIELD_IDS.taxCountry} component="fieldset" variant="standard">
+                    <FormLabel component="legend">Tax registration country</FormLabel>
+                    <RadioGroup
+                      row
+                      name="tax-country"
+                      value={taxCountry}
+                      onChange={(e) => {
+                        clearFieldError(FIELD_IDS.gst);
+                        setTaxCountry(e.target.value as TaxCountry);
+                      }}
+                    >
+                      <FormControlLabel value="IN" control={<Radio />} label="India (GSTIN)" />
+                      <FormControlLabel value="US" control={<Radio />} label="United States (EIN)" />
+                    </RadioGroup>
+                  </FormControl>
+                </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
                     id={FIELD_IDS.gst}
                     fullWidth
                     required
-                    label="GST number (GSTIN)"
+                    label={taxCountry === 'IN' ? 'GSTIN' : 'EIN'}
                     value={gst}
                     inputProps={{
-                      maxLength: 15,
+                      maxLength: taxCountry === 'IN' ? 15 : 20,
                       style: { textTransform: 'uppercase' },
                       ...INPUT_PASTE_ALLOW,
                     }}
                     error={!!fieldErrors[FIELD_IDS.gst]}
-                    helperText={fieldErrors[FIELD_IDS.gst] || '15-character Indian GSTIN, e.g. 22AAAAA0000A1Z5'}
+                    helperText={fieldErrors[FIELD_IDS.gst] || taxIdHelperForCountry(taxCountry)}
                     onChange={(e) => {
                       clearFieldError(FIELD_IDS.gst);
                       setGst(e.target.value.toUpperCase());
@@ -903,7 +925,8 @@ const CompanyRegistrationPage: React.FC = () => {
                   {reviewLineIfFilled('Brand name', displayName)}
                   {reviewLine('Company email', primaryEmail)}
                   {reviewLine('Industry', industry)}
-                  {reviewLine('GST', gst)}
+                  {reviewLine('Tax country', taxCountry === 'IN' ? 'India' : 'United States')}
+                  {reviewLine(taxCountry === 'IN' ? 'GSTIN' : 'EIN', gst)}
                   {reviewLineIfFilled('Website', website)}
                   {reviewLineIfFilled('Tagline', tagline)}
                   <Divider sx={{ my: 2 }} />

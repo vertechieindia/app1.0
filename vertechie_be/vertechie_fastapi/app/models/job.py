@@ -170,6 +170,14 @@ class JobApplication(Base, UUIDMixin, TimestampMixin):
     reviewer_notes = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)  # 1-5 stars
     
+    # Background verification (single ATS tile with internal sub-workflow)
+    # pending -> in_progress -> verified (or rejected)
+    bgc_state = Column(String(30), nullable=True, index=True)
+    bgc_checks = Column(JSON, default=list)  # [{type, required, status, notes, verified_by, verified_at}]
+    bgc_verified_at = Column(DateTime, nullable=True)
+    bgc_locked_at = Column(DateTime, nullable=True)
+    bgc_last_updated_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    
     # Skill Matching
     match_score = Column(Integer, nullable=True)  # Percentage 0-100
     matched_skills = Column(JSON, default=list)  # Skills that matched

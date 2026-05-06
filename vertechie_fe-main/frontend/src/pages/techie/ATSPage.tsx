@@ -326,9 +326,9 @@ const ATSPage: React.FC = () => {
       ]
     },
     { 
-      id: 'offer', 
-      title: 'Offer Stage', 
-      color: '#34C759',
+      id: 'bgc_admin', 
+      title: 'BGC Admin', 
+      color: '#5E35B1',
       candidates: [
         { id: '8', name: 'Morgan Williams', role: 'Senior React Developer', avatar: '', rating: 5, appliedDate: '2 weeks ago', skills: ['React', 'System Design', 'Leadership'] },
       ]
@@ -427,8 +427,8 @@ const ATSPage: React.FC = () => {
         <Grid item xs={6} sm={3} lg={1.5}>
           <MetricCard>
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <Typography variant="h4" fontWeight={700} color="#34C759">{metrics.offersExtended}</Typography>
-              <Typography variant="caption" color="text.secondary">Offers Extended</Typography>
+              <Typography variant="h4" fontWeight={700} color="#5E35B1">{metrics.offersExtended}</Typography>
+              <Typography variant="caption" color="text.secondary">BGC Admin</Typography>
             </CardContent>
           </MetricCard>
         </Grid>
@@ -1070,8 +1070,8 @@ const ATSPage: React.FC = () => {
                       {[
                         { stage: 'Applied → Screening', rate: 45 },
                         { stage: 'Screening → Interview', rate: 32 },
-                        { stage: 'Interview → Offer', rate: 18 },
-                        { stage: 'Offer → Hired', rate: 85 },
+                        { stage: 'Interview → BGC Admin', rate: 18 },
+                        { stage: 'BGC Admin → Hired', rate: 85 },
                       ].map((item) => (
                         <Box key={item.stage}>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
