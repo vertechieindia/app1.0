@@ -3,7 +3,7 @@ Hiring/ATS API Routes
 Pipeline, Assessments, Interviews, and Offers
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
@@ -42,6 +42,11 @@ PIPELINE_STAGE_TO_STATUS: Dict[str, ApplicationStatus] = {
     "new": ApplicationStatus.SUBMITTED,
     "screening": ApplicationStatus.SHORTLISTED,
     "interview": ApplicationStatus.INTERVIEW,
+    # Background verification (admin); legacy clients may still send "offer"
+    "bgc_admin": ApplicationStatus.OFFERED,
+    "bgc_pending": ApplicationStatus.OFFERED,
+    "bgc_in_progress": ApplicationStatus.OFFERED,
+    "bgc_verified": ApplicationStatus.OFFERED,
     "offer": ApplicationStatus.OFFERED,
     "onboarding": ApplicationStatus.ONBOARDING,
     "hired": ApplicationStatus.HIRED,
@@ -53,7 +58,7 @@ STATUS_TO_PIPELINE_STAGE: Dict[str, str] = {
     ApplicationStatus.UNDER_REVIEW.value: "screening",
     ApplicationStatus.SHORTLISTED.value: "screening",
     ApplicationStatus.INTERVIEW.value: "interview",
-    ApplicationStatus.OFFERED.value: "offer",
+    ApplicationStatus.OFFERED.value: "bgc_admin",
     ApplicationStatus.ONBOARDING.value: "onboarding",
     ApplicationStatus.HIRED.value: "hired",
     ApplicationStatus.REJECTED.value: "rejected",
@@ -61,13 +66,21 @@ STATUS_TO_PIPELINE_STAGE: Dict[str, str] = {
 
 ALLOWED_STAGE_TRANSITIONS: Dict[str, set[str]] = {
     "new": {"screening", "rejected"},
-    "screening": {"interview", "rejected"},
-    "interview": {"offer", "rejected"},
-    "offer": {"onboarding", "rejected"},
-    "onboarding": {"hired", "rejected"},
-    "hired": set(),
+    "screening": {"interview", "rejected", "new"},
+    "interview": {"bgc_admin", "bgc_pending", "rejected", "screening"},
+    "bgc_admin": {"bgc_in_progress", "rejected", "interview"},
+    "bgc_pending": {"bgc_in_progress", "rejected"},
+    "bgc_in_progress": {"bgc_verified", "rejected"},
+    "bgc_verified": {"onboarding", "rejected"},
+    # Legacy slug after interview
+    "offer": {"bgc_in_progress", "rejected", "interview"},
+    "onboarding": {"hired", "rejected", "bgc_admin"},
+    "hired": {"onboarding"},
     "rejected": {"new"},
 }
+
+BGC_DEFAULT_CHECK_TYPES = ("education", "criminal", "reference")
+BGC_CHECK_STATUSES = {"pending", "pass", "fail"}
 
 
 def _to_utc_datetime(value: Optional[datetime]) -> Optional[datetime]:
@@ -111,18 +124,132 @@ def _status_to_stage(application: JobApplication) -> str:
     return STATUS_TO_PIPELINE_STAGE.get(current_status, "new")
 
 
-def _apply_stage_transition_or_400(application: JobApplication, requested_stage: str) -> ApplicationStatus:
-    stage = (requested_stage or "").strip().lower()
+def _normalize_client_stage(stage: str) -> str:
+    """Map legacy API slug `offer` to `bgc_admin` (same ApplicationStatus.OFFERED)."""
+    s = (stage or "").strip().lower()
+    return "bgc_admin" if s == "offer" else s
+
+
+def _default_bgc_checks() -> List[dict]:
+    return [
+        {"type": check_type, "required": True, "status": "pending", "notes": None}
+        for check_type in BGC_DEFAULT_CHECK_TYPES
+    ]
+
+
+def _normalize_role_slug(value: str) -> str:
+    return (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _get_role_slugs(user: User) -> set[str]:
+    role_slugs: set[str] = set()
+    for admin_role in (user.admin_roles or []):
+        role_slugs.add(_normalize_role_slug(str(admin_role)))
+    for role in (getattr(user, "roles", None) or []):
+        role_type = getattr(role, "role_type", None)
+        if role_type is not None:
+            role_slugs.add(_normalize_role_slug(getattr(role_type, "value", str(role_type))))
+        role_name = getattr(role, "name", None)
+        if role_name:
+            role_slugs.add(_normalize_role_slug(str(role_name)))
+    return role_slugs
+
+
+def _is_bgc_admin(user: User) -> bool:
+    if user.is_superuser:
+        return True
+    role_slugs = _get_role_slugs(user)
+    return any(slug in role_slugs for slug in ("bgc_admin", "super_admin", "superadmin"))
+
+
+def _ensure_bgc_defaults(application: JobApplication) -> None:
+    if not application.bgc_state:
+        application.bgc_state = "pending"
+    if not isinstance(application.bgc_checks, list) or not application.bgc_checks:
+        application.bgc_checks = _default_bgc_checks()
+    if application.bgc_state in {"pending", "in_progress", "verified"} and not application.bgc_locked_at:
+        application.bgc_locked_at = datetime.utcnow()
+
+
+def _effective_pipeline_stage(application: JobApplication) -> str:
+    base_stage = _normalize_client_stage(_status_to_stage(application))
+    if base_stage != "bgc_admin":
+        return base_stage
+    bgc_state = (application.bgc_state or "pending").strip().lower()
+    if bgc_state == "in_progress":
+        return "bgc_in_progress"
+    if bgc_state == "verified":
+        return "bgc_verified"
+    return "bgc_pending"
+
+
+def _normalize_bgc_internal_stage(stage: str) -> str:
+    normalized = _normalize_client_stage(stage)
+    if normalized == "bgc_admin":
+        return "bgc_pending"
+    return normalized
+
+
+def _assert_bgc_actor_rules_or_403(application: JobApplication, actor: User, target_stage: str) -> None:
+    current_stage = _effective_pipeline_stage(application)
+    requested = _normalize_bgc_internal_stage(target_stage)
+    locked_stages = {"bgc_pending", "bgc_in_progress", "bgc_verified"}
+
+    if current_stage in locked_stages and not _is_bgc_admin(actor):
+        raise HTTPException(
+            status_code=403,
+            detail="BGC lock active. Only BGC admins can move candidates after entering BGC.",
+        )
+
+    if requested in {"bgc_in_progress", "bgc_verified"} and not _is_bgc_admin(actor):
+        raise HTTPException(
+            status_code=403,
+            detail="Only BGC admins can update BGC processing stages.",
+        )
+
+    if requested == "onboarding" and not _is_bgc_admin(actor):
+        raise HTTPException(
+            status_code=403,
+            detail="Only BGC admins can move candidates from BGC to onboarding.",
+        )
+
+
+def _apply_bgc_metadata_for_transition(
+    application: JobApplication,
+    stage: str,
+    actor: User,
+    previous_stage: Optional[str] = None,
+) -> None:
+    normalized = _normalize_bgc_internal_stage(stage)
+    if normalized in {"bgc_pending", "bgc_in_progress", "bgc_verified"}:
+        _ensure_bgc_defaults(application)
+        application.bgc_state = normalized.replace("bgc_", "")
+        if application.bgc_state == "verified":
+            application.bgc_verified_at = datetime.utcnow()
+        application.bgc_last_updated_by_id = actor.id
+        return
+
+    if normalized == "rejected" and (previous_stage or "").startswith("bgc"):
+        _ensure_bgc_defaults(application)
+        application.bgc_state = "rejected"
+        application.bgc_last_updated_by_id = actor.id
+
+
+def _apply_stage_transition_or_400(application: JobApplication, requested_stage: str, actor: User) -> ApplicationStatus:
+    stage = _normalize_client_stage(requested_stage)
+    stage = _normalize_bgc_internal_stage(stage)
     if stage not in PIPELINE_STAGE_TO_STATUS:
         raise HTTPException(
             status_code=400,
             detail=(
                 "Invalid stage. Allowed values: "
-                "new, screening, interview, offer, onboarding, hired, rejected"
+                "new, screening, interview, bgc_admin, bgc_pending, bgc_in_progress, bgc_verified, onboarding, hired, rejected "
+                "(offer is accepted as alias for bgc_admin)"
             ),
         )
 
-    current_stage = _status_to_stage(application)
+    _assert_bgc_actor_rules_or_403(application, actor, stage)
+    current_stage = _effective_pipeline_stage(application)
     if stage == current_stage:
         return PIPELINE_STAGE_TO_STATUS[stage]
 
@@ -131,6 +258,12 @@ def _apply_stage_transition_or_400(application: JobApplication, requested_stage:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid stage transition: {current_stage} -> {stage}",
+        )
+
+    if stage == "onboarding" and (application.bgc_state or "").strip().lower() != "verified":
+        raise HTTPException(
+            status_code=400,
+            detail="Only BGC_VERIFIED candidates can move to onboarding.",
         )
 
     return PIPELINE_STAGE_TO_STATUS[stage]
@@ -223,6 +356,18 @@ class BulkStageUpdate(BaseModel):
 
 class BulkDelete(BaseModel):
     application_ids: List[UUID]
+
+
+class BgcCheckUpdate(BaseModel):
+    check_type: str
+    status: str  # pending | pass | fail
+    required: bool = True
+    notes: Optional[str] = None
+
+
+class BgcChecksUpdate(BaseModel):
+    checks: List[BgcCheckUpdate]
+    auto_transition_on_verified: bool = False
 
 class InterviewResponse(BaseModel):
     id: UUID
@@ -334,7 +479,7 @@ async def create_pipeline(
         {"name": "Applied", "stage_type": StageType.APPLIED, "order": 0},
         {"name": "Screening", "stage_type": StageType.SCREENING, "order": 1},
         {"name": "Interview", "stage_type": StageType.INTERVIEW, "order": 2},
-        {"name": "Offer", "stage_type": StageType.OFFER, "order": 3},
+        {"name": "BGC Admin", "stage_type": StageType.OFFER, "order": 3},
         {"name": "Onboarding", "stage_type": StageType.ONBOARDING, "order": 4},
         {"name": "Hired", "stage_type": StageType.HIRED, "order": 5},
     ]
@@ -381,6 +526,8 @@ class PipelineCandidateResponse(BaseModel):
     email: str
     role: Optional[str] = None
     stage: str
+    bgc_state: Optional[str] = None
+    bgc_checks: List[dict[str, Any]] = []
     stage_id: Optional[UUID] = None
     skills: List[str] = []
     rating: Optional[int] = None
@@ -543,6 +690,8 @@ async def get_pipeline_candidates(
             email=applicant.email,
             role=getattr(applicant, 'title', None) or getattr(applicant, 'headline', None) or job.title if job else None,
             stage=stage,
+            bgc_state=getattr(app, "bgc_state", None),
+            bgc_checks=getattr(app, "bgc_checks", None) or [],
             stage_id=None,  # Will be set if using actual pipeline stages
             skills=applicant_skills[:10],  # Limit to 10 skills
             rating=app.rating if app.rating else None,
@@ -599,7 +748,13 @@ async def move_candidate(
 @router.put("/applications/{application_id}/stage")
 async def update_application_stage(
     application_id: UUID,
-    stage: str = Query(..., description="Pipeline stage: new, screening, interview, offer, onboarding, hired, rejected"),
+    stage: str = Query(
+        ...,
+        description=(
+            "Pipeline stage: new, screening, interview, bgc_admin, bgc_pending, bgc_in_progress, "
+            "bgc_verified, onboarding, hired, rejected (offer = alias for bgc_admin)"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -618,17 +773,104 @@ async def update_application_stage(
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
     
-    # Verify user owns the job
-    if application.job.posted_by_id != current_user.id and not current_user.is_superuser:
+    is_owner = application.job.posted_by_id == current_user.id
+    if not is_owner and not current_user.is_superuser and not _is_bgc_admin(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    new_status = _apply_stage_transition_or_400(application, stage)
+    previous_stage = _effective_pipeline_stage(application)
+    new_status = _apply_stage_transition_or_400(application, stage, current_user)
     application.status = new_status
+    normalized_stage = _normalize_bgc_internal_stage(stage)
+    _apply_bgc_metadata_for_transition(application, normalized_stage, current_user, previous_stage)
     
     application.reviewed_at = datetime.utcnow()
     await db.commit()
     
-    return {"status": "updated", "stage": stage.lower(), "application_status": new_status.value}
+    response_stage = "bgc_admin" if normalized_stage in {"bgc_pending", "bgc_in_progress", "bgc_verified"} else normalized_stage
+    return {
+        "status": "updated",
+        "stage": response_stage,
+        "bgc_state": application.bgc_state,
+        "application_status": new_status.value,
+    }
+
+
+@router.put("/applications/{application_id}/bgc/checks")
+async def update_bgc_checks(
+    application_id: UUID,
+    payload: BgcChecksUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update internal BGC checklist within the single ATS BGC tile."""
+    if not _is_bgc_admin(current_user):
+        raise HTTPException(status_code=403, detail="Only BGC admins can update BGC checks.")
+
+    app_result = await db.execute(
+        select(JobApplication).where(JobApplication.id == application_id)
+    )
+    application = app_result.scalar_one_or_none()
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    if _status_to_stage(application) != "bgc_admin":
+        raise HTTPException(status_code=400, detail="BGC checks can only be updated while candidate is in BGC stage.")
+
+    _ensure_bgc_defaults(application)
+    checks_by_type: dict[str, dict[str, Any]] = {
+        str(item.get("type", "")).strip().lower(): dict(item)
+        for item in (application.bgc_checks or [])
+        if str(item.get("type", "")).strip()
+    }
+
+    now_iso = datetime.utcnow().isoformat()
+    for item in payload.checks:
+        check_type = (item.check_type or "").strip().lower()
+        if not check_type:
+            raise HTTPException(status_code=400, detail="check_type is required for each BGC check.")
+        status_value = (item.status or "").strip().lower()
+        if status_value not in BGC_CHECK_STATUSES:
+            raise HTTPException(status_code=400, detail=f"Invalid BGC check status '{item.status}'. Use pending/pass/fail.")
+
+        existing = checks_by_type.get(
+            check_type,
+            {"type": check_type, "required": True, "status": "pending", "notes": None},
+        )
+        existing["required"] = bool(item.required)
+        existing["status"] = status_value
+        existing["notes"] = item.notes
+        existing["verified_by"] = str(current_user.id)
+        existing["verified_at"] = now_iso
+        checks_by_type[check_type] = existing
+
+    checks = list(checks_by_type.values())
+    application.bgc_checks = checks
+    application.bgc_last_updated_by_id = current_user.id
+    application.reviewed_at = datetime.utcnow()
+
+    required_checks = [c for c in checks if c.get("required", True)]
+    all_required_passed = bool(required_checks) and all((c.get("status") == "pass") for c in required_checks)
+
+    if all_required_passed:
+        application.bgc_state = "verified"
+        application.bgc_verified_at = datetime.utcnow()
+        if payload.auto_transition_on_verified:
+            application.status = ApplicationStatus.ONBOARDING
+    else:
+        # Keep single BGC tile but move internal state to in_progress until all required checks pass.
+        if (application.bgc_state or "").lower() != "rejected":
+            application.bgc_state = "in_progress"
+
+    await db.commit()
+
+    response_stage = "onboarding" if application.status == ApplicationStatus.ONBOARDING else "bgc_admin"
+    return {
+        "status": "updated",
+        "stage": response_stage,
+        "bgc_state": application.bgc_state,
+        "all_required_passed": all_required_passed,
+        "checks": application.bgc_checks or [],
+    }
 
 
 # ============= Assessments =============
@@ -2034,7 +2276,7 @@ async def get_hiring_analytics(
         {'stage': 'New Applicants', 'count': status_counts['submitted'], 'percentage': 100},
         {'stage': 'Screening', 'count': status_counts['under_review'] + status_counts['shortlisted'], 'percentage': round((status_counts['under_review'] + status_counts['shortlisted']) / total * 100)},
         {'stage': 'Interview', 'count': status_counts['interview'], 'percentage': round(status_counts['interview'] / total * 100)},
-        {'stage': 'Offer', 'count': status_counts['offered'], 'percentage': round(status_counts['offered'] / total * 100)},
+        {'stage': 'BGC Admin', 'count': status_counts['offered'], 'percentage': round(status_counts['offered'] / total * 100)},
         {'stage': 'Onboarding', 'count': status_counts['onboarding'], 'percentage': round(status_counts['onboarding'] / total * 100)},
         {'stage': 'Hired', 'count': status_counts['hired'], 'percentage': round(status_counts['hired'] / total * 100)},
     ]
@@ -2161,39 +2403,48 @@ async def bulk_update_application_stage(
     current_user: User = Depends(get_current_user)
 ):
     """Update stage for multiple applications at once."""
-    normalized_stage = (bulk_data.stage or "").strip().lower()
+    normalized_stage = _normalize_bgc_internal_stage(bulk_data.stage or "")
     if normalized_stage not in PIPELINE_STAGE_TO_STATUS:
         raise HTTPException(
             status_code=400,
             detail=(
                 "Invalid stage. Allowed values: "
-                "new, screening, interview, offer, onboarding, hired, rejected"
+                "new, screening, interview, bgc_admin, bgc_pending, bgc_in_progress, bgc_verified, "
+                "onboarding, hired, rejected (offer = alias for bgc_admin)"
             ),
         )
     
-    # Only update applications belonging to jobs posted by current user
-    # First, find IDs of jobs posted by current user
-    jobs_result = await db.execute(
-        select(Job.id).where(Job.posted_by_id == current_user.id)
-    )
-    my_job_ids = [row[0] for row in jobs_result.fetchall()]
-    
-    applications_result = await db.execute(
-        select(JobApplication)
-        .where(JobApplication.id.in_(bulk_data.application_ids))
-        .where(JobApplication.job_id.in_(my_job_ids))
-    )
+    if _is_bgc_admin(current_user):
+        applications_result = await db.execute(
+            select(JobApplication).options(selectinload(JobApplication.job)).where(
+                JobApplication.id.in_(bulk_data.application_ids)
+            )
+        )
+    else:
+        # Non-BGC users can bulk move only their own job applications.
+        jobs_result = await db.execute(
+            select(Job.id).where(Job.posted_by_id == current_user.id)
+        )
+        my_job_ids = [row[0] for row in jobs_result.fetchall()]
+        applications_result = await db.execute(
+            select(JobApplication)
+            .options(selectinload(JobApplication.job))
+            .where(JobApplication.id.in_(bulk_data.application_ids))
+            .where(JobApplication.job_id.in_(my_job_ids))
+        )
     applications = applications_result.scalars().all()
 
     updated_count = 0
     skipped_count = 0
     for application in applications:
         try:
-            new_status = _apply_stage_transition_or_400(application, normalized_stage)
+            previous_stage = _effective_pipeline_stage(application)
+            new_status = _apply_stage_transition_or_400(application, normalized_stage, current_user)
         except HTTPException:
             skipped_count += 1
             continue
         application.status = new_status
+        _apply_bgc_metadata_for_transition(application, normalized_stage, current_user, previous_stage)
         application.reviewed_at = datetime.utcnow()
         updated_count += 1
 
@@ -2210,11 +2461,12 @@ async def bulk_update_application_stage(
         )
     await db.commit()
     
+    response_stage = "bgc_admin" if normalized_stage in {"bgc_pending", "bgc_in_progress", "bgc_verified"} else normalized_stage
     return {
         "status": "bulk_updated",
         "count": updated_count,
         "skipped": skipped_count,
-        "stage": normalized_stage,
+        "stage": response_stage,
     }
 
 

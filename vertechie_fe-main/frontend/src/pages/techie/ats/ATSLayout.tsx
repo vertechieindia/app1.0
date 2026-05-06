@@ -1,11 +1,11 @@
 /**
  * ATSLayout - Shared Layout for ATS Pages
- * Provides consistent header, navigation, and stats across all ATS pages
+ * Provides consistent page header and stats; section tabs live in AppHeader (see atsNavConfig).
  * Enhanced with job posting, screening questions, and applicant matching
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { applicationService, jobService, getHRUserInfo } from '../../../services/jobPortalService';
 import { interviewService } from '../../../services/interviewService';
 import { JobFormData, CodingQuestion } from '../../../types/jobPortal';
@@ -53,13 +53,7 @@ import { styled, alpha } from '@mui/material/styles';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AddIcon from '@mui/icons-material/Add';
-import ViewKanbanIcon from '@mui/icons-material/ViewKanban';
 import WorkIcon from '@mui/icons-material/Work';
-import PeopleIcon from '@mui/icons-material/People';
-import EventIcon from '@mui/icons-material/Event';
-import ScheduleIcon from '@mui/icons-material/Schedule';
-import AnalyticsIcon from '@mui/icons-material/Analytics';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -67,24 +61,6 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { fetchJobTitleSuggestions } from '../../../utils/jobTitleSuggestions';
 import { fetchSkillSuggestions, SUGGESTED_SKILL_CHIPS } from '../../../utils/skillSuggestions';
-
-const NavItem = styled(Box)<{ active?: boolean }>(({ active }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '12px 20px',
-  borderRadius: 8,
-  cursor: 'pointer',
-  fontWeight: active ? 600 : 500,
-  color: active ? '#0d47a1' : '#666',
-  backgroundColor: active ? alpha('#0d47a1', 0.08) : 'transparent',
-  borderBottom: active ? '3px solid #0d47a1' : '3px solid transparent',
-  transition: 'all 0.2s ease',
-  '&:hover': {
-    backgroundColor: alpha('#0d47a1', 0.05),
-    color: '#0d47a1',
-  },
-}));
 
 const StatCard = styled(Card)(({ theme }) => ({
   padding: theme.spacing(2),
@@ -108,8 +84,7 @@ interface ATSLayoutProps {
 
 const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
-  const location = useLocation();
-  
+
   // Dialog state
   const [openJobDialog, setOpenJobDialog] = useState(false);
   const [dialogTab, setDialogTab] = useState(0);
@@ -251,7 +226,7 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
 
       let candidates = 0;
       let newThisWeek = 0;
-      let offersExtended = 0;
+      let bgcAdminCount = 0;
       const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
       appsByJob.forEach((result) => {
@@ -263,8 +238,8 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
             newThisWeek += 1;
           }
           const status = String(app.status || '').toLowerCase();
-          if (status === 'hired' || status === 'offer' || status === 'offered' || status === 'onboarding' || status === 'selected') {
-            offersExtended += 1;
+          if (status === 'offered' || status === 'offer') {
+            bgcAdminCount += 1;
           }
         });
       });
@@ -286,7 +261,7 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
         candidates,
         newThisWeek,
         interviews,
-        offersExtended,
+        offersExtended: bgcAdminCount,
       });
     } catch (err) {
       console.error('Failed to load ATS stats:', err);
@@ -461,25 +436,13 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
     }
   };
 
-  const navItems = [
-    { path: '/techie/ats/pipeline', label: 'Pipeline', icon: <ViewKanbanIcon /> },
-    { path: '/techie/ats/jobpostings', label: 'Job Postings', icon: <WorkIcon /> },
-    { path: '/techie/ats/allcandidates', label: 'All Candidates', icon: <PeopleIcon /> },
-    { path: '/techie/ats/interviews', label: 'Interviews', icon: <EventIcon /> },
-    { path: '/techie/ats/scheduling', label: 'Scheduling', icon: <ScheduleIcon /> },
-    { path: '/techie/ats/calendar', label: 'Calendar', icon: <CalendarMonthIcon /> },
-    { path: '/techie/ats/analytics', label: 'Analytics', icon: <AnalyticsIcon /> },
-  ];
-
   const stats = [
     { value: atsStats.activeJobs, label: 'Active Jobs', color: '#0d47a1' },
     { value: atsStats.candidates, label: 'Candidates', color: '#34C759' },
     { value: atsStats.newThisWeek, label: 'New This Week', color: '#5856D6' },
     { value: atsStats.interviews, label: 'Interviews', color: '#FF9500' },
-    { value: atsStats.offersExtended, label: 'Offers Extended', color: '#FF3B30' },
+    { value: atsStats.offersExtended, label: 'BGC Admin', color: '#5E35B1' },
   ];
-
-  const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
@@ -536,22 +499,6 @@ const ATSLayout: React.FC<ATSLayoutProps> = ({ children }) => {
           </StatCard>
         </Grid>
       </Grid> */}
-
-      {/* Navigation */}
-      <Paper sx={{ mb: 3, borderRadius: 2 }}>
-        <Box sx={{ display: 'flex', overflowX: 'auto', p: 1 }}>
-          {navItems.map((item) => (
-            <NavItem
-              key={item.path}
-              active={isActive(item.path)}
-              onClick={() => navigate(item.path)}
-            >
-              {item.icon}
-              <Typography variant="body2" fontWeight="inherit">{item.label}</Typography>
-            </NavItem>
-          ))}
-        </Box>
-      </Paper>
 
       {/* Page Content */}
       <Paper sx={{ p: 3, borderRadius: 2, minHeight: 400 }}>

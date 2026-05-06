@@ -3,7 +3,7 @@
  * Provides consistent header, navigation, and stats for company pages
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -34,6 +34,12 @@ import { styled, alpha } from '@mui/material/styles';
 import { api } from '../../../services/apiClient';
 import { API_ENDPOINTS } from '../../../config/api';
 import { fetchMyCompanyForCMS } from './cmsCompanyFetch';
+import {
+  validateCompanyTaxIdOptional,
+  normalizeCompanyTaxId,
+  coerceTaxCountry,
+  taxIdHelperForCountry,
+} from '../../../utils/companyTaxId';
 
 // Icons
 import EditIcon from '@mui/icons-material/Edit';
@@ -189,6 +195,7 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
     domain: '',
     gstNumber: '',
   });
+  const [gstFieldError, setGstFieldError] = useState<string | null>(null);
   const [logo, setLogo] = useState<string | null>(null);
   const [selectedBanner, setSelectedBanner] = useState<number>(1);
   const [customBanner, setCustomBanner] = useState<string | null>(null);
@@ -311,8 +318,20 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
 
+  const profileTaxHint = useMemo(
+    () => coerceTaxCountry(company?.country ?? null),
+    [company?.country],
+  );
+
   const handleSaveEdit = async () => {
     if (!company) return;
+    const gstErr = validateCompanyTaxIdOptional(companyInfo.gstNumber, profileTaxHint);
+    if (gstErr) {
+      setGstFieldError(gstErr);
+      setSnackbar({ open: true, message: gstErr, severity: 'error' });
+      return;
+    }
+    setGstFieldError(null);
     try {
       const updatePayload: any = {
         name: companyInfo.name,
@@ -325,7 +344,8 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
         address: companyInfo.location.trim() || undefined,
         phone: companyInfo.phone.trim() || undefined,
         domain: companyInfo.domain.trim() || undefined,
-        gst_number: companyInfo.gstNumber.trim() || undefined,
+        country: typeof company.country === 'string' && company.country.trim() ? company.country.trim() : undefined,
+        gst_number: normalizeCompanyTaxId(companyInfo.gstNumber, profileTaxHint) ?? undefined,
       };
 
       // Persist logo URL if we have one
@@ -445,7 +465,7 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
                   )}
                   {company.gst_number && (
                     <Chip
-                      label={`GST ${company.gst_number}`}
+                      label={`Tax ID ${company.gst_number}`}
                       size="small"
                       sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
                     />
@@ -471,7 +491,10 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
             <Button
               variant="contained"
               startIcon={<EditIcon />}
-              onClick={() => setEditOpen(true)}
+              onClick={() => {
+                setGstFieldError(null);
+                setEditOpen(true);
+              }}
               sx={{
                 bgcolor: 'rgba(255,255,255,0.2)',
                 color: 'white',
@@ -608,9 +631,20 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
-                    label="GST number"
+                    label={
+                      profileTaxHint === 'IN'
+                        ? 'GSTIN'
+                        : profileTaxHint === 'US'
+                          ? 'EIN'
+                          : 'Tax ID (GSTIN or EIN)'
+                    }
                     value={companyInfo.gstNumber}
-                    onChange={(e) => setCompanyInfo({ ...companyInfo, gstNumber: e.target.value })}
+                    onChange={(e) => {
+                      setGstFieldError(null);
+                      setCompanyInfo({ ...companyInfo, gstNumber: e.target.value });
+                    }}
+                    error={!!gstFieldError}
+                    helperText={gstFieldError || taxIdHelperForCountry(profileTaxHint)}
                   />
                 </Grid>
               </Grid>

@@ -22,6 +22,7 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import HomeIcon from '@mui/icons-material/Home';
 import StarIcon from '@mui/icons-material/Star';
 import { getTutorialBySlug } from '../../data/curriculum';
+import LearnTechIcon from '../../components/learn/LearnTechIcon';
 
 // Types
 interface Question {
@@ -539,9 +540,12 @@ const QuizPage: React.FC = () => {
         {/* Header */}
         <QuizHeader color={tutorial.color}>
           <Box>
-            <Typography variant="h6" fontWeight={700}>
-              {tutorial.icon} {tutorial.shortTitle} Quiz
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <LearnTechIcon courseSlug={tutorial.slug} size="sm" tone="onDark" title={tutorial.shortTitle} />
+              <Typography variant="h6" fontWeight={700} component="span">
+                {tutorial.shortTitle} Quiz
+              </Typography>
+            </Box>
             <Typography variant="body2" sx={{ opacity: 0.9 }}>
               Question {currentQuestion + 1} of {questions.length}
             </Typography>

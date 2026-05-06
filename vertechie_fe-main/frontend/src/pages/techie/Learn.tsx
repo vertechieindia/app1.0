@@ -27,6 +27,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { categories, allTutorials } from '../../data/curriculum';
 import { api } from '../../services/apiClient';
 import { API_ENDPOINTS } from '../../config/api';
+import LearnTechIcon from '../../components/learn/LearnTechIcon';
 
 // Animations
 const pulseGlow = keyframes`
@@ -103,7 +104,6 @@ const TutorialIcon = styled(Box, {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: 28,
   backgroundColor: bgColor,
   marginBottom: 12,
 }));
@@ -122,7 +122,6 @@ const CategorySection = styled(Box)<{ color: string }>(({ color }) => ({
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      fontSize: 24,
       backgroundColor: alpha(color, 0.1),
     },
   },
@@ -533,9 +532,8 @@ const Learn: React.FC = () => {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: 24,
                     }}>
-                      {tutorial.icon}
+                      <LearnTechIcon courseSlug={tutorial.slug} size="lg" title={tutorial.shortTitle} />
                     </Box>
                     <Box sx={{ flex: 1 }}>
                       <Typography variant="subtitle2" fontWeight={600}>{tutorial.shortTitle}</Typography>
@@ -571,7 +569,7 @@ const Learn: React.FC = () => {
                       sx={{ justifyContent: 'space-between' }}
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography fontSize={18}>{category.icon}</Typography>
+                        <LearnTechIcon categoryId={category.id} size="sm" title={category.name} />
                         <ListItemText
                           primary={category.name}
                           primaryTypographyProps={{ fontWeight: 600, fontSize: '0.9rem' }}
@@ -588,7 +586,9 @@ const Learn: React.FC = () => {
                             color={tutorial.color}
                             onClick={() => handleTutorialClick(tutorial.slug)}
                           >
-                            <Typography fontSize={14} sx={{ mr: 1 }}>{tutorial.icon}</Typography>
+                            <Box sx={{ mr: 0.5, display: 'flex', alignItems: 'center' }}>
+                              <LearnTechIcon courseSlug={tutorial.slug} size="xs" title={tutorial.shortTitle} />
+                            </Box>
                             <ListItemText
                               primary={tutorial.shortTitle}
                               primaryTypographyProps={{ fontSize: '0.85rem' }}
@@ -631,7 +631,9 @@ const Learn: React.FC = () => {
             {activeSidebarSection === 'tutorials' && categories.map(category => (
               <CategorySection key={category.id} color={category.color}>
                 <Box className="category-header">
-                  <Box className="category-icon">{category.icon}</Box>
+                  <Box className="category-icon">
+                    <LearnTechIcon categoryId={category.id} size="md" title={category.name} />
+                  </Box>
                   <Box>
                     <Typography variant="h5" fontWeight={700}>{category.name}</Typography>
                     <Typography variant="body2" color="text.secondary">{category.description}</Typography>
@@ -651,7 +653,7 @@ const Learn: React.FC = () => {
                           <CardContent>
                             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
                               <TutorialIcon bgColor={tutorial.bgColor}>
-                                {tutorial.icon}
+                                <LearnTechIcon courseSlug={tutorial.slug} size="xl" title={tutorial.shortTitle} />
                               </TutorialIcon>
                               <Box sx={{ flex: 1 }}>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>

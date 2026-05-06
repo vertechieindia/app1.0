@@ -875,6 +875,16 @@ const AppRoutes: React.FC = () => {
                 <AllCandidatesPage />
               </ProtectedRoute>
             } />
+            <Route path="/techie/ats/hired" element={
+              <ProtectedRoute requiredRole="user">
+                <AllCandidatesPage initialStageFilter="hired" />
+              </ProtectedRoute>
+            } />
+            <Route path="/techie/ats/rejected" element={
+              <ProtectedRoute requiredRole="user">
+                <AllCandidatesPage initialStageFilter="rejected" />
+              </ProtectedRoute>
+            } />
             <Route path="/techie/ats/candidate/:candidateId" element={
               <ProtectedRoute requiredRole="user">
                 <CandidateProfilePage />

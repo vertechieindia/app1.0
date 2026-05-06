@@ -174,10 +174,10 @@ const AnalyticsPage: React.FC = () => {
         <Grid item xs={6} md={3}>
           <StatCard>
             <CardContent>
-              <Typography variant="body2" color="text.secondary" gutterBottom>Offers Made</Typography>
+              <Typography variant="body2" color="text.secondary" gutterBottom>BGC Admin</Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {loading ? <Skeleton width={60} height={40} /> : (
-                  <Typography variant="h4" fontWeight={700} color="#34C759">{stats.offers}</Typography>
+                  <Typography variant="h4" fontWeight={700} color="#5E35B1">{stats.offers}</Typography>
                 )}
               </Box>
             </CardContent>
@@ -289,7 +289,7 @@ const AnalyticsPage: React.FC = () => {
                     <TableCell><strong>Job Title</strong></TableCell>
                     <TableCell align="center"><strong>Applicants</strong></TableCell>
                     <TableCell align="center"><strong>Interviews</strong></TableCell>
-                    <TableCell align="center"><strong>Offers</strong></TableCell>
+                    <TableCell align="center"><strong>BGC Admin</strong></TableCell>
                     <TableCell align="center"><strong>Conversion</strong></TableCell>
                     <TableCell align="center"><strong>Status</strong></TableCell>
                   </TableRow>
