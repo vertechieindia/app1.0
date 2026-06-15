@@ -8,6 +8,7 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 
 export interface AtsNavItem {
   path: string;
@@ -19,6 +20,7 @@ export interface AtsNavItem {
 export const ATS_NAV_ITEMS: AtsNavItem[] = [
   { path: '/techie/ats/pipeline', label: 'Pipeline', icon: <ViewKanbanIcon sx={{ fontSize: 20 }} /> },
   { path: '/techie/ats/jobpostings', label: 'Job Postings', icon: <WorkIcon sx={{ fontSize: 20 }} /> },
+  { path: '/techie/ats/screening-progress', label: 'Screening Progress', icon: <FactCheckIcon sx={{ fontSize: 20 }} /> },
   { path: '/techie/ats/allcandidates', label: 'All Candidates', icon: <PeopleIcon sx={{ fontSize: 20 }} /> },
   { path: '/techie/ats/interviews', label: 'Interviews', icon: <EventIcon sx={{ fontSize: 20 }} /> },
   { path: '/techie/ats/scheduling', label: 'Scheduling', icon: <ScheduleIcon sx={{ fontSize: 20 }} /> },

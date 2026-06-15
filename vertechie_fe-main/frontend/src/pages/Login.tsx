@@ -106,8 +106,11 @@ const Login = () => {
         } catch {
           return;
         }
-        if (cancelled || !userData || !isUserVerified(userData)) return;
+        if (cancelled || !userData) return;
         localStorage.setItem('userData', JSON.stringify(userData));
+        const staff = userData.screening_staff || [];
+        const hasScreeningPortal = staff.length > 0;
+        if (!isUserVerified(userData) && !hasScreeningPortal) return;
         if (safeNextPath) {
           navigate(safeNextPath, { replace: true });
           return;
@@ -183,6 +186,7 @@ const Login = () => {
             role: userApiData.role ?? data.user_data.role,
             company_id: userApiData.company_id ?? data.user_data.company_id,
             has_company: userApiData.has_company ?? data.user_data.has_company,
+            screening_staff: userApiData.screening_staff ?? data.user_data.screening_staff ?? [],
             is_active: userApiData.is_active ?? data.user_data.is_active,
             is_verified: userApiData.is_verified ?? data.user_data.is_verified,
           };
@@ -230,6 +234,7 @@ const Login = () => {
               is_verified: me.is_verified ?? userData.is_verified,
               company_id: me.company_id ?? userData.company_id,
               has_company: me.has_company ?? userData.has_company,
+              screening_staff: me.screening_staff ?? userData.screening_staff ?? [],
             };
             localStorage.setItem('userData', JSON.stringify(userData));
           }

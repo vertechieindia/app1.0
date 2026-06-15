@@ -409,10 +409,9 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
 
   return (
     <Box sx={{
-      minHeight: '100%',
       background: colors.background,
     }}>
-      <Container maxWidth="xl">
+      <Container maxWidth="xl" sx={{ pb: 3 }}>
         {/* Profile Header */}
         <ProfileCard
           elevation={0}
@@ -537,7 +536,7 @@ const CMSLayout: React.FC<CMSLayoutProps> = ({ children }) => {
         </Paper>
 
         {/* Page Content */}
-        <Paper sx={{ p: 3, borderRadius: 2, minHeight: 400 }}>
+        <Paper sx={{ p: 3, pb: 4, borderRadius: 2, minHeight: 400 }}>
           {children}
         </Paper>
       </Container>

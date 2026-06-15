@@ -488,6 +488,10 @@ def _infer_role_type_from_name(name: str) -> Optional[RoleType]:
         "school_admin": RoleType.SCHOOL_ADMIN,
         "bdm_admin": RoleType.BDM_ADMIN,
         "learn_admin": RoleType.LEARN_ADMIN,
+        "requirements_admin": RoleType.REQUIREMENTS_TEAM,
+        "requirements_team": RoleType.REQUIREMENTS_TEAM,
+        "screener_admin": RoleType.SCREENER,
+        "screener": RoleType.SCREENER,
     }
     return mapping.get(key)
 
@@ -501,6 +505,9 @@ _VALID_ROLE_TYPE_VALUES = (
     "techie",
     "bdm_admin",
     "learn_admin",
+    "requirements_team",
+    "screener",
+    "tech_screener",
 )
 
 
@@ -510,7 +517,7 @@ class GroupCreateRequest(BaseModel):
     role_type: str = Field(
         ...,
         min_length=1,
-        description="One of: super_admin, company_admin, school_admin, hiring_manager, techie, bdm_admin, learn_admin",
+        description="One of: super_admin, company_admin, school_admin, hiring_manager, techie, bdm_admin, learn_admin, requirements_team, screener",
     )
     description: Optional[str] = None
     permission_ids: List[Any] = []

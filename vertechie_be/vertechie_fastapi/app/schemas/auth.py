@@ -61,6 +61,10 @@ class UserRegister(BaseModel):
     email_verified: bool = False
     mobile_verified: bool = False
     phone_verified: Optional[bool] = None
+
+    # Screening / company invite deep links
+    screening_invite: Optional[str] = None
+    company_hm_invite: Optional[str] = None
     
     class Config:
         extra = "ignore"  # Ignore extra fields from frontend

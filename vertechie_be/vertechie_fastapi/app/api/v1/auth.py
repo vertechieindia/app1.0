@@ -262,6 +262,38 @@ async def register(
                 can_manage_placements=True, can_manage_admins=True
             ))
 
+    if getattr(user_in, "screening_invite", None):
+        from app.services.screening_invite_service import link_invite_on_signup
+        await link_invite_on_signup(db, user, user_in.screening_invite)
+
+    if getattr(user_in, "company_hm_invite", None):
+        from app.models.screening import CompanyHmInvite
+        from app.models.company import CompanyAdmin
+        inv_row = await db.execute(
+            select(CompanyHmInvite).where(CompanyHmInvite.invite_token == user_in.company_hm_invite.strip())
+        )
+        hm_inv = inv_row.scalar_one_or_none()
+        if hm_inv and hm_inv.email.lower() == user.email.lower():
+            hm_inv.user_id = user.id
+            hm_inv.status = "registered"
+            existing = await db.execute(
+                select(CompanyAdmin).where(
+                    CompanyAdmin.company_id == hm_inv.company_id,
+                    CompanyAdmin.user_id == user.id,
+                )
+            )
+            if not existing.scalar_one_or_none():
+                db.add(
+                    CompanyAdmin(
+                        company_id=hm_inv.company_id,
+                        user_id=user.id,
+                        role="hr",
+                        can_manage_jobs=True,
+                        can_manage_candidates=True,
+                        can_manage_team=False,
+                    )
+                )
+
     await db.commit()
     await db.refresh(user)
     
@@ -698,6 +730,12 @@ async def admin_create_user(
 
             if admin_roles and str(admin_roles[0]).lower() == "learn_admin":
                 role_type = RoleType.LEARN_ADMIN
+            if admin_roles and str(admin_roles[0]).lower() == "requirements_admin":
+                role_type = RoleType.REQUIREMENTS_TEAM
+            if admin_roles and str(admin_roles[0]).lower() == "screener_admin":
+                role_type = RoleType.SCREENER
+            if admin_roles and str(admin_roles[0]).lower() == "tech_screener_admin":
+                role_type = RoleType.TECH_SCREENER
 
         # Determine if user is superuser - only if admin_roles includes "superadmin"
         is_superuser = "superadmin" in admin_roles if admin_roles else False

@@ -495,6 +495,10 @@ async def apply_to_job(
     # Update job application count
     job.applications_count += 1
     
+    await db.flush()
+    from app.services.screening_service import maybe_create_screening_task_for_application
+    await maybe_create_screening_task_for_application(db, application)
+    
     await db.commit()
     await db.refresh(application)
     

@@ -51,6 +51,7 @@ const StatusProcessing = () => {
           is_verified: userData.is_verified ?? prev.is_verified,
           company_id: userData.company_id ?? prev.company_id,
           has_company: userData.has_company ?? prev.has_company,
+          screening_staff: userData.screening_staff ?? prev.screening_staff ?? [],
         };
         localStorage.setItem('userData', JSON.stringify(merged));
         window.dispatchEvent(new Event('vertechie-userdata-updated'));

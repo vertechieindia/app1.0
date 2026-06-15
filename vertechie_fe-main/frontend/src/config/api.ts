@@ -84,9 +84,9 @@ const getLegacyBaseUrl = (): string => {
         return import.meta.env.VITE_LEGACY_API_URL;
     }
 
-    // Development default - same host but without /v1
+    // Development: route through Vite proxy (/api → backend) so OCR works on LAN/mobile dev too
     if (import.meta.env.DEV) {
-        return 'http://localhost:8000/api/';
+        return '/api/';
     }
 
     // Production
@@ -401,6 +401,13 @@ export const API_ENDPOINTS = {
         PIPELINE_CANDIDATES: '/hiring/pipeline/candidates',
         MOVE_CANDIDATE: (id: string) => `/hiring/candidates/${id}/move`,
         UPDATE_APPLICATION_STAGE: (id: string) => `/hiring/applications/${id}/stage`,
+    },
+
+    SCREENING: {
+        STATS: '/screening/stats',
+        SOURCING_REQUESTS: '/screening/sourcing-requests',
+        TASKS: '/screening/tasks',
+        TASKS_GROUPED: '/screening/tasks/grouped-by-job',
     },
 
     // ============================================

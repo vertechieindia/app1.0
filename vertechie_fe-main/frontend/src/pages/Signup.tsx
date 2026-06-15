@@ -30,6 +30,7 @@ import {
   normalizeFaceVerificationPayload,
   buildDocumentVerificationPayload,
 } from '../utils/signupVerificationPayload';
+import screeningService from '../services/screeningService';
 
 type CountryCode = 'US' | 'IN' | 'UK' | 'CA' | 'DE' | 'CH' | 'CN';
 
@@ -52,6 +53,9 @@ const Signup = () => {
     country: null,
   });
   const [errors, setErrors] = useState<SignupErrors>({});
+  const [inviteEmail, setInviteEmail] = useState<string | undefined>();
+  const [screeningInviteToken, setScreeningInviteToken] = useState<string | undefined>();
+  const [companyHmInviteToken, setCompanyHmInviteToken] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
@@ -93,8 +97,28 @@ const Signup = () => {
 
   useEffect(() => {
     const r = searchParams.get('role');
-    if (r === 'techie' || r === 'hiring_manager') {
-      setState((prev) => ({ ...prev, role: r as PublicUserRole }));
+    const screeningInvite = searchParams.get('screening_invite');
+    const companyHmInvite = searchParams.get('company_hm_invite');
+
+    if (screeningInvite) {
+      setScreeningInviteToken(screeningInvite);
+      setState((prev) => ({ ...prev, role: 'techie' }));
+      setStep(1);
+      screeningService.getPublicInvite(screeningInvite)
+        .then((info) => setInviteEmail(info.candidate_email))
+        .catch(() => undefined);
+      return;
+    }
+
+    if (companyHmInvite) {
+      setCompanyHmInviteToken(companyHmInvite);
+      setState((prev) => ({ ...prev, role: 'hiring_manager' }));
+      setStep(1);
+      return;
+    }
+
+    if (r === 'techie' || r === 'hiring_manager' || r === 'hr') {
+      setState((prev) => ({ ...prev, role: (r === 'hr' ? 'hiring_manager' : r) as PublicUserRole }));
       setStep(1);
       setErrors((prev) => ({ ...prev, role: '' }));
     }
@@ -907,9 +931,18 @@ const Signup = () => {
     return (
       <>
         {renderLoadingOverlay()}
+        {screeningInviteToken && (
+          <Alert severity="info" sx={{ mt: 2, maxWidth: 960, mx: 'auto', px: 2 }}>
+            You opened a screening invite link. For document verification, use <strong>Chrome or Edge</strong> and
+            allow camera access. If camera fails, copy this page URL from the address bar and open it in a new browser
+            tab (email preview windows block the camera).
+          </Alert>
+        )}
         <TechieSignupFlow
           location={state.country}
           role={state.role || 'techie'}
+          prefilledEmail={inviteEmail}
+          screeningInviteToken={screeningInviteToken}
           onComplete={handleTechieComplete}
           onCancel={handleTechieCancel}
         />
@@ -925,6 +958,8 @@ const Signup = () => {
         <HRSignupFlow
           location={state.country}
           role={state.role || 'hiring_manager'}
+          prefilledEmail={inviteEmail}
+          companyHmInviteToken={companyHmInviteToken}
           onComplete={handleHRComplete}
           onCancel={handleHRCancel}
         />

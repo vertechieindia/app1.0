@@ -83,6 +83,7 @@ class UserMeResponse(UserResponse):
     has_company: bool = False
     groups: List[dict] = Field(default_factory=list)
     role: Optional[str] = None
+    screening_staff: List[dict] = Field(default_factory=list)
 
 
 class UserProfileUpdate(BaseModel):

@@ -84,6 +84,10 @@ export const MultiRoleAdminDashboard = lazy(() =>
 
 export const CourseManagement = lazy(() => import('../pages/admin/CourseManagement'));
 export const LearnAdmin = lazy(() => import('../pages/admin/LearnAdmin'));
+export const RequirementsAdminDashboard = lazy(() => import('../pages/RequirementsAdminDashboard'));
+export const ScreenerDashboard = lazy(() => import('../pages/ScreenerDashboard'));
+export const TechScreenerDashboard = lazy(() => import('../pages/TechScreenerDashboard'));
+export const HmScreeningProgressPage = lazy(() => import('../pages/HmScreeningProgressPage'));
 
 // ——— HR ———
 export const HRDashboard = lazy(() => import('../pages/hr/HRDashboard'));

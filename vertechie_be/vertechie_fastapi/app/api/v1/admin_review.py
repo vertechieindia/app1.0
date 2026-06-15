@@ -623,6 +623,15 @@ async def review_techie(
     
     await db.commit()
     
+    if review.action == "approve":
+        from app.services.screening_invite_service import handle_techie_verification_review
+        await handle_techie_verification_review(db, user, approved=True)
+        await db.commit()
+    elif review.action == "reject":
+        from app.services.screening_invite_service import handle_techie_verification_review
+        await handle_techie_verification_review(db, user, approved=False)
+        await db.commit()
+    
     # Send email notification
     if review.send_email:
         user_name = user.first_name or user.email.split("@")[0]

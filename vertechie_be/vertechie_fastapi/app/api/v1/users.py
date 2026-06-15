@@ -228,16 +228,20 @@ async def get_me(
     primary_role = user_role_list[0].role_type.value if user_role_list else "techie"
 
     base = UserResponse.model_validate(current_user)
-    row = await db.execute(
-        select(CompanyAdmin.company_id).where(CompanyAdmin.user_id == current_user.id).limit(1)
+    from app.services.company_screening_service import (
+        get_user_staff_roles_summary,
+        resolve_user_company_id,
     )
-    cid = row.scalar_one_or_none()
+
+    cid = await resolve_user_company_id(db, current_user)
+    staff = await get_user_staff_roles_summary(db, current_user.id)
     return UserMeResponse(
         **base.model_dump(),
         company_id=str(cid) if cid else None,
         has_company=bool(cid),
         groups=groups,
         role=primary_role,
+        screening_staff=staff,
     )
 
 
@@ -266,16 +270,20 @@ async def update_me(
     primary_role = user_role_list[0].role_type.value if user_role_list else "techie"
 
     base = UserResponse.model_validate(current_user)
-    row = await db.execute(
-        select(CompanyAdmin.company_id).where(CompanyAdmin.user_id == current_user.id).limit(1)
+    from app.services.company_screening_service import (
+        get_user_staff_roles_summary,
+        resolve_user_company_id,
     )
-    cid = row.scalar_one_or_none()
+
+    cid = await resolve_user_company_id(db, current_user)
+    staff = await get_user_staff_roles_summary(db, current_user.id)
     return UserMeResponse(
         **base.model_dump(),
         company_id=str(cid) if cid else None,
         has_company=bool(cid),
         groups=groups,
         role=primary_role,
+        screening_staff=staff,
     )
 
 

@@ -26,6 +26,9 @@ ROLE_TYPE_SHORT_LABEL: dict[RoleType, str] = {
     RoleType.TECHIE: "Techie",
     RoleType.BDM_ADMIN: "BDM",
     RoleType.LEARN_ADMIN: "Learn Admin",
+    RoleType.REQUIREMENTS_TEAM: "Requirements",
+    RoleType.SCREENER: "Screener",
+    RoleType.TECH_SCREENER: "Tech Screener",
 }
 
 

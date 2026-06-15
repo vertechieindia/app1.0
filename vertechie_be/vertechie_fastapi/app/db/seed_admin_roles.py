@@ -25,6 +25,9 @@ DEFAULT_ADMIN_ROLE_SEEDS: list[tuple[str, RoleType, str]] = [
     ("School Admin", RoleType.SCHOOL_ADMIN, "Manage school / institution registrations"),
     ("BDM Admin", RoleType.BDM_ADMIN, "Manage company invitations and outreach"),
     ("Learn Admin", RoleType.LEARN_ADMIN, "Courses, tutorials, and learning content"),
+    ("Requirements Admin", RoleType.REQUIREMENTS_TEAM, "Source candidates and manage screening requests"),
+    ("Screener Admin", RoleType.SCREENER, "Screen candidate profiles for hiring roles"),
+    ("Tech Screener Admin", RoleType.TECH_SCREENER, "Enterprise verification screening for invited profiles"),
 ]
 
 
