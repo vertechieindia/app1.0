@@ -7,6 +7,8 @@ import { PublicUserRole } from '../../../types/auth';
 interface HRSignupFlowProps {
   location: SignupLocation;
   role?: PublicUserRole;
+  prefilledEmail?: string;
+  companyHmInviteToken?: string;
   onComplete: (data: any) => void | Promise<void>;
   onCancel?: () => void;
 }
@@ -14,6 +16,8 @@ interface HRSignupFlowProps {
 const HRSignupFlow: React.FC<HRSignupFlowProps> = ({
   location,
   role = 'hiring_manager',
+  prefilledEmail,
+  companyHmInviteToken,
   onComplete,
   onCancel,
 }) => {
@@ -43,8 +47,8 @@ const HRSignupFlow: React.FC<HRSignupFlowProps> = ({
     profileName: '',
     dateOfBirth: '',
     visaStatus: '',
-    email: '',
-    confirmEmail: '',
+    email: prefilledEmail || '',
+    confirmEmail: prefilledEmail || '',
     phone: '',
     confirmPhone: '',
     fullAddress: '',
@@ -101,7 +105,7 @@ const HRSignupFlow: React.FC<HRSignupFlowProps> = ({
   return (
     <SignupFlowContainer
       config={config}
-      formData={formData}
+      formData={{ ...formData, company_hm_invite: companyHmInviteToken }}
       updateFormData={updateFormData}
       onComplete={onComplete}
       onCancel={onCancel}

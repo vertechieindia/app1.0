@@ -7,6 +7,8 @@ import { PublicUserRole } from '../../../types/auth';
 interface TechieSignupFlowProps {
   location: SignupLocation;
   role?: PublicUserRole;
+  prefilledEmail?: string;
+  screeningInviteToken?: string;
   onComplete: (data: any) => void | Promise<void>;
   onCancel?: () => void;
 }
@@ -14,6 +16,8 @@ interface TechieSignupFlowProps {
 const TechieSignupFlow: React.FC<TechieSignupFlowProps> = ({
   location,
   role = 'techie',
+  prefilledEmail,
+  screeningInviteToken,
   onComplete,
   onCancel,
 }) => {
@@ -43,8 +47,8 @@ const TechieSignupFlow: React.FC<TechieSignupFlowProps> = ({
     profileName: '',
     dateOfBirth: '',
     visaStatus: '',
-    email: '',
-    confirmEmail: '',
+    email: prefilledEmail || '',
+    confirmEmail: prefilledEmail || '',
     phone: '',
     confirmPhone: '',
     fullAddress: '',
@@ -96,7 +100,7 @@ const TechieSignupFlow: React.FC<TechieSignupFlowProps> = ({
   return (
     <SignupFlowContainer
       config={config}
-      formData={formData}
+      formData={{ ...formData, screening_invite: screeningInviteToken }}
       updateFormData={updateFormData}
       onComplete={onComplete}
       onCancel={onCancel}

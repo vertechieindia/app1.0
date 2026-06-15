@@ -642,6 +642,9 @@ const ADMIN_CODE_TO_ROLE_TYPE: Record<string, string> = {
   techie_admin: 'techie',
   bdm_admin: 'bdm_admin',
   learn_admin: 'learn_admin',
+  requirements_admin: 'requirements_team',
+  screener_admin: 'screener',
+  tech_screener_admin: 'tech_screener',
 };
 
 /** Matches backend RoleType enum (POST /groups/ role_type) — required when creating a role */
@@ -653,6 +656,9 @@ const PLATFORM_ROLE_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'techie', label: 'Techie Admin' },
   { value: 'bdm_admin', label: 'BDM Admin' },
   { value: 'learn_admin', label: 'Learn Admin' },
+  { value: 'requirements_team', label: 'Requirements Admin' },
+  { value: 'screener', label: 'Screener Admin' },
+  { value: 'tech_screener', label: 'Tech Screener (Enterprise)' },
 ];
 
 /**
@@ -841,6 +847,9 @@ const SuperAdmin: React.FC = () => {
       'techie',
       'bdm_admin',
       'learn_admin',
+      'requirements_team',
+      'screener',
+      'tech_screener',
     ]);
     return roles.filter(
       (r) => r.role_type && allowed.has(String(r.role_type).toLowerCase())

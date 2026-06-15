@@ -29,6 +29,9 @@ class RoleType(str, enum.Enum):
     BGC_ADMIN = "bgc_admin"
     BDM_ADMIN = "bdm_admin"
     LEARN_ADMIN = "learn_admin"
+    REQUIREMENTS_TEAM = "requirements_team"
+    SCREENER = "screener"
+    TECH_SCREENER = "tech_screener"
 
 
 class AdminRole(str, enum.Enum):
@@ -40,6 +43,9 @@ class AdminRole(str, enum.Enum):
     TECHIE_ADMIN = "techie_admin"
     SCHOOL_ADMIN = "school_admin"
     BDM_ADMIN = "bdm_admin"
+    REQUIREMENTS_ADMIN = "requirements_admin"
+    SCREENER_ADMIN = "screener_admin"
+    TECH_SCREENER_ADMIN = "tech_screener_admin"
 
 
 class VerificationStatus(str, enum.Enum):

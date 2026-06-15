@@ -132,6 +132,7 @@ async def get_current_user(
     """Get current authenticated user from token."""
     from app.db.session import get_db
     from app.models.user import User
+    from sqlalchemy.orm import selectinload
     
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -144,7 +145,7 @@ async def get_current_user(
         raise credentials_exception
     
     result = await db.execute(
-        select(User).where(User.id == UUID(user_id))
+        select(User).options(selectinload(User.roles)).where(User.id == UUID(user_id))
     )
     user = result.scalar_one_or_none()
     

@@ -14,6 +14,45 @@ interface UseDocumentCaptureProps {
   beforeStartCamera?: () => Promise<boolean>;
 }
 
+const COUNTRY_FOR_EXTRACTION: Record<string, string> = {
+  US: 'US',
+  IN: 'India',
+  UK: 'UK',
+  CA: 'Canada',
+  DE: 'Germany',
+  CH: 'Switzerland',
+  CN: 'China',
+};
+
+/** Permissions-Policy / iframe blocks getUserMedia before the user can grant access. */
+function getCameraPolicyBlockReason(): string | null {
+  try {
+    if (typeof window !== 'undefined' && window.self !== window.top) {
+      return 'Camera cannot run inside an email preview or embedded window. Copy the invite link from your email and paste it into Chrome or Edge (address bar), then try again.';
+    }
+    const policy = document.permissionsPolicy;
+    if (policy && typeof policy.allowsFeature === 'function' && !policy.allowsFeature('camera')) {
+      return 'Camera is blocked by site security policy (Permissions-Policy). Open this page in a full browser tab at vertechie.com — not inside an email app preview. If you already did that, ask your admin to redeploy the frontend with camera headers enabled.';
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function isScreeningInviteSignup(): boolean {
+  try {
+    return typeof window !== 'undefined' && window.location.search.includes('screening_invite=');
+  } catch {
+    return false;
+  }
+}
+
+function resolveCountryForExtraction(country?: string): string {
+  if (!country) return 'India';
+  return COUNTRY_FOR_EXTRACTION[country] ?? country;
+}
+
 export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtracted, country, beforeStartCamera }: UseDocumentCaptureProps) => {
   const [showCamera, setShowCamera] = useState(false);
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
@@ -250,6 +289,12 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
         }
       }
 
+      const policyBlock = getCameraPolicyBlockReason();
+      if (policyBlock) {
+        setErrors({ camera: policyBlock });
+        return;
+      }
+
       // Stop any existing stream
       if (videoStream) {
         videoStream.getTracks().forEach(track => track.stop());
@@ -386,10 +431,15 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
       console.log('✅ Camera dialog should now be visible');
     } catch (error: any) {
       console.error('Camera access error:', error);
+      const policyBlock = getCameraPolicyBlockReason();
       let errorMessage = 'Unable to access camera. Please ensure camera permissions are granted.';
 
-      if (error.name === 'NotAllowedError') {
-        errorMessage = 'Camera access denied. Please allow camera permissions and try again.';
+      if (policyBlock) {
+        errorMessage = policyBlock;
+      } else if (error.name === 'NotAllowedError') {
+        errorMessage = isScreeningInviteSignup()
+          ? 'Camera access denied. Allow camera for vertechie.com in your browser (lock icon → Site settings), or copy the invite link and open it directly in Chrome/Edge — not inside your email app.'
+          : 'Camera access denied. Please allow camera permissions and try again.';
       } else if (error.name === 'NotFoundError') {
         errorMessage = 'No camera found. Please check your device has a camera.';
       } else if (error.name === 'NotReadableError') {
@@ -1213,8 +1263,8 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
         ? base64Image 
         : `data:image/jpeg;base64,${base64Image}`;
 
-      // Use country prop, default to 'India' if not set
-      const countryForExtraction = country === 'US' ? 'US' : (country === 'IN' ? 'India' : 'India');
+      // Use country prop for backend OCR heuristics
+      const countryForExtraction = resolveCountryForExtraction(country);
 
       // Prepare request payload
       const requestPayload = {
@@ -1331,6 +1381,24 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
 
           // Keep camera dialog open.
           // UI flow now requires user to review extracted details and click Confirm & Close manually.
+        } else if (firstName || lastName || dateOfBirth || address) {
+          const missingFields = [];
+          if (!firstName) missingFields.push('First Name');
+          if (!lastName) missingFields.push('Last Name');
+          if (!dateOfBirth) missingFields.push('Date of Birth');
+
+          console.warn('⚠️ [Government ID] Partial extraction:', { firstName, lastName, dateOfBirth, missingFields });
+          Logger.warn('Government ID partial extraction', { missingFields, country }, 'GovIdExtraction');
+
+          if (onDataExtracted) {
+            onDataExtracted({ firstName, lastName, dateOfBirth, address });
+          }
+
+          setProcessing(false);
+          setErrors({
+            capture: `Partial extraction — could not read: ${missingFields.join(', ')}. Review the values shown, improve lighting/focus, or recapture.`,
+          });
+          setCaptured(true);
         } else {
           // Missing required fields - show try again message
           const missingFields = [];
@@ -1447,7 +1515,7 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          country: country === 'US' ? 'US' : 'India',
+          country: resolveCountryForExtraction(country),
           images: [imageWithPrefix] // Send with data:image/jpeg;base64, prefix
         }),
       });
@@ -1601,7 +1669,7 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          country: country === 'US' ? 'US' : 'India',
+          country: resolveCountryForExtraction(country),
           images: [imageWithPrefix] // Send with data:image/jpeg;base64, prefix
         }),
       });
@@ -1797,27 +1865,31 @@ export const useDocumentCapture = ({ cameraType, onCaptureComplete, onDataExtrac
       // For documents, send original high-quality image WITHOUT enhancement
       // Enhancement can reduce quality - send original for maximum clarity
       if (cameraType === 'govId' || cameraType === 'ssn' || cameraType === 'pan') {
-        // Only validate quality in background (don't block) - but don't modify the image
-        validateImageQuality(
-          imageData,
-          cameraType === 'pan' || cameraType === 'ssn' ? 'id' : 'document'
-        ).then((qualityResult) => {
+        const docQualityType = cameraType === 'pan' || cameraType === 'ssn' ? 'id' : 'document';
+        let qualityResult: ImageQualityResult | null = null;
+        try {
+          qualityResult = await validateImageQuality(imageData, docQualityType);
           console.log('📊 Image quality validation:', qualityResult);
-          
+
           if (qualityResult.warnings.length > 0) {
             console.warn('⚠️ Image quality warnings:', qualityResult.warnings);
           }
-          
-          if (!qualityResult.isValid && qualityResult.errors.length > 0) {
-            console.warn('❌ Image quality issues detected:', qualityResult.errors);
-          }
-        }).catch((validationError) => {
+        } catch (validationError) {
           console.warn('Image quality validation error:', validationError);
-        });
-        
-        // SKIP enhancement - send original image for maximum clarity
-        // Enhancement can sometimes reduce quality or introduce artifacts
-        console.log('✅ Using original high-quality image (no enhancement) for maximum clarity');
+        }
+
+        const needsEnhancement =
+          !qualityResult?.isValid || (qualityResult?.blurScore ?? 1) < 0.35;
+        if (needsEnhancement) {
+          try {
+            imageData = await enhanceImageForOCR(imageData);
+            console.log('✅ Applied OCR contrast enhancement (low clarity / blur detected)');
+          } catch (enhanceError) {
+            console.warn('OCR enhancement failed, using original capture:', enhanceError);
+          }
+        } else {
+          console.log('✅ Image quality acceptable — sending original capture');
+        }
         
         // Check file size - only compress if absolutely necessary (very large files)
         const base64Data = imageData.split(',')[1] || imageData;

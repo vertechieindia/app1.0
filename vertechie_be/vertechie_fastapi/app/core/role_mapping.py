@@ -18,6 +18,9 @@ ASSIGNABLE_ADMIN_ROLE_TYPES: Set[RoleType] = {
     RoleType.TECHIE,
     RoleType.BDM_ADMIN,
     RoleType.LEARN_ADMIN,
+    RoleType.REQUIREMENTS_TEAM,
+    RoleType.SCREENER,
+    RoleType.TECH_SCREENER,
 }
 
 
@@ -31,6 +34,9 @@ def role_type_to_admin_role_code(role_type: RoleType) -> str:
         RoleType.TECHIE: "techie_admin",
         RoleType.BDM_ADMIN: "bdm_admin",
         RoleType.LEARN_ADMIN: "learn_admin",
+        RoleType.REQUIREMENTS_TEAM: "requirements_admin",
+        RoleType.SCREENER: "screener_admin",
+        RoleType.TECH_SCREENER: "tech_screener_admin",
     }
     if role_type not in mapping:
         raise ValueError(f"Unsupported RoleType for admin mapping: {role_type}")
@@ -54,6 +60,9 @@ def admin_role_code_to_role_type(code: str) -> Optional[RoleType]:
         "techie_admin": RoleType.TECHIE,
         "bdm_admin": RoleType.BDM_ADMIN,
         "learn_admin": RoleType.LEARN_ADMIN,
+        "requirements_admin": RoleType.REQUIREMENTS_TEAM,
+        "screener_admin": RoleType.SCREENER,
+        "tech_screener_admin": RoleType.TECH_SCREENER,
     }
     return mapping.get(key)
 
@@ -113,5 +122,25 @@ def default_permissions_for_role_type(role_type: RoleType) -> List[str]:
         return [
             "manage_learning_content",
             "view_reports",
+        ]
+    if role_type == RoleType.REQUIREMENTS_TEAM:
+        return base + [
+            "view_sourcing_requests",
+            "manage_sourcing_requests",
+            "view_screening_tasks",
+            "view_jobs",
+        ]
+    if role_type == RoleType.SCREENER:
+        return [
+            "view_screening_tasks",
+            "claim_screening_tasks",
+            "complete_screening_tasks",
+            "view_sourcing_requests",
+        ]
+    if role_type == RoleType.TECH_SCREENER:
+        return [
+            "view_screening_tasks",
+            "claim_screening_tasks",
+            "complete_screening_tasks",
         ]
     return base

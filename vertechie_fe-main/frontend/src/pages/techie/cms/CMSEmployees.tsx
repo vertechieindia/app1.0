@@ -45,6 +45,8 @@ import { fetchMyCompanyForCMS } from './cmsCompanyFetch';
 import { api } from '../../../services/apiClient';
 import { API_ENDPOINTS } from '../../../config/api';
 import { DUMMY_EMPLOYEES } from './CMSDummyData';
+import CompanyHmInviteDialog from '../../../components/screening/CompanyHmInviteDialog';
+import CompanyScreeningStaffPanel from '../../../components/screening/CompanyScreeningStaffPanel';
 
 const colors = {
   primary: '#0d47a1',
@@ -55,6 +57,7 @@ const colors = {
 const CMSEmployees: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [openDialog, setOpenDialog] = useState(false);
+  const [hmInviteOpen, setHmInviteOpen] = useState(false);
   const [tabIndex, setTabIndex] = useState(0);
   const [members, setMembers] = useState<any[]>([]);
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
@@ -145,14 +148,23 @@ const CMSEmployees: React.FC = () => {
             <Typography variant="h6" fontWeight={600}>Employee & Team Management</Typography>
             <Typography variant="body2" color="text.secondary">Manage your team members and verify employee work history.</Typography>
           </Box>
-          <Button
-            variant="contained"
-            startIcon={<PersonAddIcon />}
-            sx={{ bgcolor: colors.primary, borderRadius: 2 }}
-            onClick={() => setOpenDialog(true)}
-          >
-            Add Team Member
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              onClick={() => setHmInviteOpen(true)}
+              disabled={!companyId}
+            >
+              Invite Hiring Managers
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<PersonAddIcon />}
+              sx={{ bgcolor: colors.primary, borderRadius: 2 }}
+              onClick={() => setOpenDialog(true)}
+            >
+              Add Team Member
+            </Button>
+          </Box>
         </Box>
 
         <Tabs
@@ -327,6 +339,18 @@ const CMSEmployees: React.FC = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {companyId && (
+          <CompanyHmInviteDialog
+            open={hmInviteOpen}
+            onClose={() => setHmInviteOpen(false)}
+            companyId={companyId}
+          />
+        )}
+
+        {companyId && (
+          <CompanyScreeningStaffPanel companyId={companyId} />
+        )}
       </Box>
     </CMSLayout>
   );

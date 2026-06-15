@@ -23,6 +23,7 @@ export interface UserDataForRedirect {
   /** True when user is linked to a provisioned company (CompanyAdmin / BDM-approved). */
   has_company?: boolean;
   company_id?: string | null;
+  screening_staff?: Array<{ company_id: string; company_name: string; staff_role: string }>;
 }
 
 function hasCompanyLink(user: UserDataForRedirect): boolean {
@@ -88,6 +89,25 @@ export function getRedirectPathForUser(user: UserDataForRedirect): string | null
   }
   if (adminRoles.includes('learnadmin') || adminRoles.includes('learn_admin')) {
     return '/vertechie/learnadmin';
+  }
+  if (adminRoles.includes('requirements_admin')) {
+    return '/vertechie/requirementsadmin';
+  }
+  if (adminRoles.includes('screener_admin')) {
+    return '/vertechie/screeneradmin';
+  }
+  if (adminRoles.includes('tech_screener_admin')) {
+    return '/vertechie/techscreeneradmin';
+  }
+  const staff = user.screening_staff || [];
+  if (staff.some((s) => s.staff_role === 'recruiter')) {
+    return '/vertechie/requirementsadmin';
+  }
+  if (staff.some((s) => s.staff_role === 'screener')) {
+    return '/vertechie/screeneradmin';
+  }
+  if (staff.some((s) => s.staff_role === 'tech_screener')) {
+    return '/vertechie/techscreeneradmin';
   }
   if (user.is_staff) {
     return '/admin';

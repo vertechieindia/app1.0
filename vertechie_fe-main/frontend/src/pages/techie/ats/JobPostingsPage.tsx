@@ -56,6 +56,9 @@ import {
 import { fetchWithAuth } from '../../../utils/apiInterceptor';
 import { fetchJobTitleSuggestions } from '../../../utils/jobTitleSuggestions';
 import { fetchSkillSuggestions, SUGGESTED_SKILL_CHIPS } from '../../../utils/skillSuggestions';
+import ScreeningRequestDialog from '../../../components/screening/ScreeningRequestDialog';
+import SourceTalentDialog from '../../../components/screening/SourceTalentDialog';
+import ScreenTechiesDialog from '../../../components/screening/ScreenTechiesDialog';
 
 const JobCard = styled(Card)(({ theme }) => ({
   height: '100%',
@@ -1084,6 +1087,10 @@ const outlinedSelectLabelSx = {
 
   // Applicants Dialog
   const [applicantsDialogOpen, setApplicantsDialogOpen] = useState(false);
+  const [screeningRequestOpen, setScreeningRequestOpen] = useState(false);
+  const [sourceTalentOpen, setSourceTalentOpen] = useState(false);
+  const [screenTechiesOpen, setScreenTechiesOpen] = useState(false);
+  const [hmCompanyId, setHmCompanyId] = useState<string | undefined>();
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [applicantTab, setApplicantTab] = useState(0);
   // Schedule Interview (unified modal from View Applicants)
@@ -1092,6 +1099,21 @@ const outlinedSelectLabelSx = {
   const [scheduledInterviewApplicationIds, setScheduledInterviewApplicationIds] = useState<Set<string>>(new Set());
   const [hrCalendarLink, setHrCalendarLink] = useState<string | null>(null);
   const [activeApplicantMenu, setActiveApplicantMenu] = useState<DisplayApplicant | null>(null);
+
+  useEffect(() => {
+    const loadCompany = async () => {
+      try {
+        const res = await fetchWithAuth(getApiUrl('/users/me'));
+        if (res.ok) {
+          const me = await res.json();
+          if (me.company_id) setHmCompanyId(String(me.company_id));
+        }
+      } catch {
+        // optional — backend auto-resolves company when omitted
+      }
+    };
+    loadCompany();
+  }, []);
 
   useEffect(() => {
     if (!editingJob || editSalaryCurrencyTouched) return;
@@ -1883,6 +1905,12 @@ const outlinedSelectLabelSx = {
           />
         </Box>
         <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button variant="outlined" onClick={() => setSourceTalentOpen(true)}>
+            Get Help to Source
+          </Button>
+          <Button variant="outlined" onClick={() => setScreenTechiesOpen(true)}>
+            Screen the Techies
+          </Button>
           <Button 
             variant="outlined" 
             startIcon={<FilterListIcon />}
@@ -3995,9 +4023,18 @@ const outlinedSelectLabelSx = {
               {applicants.length} total applicants • Sorted by profile match score
             </Typography>
           </Box>
-          <IconButton onClick={() => setApplicantsDialogOpen(false)}>
-            <CloseIcon />
-          </IconButton>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => setScreeningRequestOpen(true)}
+            >
+              Request Screening
+            </Button>
+            <IconButton onClick={() => setApplicantsDialogOpen(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
           <Tabs 
@@ -4286,6 +4323,35 @@ const outlinedSelectLabelSx = {
           <Button onClick={() => setApplicantsDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      <ScreeningRequestDialog
+        open={screeningRequestOpen}
+        onClose={() => setScreeningRequestOpen(false)}
+        jobId={selectedJob?.id}
+        jobTitle={selectedJob?.title}
+        jobDescription={selectedJob?.description}
+        onSuccess={() => setSnackbar({ open: true, message: 'Screening request submitted', severity: 'success' })}
+      />
+
+      <SourceTalentDialog
+        open={sourceTalentOpen}
+        onClose={() => setSourceTalentOpen(false)}
+        companyId={hmCompanyId}
+        onSuccess={() => setSnackbar({ open: true, message: 'Source request sent to your company recruiter', severity: 'success' })}
+      />
+
+      <ScreenTechiesDialog
+        open={screenTechiesOpen}
+        onClose={() => setScreenTechiesOpen(false)}
+        companyId={hmCompanyId}
+        defaultTitle={selectedJob?.title}
+        defaultJd={selectedJob?.description}
+        onSuccess={({ emails_sent }) => setSnackbar({
+          open: true,
+          message: `${emails_sent} invite email(s) sent. Track progress under Screening Progress.`,
+          severity: 'success',
+        })}
+      />
 
       <ScheduleInterviewModal
         open={scheduleModalOpen}

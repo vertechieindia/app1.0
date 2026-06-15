@@ -467,6 +467,13 @@ const SignupFlowContainer: React.FC<SignupFlowContainerProps> = ({
           registerPayload.work_authorization = formData.visaStatus;
         }
 
+        if (formData.screening_invite) {
+          registerPayload.screening_invite = formData.screening_invite;
+        }
+        if (formData.company_hm_invite) {
+          registerPayload.company_hm_invite = formData.company_hm_invite;
+        }
+
         console.log('Registering user with payload:', registerPayload);
         console.log('User role:', formData.role, 'Is Company Signup:', formData.role === 'company', 'Is School Signup:', formData.role === 'school');
 

@@ -73,6 +73,11 @@ PERMISSION_DEFINITIONS: List[PermissionDef] = [
         "manage_learning_content",
         "Courses, tutorials, sections, lessons, and learning CMS",
     ),
+    PermissionDef("24", "View sourcing requests", "view_sourcing_requests", "View HM sourcing and screening requests"),
+    PermissionDef("25", "Manage sourcing requests", "manage_sourcing_requests", "Create and manage sourcing requests"),
+    PermissionDef("26", "View screening tasks", "view_screening_tasks", "View candidate screening task queue"),
+    PermissionDef("27", "Claim screening tasks", "claim_screening_tasks", "Claim and work screening tasks"),
+    PermissionDef("28", "Complete screening tasks", "complete_screening_tasks", "Mark screening tasks selected or rejected"),
 ]
 
 

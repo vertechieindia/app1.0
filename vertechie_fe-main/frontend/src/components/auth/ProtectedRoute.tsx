@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 
-type UserRole = 'superadmin' | 'admin' | 'user' | 'hr' | 'techie';
+type UserRole = 'superadmin' | 'admin' | 'screening' | 'user' | 'hr' | 'techie';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -20,6 +20,7 @@ interface UserData {
   groups?: Array<{ id: number; name: string }>;
   user_type?: string;
   admin_roles?: string[];
+  screening_staff?: Array<{ company_id: string; company_name: string; staff_role: string }>;
   roles?: Array<{ id: number; name: string; role_type?: string }>;
 }
 
@@ -90,6 +91,20 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole 
         
         if (!userData.is_staff && !userData.is_superuser && !hasAdminRole && !hasAdminGroup) {
           return <Navigate to="/" replace />;
+        }
+        break;
+
+      case 'screening':
+        // Platform screening admins or per-company screening staff
+        {
+          const staff = userData.screening_staff || [];
+          const roles = userData.admin_roles || [];
+          const platformScreening = roles.some((r) =>
+            ['requirements_admin', 'screener_admin', 'tech_screener_admin'].includes(r)
+          );
+          if (!userData.is_superuser && !platformScreening && staff.length === 0) {
+            return <Navigate to="/" replace />;
+          }
         }
         break;
       

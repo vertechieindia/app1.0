@@ -7,6 +7,7 @@ import random
 import string
 import base64
 import re
+import asyncio
 import httpx
 import smtplib
 from email.mime.text import MIMEText
@@ -262,12 +263,11 @@ def is_english_text(text: str) -> bool:
 async def extract_with_azure_document_intelligence(image_bytes: bytes, country: str) -> Dict[str, Any]:
     """
     Extract text and fields from document using Azure Document Intelligence.
-    Uses the prebuilt-idDocument model for ID cards.
+    Uses prebuilt-idDocument first; falls back to prebuilt-read for Aadhaar / unclear captures.
     """
     endpoint = (settings.AZURE_DOC_ENDPOINT or "").strip().strip("\"'").rstrip("/")
     api_key = (settings.AZURE_DOC_KEY or "").strip().strip("\"'")
     
-    # Validate Azure configuration
     if not endpoint or not endpoint.startswith(('http://', 'https://')):
         logger.error("[Azure OCR] AZURE_DOC_ENDPOINT is not configured or missing protocol")
         return {"error": "Azure Document Intelligence is not configured. Please set AZURE_DOC_ENDPOINT in .env file"}
@@ -276,60 +276,28 @@ async def extract_with_azure_document_intelligence(image_bytes: bytes, country: 
         logger.error("[Azure OCR] AZURE_DOC_KEY is not configured")
         return {"error": "Azure Document Intelligence API key is not configured. Please set AZURE_DOC_KEY in .env file"}
     
-    headers = {
-        "Ocp-Apim-Subscription-Key": api_key,
-        "Content-Type": "application/octet-stream"
-    }
-    analyze_paths = [
-        f"{endpoint}/documentintelligence/documentModels/prebuilt-idDocument:analyze?api-version=2024-11-30",
-        f"{endpoint}/formrecognizer/documentModels/prebuilt-idDocument:analyze?api-version=2023-07-31",
-    ]
-    
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = None
-        error_details = []
-        for analyze_url in analyze_paths:
-            response = await client.post(analyze_url, headers=headers, content=image_bytes)
-            if response.status_code == 202:
-                logger.info("[Azure OCR] Analysis accepted via %s", analyze_url)
-                break
+        id_result = await _submit_azure_analyze(
+            client, endpoint, api_key, image_bytes, "prebuilt-idDocument"
+        )
+        if not id_result:
+            return {"error": "Azure API error. Could not analyze document."}
 
-            error_text = response.text.strip()
-            error_details.append(f"{response.status_code}: {error_text}")
-            logger.warning("[Azure OCR] Analyze request failed via %s | %s | %s", analyze_url, response.status_code, error_text)
+        extracted = parse_azure_id_result(id_result, country)
 
-            # 404 often means the route/service path is unsupported for this resource.
-            if response.status_code not in {404, 400}:
-                break
+        if _extraction_is_empty(extracted):
+            logger.info("[Azure OCR] idDocument returned empty fields — trying prebuilt-read")
+            read_result = await _submit_azure_analyze(
+                client, endpoint, api_key, image_bytes, "prebuilt-read"
+            )
+            if read_result:
+                content = _collect_ocr_content(read_result.get("analyzeResult", {}))
+                preview = content[:400] if content else "EMPTY"
+                logger.info("[Azure OCR] prebuilt-read content preview: %s", preview)
+                text_fields = parse_text_content_fields(content, country)
+                extracted = _merge_extracted_fields(extracted, text_fields)
 
-        if response is None or response.status_code != 202:
-            joined_errors = " | ".join(error_details) if error_details else "Unknown Azure error"
-            return {"error": f"Azure API error. {joined_errors}"}
-        
-        # Get operation location for polling
-        operation_location = response.headers.get("Operation-Location")
-        if not operation_location:
-            logger.error("[Azure OCR] Operation-Location header missing")
-            return {"error": "No operation location returned"}
-        
-        # Poll for results
-        poll_headers = {"Ocp-Apim-Subscription-Key": api_key}
-        
-        for _ in range(30):  # Max 30 attempts (30 seconds)
-            await asyncio.sleep(1)
-            
-            poll_response = await client.get(operation_location, headers=poll_headers)
-            result = poll_response.json()
-            
-            status = result.get("status")
-            if status == "succeeded":
-                return parse_azure_id_result(result, country)
-            elif status == "failed":
-                logger.error("[Azure OCR] Document analysis failed: %s", result)
-                return {"error": "Document analysis failed"}
-        
-        logger.error("[Azure OCR] Analysis timed out after polling")
-        return {"error": "Analysis timed out"}
+        return extracted
 
 
 def normalize_text(text: str) -> str:
@@ -380,6 +348,17 @@ def find_name_in_text(text: str) -> tuple:
         raw = clean_name(m.group(1))
         return split_name_parts(raw)
     
+    # Pattern 1b: Name on line above DOB (common on Aadhaar)
+    m = re.search(
+        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\s*[\n\r]+\s*(?:dob[:\s]*)?(\d{2}[/-]\d{2}[/-]\d{4})",
+        text,
+        re.IGNORECASE,
+    )
+    if m:
+        raw = clean_name(m.group(1))
+        if raw:
+            return split_name_parts(raw)
+    
     # Pattern 2: Name followed by DOB pattern
     m = re.search(r"name\s+\d{2}[\/\-]\d{2}[\/\-]\d{4}\s+\d*\s*([a-z .'-]{2,80})\s+(s\/d\/w|son|d\/o|s\/o|of)\b", t)
     if m:
@@ -396,9 +375,11 @@ def find_name_in_text(text: str) -> tuple:
     # Find text before common markers like DOB, address, date of birth
     m = re.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\s*(?:dob|date\s*of\s*birth|address|\d{2}[/-]\d{2}[/-]\d{4})", text, re.IGNORECASE)
     if m:
-        raw = clean_name(m.group(1))
-        if len(raw) > 2:
-            return split_name_parts(raw)
+        candidate = m.group(1)
+        if "government" not in candidate.lower() and "uidai" not in candidate.lower():
+            raw = clean_name(candidate)
+            if len(raw) > 2:
+                return split_name_parts(raw)
     
     # Pattern 5: Passport style - "surname <surname> given names <given>"
     m = re.search(r"surname\s+[a-z\s0-9.'-]{0,20}?([a-z]+)\s+(?:\/?\s*)?given\s+names?\s+([a-z .'-]+)", t)
@@ -482,6 +463,195 @@ def find_address_in_text(text: str) -> str:
     return filter_english_only(addr) if addr else ""
 
 
+def _collect_ocr_content(analyze_result: Dict[str, Any]) -> str:
+    """Collect full OCR text from Azure analyzeResult (content + page lines)."""
+    content = (analyze_result.get("content") or "").strip()
+    if content:
+        return content
+    parts: List[str] = []
+    for page in analyze_result.get("pages", []) or []:
+        for line in page.get("lines", []) or []:
+            text = (line.get("content") or "").strip()
+            if text:
+                parts.append(text)
+    return "\n".join(parts)
+
+
+_AADHAAR_SKIP_KEYWORDS = (
+    "government", "india", "aadhaar", "aadhar", "uidai", "address", "dob",
+    "male", "female", "help", "helpline", "unique", "identification",
+    "authority", "enrolment", "enrollment", "year of birth",
+)
+
+
+def is_probable_name_line(line: str) -> bool:
+    """True when a line looks like a person's name on an Indian ID card."""
+    if not line or len(line) < 3:
+        return False
+    lower = line.lower()
+    if any(k in lower for k in _AADHAAR_SKIP_KEYWORDS):
+        return False
+    if re.search(r"\d", line):
+        return False
+    words = [w for w in re.findall(r"[A-Za-z]+", line) if len(w) > 1]
+    return 1 <= len(words) <= 4
+
+
+def extract_aadhaar_from_lines(lines: List[str]) -> Dict[str, str]:
+    """Line-order heuristics for Aadhaar / Indian ID cards."""
+    extracted: Dict[str, str] = {}
+    cleaned = [ln.strip() for ln in lines if ln and ln.strip()]
+
+    for i, line in enumerate(cleaned):
+        aadhaar_match = re.search(r"(\d{4}\s+\d{4}\s+\d{4}|\d{12})", line.replace("-", " "))
+        if aadhaar_match and "aadhaar_number" not in extracted:
+            num = re.sub(r"\s+", "", aadhaar_match.group(1))
+            if len(num) == 12:
+                extracted["aadhaar_number"] = num
+
+        dob_match = re.search(r"(\d{2}[/-]\d{2}[/-]\d{4})", line)
+        if dob_match and not extracted.get("dob"):
+            extracted["dob"] = parse_date(dob_match.group(1))
+            for j in range(i - 1, max(-1, i - 4), -1):
+                cand = cleaned[j]
+                if is_probable_name_line(cand):
+                    first, middle, last = split_name_parts(clean_name(cand.lower()))
+                    if first:
+                        extracted["first_name"] = first
+                        if middle:
+                            extracted["middle_name"] = middle
+                        extracted["last_name"] = last or first
+                    break
+
+    if not extracted.get("first_name"):
+        for i, line in enumerate(cleaned):
+            if not is_probable_name_line(line):
+                continue
+            for j in range(i + 1, min(len(cleaned), i + 4)):
+                next_line = cleaned[j]
+                dob_match = re.search(r"(\d{2}[/-]\d{2}[/-]\d{4})", next_line)
+                if dob_match or re.search(r"\b(male|female)\b", next_line, re.I):
+                    first, middle, last = split_name_parts(clean_name(line.lower()))
+                    if first:
+                        extracted["first_name"] = first
+                        if middle:
+                            extracted["middle_name"] = middle
+                        extracted["last_name"] = last or first
+                    if dob_match and not extracted.get("dob"):
+                        extracted["dob"] = parse_date(dob_match.group(1))
+                    break
+            if extracted.get("first_name"):
+                break
+
+    return extracted
+
+
+def parse_text_content_fields(content: str, country: str) -> Dict[str, Any]:
+    """Parse raw OCR text into identity fields using country-aware heuristics."""
+    extracted: Dict[str, Any] = {
+        "first_name": "",
+        "middle_name": "",
+        "last_name": "",
+        "dob": "",
+        "address": "",
+    }
+    if not content:
+        return extracted
+
+    country_upper = country.upper()
+    if country_upper in ("IN", "INDIA"):
+        aadhaar_fields = extract_aadhaar_from_lines(content.split("\n"))
+        for key, value in aadhaar_fields.items():
+            if value:
+                extracted[key] = value
+
+    if not extracted.get("first_name") or not extracted.get("last_name"):
+        first, middle, last = find_name_in_text(content)
+        if first and not extracted["first_name"]:
+            extracted["first_name"] = first.title()
+        if middle and not extracted["middle_name"]:
+            extracted["middle_name"] = middle.title()
+        if last and not extracted["last_name"]:
+            extracted["last_name"] = last.title()
+
+    if not extracted["dob"]:
+        extracted["dob"] = find_dob_in_text(content)
+    if not extracted["address"]:
+        extracted["address"] = find_address_in_text(content)
+
+    return extracted
+
+
+def _merge_extracted_fields(base: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(base)
+    for key, value in extra.items():
+        if value and not merged.get(key):
+            merged[key] = value
+    return merged
+
+
+def _extraction_is_empty(extracted: Dict[str, Any]) -> bool:
+    return not any(extracted.get(k) for k in ("first_name", "last_name", "dob"))
+
+
+async def _poll_azure_operation(
+    client: httpx.AsyncClient, operation_location: str, api_key: str
+) -> Optional[Dict[str, Any]]:
+    poll_headers = {"Ocp-Apim-Subscription-Key": api_key}
+    for _ in range(30):
+        await asyncio.sleep(1)
+        poll_response = await client.get(operation_location, headers=poll_headers)
+        result = poll_response.json()
+        status = result.get("status")
+        if status == "succeeded":
+            return result
+        if status == "failed":
+            logger.error("[Azure OCR] Document analysis failed: %s", result)
+            return None
+    logger.error("[Azure OCR] Analysis timed out after polling")
+    return None
+
+
+async def _submit_azure_analyze(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    api_key: str,
+    image_bytes: bytes,
+    model: str,
+) -> Optional[Dict[str, Any]]:
+    headers = {
+        "Ocp-Apim-Subscription-Key": api_key,
+        "Content-Type": "application/octet-stream",
+    }
+    analyze_paths = [
+        f"{endpoint}/documentintelligence/documentModels/{model}:analyze?api-version=2024-11-30",
+        f"{endpoint}/formrecognizer/documentModels/{model}:analyze?api-version=2023-07-31",
+    ]
+    error_details: List[str] = []
+    for analyze_url in analyze_paths:
+        response = await client.post(analyze_url, headers=headers, content=image_bytes)
+        if response.status_code == 202:
+            operation_location = response.headers.get("Operation-Location")
+            if operation_location:
+                logger.info("[Azure OCR] Analysis accepted via %s", analyze_url)
+                return await _poll_azure_operation(client, operation_location, api_key)
+            logger.error("[Azure OCR] Operation-Location header missing")
+            return None
+        error_text = response.text.strip()
+        error_details.append(f"{response.status_code}: {error_text}")
+        logger.warning(
+            "[Azure OCR] Analyze request failed via %s | %s | %s",
+            analyze_url,
+            response.status_code,
+            error_text,
+        )
+        if response.status_code not in {404, 400}:
+            break
+    if error_details:
+        logger.error("[Azure OCR] All analyze paths failed: %s", " | ".join(error_details))
+    return None
+
+
 def parse_azure_id_result(result: Dict[str, Any], country: str) -> Dict[str, Any]:
     """Parse Azure Document Intelligence result for ID documents."""
     extracted = {
@@ -505,27 +675,27 @@ def parse_azure_id_result(result: Dict[str, Any], country: str) -> Dict[str, Any
             fields = doc.get("fields", {})
             print(f"[Azure] Available fields: {list(fields.keys())}")
             
-            # Extract first name (filter to English only)
+            # Extract first name (light cleanup — avoid stripping valid Latin names)
             if "FirstName" in fields:
-                extracted["first_name"] = filter_english_only(fields["FirstName"].get("content", ""))
+                extracted["first_name"] = clean_name(fields["FirstName"].get("content", "")).title()
             elif "GivenNames" in fields:
                 # GivenNames may contain first + middle, split them
-                given = filter_english_only(fields["GivenNames"].get("content", ""))
+                given = clean_name(fields["GivenNames"].get("content", ""))
                 parts = given.split()
                 if len(parts) >= 1:
-                    extracted["first_name"] = parts[0]
+                    extracted["first_name"] = parts[0].title()
                 if len(parts) >= 2:
-                    extracted["middle_name"] = " ".join(parts[1:])
+                    extracted["middle_name"] = " ".join(p.title() for p in parts[1:])
             
             # Extract middle name if available
             if "MiddleName" in fields:
-                extracted["middle_name"] = filter_english_only(fields["MiddleName"].get("content", ""))
+                extracted["middle_name"] = clean_name(fields["MiddleName"].get("content", "")).title()
             
-            # Extract last name (filter to English only)
+            # Extract last name
             if "LastName" in fields:
-                extracted["last_name"] = filter_english_only(fields["LastName"].get("content", ""))
+                extracted["last_name"] = clean_name(fields["LastName"].get("content", "")).title()
             elif "Surname" in fields:
-                extracted["last_name"] = filter_english_only(fields["Surname"].get("content", ""))
+                extracted["last_name"] = clean_name(fields["Surname"].get("content", "")).title()
             
             # Extract date of birth
             if "DateOfBirth" in fields:
@@ -548,36 +718,12 @@ def parse_azure_id_result(result: Dict[str, Any], country: str) -> Dict[str, Any
                     extracted["id_number"] = fields["DocumentNumber"].get("content", "")
         
         # FALLBACK: If structured extraction failed, parse raw OCR text
-        if not extracted["first_name"] or not extracted["last_name"]:
+        if not extracted["first_name"] or not extracted["last_name"] or not extracted["dob"]:
             print(f"[Azure] Structured extraction incomplete, trying OCR text fallback...")
-            
-            # Get raw content
-            if not raw_content:
-                # Try to extract from pages
-                pages = analyze_result.get("pages", [])
-                for page in pages:
-                    for line in page.get("lines", []):
-                        raw_content += line.get("content", "") + "\n"
-            
+            raw_content = _collect_ocr_content(analyze_result)
             if raw_content:
-                # Extract name from raw text
-                first, middle, last = find_name_in_text(raw_content)
-                print(f"[Azure] OCR name extraction: first='{first}', middle='{middle}', last='{last}'")
-                
-                if first and not extracted["first_name"]:
-                    extracted["first_name"] = first.title()
-                if middle and not extracted["middle_name"]:
-                    extracted["middle_name"] = middle.title()
-                if last and not extracted["last_name"]:
-                    extracted["last_name"] = last.title()
-                
-                # Extract DOB if not found
-                if not extracted["dob"]:
-                    extracted["dob"] = find_dob_in_text(raw_content)
-                
-                # Extract address if not found
-                if not extracted["address"]:
-                    extracted["address"] = find_address_in_text(raw_content)
+                text_fields = parse_text_content_fields(raw_content, country)
+                extracted = _merge_extracted_fields(extracted, text_fields)
         
         # Final fallback: Handle single names or missing last_name
         if extracted["first_name"] and not extracted["last_name"]:
@@ -617,66 +763,8 @@ def parse_azure_id_result(result: Dict[str, Any], country: str) -> Dict[str, Any
 
 def extract_from_ocr_text(analyze_result: Dict[str, Any], country: str) -> Dict[str, Any]:
     """Fallback: Extract data from raw OCR text when structured extraction fails."""
-    extracted = {
-        "first_name": "",
-        "middle_name": "",
-        "last_name": "",
-        "dob": "",
-        "address": "",
-    }
-    
-    try:
-        # Get all text content
-        content = analyze_result.get("content", "")
-        lines = content.split('\n')
-        
-        # Simple heuristics for Indian Aadhaar
-        if country.upper() in ["IN", "INDIA"]:
-            for i, line in enumerate(lines):
-                line = line.strip()
-                
-                # Look for DOB pattern
-                dob_match = re.search(r'(\d{2}/\d{2}/\d{4})', line)
-                if dob_match and not extracted["dob"]:
-                    extracted["dob"] = parse_date(dob_match.group(1))
-                
-                # Look for Aadhaar number (12 digits, possibly with spaces)
-                aadhaar_match = re.search(r'(\d{4}\s?\d{4}\s?\d{4})', line)
-                if aadhaar_match:
-                    extracted["aadhaar_number"] = aadhaar_match.group(1).replace(" ", "")
-                
-                # First non-empty line after "Government of India" might be name
-                if "Government of India" in line or "भारत सरकार" in line:
-                    if i + 1 < len(lines) and not extracted["first_name"]:
-                        name_line = filter_english_only(lines[i + 1].strip())
-                        name_parts = [p for p in name_line.split() if p.isalpha()]
-                        if len(name_parts) == 1:
-                            extracted["first_name"] = name_parts[0]
-                            extracted["last_name"] = name_parts[0]
-                        elif len(name_parts) == 2:
-                            extracted["first_name"] = name_parts[0]
-                            extracted["last_name"] = name_parts[1]
-                        elif len(name_parts) >= 3:
-                            extracted["first_name"] = name_parts[0]
-                            extracted["middle_name"] = " ".join(name_parts[1:-1])
-                            extracted["last_name"] = name_parts[-1]
-        
-        # Simple heuristics for US documents
-        elif country.upper() in ["US", "USA"]:
-            for line in lines:
-                line = line.strip()
-                
-                # Look for date patterns
-                dob_match = re.search(r'(\d{2}/\d{2}/\d{4})', line)
-                if dob_match and not extracted["dob"]:
-                    extracted["dob"] = parse_date(dob_match.group(1))
-        
-        print(f"[Azure OCR Fallback] Extracted: {extracted}")
-        return extracted
-        
-    except Exception as e:
-        print(f"[Azure OCR] Error in fallback extraction: {e}")
-        return extracted
+    content = _collect_ocr_content(analyze_result)
+    return parse_text_content_fields(content, country)
 
 
 async def verify_with_azure_face(image_bytes: bytes) -> Dict[str, Any]:
@@ -739,8 +827,6 @@ async def verify_with_azure_face(image_bytes: bytes) -> Dict[str, Any]:
         }
 
 
-# Need asyncio for sleep
-import asyncio
 
 
 # ============= Endpoints =============

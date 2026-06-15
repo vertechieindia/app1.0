@@ -66,6 +66,10 @@ import {
   SuperAdminChat,
   CourseManagement,
   LearnAdmin,
+  RequirementsAdminDashboard,
+  ScreenerDashboard,
+  TechScreenerDashboard,
+  HmScreeningProgressPage,
   HRDashboard,
   CreateJobPost,
   ViewApplicants,
@@ -183,6 +187,17 @@ const AuthenticatedLayout: React.FC = () => {
     location.pathname === '/hr/chat' ||
     location.pathname === '/super-admin/chat';
 
+  /** CMS pages stack profile header + tabs + tables — need extra scroll inset above BottomNav */
+  const isCmsRoute = location.pathname.startsWith('/techie/cms');
+
+  const mainPaddingBottomPx = isMeetingPage || immersiveAssessmentMode
+    ? 0
+    : isFullBleedChatRoute
+      ? AUTH_MAIN_PADDING_BOTTOM_COMPACT_PX
+      : isCmsRoute
+        ? AUTH_MAIN_PADDING_BOTTOM_PX + 72
+        : AUTH_MAIN_PADDING_BOTTOM_PX;
+
   useEffect(() => {
     const handleAssessmentModeChange = (event: Event) => {
       const customEvent = event as CustomEvent<boolean>;
@@ -233,7 +248,7 @@ const AuthenticatedLayout: React.FC = () => {
             },
         pb: isMeetingPage || immersiveAssessmentMode
           ? 0
-          : `calc(${(isFullBleedChatRoute ? AUTH_MAIN_PADDING_BOTTOM_COMPACT_PX : AUTH_MAIN_PADDING_BOTTOM_PX)}px + env(safe-area-inset-bottom, 0px))`,
+          : `calc(${mainPaddingBottomPx}px + env(safe-area-inset-bottom, 0px))`,
       }}>
         <Outlet />
       </Box>
@@ -546,6 +561,40 @@ const AppRoutes: React.FC = () => {
                 <LearnAdmin />
               </ProtectedRoute>
             } />
+
+            <Route path="/vertechie/requirementsadmin" element={
+              <ProtectedRoute requiredRole="screening">
+                <RequirementsAdminDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/vertechie/requirementsadmin/*" element={
+              <ProtectedRoute requiredRole="screening">
+                <RequirementsAdminDashboard />
+              </ProtectedRoute>
+            } />
+
+            <Route path="/vertechie/screeneradmin" element={
+              <ProtectedRoute requiredRole="screening">
+                <ScreenerDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/vertechie/screeneradmin/*" element={
+              <ProtectedRoute requiredRole="screening">
+                <ScreenerDashboard />
+              </ProtectedRoute>
+            } />
+
+            <Route path="/vertechie/techscreeneradmin" element={
+              <ProtectedRoute requiredRole="screening">
+                <TechScreenerDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/vertechie/techscreeneradmin/*" element={
+              <ProtectedRoute requiredRole="screening">
+                <TechScreenerDashboard />
+              </ProtectedRoute>
+            } />
+
             <Route path="/vertechie/courses" element={
               <ProtectedRoute requiredRole="admin">
                 <LearnAdmin />
@@ -868,6 +917,11 @@ const AppRoutes: React.FC = () => {
             <Route path="/techie/ats/jobpostings" element={
               <ProtectedRoute requiredRole="user">
                 <JobPostingsPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/techie/ats/screening-progress" element={
+              <ProtectedRoute requiredRole="user">
+                <HmScreeningProgressPage />
               </ProtectedRoute>
             } />
             <Route path="/techie/ats/allcandidates" element={

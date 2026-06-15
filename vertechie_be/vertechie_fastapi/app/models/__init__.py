@@ -104,6 +104,15 @@ from app.models.community import (
 # Notification Models
 from app.models.notification import Notification, NotificationType
 
+# Screening Models
+from app.models.screening import (
+    SourcingRequest, ScreeningTask, ScreeningInvite,
+    HmEmailSignature, CompanyHmInvite,
+    SourcingPath, SourcingRequestStatus, ScreeningTaskStatus, ScreeningRejectionReason,
+    ScreeningInviteStatus, ScreeningTaskType, RequirementType,
+    CompanyStaffRole, CompanyScreeningStaff,
+)
+
 # Place Models (internal location autocomplete)
 from app.models.place import Place
 
@@ -186,6 +195,10 @@ __all__ = [
     
     # Notifications
     "Notification", "NotificationType",
+
+    # Screening
+    "SourcingRequest", "ScreeningTask",
+    "SourcingPath", "SourcingRequestStatus", "ScreeningTaskStatus", "ScreeningRejectionReason",
 
     # Places
     "Place",
