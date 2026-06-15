@@ -30,7 +30,9 @@ function getCameraPolicyBlockReason(): string | null {
     if (typeof window !== 'undefined' && window.self !== window.top) {
       return 'Camera cannot run inside an email preview or embedded window. Copy the invite link from your email and paste it into Chrome or Edge (address bar), then try again.';
     }
-    const policy = document.permissionsPolicy;
+    const policy = (document as Document & {
+      permissionsPolicy?: { allowsFeature: (feature: string) => boolean };
+    }).permissionsPolicy;
     if (policy && typeof policy.allowsFeature === 'function' && !policy.allowsFeature('camera')) {
       return 'Camera is blocked by site security policy (Permissions-Policy). Open this page in a full browser tab at vertechie.com — not inside an email app preview. If you already did that, ask your admin to redeploy the frontend with camera headers enabled.';
     }
