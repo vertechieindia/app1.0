@@ -708,7 +708,7 @@ const CalendarPage: React.FC = () => {
               category: 'meeting',
               location: booking.location || 'VerTechie',
               description: booking.invitee_email,
-              videoLink: booking.video_link || (booking as { meeting_link?: string }).meeting_link,
+              videoLink: booking.video_link || booking.meeting_link || undefined,
               status:
                 String(booking.status).toLowerCase() === 'confirmed' ? 'confirmed' : 'tentative',
             };

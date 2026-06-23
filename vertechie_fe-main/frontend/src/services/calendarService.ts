@@ -46,8 +46,10 @@ export interface Booking {
   start_time: string;
   end_time: string;
   status: string;
-  meeting_link: string | null;
-  notes: string | null;
+  location?: string | null;
+  video_link?: string | null;
+  meeting_link?: string | null;
+  notes?: string | null;
   created_at: string;
 }
 
