@@ -789,7 +789,7 @@ const BottomNav: React.FC = () => {
 
           <MenuItem
             onClick={() => {
-              window.location.href = 'https://vertechie.com/contact';
+              navigate('/help');
               setProfileAnchor(null);
             }}
             sx={{ py: 1.5 }}
@@ -799,6 +799,30 @@ const BottomNav: React.FC = () => {
             </ListItemIcon>
             <ListItemText primary="Help Center" />
           </MenuItem>
+
+          {(() => {
+            try {
+              const u = JSON.parse(localStorage.getItem('userData') || '{}');
+              const roles = (u.admin_roles || []).map((r: string) => String(r).toLowerCase());
+              if (u.is_superuser || roles.includes('support_admin')) {
+                return (
+                  <MenuItem
+                    onClick={() => {
+                      navigate('/vertechie/support');
+                      setProfileAnchor(null);
+                    }}
+                    sx={{ py: 1.5 }}
+                  >
+                    <ListItemIcon sx={{ color: '#5AC8FA' }}>
+                      <HelpIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="Support Dashboard" />
+                  </MenuItem>
+                );
+              }
+            } catch { /* ignore */ }
+            return null;
+          })()}
 
           <MenuItem
             onClick={handleLogout}

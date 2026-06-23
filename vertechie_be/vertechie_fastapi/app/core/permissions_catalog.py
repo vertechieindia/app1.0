@@ -78,6 +78,8 @@ PERMISSION_DEFINITIONS: List[PermissionDef] = [
     PermissionDef("26", "View screening tasks", "view_screening_tasks", "View candidate screening task queue"),
     PermissionDef("27", "Claim screening tasks", "claim_screening_tasks", "Claim and work screening tasks"),
     PermissionDef("28", "Complete screening tasks", "complete_screening_tasks", "Mark screening tasks selected or rejected"),
+    PermissionDef("29", "View support tickets", "view_support_tickets", "View customer support tickets and Help Center admin"),
+    PermissionDef("30", "Manage support tickets", "manage_support_tickets", "Respond to tickets, assign agents, and manage FAQs"),
 ]
 
 

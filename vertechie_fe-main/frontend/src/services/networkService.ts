@@ -68,14 +68,14 @@ export const networkService = {
    * Accept a connection request
    */
   acceptRequest: async (requestId: string): Promise<{ message: string }> => {
-    return api.post(API_ENDPOINTS.NETWORK.ACCEPT_REQUEST(requestId));
+    return api.post(`/network/requests/${requestId}/respond`, { action: 'accept' });
   },
 
   /**
    * Decline a connection request
    */
   declineRequest: async (requestId: string): Promise<{ message: string }> => {
-    return api.post(API_ENDPOINTS.NETWORK.DECLINE_REQUEST(requestId));
+    return api.post(`/network/requests/${requestId}/respond`, { action: 'decline' });
   },
 
   /**

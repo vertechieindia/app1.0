@@ -3,9 +3,10 @@
  * A beautiful, feature-rich blogging platform for tech professionals
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { getApiUrl } from '../../config/api';
 import { fetchWithAuth } from '../../utils/apiInterceptor';
+import { useBlogSearch } from '../../contexts/BlogSearchContext';
 import {
   Box, Container, Typography, Button, Card, CardContent, CardMedia,
   Grid, Chip, TextField, InputAdornment, Avatar, IconButton,
@@ -15,7 +16,6 @@ import {
 } from '@mui/material';
 import { styled, keyframes } from '@mui/material/styles';
 import {
-  Search as SearchIcon,
   TrendingUp as TrendingUpIcon,
   Bookmark as BookmarkIcon,
   BookmarkBorder as BookmarkBorderIcon,
@@ -330,20 +330,6 @@ const FeaturedBlogCard = styled(Card)(({ theme }) => ({
   },
 }));
 
-const CategoryChip = styled(Chip)<{ selected?: boolean }>(({ selected }) => ({
-  borderRadius: 20,
-  fontWeight: 600,
-  padding: '4px 8px',
-  transition: 'all 0.2s ease',
-  background: selected ? colors.primary : alpha(colors.primary, 0.1),
-  color: selected ? 'white' : colors.primary,
-  border: `1px solid ${selected ? colors.primary : alpha(colors.primary, 0.2)}`,
-  '&:hover': {
-    background: selected ? colors.primaryDark : alpha(colors.primary, 0.15),
-    borderColor: colors.primary,
-  },
-}));
-
 const SidebarCard = styled(Paper)(({ theme }) => ({
   borderRadius: 16,
   padding: theme.spacing(3),
@@ -358,13 +344,26 @@ const WriteButton = styled(Button)(({ theme }) => ({
   fontWeight: 700,
   fontSize: '1rem',
   textTransform: 'none',
+  color: '#ffffff',
   background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
-  color: 'white',
   boxShadow: `0 8px 24px ${alpha(colors.primary, 0.35)}`,
   '&:hover': {
     background: `linear-gradient(135deg, ${colors.primaryDark} 0%, ${colors.primary} 100%)`,
     boxShadow: `0 12px 32px ${alpha(colors.primary, 0.45)}`,
     transform: 'translateY(-2px)',
+  },
+  '&.Mui-disabled': {
+    color: '#ffffff !important',
+    opacity: 0.55,
+    cursor: 'not-allowed',
+    pointerEvents: 'auto',
+    background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
+    transform: 'none',
+    boxShadow: `0 4px 16px ${alpha(colors.primary, 0.2)}`,
+  },
+  '&.Mui-disabled:hover': {
+    transform: 'none',
+    cursor: 'not-allowed',
   },
 }));
 
@@ -455,8 +454,11 @@ const stripSystemTags = (rawTags: any[]): string[] => {
 // COMPONENT
 // ============================================
 const Blogs: React.FC = () => {
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  const {
+    searchQuery,
+    selectedCategory,
+    setFilterCategories,
+  } = useBlogSearch();
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
   const [writeDialogOpen, setWriteDialogOpen] = useState(false);
   const [coverImage, setCoverImage] = useState<string | null>(null);
@@ -472,6 +474,25 @@ const Blogs: React.FC = () => {
   const [blogCategory, setBlogCategory] = useState('');
   const [blogTags, setBlogTags] = useState('');
   const [blogContent, setBlogContent] = useState('');
+
+  const hasBlogContent = useMemo(() => {
+    const stripped = blogContent
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim();
+    return stripped.length > 0;
+  }, [blogContent]);
+
+  const canPublishBlog = useMemo(
+    () =>
+      Boolean(
+        coverImage &&
+        blogTitle.trim() &&
+        blogTags.trim() &&
+        hasBlogContent,
+      ),
+    [coverImage, blogTitle, blogTags, hasBlogContent],
+  );
 
   // Edit/Delete states
   const [editingBlogId, setEditingBlogId] = useState<string | null>(null);
@@ -981,7 +1002,7 @@ const Blogs: React.FC = () => {
 
   // Publish blog to API
   const handlePublishBlog = async () => {
-    if (!blogTitle.trim() || !blogContent.trim()) {
+    if (!canPublishBlog) {
       return;
     }
 
@@ -1071,6 +1092,23 @@ const Blogs: React.FC = () => {
     }
   });
   const categoryChips = [{ id: 'all', name: 'All Posts', icon: <StarIcon fontSize="small" /> }, ...Array.from(chipMap.values())];
+
+  useEffect(() => {
+    const nextChipMap = new Map<string, { id: string; name: string }>();
+    FALLBACK_BLOG_CATEGORIES.forEach((cat) => {
+      nextChipMap.set(cat.slug, { id: cat.slug, name: cat.name });
+    });
+    apiCategories.forEach((cat) => {
+      if (cat.slug) {
+        nextChipMap.set(cat.slug, { id: cat.slug, name: cat.name });
+      }
+    });
+    setFilterCategories([
+      { id: 'all', name: 'All Posts' },
+      ...Array.from(nextChipMap.values()),
+    ]);
+  }, [apiCategories, setFilterCategories]);
+
   const getBlogCategoryKey = (blog: BlogPost): string => {
     if (blog.category && blog.category.trim()) return normalizeCategoryKey(blog.category);
     if (blog.categoryId) {
@@ -1202,7 +1240,7 @@ const Blogs: React.FC = () => {
     <PageContainer>
       <Container maxWidth="xl">
         {/* Hero Section */}
-        <HeroSection elevation={0}>
+        {/* <HeroSection elevation={0}>
           <Box sx={{ position: 'relative', zIndex: 1 }}>
             <Grid container spacing={4} alignItems="center">
               <Grid item xs={12} md={8}>
@@ -1240,8 +1278,15 @@ const Blogs: React.FC = () => {
               </Grid>
             </Grid>
           </Box>
-        </HeroSection>
-
+        </HeroSection> */}
+        <Grid item xs={12} md={4} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
+                <WriteButton
+                  startIcon={<AddIcon />}
+                  onClick={handleOpenCreateDialog}
+                >
+                  Write a Blog
+                </WriteButton>
+              </Grid>
         {/* Featured Blogs Carousel */}
         {featuredBlogs.length > 0 && (
           <Box sx={{ mb: 5 }}>
@@ -1312,41 +1357,6 @@ const Blogs: React.FC = () => {
         <Grid container spacing={4}>
           {/* Main Content */}
           <Grid item xs={12} lg={8}>
-            {/* Search & Categories */}
-            <Paper sx={{ p: 3, borderRadius: 3, mb: 4, border: `1px solid ${alpha(colors.primary, 0.1)}` }}>
-              <TextField
-                fullWidth
-                placeholder="Search articles, topics, or authors..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon color="action" />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{
-                  mb: 3,
-                  '& .MuiOutlinedInput-root': { borderRadius: 3, bgcolor: 'grey.50' },
-                }}
-              />
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ width: '100%', mb: 0.5 }}>
-                  Filter by category
-                </Typography>
-                {categoryChips.map((category) => (
-                  <CategoryChip
-                    key={category.id}
-                    icon={category.icon}
-                    label={category.name}
-                    selected={selectedCategory === category.id}
-                    onClick={() => setSelectedCategory(category.id)}
-                  />
-                ))}
-              </Box>
-            </Paper>
-
             {/* Blog List */}
             <Grid container spacing={3}>
               {filteredBlogs.map((blog, index) => (
@@ -1899,22 +1909,24 @@ const Blogs: React.FC = () => {
             Use toolbar formatting: bold, italic, underline, highlight, text size increase/decrease, text color, bullet and numbered lists.
           </Typography>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={handleCloseDialog} disabled={publishing}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handlePublishBlog}
-            disabled={publishing || !blogTitle.trim() || !blogContent.trim()}
-            sx={{
-              background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
-              textTransform: 'none',
-              fontWeight: 600,
-            }}
-          >
-            {publishing ? 'Publishing...' : 'Publish Blog'}
-          </Button>
+        <DialogActions sx={{ px: 3, pb: 3, flexDirection: 'column', alignItems: 'stretch', gap: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+            <Button onClick={handleCloseDialog} disabled={publishing}>
+              Cancel
+            </Button>
+            <WriteButton
+              variant="contained"
+              onClick={handlePublishBlog}
+              disabled={publishing || !canPublishBlog}
+            >
+              {publishing ? 'Publishing...' : 'Publish Blog'}
+            </WriteButton>
+          </Box>
+          {!canPublishBlog && !publishing && (
+            <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'right' }}>
+              Add cover image, title, tags, and content to publish.
+            </Typography>
+          )}
         </DialogActions>
       </Dialog>
 

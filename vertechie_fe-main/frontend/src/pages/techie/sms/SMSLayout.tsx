@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../../services/apiClient';
 import { API_ENDPOINTS } from '../../../config/api';
 import {
@@ -32,15 +31,7 @@ import {
 import { styled, alpha } from '@mui/material/styles';
 
 // Icons
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EditIcon from '@mui/icons-material/Edit';
-import PostAddIcon from '@mui/icons-material/PostAdd';
-import PeopleIcon from '@mui/icons-material/People';
-import MenuBookIcon from '@mui/icons-material/MenuBook';
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
-import GroupAddIcon from '@mui/icons-material/GroupAdd';
-import AnalyticsIcon from '@mui/icons-material/Analytics';
-import SettingsIcon from '@mui/icons-material/Settings';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import SchoolIcon from '@mui/icons-material/School';
@@ -81,24 +72,6 @@ const colors = {
   background: '#f5f7fa',
 };
 
-const NavItem = styled(Box)<{ active?: boolean }>(({ active }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '12px 20px',
-  borderRadius: 8,
-  cursor: 'pointer',
-  fontWeight: active ? 600 : 500,
-  color: active ? colors.primary : '#666',
-  backgroundColor: active ? alpha(colors.primary, 0.08) : 'transparent',
-  borderBottom: active ? `3px solid ${colors.primary}` : '3px solid transparent',
-  transition: 'all 0.2s ease',
-  '&:hover': {
-    backgroundColor: alpha(colors.primary, 0.05),
-    color: colors.primary,
-  },
-}));
-
 const StatCard = styled(Card)(() => ({
   padding: 16,
   textAlign: 'center',
@@ -122,9 +95,6 @@ interface SMSLayoutProps {
 }
 
 const SMSLayout: React.FC<SMSLayoutProps> = ({ children }) => {
-  const navigate = useNavigate();
-  const location = useLocation();
-  
   // Edit dialog state
   const [schoolId, setSchoolId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -229,16 +199,6 @@ const SMSLayout: React.FC<SMSLayoutProps> = ({ children }) => {
     return BANNER_TEMPLATES.find(b => b.id === selectedBanner)?.gradient || BANNER_TEMPLATES[0].gradient;
   };
 
-  const navItems = [
-    { path: '/techie/sms/posts', label: 'Posts', icon: <PostAddIcon /> },
-    { path: '/techie/sms/alumni', label: 'Alumni Verification', icon: <PeopleIcon /> },
-    { path: '/techie/sms/programs', label: 'Programs', icon: <MenuBookIcon /> },
-    { path: '/techie/sms/placements', label: 'Placements', icon: <EmojiEventsIcon /> },
-    { path: '/techie/sms/admins', label: 'Page Admins', icon: <GroupAddIcon /> },
-    { path: '/techie/sms/analytics', label: 'Analytics', icon: <AnalyticsIcon /> },
-    { path: '/techie/sms/settings', label: 'Settings', icon: <SettingsIcon /> },
-  ];
-
   const stats = [
     { value: '28,450', label: 'Followers', color: colors.primary },
     { value: '15,420', label: 'Verified Alumni', color: colors.accent },
@@ -246,8 +206,6 @@ const SMSLayout: React.FC<SMSLayoutProps> = ({ children }) => {
     { value: '94%', label: 'Placement Rate', color: colors.accent },
   ];
 
-  const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
-  
   const handleSaveEdit = async () => {
     if (!schoolId) {
       setSnackbar({ open: true, message: 'School not found', severity: 'error' });
@@ -409,22 +367,6 @@ const SMSLayout: React.FC<SMSLayoutProps> = ({ children }) => {
             </Grid>
           ))}
         </Grid>
-
-        {/* Navigation */}
-        <Paper sx={{ mb: 3, borderRadius: 2 }}>
-          <Box sx={{ display: 'flex', overflowX: 'auto', p: 1 }}>
-            {navItems.map((item) => (
-              <NavItem
-                key={item.path}
-                active={isActive(item.path)}
-                onClick={() => navigate(item.path)}
-              >
-                {item.icon}
-                <Typography variant="body2" fontWeight="inherit">{item.label}</Typography>
-              </NavItem>
-            ))}
-          </Box>
-        </Paper>
 
         {/* Page Content */}
         <Paper sx={{ p: 3, borderRadius: 2, minHeight: 400 }}>

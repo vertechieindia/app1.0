@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import CodeIcon from '@mui/icons-material/Code';
 import { LEARN_CATEGORY_ICON_URL, LEARN_COURSE_ICON_URL } from './learnTechIconUrls';
 import './LearnTechIcon.css';
@@ -30,11 +30,15 @@ const LearnTechIcon: React.FC<LearnTechIconProps> = ({
   className,
   tone = 'onLight',
 }) => {
-  const url = courseSlug
-    ? LEARN_COURSE_ICON_URL[courseSlug]
-    : categoryId
-      ? LEARN_CATEGORY_ICON_URL[categoryId]
-      : undefined;
+  const [imgFailed, setImgFailed] = useState(false);
+
+  const url = !imgFailed
+    ? courseSlug
+      ? LEARN_COURSE_ICON_URL[courseSlug]
+      : categoryId
+        ? LEARN_CATEGORY_ICON_URL[categoryId]
+        : undefined
+    : undefined;
 
   const label =
     title ||
@@ -56,7 +60,14 @@ const LearnTechIcon: React.FC<LearnTechIconProps> = ({
 
   return (
     <span className={rootClass} title={label}>
-      <img src={url} alt="" loading="lazy" decoding="async" draggable={false} />
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+        onError={() => setImgFailed(true)}
+      />
     </span>
   );
 };

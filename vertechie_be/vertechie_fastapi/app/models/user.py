@@ -32,6 +32,7 @@ class RoleType(str, enum.Enum):
     REQUIREMENTS_TEAM = "requirements_team"
     SCREENER = "screener"
     TECH_SCREENER = "tech_screener"
+    STAFF_ADMIN = "STAFF_ADMIN"
 
 
 class AdminRole(str, enum.Enum):
@@ -157,23 +158,17 @@ class UserRole(Base, UUIDMixin, TimestampMixin):
     """User role model."""
 
     __tablename__ = "user_role"
-    __table_args__ = (
-        UniqueConstraint(
-            "role_type",
-            "permission_signature",
-            name="uq_user_role_type_perm_sig",
-        ),
-    )
-
-    # Opaque unique slug (not the primary UI label; use display_label for that)
+    # Opaque unique slug (internal DB key)
     name = Column(String(64), unique=True, nullable=False, index=True)
     role_type = Column(Enum(RoleType), nullable=False)
     description = Column(Text, nullable=True)
     permissions = Column(JSON, default=list)
-    # SHA-256 hex of sorted unique permission codenames (dedupe identity with role_type)
+    # SHA-256 hex of sorted unique permission codenames
     permission_signature = Column(String(64), nullable=False, index=True)
-    # Auto-generated or migration backfill from legacy name — shown in Super Admin UI
+    # User-facing role name (unique, case-insensitive) — e.g. "Learn Admin"
     display_label = Column(String(255), nullable=False)
+    # Stable code stored on users.admin_roles — e.g. learn_admin, finance_admin
+    admin_role_code = Column(String(64), nullable=True, index=True)
     is_active = Column(Boolean, default=True)
     
     # Relationships

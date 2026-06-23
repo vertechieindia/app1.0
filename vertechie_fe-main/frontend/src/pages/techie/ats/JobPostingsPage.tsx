@@ -2732,7 +2732,7 @@ const outlinedSelectLabelSx = {
             </Box>
           )}
           {createTab === 3 && (
-            <Box sx={{ mt: 2 }}>
+            <Box sx={{ mt: 2 }} data-allow-paste="true">
               <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
                 Coding Assessment
               </Typography>
@@ -3675,7 +3675,7 @@ const outlinedSelectLabelSx = {
                 </Box>
               )}
               {editTab === 3 && (
-                <Box>
+                <Box data-allow-paste="true">
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Keep coding questions optional. When enabled, these settings shape the candidate assessment flow and the integrity signals recruiters will later review.
                   </Typography>

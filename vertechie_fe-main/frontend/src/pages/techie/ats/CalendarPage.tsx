@@ -75,6 +75,7 @@ import {
 } from '../../../config/api';
 import { fetchWithAuth } from '../../../utils/apiInterceptor';
 import { calendarSyncService, type CalendarConnectionDto, type SyncStatusResponse } from '../../../services/calendarSyncService';
+import calendarService, { type Booking, type MeetingType } from '../../../services/calendarService';
 
 // Animations
 const pulseAnimation = keyframes`
@@ -352,6 +353,27 @@ interface CalendarEvent {
   status?: 'confirmed' | 'tentative' | 'cancelled';
 }
 
+const INTERVIEW_EVENT_ID_OFFSET = 10000;
+const BOOKING_EVENT_ID_OFFSET = 20000;
+
+function parseApiDateTime(raw: string): Date {
+  const s = String(raw || '').trim();
+  if (!s) return new Date(NaN);
+  const normalized = !/Z|[+-]\d{2}:?\d{2}$/.test(s) ? `${s.replace(' ', 'T')}Z` : s;
+  return new Date(normalized);
+}
+
+function toLocalDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function toLocalTimeKey(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 // Sample events with enhanced data
 const initialEvents: CalendarEvent[] = [
   { 
@@ -619,51 +641,90 @@ const CalendarPage: React.FC = () => {
     }
   };
 
-  // Fetch real interviews and add to calendar
+  // Fetch ATS interviews + public scheduling bookings for the calendar grid
   useEffect(() => {
-    const fetchInterviews = async () => {
+    const fetchRemoteEvents = async () => {
       try {
         const token = localStorage.getItem('authToken');
         if (!token) return;
-        
-        const response = await fetch(`${getApiUrl('/hiring/interviews')}?upcoming=true`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          const interviewEvents: CalendarEvent[] = data.map((interview: any, idx: number) => {
-            const scheduledAt = new Date(interview.scheduled_at);
+
+        const [interviewsResponse, bookings, meetingTypes] = await Promise.all([
+          fetch(`${getApiUrl('/hiring/interviews')}?upcoming=true`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }),
+          calendarService.getBookings().catch(() => [] as Booking[]),
+          calendarService.getMeetingTypes().catch(() => [] as MeetingType[]),
+        ]);
+
+        const interviewEvents: CalendarEvent[] = [];
+        if (interviewsResponse.ok) {
+          const data = await interviewsResponse.json();
+          interviewEvents.push(
+            ...(Array.isArray(data) ? data : []).map((interview: any, idx: number) => {
+              const scheduledAt = parseApiDateTime(interview.scheduled_at);
+              return {
+                id: INTERVIEW_EVENT_ID_OFFSET + idx,
+                title: `Interview - ${interview.candidate_name || 'Candidate'}`,
+                date: toLocalDateKey(scheduledAt),
+                time: toLocalTimeKey(scheduledAt),
+                duration: interview.duration_minutes || 60,
+                type: 'vertechie',
+                category: 'interview',
+                location: interview.location || 'VerTechie Meet',
+                description: interview.notes || `${interview.interview_type || 'Technical'} Interview`,
+                videoLink: interview.meeting_link,
+              };
+            })
+          );
+        }
+
+        const meetingTypeNames = new Map(
+          (meetingTypes || []).map((mt) => [String(mt.id), mt.name])
+        );
+
+        const bookingEvents: CalendarEvent[] = (bookings || [])
+          .filter((booking) => {
+            const status = String(booking.status || '').toLowerCase();
+            return status !== 'cancelled' && status !== 'canceled';
+          })
+          .map((booking, idx) => {
+            const start = parseApiDateTime(booking.start_time);
+            const end = parseApiDateTime(booking.end_time);
+            const durationMinutes = Math.max(
+              15,
+              Math.round((end.getTime() - start.getTime()) / 60000) || 30
+            );
+            const meetingName = meetingTypeNames.get(String(booking.meeting_type_id)) || 'Meeting';
             return {
-              id: 10000 + idx, // Unique ID to avoid conflicts
-              title: `Interview - ${interview.candidate_name || 'Candidate'}`,
-              date: scheduledAt.toISOString().split('T')[0],
-              time: scheduledAt.toTimeString().slice(0, 5),
-              duration: interview.duration_minutes || 60,
+              id: BOOKING_EVENT_ID_OFFSET + idx,
+              title: `${meetingName} - ${booking.invitee_name}`,
+              date: toLocalDateKey(start),
+              time: toLocalTimeKey(start),
+              duration: durationMinutes,
               type: 'vertechie',
-              category: 'interview',
-              location: interview.location || 'VerTechie Meet',
-              description: interview.notes || `${interview.interview_type || 'Technical'} Interview`,
-              videoLink: interview.meeting_link,
+              category: 'meeting',
+              location: booking.location || 'VerTechie',
+              description: booking.invitee_email,
+              videoLink: booking.video_link || (booking as { meeting_link?: string }).meeting_link,
+              status:
+                String(booking.status).toLowerCase() === 'confirmed' ? 'confirmed' : 'tentative',
             };
           });
-          
-          // Merge with existing events (avoiding duplicates)
-          setEvents(prev => {
-            const existingIds = prev.map(e => e.id);
-            const newEvents = interviewEvents.filter(e => !existingIds.includes(e.id));
-            return [...prev.filter(e => e.id < 10000), ...interviewEvents];
-          });
-        }
+
+        setEvents((prev) => [
+          ...prev.filter((e) => e.id < INTERVIEW_EVENT_ID_OFFSET),
+          ...interviewEvents,
+          ...bookingEvents,
+        ]);
       } catch (error) {
-        console.warn('Could not fetch interviews for calendar:', error);
+        console.warn('Could not fetch calendar events:', error);
       }
     };
-    
-    fetchInterviews();
+
+    fetchRemoteEvents();
   }, []);
 
   // Computed values

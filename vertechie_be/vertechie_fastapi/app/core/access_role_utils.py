@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
-from typing import Any, List, Optional
+from typing import Any, Iterable, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -170,6 +171,83 @@ def build_permission_summary(
 def generate_internal_name() -> str:
     """Opaque unique slug for UserRole.name (DB uniqueness). Max length 40."""
     return f"ur_{uuid.uuid4().hex}"
+
+
+def normalize_role_name(name: str) -> str:
+    """Collapse whitespace; used for uniqueness checks and display."""
+    return " ".join(str(name or "").strip().split())
+
+
+def slugify_admin_role_code(name: str) -> str:
+    """Stable slug for users.admin_roles — e.g. 'Finance Admin' -> finance_admin."""
+    s = normalize_role_name(name).lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    return s.strip("_")[:64] or "staff_admin"
+
+
+# Well-known role names map to legacy RoleType for routing defaults.
+ROLE_NAME_TO_TYPE: dict[str, RoleType] = {
+    "super admin": RoleType.SUPER_ADMIN,
+    "learn admin": RoleType.LEARN_ADMIN,
+    "techie admin": RoleType.TECHIE,
+    "company admin": RoleType.COMPANY_ADMIN,
+    "school admin": RoleType.SCHOOL_ADMIN,
+    "hiring manager": RoleType.HIRING_MANAGER,
+    "hiring manager (hm admin)": RoleType.HIRING_MANAGER,
+    "hm admin": RoleType.HIRING_MANAGER,
+    "bdm admin": RoleType.BDM_ADMIN,
+    "requirements admin": RoleType.REQUIREMENTS_TEAM,
+    "screener admin": RoleType.SCREENER,
+    "tech screener admin": RoleType.TECH_SCREENER,
+    "tech screener (enterprise)": RoleType.TECH_SCREENER,
+    "finance admin": RoleType.STAFF_ADMIN,
+    "hr admin": RoleType.STAFF_ADMIN,
+    "operations admin": RoleType.STAFF_ADMIN,
+    "support admin": RoleType.STAFF_ADMIN,
+}
+
+
+def infer_role_type_from_role_name(name: str) -> RoleType:
+    return ROLE_NAME_TO_TYPE.get(normalize_role_name(name).lower(), RoleType.STAFF_ADMIN)
+
+
+def admin_role_code_for_role_name(role_name: str, role_type: Optional[RoleType] = None) -> str:
+    """Prefer legacy admin_roles codes for well-known names; slugify for custom roles."""
+    from app.core.role_mapping import role_type_to_admin_role_code
+
+    rt = role_type or infer_role_type_from_role_name(role_name)
+    known = ROLE_NAME_TO_TYPE.get(normalize_role_name(role_name).lower())
+    if known is not None:
+        return role_type_to_admin_role_code(known)
+    if rt != RoleType.STAFF_ADMIN:
+        return role_type_to_admin_role_code(rt)
+    return slugify_admin_role_code(role_name)
+
+
+def permission_count(codes: Optional[List[Any]]) -> int:
+    return len(sorted_unique_permission_codes(codes))
+
+
+def list_assignable_staff_access_roles(roles: Iterable[UserRole]) -> List[UserRole]:
+    """
+    Roles that can be assigned in Create Admin — one row per unique role name,
+    with at least one permission (excludes signup empty shells).
+    """
+    from app.core.role_mapping import is_assignable_admin_user_role
+
+    out = [
+        r
+        for r in roles
+        if is_assignable_admin_user_role(r)
+        and r.is_active
+        and permission_count(r.permissions) > 0
+    ]
+    return sorted(out, key=lambda r: normalize_role_name(r.display_label or "").lower())
+
+
+def pick_canonical_assignable_admin_roles(roles: Iterable[UserRole]) -> List[UserRole]:
+    """Backward-compatible alias — returns all assignable named staff roles."""
+    return list_assignable_staff_access_roles(roles)
 
 
 async def get_or_create_empty_permission_role(

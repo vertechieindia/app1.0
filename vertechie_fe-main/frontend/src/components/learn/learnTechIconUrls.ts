@@ -22,7 +22,7 @@ export const LEARN_COURSE_ICON_URL: Record<string, string> = {
 
 /** Category id (curriculum.ts) -> devicon path */
 export const LEARN_CATEGORY_ICON_URL: Record<string, string> = {
-  web: `${DEVICON_BASE}/googlechrome/googlechrome-original.svg`,
+  web: `${DEVICON_BASE}/html5/html5-original.svg`,
   programming: `${DEVICON_BASE}/python/python-original.svg`,
   backend: `${DEVICON_BASE}/nodejs/nodejs-original.svg`,
   database: `${DEVICON_BASE}/mysql/mysql-original.svg`,

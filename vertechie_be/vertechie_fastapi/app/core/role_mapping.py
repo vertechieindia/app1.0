@@ -21,6 +21,7 @@ ASSIGNABLE_ADMIN_ROLE_TYPES: Set[RoleType] = {
     RoleType.REQUIREMENTS_TEAM,
     RoleType.SCREENER,
     RoleType.TECH_SCREENER,
+    RoleType.STAFF_ADMIN,
 }
 
 
@@ -44,6 +45,9 @@ def role_type_to_admin_role_code(role_type: RoleType) -> str:
 
 
 def admin_role_code_from_user_role(user_role: UserRole) -> str:
+    code = getattr(user_role, "admin_role_code", None)
+    if code and str(code).strip():
+        return str(code).strip().lower()
     return role_type_to_admin_role_code(user_role.role_type)
 
 
@@ -63,6 +67,7 @@ def admin_role_code_to_role_type(code: str) -> Optional[RoleType]:
         "requirements_admin": RoleType.REQUIREMENTS_TEAM,
         "screener_admin": RoleType.SCREENER,
         "tech_screener_admin": RoleType.TECH_SCREENER,
+        "support_admin": RoleType.STAFF_ADMIN,
     }
     return mapping.get(key)
 

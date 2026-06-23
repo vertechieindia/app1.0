@@ -101,6 +101,15 @@ except ImportError as e:
     print(f"Admin Dashboard import error: {e}")
     pass
 
+# Help Center & Customer Support
+try:
+    from app.api.v1 import support
+    api_router.include_router(support.router, tags=["Help Center"])
+    api_router.include_router(support.admin_router, tags=["Customer Support Dashboard"])
+except ImportError as e:
+    print(f"Support module import error: {e}")
+    pass
+
 from app.api.v1 import github_gitlab
 
 api_router.include_router(github_gitlab.router, prefix="/github-gitlab", tags=["GitHub/GitLab"])

@@ -4,21 +4,25 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Box, Typography, Card, CardContent, Avatar, Button, Grid,
+  Box, Typography, Card, CardContent, Button, Grid,
   TextField, InputAdornment, Badge, Snackbar, Alert, CircularProgress,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { Search, PersonAdd, Verified } from '@mui/icons-material';
+import { Search, PersonAdd } from '@mui/icons-material';
 import NetworkLayout from '../../components/network/NetworkLayout';
 import { getApiUrl, API_ENDPOINTS } from '../../config/api';
 import { fetchWithAuth } from '../../utils/apiInterceptor';
 import { api } from '../../services/apiClient';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  fetchUserRelationshipStates,
+  fetchUserRelationships,
   getConnectionErrorKind,
-  type ConnectionButtonState,
+  respondToConnectionRequest,
+  sendConnectionRequest,
+  type UserRelationship,
 } from '../../utils/networkConnectionUi';
+import ConnectionActionButtons from '../../components/network/ConnectionActionButtons';
+import ClickableProfileName from '../../components/network/ClickableProfileName';
 
 // ============================================
 // STYLED COMPONENTS
@@ -98,8 +102,8 @@ const MyNetwork: React.FC = () => {
   const [findSearched, setFindSearched] = useState(false);
   const [hasMoreFindPeople, setHasMoreFindPeople] = useState(true);
   const [loadingMoreFindPeople, setLoadingMoreFindPeople] = useState(false);
-  const [connectionButtonState, setConnectionButtonState] = useState<Record<string, ConnectionButtonState>>({});
-  const connectInFlightRef = useRef<Set<string>>(new Set());
+  const [relationships, setRelationships] = useState<Record<string, UserRelationship>>({});
+  const [actionLoadingIds, setActionLoadingIds] = useState<Set<string>>(new Set());
   const [stats, setStats] = useState({
     connections: 0,
     followers: 0,
@@ -294,15 +298,8 @@ const MyNetwork: React.FC = () => {
       if (!raw) return;
       const meId = String(JSON.parse(raw).id || '');
       if (!meId) return;
-      const map = await fetchUserRelationshipStates(meId);
-      setConnectionButtonState((prev) => {
-        const next = { ...prev };
-        for (const [id, rel] of Object.entries(map)) {
-          if (next[id] === 'loading') continue;
-          next[id] = rel;
-        }
-        return next;
-      });
+      const map = await fetchUserRelationships(meId);
+      setRelationships(map);
     } catch (e) {
       console.error('MyNetwork: relationship states', e);
     }
@@ -318,58 +315,75 @@ const MyNetwork: React.FC = () => {
     }
   }, [location.hash, pendingRequests.length]);
 
-  // Accept connection request
-  const handleAcceptRequest = async (requestId: string) => {
-    const user = pendingRequests.find(u => u.request_id === requestId);
-    if (user) {
-      try {
-        const response = await fetchWithAuth(getApiUrl(`/network/requests/${requestId}/respond`), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'accept' }),
-        });
-        
-        if (response.ok) {
-          setPendingRequests(prev => prev.filter(u => u.request_id !== requestId));
+  const handleAcceptRequest = async (requestId: string, userId?: string) => {
+    const user = pendingRequests.find((u) => u.request_id === requestId)
+      || (userId ? pendingRequests.find((u) => u.id === userId) : undefined);
+    const uid = userId || user?.id;
+    if (uid) setActionLoadingIds((s) => new Set(s).add(String(uid)));
+    try {
+      const ok = await respondToConnectionRequest(requestId, 'accept');
+      if (ok) {
+        if (user) {
+          setPendingRequests((prev) => prev.filter((u) => u.request_id !== requestId));
           const newConnection: Connection = {
             ...user,
             connected_at: new Date().toISOString(),
             status: 'connected',
           };
-          setConnections(prev => [newConnection, ...prev]);
-          setStats(prev => ({
-            ...prev,
-            connections: prev.connections + 1,
-            pending_requests: Math.max(0, prev.pending_requests - 1),
-          }));
-          fetchStats();
-          refreshRelationshipStates();
-          setSnackbar({ open: true, message: `Connected with ${user.name}!`, severity: 'success' });
-        } else {
-          setSnackbar({ open: true, message: 'Failed to accept request', severity: 'error' });
+          setConnections((prev) => [newConnection, ...prev]);
         }
-      } catch (err) {
-        console.error('Error accepting request:', err);
+        setStats((prev) => ({
+          ...prev,
+          connections: prev.connections + 1,
+          pending_requests: Math.max(0, prev.pending_requests - 1),
+        }));
+        if (uid) {
+          setRelationships((prev) => ({ ...prev, [String(uid)]: { state: 'connected' } }));
+        }
+        fetchStats();
+        refreshRelationshipStates();
+        setSnackbar({
+          open: true,
+          message: user ? `Connected with ${user.name}!` : 'Connection accepted',
+          severity: 'success',
+        });
+      } else {
         setSnackbar({ open: true, message: 'Failed to accept request', severity: 'error' });
+      }
+    } catch (err) {
+      console.error('Error accepting request:', err);
+      setSnackbar({ open: true, message: 'Failed to accept request', severity: 'error' });
+    } finally {
+      if (uid) {
+        setActionLoadingIds((s) => {
+          const n = new Set(s);
+          n.delete(String(uid));
+          return n;
+        });
       }
     }
   };
 
-  // Decline connection request
-  const handleDeclineRequest = async (requestId: string) => {
+  const handleDeclineRequest = async (requestId: string, userId?: string) => {
+    const uid = userId;
+    if (uid) setActionLoadingIds((s) => new Set(s).add(String(uid)));
     try {
-      const response = await fetchWithAuth(getApiUrl(`/network/requests/${requestId}/respond`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'decline' }),
-      });
-      if (response.ok) {
-        setPendingRequests(prev => prev.filter(u => u.request_id !== requestId));
-        setStats(prev => ({
+      const ok = await respondToConnectionRequest(requestId, 'decline');
+      if (ok) {
+        setPendingRequests((prev) => prev.filter((u) => u.request_id !== requestId));
+        setStats((prev) => ({
           ...prev,
           pending_requests: Math.max(0, prev.pending_requests - 1),
         }));
+        if (uid) {
+          setRelationships((prev) => {
+            const next = { ...prev };
+            delete next[String(uid)];
+            return next;
+          });
+        }
         fetchStats();
+        refreshRelationshipStates();
         setSnackbar({ open: true, message: 'Request declined', severity: 'success' });
       } else {
         setSnackbar({ open: true, message: 'Failed to decline request', severity: 'error' });
@@ -377,46 +391,50 @@ const MyNetwork: React.FC = () => {
     } catch (err) {
       console.error('Error declining request:', err);
       setSnackbar({ open: true, message: 'Failed to decline request', severity: 'error' });
+    } finally {
+      if (uid) {
+        setActionLoadingIds((s) => {
+          const n = new Set(s);
+          n.delete(String(uid));
+          return n;
+        });
+      }
     }
   };
 
   const handleConnectFromFind = async (userId: string) => {
     const id = String(userId);
-    if (connectInFlightRef.current.has(id)) return;
+    const current = relationships[id]?.state ?? 'connect';
+    if (current === 'pending_sent' || current === 'connected' || current === 'pending_received') return;
 
-    const current = connectionButtonState[id] ?? 'connect';
-    if (current === 'pending' || current === 'connected') {
-      if (current === 'pending') {
-        setSnackbar({ open: true, message: 'Connection request already pending', severity: 'info' });
-      }
-      return;
-    }
-    if (current === 'loading') return;
-
-    connectInFlightRef.current.add(id);
-    setConnectionButtonState((s) => ({ ...s, [id]: 'loading' }));
-
+    setActionLoadingIds((s) => new Set(s).add(id));
     try {
-      await api.post(API_ENDPOINTS.NETWORK.SEND_REQUEST, {
-        receiver_id: userId,
-        message: "Hi! I'd like to connect with you on VerTechie.",
-      });
-      setConnectionButtonState((s) => ({ ...s, [id]: 'pending' }));
+      await sendConnectionRequest(userId);
+      setRelationships((prev) => ({ ...prev, [id]: { state: 'pending_sent' } }));
       fetchStats();
     } catch (error: unknown) {
       const kind = getConnectionErrorKind(error);
       if (kind === 'already_pending') {
-        setConnectionButtonState((s) => ({ ...s, [id]: 'pending' }));
+        setRelationships((prev) => ({ ...prev, [id]: { state: 'pending_sent' } }));
         setSnackbar({ open: true, message: 'Connection request already pending', severity: 'info' });
       } else if (kind === 'already_connected') {
-        setConnectionButtonState((s) => ({ ...s, [id]: 'connected' }));
+        setRelationships((prev) => ({ ...prev, [id]: { state: 'connected' } }));
       } else {
-        setConnectionButtonState((s) => ({ ...s, [id]: 'connect' }));
         setSnackbar({ open: true, message: 'Failed to send connection request', severity: 'error' });
       }
     } finally {
-      connectInFlightRef.current.delete(id);
+      setActionLoadingIds((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
     }
+  };
+
+  const handleMessageUser = (userId: string, name?: string) => {
+    navigate('/techie/chat', {
+      state: { startChatUser: { id: userId, name: name || 'User' } },
+    });
   };
 
   // Filter connections based on search
@@ -445,7 +463,51 @@ const MyNetwork: React.FC = () => {
         </Alert>
       )}
 
-      {/* Connections List — show first (your connections count + search + list) */}
+      {/* Pending Requests — top priority (LinkedIn-style invitations) */}
+      {pendingRequests.length > 0 && (
+        <StyledCard sx={{ mb: 3 }} id="pending-requests" ref={pendingSectionRef}>
+          <CardContent>
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Badge badgeContent={pendingRequests.length} color="error">
+                <PersonAdd />
+              </Badge>
+              Pending Invitations
+            </Typography>
+
+            {pendingRequests.map((user) => (
+              <Box
+                key={user.request_id || user.id}
+                sx={{ display: 'flex', alignItems: 'center', py: 2, borderBottom: '1px solid', borderColor: 'divider', gap: 1 }}
+              >
+                <ClickableProfileName
+                  userId={user.id}
+                  name={user.name}
+                  avatar={user.avatar}
+                  title={user.title}
+                  subtitle={
+                    user.mutual_connections
+                      ? `${user.mutual_connections} mutual connection${user.mutual_connections !== 1 ? 's' : ''}`
+                      : undefined
+                  }
+                  isVerified={user.is_verified}
+                  avatarSize={56}
+                />
+                <ConnectionActionButtons
+                  userId={user.id}
+                  relationship={{ state: 'pending_received', requestId: user.request_id }}
+                  loading={actionLoadingIds.has(String(user.id))}
+                  onConnect={handleConnectFromFind}
+                  onAccept={handleAcceptRequest}
+                  onDecline={handleDeclineRequest}
+                  onMessage={(id) => handleMessageUser(id, user.name)}
+                />
+              </Box>
+            ))}
+          </CardContent>
+        </StyledCard>
+      )}
+
+      {/* Connections List */}
       <StyledCard sx={{ mb: 3 }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -474,21 +536,19 @@ const MyNetwork: React.FC = () => {
             {!loading && filteredConnections.map(conn => (
               <Grid item xs={12} sm={6} key={conn.id}>
                 <ConnectionCard>
-                  <Avatar sx={{ bgcolor: 'primary.main', width: 56, height: 56 }}>
-                    {conn.name.charAt(0)}
-                  </Avatar>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      {conn.name}
-                      {conn.is_verified && <Verified sx={{ fontSize: 14, color: 'primary.main' }} />}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" noWrap>{conn.title}</Typography>
-                    <Typography variant="caption" color="text.secondary">{conn.company}</Typography>
-                  </Box>
+                  <ClickableProfileName
+                    userId={conn.id}
+                    name={conn.name}
+                    avatar={conn.avatar}
+                    title={conn.title}
+                    subtitle={conn.company}
+                    isVerified={conn.is_verified}
+                    avatarSize={56}
+                  />
                   <Button
                     variant="outlined"
                     size="small"
-                    sx={{ borderRadius: 2 }}
+                    sx={{ borderRadius: 2, flexShrink: 0 }}
                     onClick={() => handleMessageClick(conn)}
                   >
                     Message
@@ -611,61 +671,30 @@ const MyNetwork: React.FC = () => {
           {/* 2 profiles per row */}
           {!findLoading && findResults.length > 0 && (
             <Grid container spacing={2}>
-              {findResults.map((person) => {
-                const pid = String(person.id);
-                const st = connectionButtonState[pid] ?? 'connect';
-                const btnLabel =
-                  st === 'loading' ? 'Sending...' : st === 'pending' ? 'Pending' : st === 'connected' ? 'Connected' : 'Connect';
-                return (
+              {findResults.map((person) => (
                 <Grid item xs={12} sm={6} key={person.id}>
                   <ConnectionCard>
-                    <Avatar
-                      src={person.avatar && person.avatar.trim() ? person.avatar : undefined}
-                      sx={{ bgcolor: 'primary.main', width: 48, height: 48 }}
-                    >
-                      {(!person.avatar || !person.avatar.trim()) ? person.name.charAt(0) : null}
-                    </Avatar>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        {person.name}
-                        {person.is_verified && <Verified sx={{ fontSize: 14, color: 'primary.main' }} />}
-                      </Typography>
-                      {person.title && (
-                        <Typography variant="body2" color="text.secondary" noWrap>{person.title}</Typography>
-                      )}
-                      {person.company && (
-                        <Typography variant="caption" color="text.secondary" display="block">{person.company}</Typography>
-                      )}
-                      {person.location && (
-                        <Typography variant="caption" color="text.secondary" display="block">{person.location}</Typography>
-                      )}
-                      {person.mutual_connections != null && person.mutual_connections > 0 && (
-                        <Typography variant="caption" color="text.secondary">
-                          {person.mutual_connections} mutual connection{person.mutual_connections !== 1 ? 's' : ''}
-                        </Typography>
-                      )}
-                    </Box>
-                    <Button
-                      variant={st === 'connected' ? 'outlined' : 'contained'}
-                      color={st === 'connected' ? 'success' : 'primary'}
-                      size="small"
-                      sx={{ borderRadius: 2, minWidth: 108, textTransform: 'none', fontWeight: 600 }}
-                      disabled={st === 'loading' || st === 'pending' || st === 'connected'}
-                      onClick={() => handleConnectFromFind(person.id)}
-                      startIcon={
-                        st === 'loading' ? (
-                          <CircularProgress size={14} color="inherit" />
-                        ) : st === 'connect' ? (
-                          <PersonAdd />
-                        ) : undefined
-                      }
-                    >
-                      {btnLabel}
-                    </Button>
+                    <ClickableProfileName
+                      userId={person.id}
+                      name={person.name}
+                      avatar={person.avatar}
+                      title={person.title}
+                      subtitle={[person.company, person.location].filter(Boolean).join(' · ') || undefined}
+                      isVerified={person.is_verified}
+                      avatarSize={48}
+                    />
+                    <ConnectionActionButtons
+                      userId={person.id}
+                      relationship={relationships[String(person.id)]}
+                      loading={actionLoadingIds.has(String(person.id))}
+                      onConnect={handleConnectFromFind}
+                      onAccept={handleAcceptRequest}
+                      onDecline={handleDeclineRequest}
+                      onMessage={(id) => handleMessageUser(id, person.name)}
+                    />
                   </ConnectionCard>
                 </Grid>
-                );
-              })}
+              ))}
             </Grid>
           )}
 
@@ -693,56 +722,6 @@ const MyNetwork: React.FC = () => {
           )}
         </CardContent>
       </StyledCard>
-
-      {/* Pending Requests */}
-      {pendingRequests.length > 0 && (
-        <StyledCard sx={{ mb: 3 }} id="pending-requests" ref={pendingSectionRef}>
-          <CardContent>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Badge badgeContent={pendingRequests.length} color="error">
-                <PersonAdd />
-              </Badge>
-              Pending Invitations
-            </Typography>
-            
-            {pendingRequests.map(user => (
-              <Box key={user.request_id || user.id} sx={{ display: 'flex', alignItems: 'center', py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                <Avatar sx={{ bgcolor: 'primary.main', width: 56, height: 56, mr: 2 }}>
-                  {user.name.charAt(0)}
-                </Avatar>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    {user.name}
-                    {user.is_verified && <Verified sx={{ fontSize: 16, color: 'primary.main' }} />}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">{user.title}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {user.mutual_connections} mutual connections
-                  </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button 
-                    variant="contained" 
-                    size="small" 
-                    sx={{ borderRadius: 2 }}
-                    onClick={() => user.request_id && handleAcceptRequest(user.request_id)}
-                  >
-                    Accept
-                  </Button>
-                  <Button 
-                    variant="outlined" 
-                    size="small" 
-                    sx={{ borderRadius: 2 }}
-                    onClick={() => user.request_id && handleDeclineRequest(user.request_id)}
-                  >
-                    Ignore
-                  </Button>
-                </Box>
-              </Box>
-            ))}
-          </CardContent>
-        </StyledCard>
-      )}
 
       {/* Snackbar */}
       <Snackbar
