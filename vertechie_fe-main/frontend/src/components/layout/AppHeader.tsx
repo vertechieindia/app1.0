@@ -37,7 +37,13 @@ import { styled, alpha } from '@mui/material/styles';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
 import resolveAssetPath from '../../utils/assetResolver';
 import { getApiUrl } from '../../config/api';
+import { isSupportStaffUser } from '../../services/supportService';
 import { ATS_NAV_ITEMS, isAtsNavItemActive } from '../../pages/techie/ats/atsNavConfig';
+import { HOME_NAV_ITEMS, isHomeNavItemActive } from '../../pages/network/homeNavConfig';
+import { SMS_NAV_ITEMS, isSmsNavItemActive } from '../../pages/techie/sms/smsNavConfig';
+import JobHeaderSearchBar from '../jobs/JobHeaderSearchBar';
+import BlogHeaderSearchBar from '../blogs/BlogHeaderSearchBar';
+import MyInterviewsHeaderShell from '../interviews/MyInterviewsHeaderShell';
 import { chatService } from '../../services/chatService';
 import { notificationService } from '../../services/interviewService';
 
@@ -202,7 +208,7 @@ let lastMessageFetchAt = 0;
 
 const AppHeader = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [atsMenuAnchor, setAtsMenuAnchor] = useState<null | HTMLElement>(null);
+  const [shellMenuAnchor, setShellMenuAnchor] = useState<null | HTMLElement>(null);
   const [profileAnchor, setProfileAnchor] = useState<null | HTMLElement>(null);
   const [userRole, setUserRole] = useState<UserRole>('techie');
   const [displayRoleLabel, setDisplayRoleLabel] = useState(roleLabels.techie);
@@ -463,7 +469,24 @@ const AppHeader = () => {
   };
 
   const isAtsShell = location.pathname.startsWith('/techie/ats');
-  const activeAtsItem = ATS_NAV_ITEMS.find((item) => isAtsNavItemActive(location.pathname, item.path)) || ATS_NAV_ITEMS[0];
+  const isHomeShell = location.pathname.startsWith('/techie/home');
+  const isJobsListPage = location.pathname === '/techie/jobs' || location.pathname === '/jobs';
+  const isBlogsListPage = location.pathname === '/techie/blogs';
+  const isMyInterviewsPage = location.pathname === '/techie/my-interviews';
+  const isSmsShell = location.pathname.startsWith('/techie/sms');
+  const shellNav =
+    isJobsListPage || isBlogsListPage || isMyInterviewsPage
+      ? null
+      : isAtsShell
+        ? { items: ATS_NAV_ITEMS, isActive: isAtsNavItemActive, ariaLabel: 'ATS sections', switchLabel: 'Switch ATS tab' }
+        : isHomeShell
+          ? { items: HOME_NAV_ITEMS, isActive: isHomeNavItemActive, ariaLabel: 'Home sections', switchLabel: 'Switch Home tab' }
+          : isSmsShell
+            ? { items: SMS_NAV_ITEMS, isActive: isSmsNavItemActive, ariaLabel: 'School management sections', switchLabel: 'Switch SMS tab' }
+            : null;
+  const activeShellItem = shellNav
+    ? shellNav.items.find((item) => shellNav.isActive(location.pathname, item.path)) || shellNav.items[0]
+    : null;
 
   const navItems = roleNavConfig[userRole] || roleNavConfig.techie;
 
@@ -620,7 +643,7 @@ const AppHeader = () => {
             alignItems: 'center',
             textDecoration: 'none',
             flexShrink: 0,
-            mr: isAtsShell ? { xs: 0.5, sm: 1 } : 3,
+            mr: shellNav || isJobsListPage || isBlogsListPage || isMyInterviewsPage ? { xs: 0.5, sm: 1 } : 3,
           }}
         >
           <LogoImage src={resolveAssetPath('images/logo/vertechie-logo.svg')} alt="VerTechie" />
@@ -639,7 +662,13 @@ const AppHeader = () => {
           </Typography>
         </Box>
 
-        {isAtsShell ? (
+        {isJobsListPage ? (
+          <JobHeaderSearchBar />
+        ) : isBlogsListPage ? (
+          <BlogHeaderSearchBar />
+        ) : isMyInterviewsPage ? (
+          <MyInterviewsHeaderShell />
+        ) : shellNav && activeShellItem ? (
           isMobile ? (
             <Box
               sx={{
@@ -654,9 +683,9 @@ const AppHeader = () => {
             >
               <Box
                 component={RouterLink}
-                to={activeAtsItem.path}
-                aria-label={activeAtsItem.label}
-                title={activeAtsItem.label}
+                to={activeShellItem.path}
+                aria-label={activeShellItem.label}
+                title={activeShellItem.label}
                 sx={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -671,11 +700,11 @@ const AppHeader = () => {
                   '& svg': { fontSize: 18 },
                 }}
               >
-                {activeAtsItem.icon}
+                {activeShellItem.icon}
               </Box>
-              <Tooltip title="Switch ATS tab">
+              <Tooltip title={shellNav.switchLabel}>
                 <IconButton
-                  onClick={(e) => setAtsMenuAnchor(e.currentTarget)}
+                  onClick={(e) => setShellMenuAnchor(e.currentTarget)}
                   sx={{ ml: 0.5, color: 'rgba(255,255,255,0.9)', flexShrink: 0 }}
                   size="small"
                 >
@@ -686,14 +715,15 @@ const AppHeader = () => {
           ) : (
           <Box
             component="nav"
-            aria-label="ATS sections"
+            aria-label={shellNav.ariaLabel}
             sx={{
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'space-evenly',
               flex: '1 1 0%',
               minWidth: 0,
-              ml: { xs: 0.5, sm: 2, md: 3 },
-              gap: { xs: 0, sm: 0.25 },
+              mx: { xs: 0.5, sm: 1.5, md: 2 },
+              gap: { xs: 0.25, sm: 0.5 },
               overflowX: 'auto',
               overflowY: 'hidden',
               py: 0.5,
@@ -705,8 +735,8 @@ const AppHeader = () => {
               },
             }}
           >
-            {ATS_NAV_ITEMS.map((item) => {
-              const active = isAtsNavItemActive(location.pathname, item.path);
+            {shellNav.items.map((item) => {
+              const active = shellNav.isActive(location.pathname, item.path);
               return (
                 <Box
                   key={item.path}
@@ -750,8 +780,9 @@ const AppHeader = () => {
         )}
 
         {/* Right Side Actions */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, ml: shellNav || isJobsListPage || isBlogsListPage || isMyInterviewsPage ? { xs: 0.5, sm: 1 } : 0 }}>
           {/* Inline Search Bar */}
+          {!isJobsListPage && !isBlogsListPage && (
           <Box sx={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
             {/* Expanding Search Input */}
             <Box
@@ -841,6 +872,7 @@ const AppHeader = () => {
               </IconButton>
             </Tooltip>
           </Box>
+          )}
 
           {/* Messages */}
           <Tooltip title="Messages">
@@ -903,52 +935,54 @@ const AppHeader = () => {
             <KeyboardArrowDownIcon sx={{ color: 'rgba(255,255,255,0.6)' }} />
           </Box>
 
-          <Menu
-            anchorEl={atsMenuAnchor}
-            open={Boolean(atsMenuAnchor)}
-            onClose={() => setAtsMenuAnchor(null)}
-            MenuListProps={{
-              dense: true,
-              sx: {
-                maxHeight: 360,
-                overflowY: 'auto',
-              },
-            }}
-            PaperProps={{
-              sx: {
-                mt: 1.2,
-                minWidth: 220,
-                maxHeight: 360,
-                background: 'linear-gradient(180deg, #1a237e 0%, #0d47a1 100%)',
-                color: 'white',
-                border: '1px solid rgba(90, 200, 250, 0.2)',
-                boxShadow: '0 8px 32px rgba(13, 71, 161, 0.3)',
-              },
-            }}
-          >
-            {ATS_NAV_ITEMS.map((item) => {
-              const active = isAtsNavItemActive(location.pathname, item.path);
-              return (
-                <MenuItem
-                  key={item.path}
-                  onClick={() => {
-                    navigate(item.path);
-                    setAtsMenuAnchor(null);
-                  }}
-                  sx={{
-                    py: 1.2,
-                    color: active ? '#5AC8FA' : 'rgba(255,255,255,0.9)',
-                    bgcolor: active ? alpha('#5AC8FA', 0.12) : 'transparent',
-                  }}
-                >
-                  <ListItemIcon sx={{ color: 'inherit', minWidth: 34 }}>
-                    {item.icon}
-                  </ListItemIcon>
-                  {item.label}
-                </MenuItem>
-              );
-            })}
-          </Menu>
+          {shellNav && (
+            <Menu
+              anchorEl={shellMenuAnchor}
+              open={Boolean(shellMenuAnchor)}
+              onClose={() => setShellMenuAnchor(null)}
+              MenuListProps={{
+                dense: true,
+                sx: {
+                  maxHeight: 360,
+                  overflowY: 'auto',
+                },
+              }}
+              PaperProps={{
+                sx: {
+                  mt: 1.2,
+                  minWidth: 220,
+                  maxHeight: 360,
+                  background: 'linear-gradient(180deg, #1a237e 0%, #0d47a1 100%)',
+                  color: 'white',
+                  border: '1px solid rgba(90, 200, 250, 0.2)',
+                  boxShadow: '0 8px 32px rgba(13, 71, 161, 0.3)',
+                },
+              }}
+            >
+              {shellNav.items.map((item) => {
+                const active = shellNav.isActive(location.pathname, item.path);
+                return (
+                  <MenuItem
+                    key={item.path}
+                    onClick={() => {
+                      navigate(item.path);
+                      setShellMenuAnchor(null);
+                    }}
+                    sx={{
+                      py: 1.2,
+                      color: active ? '#5AC8FA' : 'rgba(255,255,255,0.9)',
+                      bgcolor: active ? alpha('#5AC8FA', 0.12) : 'transparent',
+                    }}
+                  >
+                    <ListItemIcon sx={{ color: 'inherit', minWidth: 34 }}>
+                      {item.icon}
+                    </ListItemIcon>
+                    {item.label}
+                  </MenuItem>
+                );
+              })}
+            </Menu>
+          )}
 
           <Menu
             anchorEl={profileAnchor}
@@ -1032,7 +1066,7 @@ const AppHeader = () => {
 
             <MenuItem
               onClick={() => {
-                window.location.href = 'https://vertechie.com/contact';
+                navigate('/help');
                 setProfileAnchor(null);
               }}
               sx={{ py: 1.5 }}
@@ -1042,6 +1076,20 @@ const AppHeader = () => {
               </ListItemIcon>
               Help Center
             </MenuItem>
+            {isSupportStaffUser() && (
+              <MenuItem
+                onClick={() => {
+                  navigate('/vertechie/support');
+                  setProfileAnchor(null);
+                }}
+                sx={{ py: 1.5 }}
+              >
+                <ListItemIcon sx={{ color: '#5AC8FA' }}>
+                  <AdminPanelSettingsIcon />
+                </ListItemIcon>
+                Support Dashboard
+              </MenuItem>
+            )}
             <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
             <MenuItem
               onClick={handleLogout}

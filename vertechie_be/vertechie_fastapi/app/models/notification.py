@@ -28,8 +28,16 @@ class NotificationType(str, enum.Enum):
     JOB_MATCH = "job_match"
     MESSAGE = "message"
     SYSTEM = "system"
+    CONNECTION_REQUEST = "connection_request"
+    CONNECTION_ACCEPTED = "connection_accepted"
     OFFER_RECEIVED = "offer_received"
     PROFILE_VIEW = "profile_view"
+    SUPPORT_TICKET_CREATED = "support_ticket_created"
+    SUPPORT_TICKET_ASSIGNED = "support_ticket_assigned"
+    SUPPORT_TICKET_RESPONSE = "support_ticket_response"
+    SUPPORT_TICKET_STATUS_CHANGED = "support_ticket_status_changed"
+    SUPPORT_TICKET_RESOLVED = "support_ticket_resolved"
+    SUPPORT_TICKET_CLOSED = "support_ticket_closed"
 
 
 class Notification(Base):

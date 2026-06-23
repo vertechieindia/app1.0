@@ -39,6 +39,12 @@ from app.core.access_role_utils import (
     generate_internal_name,
     get_or_create_empty_permission_role,
     get_or_create_default_permission_role,
+    pick_canonical_assignable_admin_roles,
+    list_assignable_staff_access_roles,
+    normalize_role_name,
+    slugify_admin_role_code,
+    infer_role_type_from_role_name,
+    admin_role_code_for_role_name,
 )
 from sqlalchemy.orm import selectinload
 
@@ -512,18 +518,22 @@ _VALID_ROLE_TYPE_VALUES = (
 
 
 class GroupCreateRequest(BaseModel):
-    """Create Access Role: label is auto-generated from admin type + permissions (no duplicate type+permission set)."""
+    """Create Access Role: unique role name + permissions."""
 
-    role_type: str = Field(
+    role_name: str = Field(
         ...,
         min_length=1,
-        description="One of: super_admin, company_admin, school_admin, hiring_manager, techie, bdm_admin, learn_admin, requirements_team, screener",
+        max_length=255,
+        description="Unique display name, e.g. Learn Admin, Finance Admin",
     )
     description: Optional[str] = None
     permission_ids: List[Any] = []
+    # Deprecated — inferred from role_name when omitted
+    role_type: Optional[str] = None
 
 
 class GroupUpdateRequest(BaseModel):
+    role_name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     is_active: Optional[bool] = None
     permission_ids: Optional[List[Any]] = None
@@ -550,17 +560,13 @@ def _serialize_permissions(codes: Optional[List[Any]]) -> List[PermissionRespons
 
 
 def _to_group_response(role: UserRole, user_count: int) -> GroupResponse:
-    """API shape: labels derived from role_type + permissions (not stale DB display_label)."""
-    if role.role_type is not None:
-        rt_enum = role.role_type
-        rt = rt_enum.value
-    else:
-        rt = "unknown"
-        rt_enum = RoleType.TECHIE
+    """API shape: user-defined display_label + permission summary."""
+    rt = role.role_type.value if role.role_type is not None else "unknown"
+    label = normalize_role_name(role.display_label or role.name or "Access role")
     return GroupResponse(
         id=role.id,
         name=role.name,
-        display_label=build_display_label(rt_enum, role.permissions),
+        display_label=label,
         permission_summary=build_permission_summary(role.permissions),
         role_type=rt,
         description=role.description,
@@ -570,8 +576,48 @@ def _to_group_response(role: UserRole, user_count: int) -> GroupResponse:
     )
 
 
+async def _access_role_name_exists(
+    db: AsyncSession,
+    role_name: str,
+    *,
+    exclude_id: Optional[UUID] = None,
+) -> bool:
+    normalized = normalize_role_name(role_name).lower()
+    if not normalized:
+        return False
+    q = select(UserRole.id).where(
+        func.lower(func.trim(UserRole.display_label)) == normalized
+    )
+    if exclude_id is not None:
+        q = q.where(UserRole.id != exclude_id)
+    result = await db.execute(q)
+    return result.scalar_one_or_none() is not None
+
+
+async def _access_role_code_exists(
+    db: AsyncSession,
+    code: str,
+    *,
+    exclude_id: Optional[UUID] = None,
+) -> bool:
+    normalized = str(code or "").strip().lower()
+    if not normalized:
+        return False
+    q = select(UserRole.id).where(
+        func.lower(UserRole.admin_role_code) == normalized
+    )
+    if exclude_id is not None:
+        q = q.where(UserRole.id != exclude_id)
+    result = await db.execute(q)
+    return result.scalar_one_or_none() is not None
+
+
 @router.get("/groups/", response_model=List[GroupResponse])
 async def list_groups(
+    assignable_for_admin: bool = Query(
+        False,
+        description="When true, return one canonical non-empty role per admin type (Create Admin dropdown).",
+    ),
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ) -> Any:
@@ -579,6 +625,8 @@ async def list_groups(
     
     result = await db.execute(select(UserRole))
     roles = result.scalars().all()
+    if assignable_for_admin:
+        roles = list_assignable_staff_access_roles(roles)
     
     groups = []
     for role in roles:
@@ -602,6 +650,16 @@ async def create_group(
     current_admin: User = Depends(get_current_admin_user),
 ) -> Any:
     """Create a role/group used in Access Roles tab."""
+    role_name = normalize_role_name(body.role_name)
+    if not role_name:
+        raise HTTPException(status_code=400, detail="Role name is required.")
+
+    if await _access_role_name_exists(db, role_name):
+        raise HTTPException(
+            status_code=409,
+            detail=f'"{role_name}" role already exists. Please edit the existing role instead.',
+        )
+
     normalized_permissions = _normalize_permission_codes(body.permission_ids or [])
     stored_codes = sorted_unique_permission_codes(normalized_permissions)
     if not stored_codes:
@@ -610,27 +668,26 @@ async def create_group(
             detail="Select at least one permission for this access role.",
         )
 
-    raw_rt = str(body.role_type).strip().lower()
-    try:
-        role_type = RoleType(raw_rt)
-    except ValueError:
+    if body.role_type:
+        raw_rt = str(body.role_type).strip().lower()
+        try:
+            role_type = RoleType(raw_rt)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid role_type '{body.role_type}'.",
+            )
+    else:
+        role_type = infer_role_type_from_role_name(role_name)
+
+    admin_code = admin_role_code_for_role_name(role_name, role_type)
+    if await _access_role_code_exists(db, admin_code):
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid role_type '{body.role_type}'. Use one of: {', '.join(_VALID_ROLE_TYPE_VALUES)}",
+            status_code=409,
+            detail=f'"{role_name}" role already exists. Please edit the existing role instead.',
         )
 
     sig = compute_permission_signature(stored_codes)
-    dup = await db.execute(
-        select(UserRole.id).where(
-            UserRole.role_type == role_type,
-            UserRole.permission_signature == sig,
-        )
-    )
-    if dup.scalar_one_or_none():
-        raise HTTPException(
-            status_code=409,
-            detail="This permission set already exists for the selected admin type.",
-        )
 
     role = UserRole(
         name=generate_internal_name(),
@@ -638,7 +695,8 @@ async def create_group(
         description=body.description,
         permissions=stored_codes,
         permission_signature=sig,
-        display_label=build_display_label(role_type, stored_codes),
+        display_label=role_name,
+        admin_role_code=admin_code,
         is_active=True,
     )
     db.add(role)
@@ -655,11 +713,40 @@ async def update_group(
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user),
 ) -> Any:
-    """Update role metadata/permissions used in Access Roles tab."""
+    """Update role name/permissions — all assigned users receive updated permissions automatically."""
     result = await db.execute(select(UserRole).where(UserRole.id == group_id))
     role = result.scalar_one_or_none()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
+
+    if body.role_name is not None:
+        role_name = normalize_role_name(body.role_name)
+        if not role_name:
+            raise HTTPException(status_code=400, detail="Role name is required.")
+        if await _access_role_name_exists(db, role_name, exclude_id=role.id):
+            raise HTTPException(
+                status_code=409,
+                detail=f'"{role_name}" role already exists. Please edit the existing role instead.',
+            )
+        admin_code = admin_role_code_for_role_name(role_name, role.role_type)
+        if await _access_role_code_exists(db, admin_code, exclude_id=role.id):
+            raise HTTPException(
+                status_code=409,
+                detail=f'"{role_name}" role already exists. Please edit the existing role instead.',
+            )
+        role.display_label = role_name
+        role.admin_role_code = admin_code
+        if body.role_type is None:
+            role.role_type = infer_role_type_from_role_name(role_name)
+
+        users_result = await db.execute(
+            select(User)
+            .join(user_roles, user_roles.c.user_id == User.id)
+            .where(user_roles.c.role_id == role.id)
+        )
+        for user in users_result.scalars().unique().all():
+            user.admin_roles = [admin_code]
+            user.is_superuser = admin_code == "superadmin"
 
     if body.description is not None:
         role.description = body.description
@@ -685,28 +772,9 @@ async def update_group(
             )
         role.permissions = stored_codes
 
-    if body.role_type is not None or body.permission_ids is not None:
+    if body.permission_ids is not None:
         stored_codes = sorted_unique_permission_codes(role.permissions or [])
-        if not stored_codes:
-            raise HTTPException(
-                status_code=400,
-                detail="Select at least one permission for this access role.",
-            )
-        sig = compute_permission_signature(stored_codes)
-        dup = await db.execute(
-            select(UserRole.id).where(
-                UserRole.role_type == role.role_type,
-                UserRole.permission_signature == sig,
-                UserRole.id != role.id,
-            )
-        )
-        if dup.scalar_one_or_none():
-            raise HTTPException(
-                status_code=409,
-                detail="This permission set already exists for the selected admin type.",
-            )
-        role.permission_signature = sig
-        role.display_label = build_display_label(role.role_type, stored_codes)
+        role.permission_signature = compute_permission_signature(stored_codes)
 
     await db.commit()
     await db.refresh(role)

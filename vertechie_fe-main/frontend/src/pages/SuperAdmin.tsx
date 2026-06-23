@@ -375,6 +375,7 @@ const AnimatedButton = styled(Button)(({ theme }) => ({
   padding: '10px 24px',
   fontWeight: 600,
   textTransform: 'none',
+  color: '#ffffff',
   background: 'linear-gradient(90deg, rgb(70, 73, 198), rgb(183, 55, 119))',
   backgroundSize: '200% 200%',
   animation: `${gradientShift} 5s ease infinite`,
@@ -386,6 +387,21 @@ const AnimatedButton = styled(Button)(({ theme }) => ({
   },
   '&:active': {
     transform: 'translateY(0)',
+  },
+  '&.Mui-disabled': {
+    color: '#ffffff !important',
+    opacity: 0.55,
+    cursor: 'not-allowed',
+    pointerEvents: 'auto',
+    background: 'linear-gradient(90deg, rgb(70, 73, 198), rgb(183, 55, 119))',
+    animation: 'none',
+    transform: 'none',
+    boxShadow: '0 4px 15px rgba(70, 73, 198, 0.2)',
+  },
+  '&.Mui-disabled:hover': {
+    transform: 'none',
+    boxShadow: '0 4px 15px rgba(70, 73, 198, 0.2)',
+    cursor: 'not-allowed',
   },
   [theme.breakpoints.down('sm')]: {
     padding: '8px 16px',
@@ -559,6 +575,35 @@ const roleDisplayLabel = (r: Role) => r.display_label?.trim() || r.name;
 const roleSubtitle = (r: Role) =>
   (r.permission_summary?.trim() || r.description?.trim() || '');
 
+const ASSIGNABLE_ADMIN_ROLE_TYPES = new Set([
+  'super_admin',
+  'company_admin',
+  'school_admin',
+  'hiring_manager',
+  'techie',
+  'bdm_admin',
+  'learn_admin',
+  'requirements_team',
+  'screener',
+  'tech_screener',
+]);
+
+/** Client fallback when assignable API is unavailable. */
+const pickCanonicalAssignableRoles = (allRoles: Role[]): Role[] => {
+  const withPerms = allRoles.filter((r) => (r.permissions?.length ?? 0) > 0);
+  const byName = new Map<string, Role>();
+  for (const role of withPerms) {
+    const key = roleDisplayLabel(role).toLowerCase();
+    if (!key) continue;
+    if (!byName.has(key)) {
+      byName.set(key, role);
+    }
+  }
+  return Array.from(byName.values()).sort((a, b) =>
+    roleDisplayLabel(a).localeCompare(roleDisplayLabel(b))
+  );
+};
+
 const renderAssignableRoleSelectValue = (selectedId: string, roles: Role[]) => {
   const r = roles.find((x) => String(x.id) === selectedId);
   if (!r) return '';
@@ -633,6 +678,45 @@ const getAssignableRoleMenuStyle = (roleType: string | undefined) => {
   );
 };
 
+const AssignableRoleMenuItem: React.FC<{ role: Role }> = ({ role }) => {
+  const menuStyle = getAssignableRoleMenuStyle(role.role_type);
+  const subtitle = roleSubtitle(role);
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%', minWidth: 0 }}>
+      <Box
+        sx={{
+          width: 42,
+          height: 42,
+          borderRadius: 2,
+          background: menuStyle.gradient,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#fff',
+          flexShrink: 0,
+          boxShadow: '0 2px 10px rgba(15, 23, 42, 0.15)',
+        }}
+      >
+        {menuStyle.icon}
+      </Box>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a', lineHeight: 1.3 }}>
+          {roleDisplayLabel(role)}
+        </Typography>
+        {subtitle ? (
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: 'block', lineHeight: 1.35, mt: 0.25 }}
+          >
+            {subtitle}
+          </Typography>
+        ) : null}
+      </Box>
+    </Box>
+  );
+};
+
 /** Maps users.admin_roles[0] to API role_type on UserRole */
 const ADMIN_CODE_TO_ROLE_TYPE: Record<string, string> = {
   superadmin: 'super_admin',
@@ -647,19 +731,29 @@ const ADMIN_CODE_TO_ROLE_TYPE: Record<string, string> = {
   tech_screener_admin: 'tech_screener',
 };
 
-/** Matches backend RoleType enum (POST /groups/ role_type) — required when creating a role */
-const PLATFORM_ROLE_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'super_admin', label: 'Super Admin' },
-  { value: 'company_admin', label: 'Company Admin' },
-  { value: 'school_admin', label: 'School Admin' },
-  { value: 'hiring_manager', label: 'Hiring Manager (HM Admin)' },
-  { value: 'techie', label: 'Techie Admin' },
-  { value: 'bdm_admin', label: 'BDM Admin' },
-  { value: 'learn_admin', label: 'Learn Admin' },
-  { value: 'requirements_team', label: 'Requirements Admin' },
-  { value: 'screener', label: 'Screener Admin' },
-  { value: 'tech_screener', label: 'Tech Screener (Enterprise)' },
+/** Predefined access role names (dropdown) — labels match backend unique role_name. */
+const ACCESS_ROLE_NAME_OPTIONS: { label: string; roleType: string }[] = [
+  { label: 'Super Admin', roleType: 'super_admin' },
+  { label: 'Techie Admin', roleType: 'techie' },
+  { label: 'HM Admin', roleType: 'hiring_manager' },
+  { label: 'Company Admin', roleType: 'company_admin' },
+  { label: 'School Admin', roleType: 'school_admin' },
+  { label: 'BDM Admin', roleType: 'bdm_admin' },
+  { label: 'Learn Admin', roleType: 'learn_admin' },
+  { label: 'Requirements Admin', roleType: 'requirements_team' },
+  { label: 'Screener Admin', roleType: 'screener' },
+  { label: 'Tech Screener Admin', roleType: 'tech_screener' },
+  { label: 'Finance Admin', roleType: 'staff_admin' },
+  { label: 'HR Admin', roleType: 'staff_admin' },
+  { label: 'Operations Admin', roleType: 'staff_admin' },
+  { label: 'Support Admin', roleType: 'staff_admin' },
 ];
+
+/** @deprecated use ACCESS_ROLE_NAME_OPTIONS */
+const PLATFORM_ROLE_TYPE_OPTIONS = ACCESS_ROLE_NAME_OPTIONS.map((o) => ({
+  value: o.roleType,
+  label: o.label,
+}));
 
 /**
  * When true, restores the previous UI: accordion with one checkbox per permission.
@@ -837,24 +931,8 @@ const SuperAdmin: React.FC = () => {
 
   // Role Management States
   const [roles, setRoles] = useState<Role[]>([]);
-  /** Roles that can be assigned to platform admins (Option 1) */
-  const assignableRoles = useMemo(() => {
-    const allowed = new Set([
-      'super_admin',
-      'company_admin',
-      'school_admin',
-      'hiring_manager',
-      'techie',
-      'bdm_admin',
-      'learn_admin',
-      'requirements_team',
-      'screener',
-      'tech_screener',
-    ]);
-    return roles.filter(
-      (r) => r.role_type && allowed.has(String(r.role_type).toLowerCase())
-    );
-  }, [roles]);
+  /** Canonical roles for Create/Edit Admin dropdown (one per admin type, non-empty permissions). */
+  const [assignableRoles, setAssignableRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [loadingRoles, setLoadingRoles] = useState(false);
   const [loadingPermissions, setLoadingPermissions] = useState(false);
@@ -862,10 +940,40 @@ const SuperAdmin: React.FC = () => {
   const [editRoleDialog, setEditRoleDialog] = useState(false);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [roleForm, setRoleForm] = useState({
-    /** Backend RoleType enum value (required for create/update) */
+    roleName: '',
     roleType: '',
     selectedPermissions: [] as (string | number)[],
   });
+
+  const existingRoleNameSet = useMemo(
+    () => new Set(roles.map((r) => roleDisplayLabel(r).toLowerCase())),
+    [roles],
+  );
+
+  const roleNameDropdownOptions = useMemo(() => {
+    if (editRoleDialog && selectedRole) {
+      const current = roleDisplayLabel(selectedRole);
+      const inList = ACCESS_ROLE_NAME_OPTIONS.some(
+        (o) => o.label.toLowerCase() === current.toLowerCase(),
+      );
+      if (!inList) {
+        return [
+          { label: current, roleType: selectedRole.role_type || 'staff_admin' },
+          ...ACCESS_ROLE_NAME_OPTIONS,
+        ];
+      }
+      return ACCESS_ROLE_NAME_OPTIONS;
+    }
+    return ACCESS_ROLE_NAME_OPTIONS;
+  }, [editRoleDialog, selectedRole]);
+
+  const creatableRoleNameCount = useMemo(
+    () =>
+      ACCESS_ROLE_NAME_OPTIONS.filter(
+        (o) => !existingRoleNameSet.has(o.label.toLowerCase()),
+      ).length,
+    [existingRoleNameSet],
+  );
   const [roleSearchQuery, setRoleSearchQuery] = useState('');
   const [expandedRoleId, setExpandedRoleId] = useState<string | number | null>(null);
   const [permissionSearchQuery, setPermissionSearchQuery] = useState('');
@@ -1310,6 +1418,36 @@ const SuperAdmin: React.FC = () => {
     }
   }, []);
 
+  const fetchAssignableRoles = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) return;
+
+      const url = `${getApiUrl(API_ENDPOINTS.GROUPS)}?assignable_for_admin=true`;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const rolesArray = Array.isArray(data) ? data : data.results || [];
+        setAssignableRoles(rolesArray);
+      }
+    } catch (error) {
+      console.error('Error fetching assignable roles:', error);
+    }
+  }, []);
+
+  // Keep assignable dropdown in sync when full role list loads (fallback)
+  React.useEffect(() => {
+    if (assignableRoles.length === 0 && roles.length > 0) {
+      setAssignableRoles(pickCanonicalAssignableRoles(roles));
+    }
+  }, [roles, assignableRoles.length]);
+
   // Fetch Permissions - Handle Pagination to get ALL permissions
   const fetchPermissions = useCallback(async () => {
     setLoadingPermissions(true);
@@ -1364,9 +1502,11 @@ const SuperAdmin: React.FC = () => {
         case 0:
           fetchAdmins();
           fetchRoles();
+          fetchAssignableRoles();
           break;
         case 1:
           fetchRoles();
+          fetchAssignableRoles();
           fetchPermissions();
           break;
         case 2:
@@ -1386,6 +1526,7 @@ const SuperAdmin: React.FC = () => {
       fetchAdmins,
       fetchUsers,
       fetchRoles,
+      fetchAssignableRoles,
       fetchPermissions,
       fetchBlockedProfiles,
       fetchPendingApprovals,
@@ -1762,8 +1903,9 @@ const SuperAdmin: React.FC = () => {
 
   // Create Role
   const handleCreateRole = async () => {
-    if (!roleForm.roleType) {
-      setSnackbar({ open: true, message: 'Role type is required', severity: 'error' });
+    const roleName = roleForm.roleName.trim().replace(/\s+/g, ' ');
+    if (!roleName) {
+      setSnackbar({ open: true, message: 'Role name is required', severity: 'error' });
       return;
     }
     if (!roleForm.selectedPermissions?.length) {
@@ -1780,7 +1922,8 @@ const SuperAdmin: React.FC = () => {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          role_type: roleForm.roleType,
+          role_name: roleName,
+          role_type: roleForm.roleType || undefined,
           permission_ids: roleForm.selectedPermissions,
         }),
       });
@@ -1788,8 +1931,9 @@ const SuperAdmin: React.FC = () => {
       if (response.ok) {
         setSnackbar({ open: true, message: 'Role created successfully', severity: 'success' });
         setCreateRoleDialog(false);
-        setRoleForm({ roleType: '', selectedPermissions: [] });
+        setRoleForm({ roleName: '', roleType: '', selectedPermissions: [] });
         fetchRoles();
+        fetchAssignableRoles();
       } else {
         const data = await response.json();
         setSnackbar({ open: true, message: data.detail || data.name?.[0] || 'Failed to create role', severity: 'error' });
@@ -1805,8 +1949,9 @@ const SuperAdmin: React.FC = () => {
       setSnackbar({ open: true, message: 'No role selected', severity: 'error' });
       return;
     }
-    if (!roleForm.roleType) {
-      setSnackbar({ open: true, message: 'Role type is required', severity: 'error' });
+    const roleName = roleForm.roleName.trim().replace(/\s+/g, ' ');
+    if (!roleName) {
+      setSnackbar({ open: true, message: 'Role name is required', severity: 'error' });
       return;
     }
     if (!roleForm.selectedPermissions?.length) {
@@ -1823,17 +1968,21 @@ const SuperAdmin: React.FC = () => {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          role_type: roleForm.roleType,
           permission_ids: roleForm.selectedPermissions,
         }),
       });
 
       if (response.ok) {
-        setSnackbar({ open: true, message: 'Role updated successfully', severity: 'success' });
+        setSnackbar({
+          open: true,
+          message: 'Role updated — permissions apply to all assigned admins',
+          severity: 'success',
+        });
         setEditRoleDialog(false);
         setSelectedRole(null);
-        setRoleForm({ roleType: '', selectedPermissions: [] });
+        setRoleForm({ roleName: '', roleType: '', selectedPermissions: [] });
         fetchRoles();
+        fetchAssignableRoles();
       } else {
         const data = await response.json();
         setSnackbar({ open: true, message: data.detail || 'Failed to update role', severity: 'error' });
@@ -1859,6 +2008,7 @@ const SuperAdmin: React.FC = () => {
       if (response.ok) {
         setSnackbar({ open: true, message: 'Role deleted successfully', severity: 'success' });
         fetchRoles();
+        fetchAssignableRoles();
       } else {
         setSnackbar({ open: true, message: 'Failed to delete role', severity: 'error' });
       }
@@ -1870,8 +2020,13 @@ const SuperAdmin: React.FC = () => {
   // Open Edit Role Dialog
   const handleEditRole = (role: Role) => {
     setSelectedRole(role);
+    const label = roleDisplayLabel(role);
+    const opt = ACCESS_ROLE_NAME_OPTIONS.find(
+      (o) => o.label.toLowerCase() === label.toLowerCase(),
+    );
     setRoleForm({
-      roleType: role.role_type || '',
+      roleName: label,
+      roleType: role.role_type || opt?.roleType || '',
       selectedPermissions: role.permissions.map(p => p.id),
     });
     setEditRoleDialog(true);
@@ -2714,7 +2869,7 @@ const SuperAdmin: React.FC = () => {
                     <AnimatedButton
                       startIcon={<Add />}
                       onClick={() => {
-                        setRoleForm({ roleType: '', selectedPermissions: [] });
+                        setRoleForm({ roleName: '', roleType: '', selectedPermissions: [] });
                         setCreateRoleDialog(true);
                       }}
                       variant="contained"
@@ -3999,34 +4154,11 @@ const SuperAdmin: React.FC = () => {
                 }
                 sx={{ borderRadius: '12px' }}
               >
-                {assignableRoles.map((r) => {
-                  const menuStyle = getAssignableRoleMenuStyle(r.role_type);
-                  return (
-                    <MenuItem key={r.id} value={String(r.id)} sx={{ py: 1.25 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%', minWidth: 0 }}>
-                        <Box
-                          sx={{
-                            width: 42,
-                            height: 42,
-                            borderRadius: 2,
-                            background: menuStyle.gradient,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#fff',
-                            flexShrink: 0,
-                            boxShadow: '0 2px 10px rgba(15, 23, 42, 0.15)',
-                          }}
-                        >
-                          {menuStyle.icon}
-                        </Box>
-                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a', lineHeight: 1.3 }}>
-                          {roleDisplayLabel(r)}
-                        </Typography>
-                      </Box>
-                    </MenuItem>
-                  );
-                })}
+                {assignableRoles.map((r) => (
+                  <MenuItem key={r.id} value={String(r.id)} sx={{ py: 1.25 }}>
+                    <AssignableRoleMenuItem role={r} />
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
             {adminForm.adminRoleSelection && (
@@ -4140,34 +4272,11 @@ const SuperAdmin: React.FC = () => {
               }
               sx={{ borderRadius: '12px' }}
             >
-              {assignableRoles.map((r) => {
-                const menuStyle = getAssignableRoleMenuStyle(r.role_type);
-                return (
-                  <MenuItem key={r.id} value={String(r.id)} sx={{ py: 1.25 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%', minWidth: 0 }}>
-                      <Box
-                        sx={{
-                          width: 42,
-                          height: 42,
-                          borderRadius: 2,
-                          background: menuStyle.gradient,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: '#fff',
-                          flexShrink: 0,
-                          boxShadow: '0 2px 10px rgba(15, 23, 42, 0.15)',
-                        }}
-                      >
-                        {menuStyle.icon}
-                      </Box>
-                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a', lineHeight: 1.3 }}>
-                        {roleDisplayLabel(r)}
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                );
-              })}
+              {assignableRoles.map((r) => (
+                <MenuItem key={r.id} value={String(r.id)} sx={{ py: 1.25 }}>
+                  <AssignableRoleMenuItem role={r} />
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
 
@@ -4224,7 +4333,7 @@ const SuperAdmin: React.FC = () => {
           setCreateRoleDialog(false);
           setEditRoleDialog(false);
           setSelectedRole(null);
-          setRoleForm({ roleType: '', selectedPermissions: [] });
+          setRoleForm({ roleName: '', roleType: '', selectedPermissions: [] });
           setPermissionSearchQuery('');
         }}
         maxWidth="md"
@@ -4253,30 +4362,54 @@ const SuperAdmin: React.FC = () => {
                 {editRoleDialog ? 'Edit Access' : 'Create New Access'}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                {editRoleDialog ? 'Modify role permissions' : 'Define a new role with permissions'}
+                {editRoleDialog
+                  ? 'Changes apply to all admins assigned to this role'
+                  : 'Each role name must be unique (e.g. Learn Admin, Finance Admin)'}
               </Typography>
             </Box>
           </Box>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
-            <FormControl fullWidth required sx={{ mb: 2 }}>
-              <InputLabel id="access-role-type-label">Admin type</InputLabel>
+            <FormControl fullWidth required sx={{ mb: 2 }} disabled={editRoleDialog}>
+              <InputLabel id="access-role-name-label">Role Name</InputLabel>
               <Select
-                labelId="access-role-type-label"
-                label="Admin type"
-                value={roleForm.roleType}
-                onChange={(e) => setRoleForm({ ...roleForm, roleType: e.target.value })}
+                labelId="access-role-name-label"
+                label="Role Name"
+                value={roleForm.roleName}
+                onChange={(e) => {
+                  const label = String(e.target.value);
+                  const opt = ACCESS_ROLE_NAME_OPTIONS.find((o) => o.label === label);
+                  setRoleForm({
+                    ...roleForm,
+                    roleName: label,
+                    roleType: opt?.roleType || '',
+                  });
+                }}
                 sx={{ borderRadius: '12px' }}
               >
-                {PLATFORM_ROLE_TYPE_OPTIONS.map((opt) => (
-                  <MenuItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </MenuItem>
-                ))}
+                {roleNameDropdownOptions.map((opt) => {
+                  const alreadyExists = existingRoleNameSet.has(opt.label.toLowerCase());
+                  return (
+                    <MenuItem
+                      key={opt.label}
+                      value={opt.label}
+                      disabled={!editRoleDialog && alreadyExists}
+                    >
+                      {opt.label}
+                      {!editRoleDialog && alreadyExists ? ' (already created)' : ''}
+                    </MenuItem>
+                  );
+                })}
               </Select>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                {editRoleDialog
+                  ? 'Role name cannot be changed. Update permissions below.'
+                  : creatableRoleNameCount === 0
+                    ? 'All predefined roles exist — edit an existing role to change permissions.'
+                    : `${creatableRoleNameCount} role(s) available to create`}
+              </Typography>
             </FormControl>
-           
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                 {LEGACY_GRANULAR_ACCESS_ROLE_PERMISSIONS
@@ -4575,7 +4708,7 @@ const SuperAdmin: React.FC = () => {
               setCreateRoleDialog(false);
               setEditRoleDialog(false);
               setSelectedRole(null);
-              setRoleForm({ roleType: '', selectedPermissions: [] });
+              setRoleForm({ roleName: '', roleType: '', selectedPermissions: [] });
               setPermissionSearchQuery('');
             }}
             sx={{
@@ -4596,8 +4729,11 @@ const SuperAdmin: React.FC = () => {
               }
               setPermissionSearchQuery('');
             }}
-            disabled={!roleForm.roleType || !roleForm.selectedPermissions?.length}
-            sx={{ color: '#ffffff' }}
+            disabled={
+              editRoleDialog
+                ? !roleForm.selectedPermissions?.length
+                : !roleForm.roleName.trim() || !roleForm.selectedPermissions?.length
+            }
           >
             {editRoleDialog ? 'Update Role' : 'Create Role'}
           </AnimatedButton>

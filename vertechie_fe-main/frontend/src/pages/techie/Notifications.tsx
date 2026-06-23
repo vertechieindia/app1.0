@@ -331,6 +331,9 @@ const Notifications: React.FC = () => {
             } else if (n.notification_type?.includes('learn') || n.notification_type?.includes('course')) {
               type = 'learn';
               icon = <SchoolIcon />;
+            } else if (n.notification_type?.includes('support_ticket')) {
+              type = 'system';
+              icon = <NotificationsIcon />;
             }
             
             // Use UTC-normalized created_at so "X hours ago" is correct

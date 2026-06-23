@@ -411,6 +411,26 @@ export const API_ENDPOINTS = {
     },
 
     // ============================================
+    // HELP CENTER & CUSTOMER SUPPORT (/support)
+    // ============================================
+    SUPPORT: {
+        FAQ_CATEGORIES: '/support/faqs/categories',
+        FAQS: '/support/faqs',
+        FAQ_DETAIL: (id: string) => `/support/faqs/${id}`,
+        FAQ_FEEDBACK: (id: string) => `/support/faqs/${id}/feedback`,
+        MY_TICKETS: '/support/tickets/my',
+        MY_TICKET: (id: string) => `/support/tickets/my/${id}`,
+        MY_TICKET_REPLY: (id: string) => `/support/tickets/my/${id}/messages`,
+        CREATE_TICKET: '/support/tickets',
+        ADMIN_STATS: '/admin/support/dashboard/stats',
+        ADMIN_TICKETS: '/admin/support/tickets',
+        ADMIN_TICKET: (id: string) => `/admin/support/tickets/${id}`,
+        ADMIN_TICKET_REPLY: (id: string) => `/admin/support/tickets/${id}/messages`,
+        ADMIN_FAQS: '/admin/support/faqs',
+        ADMIN_FAQ_DETAIL: (id: string) => `/admin/support/faqs/${id}`,
+    },
+
+    // ============================================
     // LEGACY ENDPOINTS (Django - for gradual migration)
     // ============================================
     LEGACY: {

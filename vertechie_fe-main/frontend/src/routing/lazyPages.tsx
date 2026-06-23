@@ -156,3 +156,7 @@ export const CMSSnippets = lazy(() => import('../pages/techie/cms/CMSSnippets'))
 
 // ——— Public ———
 export const PublicSchedulingPage = lazy(() => import('../pages/public/PublicSchedulingPage'));
+
+// ——— Help Center & Customer Support ———
+export const HelpCenter = lazy(() => import('../pages/help/HelpCenter'));
+export const CustomerSupportDashboard = lazy(() => import('../pages/support/CustomerSupportDashboard'));

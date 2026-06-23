@@ -81,6 +81,14 @@ import WorkspacePremiumIcon from '@mui/icons-material/WorkspacePremium';
 
 // Shared Components
 import ContributionHeatmap from '../../components/ContributionHeatmap';
+import ConnectionActionButtons from '../../components/network/ConnectionActionButtons';
+import {
+  fetchUserRelationships,
+  respondToConnectionRequest,
+  sendConnectionRequest,
+  getConnectionErrorKind,
+  type UserRelationship,
+} from '../../utils/networkConnectionUi';
 
 // Tech Logos Library
 import { getTechByName, ALL_TECH_LOGOS, TechLogo } from '../../constants/techLogos';
@@ -550,6 +558,8 @@ const ProfilePage: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [loading, setLoading] = useState(true);
+  const [viewerRelationship, setViewerRelationship] = useState<UserRelationship | undefined>();
+  const [profileActionLoading, setProfileActionLoading] = useState(false);
 
   // Experience Warning and Form Dialogs
   const [showExperienceWarning, setShowExperienceWarning] = useState(false);
@@ -885,6 +895,74 @@ const ProfilePage: React.FC = () => {
     const currentId = stored ? (JSON.parse(stored).id ?? null) : null;
     setIsOwnProfile(currentId != null && String(userId) === String(currentId));
   }, [userId]);
+
+  const loadViewerRelationship = useCallback(async (targetId: string) => {
+    try {
+      const raw = localStorage.getItem('userData');
+      if (!raw) return;
+      const meId = String(JSON.parse(raw).id || '');
+      if (!meId || meId === targetId) return;
+      const map = await fetchUserRelationships(meId);
+      setViewerRelationship(map[targetId]);
+    } catch {
+      setViewerRelationship(undefined);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOwnProfile && userId && userId !== 'me') {
+      loadViewerRelationship(String(userId));
+    } else {
+      setViewerRelationship(undefined);
+    }
+  }, [isOwnProfile, userId, loadViewerRelationship]);
+
+  const handleProfileConnect = async (targetId: string) => {
+    setProfileActionLoading(true);
+    try {
+      await sendConnectionRequest(targetId);
+      setViewerRelationship({ state: 'pending_sent' });
+      setSnackbar({ open: true, message: 'Connection request sent', severity: 'success' });
+    } catch (err: unknown) {
+      const kind = getConnectionErrorKind(err);
+      if (kind === 'already_pending') setViewerRelationship({ state: 'pending_sent' });
+      else if (kind === 'already_connected') setViewerRelationship({ state: 'connected' });
+      else setSnackbar({ open: true, message: 'Failed to send request', severity: 'error' });
+    } finally {
+      setProfileActionLoading(false);
+    }
+  };
+
+  const handleProfileAccept = async (requestId: string, targetId: string) => {
+    setProfileActionLoading(true);
+    try {
+      const ok = await respondToConnectionRequest(requestId, 'accept');
+      if (ok) {
+        setViewerRelationship({ state: 'connected' });
+        setSnackbar({ open: true, message: 'You are now connected', severity: 'success' });
+      }
+    } finally {
+      setProfileActionLoading(false);
+    }
+  };
+
+  const handleProfileDecline = async (requestId: string) => {
+    setProfileActionLoading(true);
+    try {
+      await respondToConnectionRequest(requestId, 'decline');
+      setViewerRelationship(undefined);
+      setSnackbar({ open: true, message: 'Request declined', severity: 'success' });
+    } finally {
+      setProfileActionLoading(false);
+    }
+  };
+
+  const handleProfileMessage = (targetId: string) => {
+    const name = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'User';
+    navigate('/techie/chat', {
+      state: { startChatUser: { id: targetId, name } },
+    });
+  };
 
   // Check if user is a Hiring Manager
   const storedData = localStorage.getItem('userData');
@@ -2094,7 +2172,19 @@ const ProfilePage: React.FC = () => {
                   </Button>
                 </Box>
 
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', justifyContent: { xs: 'flex-start', md: 'flex-end' } }}>
+                  {!isOwnProfile && userId && userId !== 'me' && (
+                    <ConnectionActionButtons
+                      userId={String(userId)}
+                      relationship={viewerRelationship}
+                      loading={profileActionLoading}
+                      size="medium"
+                      onConnect={handleProfileConnect}
+                      onAccept={handleProfileAccept}
+                      onDecline={handleProfileDecline}
+                      onMessage={handleProfileMessage}
+                    />
+                  )}
                   {displayUser.github && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       <IconButton

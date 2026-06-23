@@ -15,12 +15,6 @@ import {
   CardContent,
   Grid,
   Chip,
-  TextField,
-  InputAdornment,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Skeleton,
   Alert,
   Paper,
@@ -29,13 +23,11 @@ import {
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
-  Search as SearchIcon,
   LocationOn as LocationIcon,
   Work as WorkIcon,
   Business as BusinessIcon,
   Code as CodeIcon,
   ArrowForward as ArrowForwardIcon,
-  FilterList as FilterIcon,
   AccessTime as TimeIcon,
   BookmarkBorder as BookmarkIcon,
   Bookmark as BookmarkFilledIcon,
@@ -46,11 +38,19 @@ import {
   Group as ApplicantsIcon,
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
-import { Job, JOB_TYPES, EXPERIENCE_LEVELS, JobFilters } from '../../types/jobPortal';
+import { Job, JOB_TYPES, EXPERIENCE_LEVELS } from '../../types/jobPortal';
 import { jobService, applicationService, getUserInfo } from '../../services/jobPortalService';
 import { getAccessToken } from '../../services/apiClient';
 import { ABOVE_BOTTOM_NAV_OFFSET_PX } from '../../constants/layout';
 import { Snackbar } from '@mui/material';
+import { useJobSearch } from '../../contexts/JobSearchContext';
+import {
+  applyJobFilters,
+  normalizeExperienceForFilter,
+  normalizeJobTypeForFilter,
+  TECHIE_EXPERIENCE_OPTIONS,
+  TECHIE_JOB_TYPE_OPTIONS,
+} from './jobSearchUtils';
 
 const getCodingDraftStorageKey = (jobId: string, userId?: string) =>
   `job-application-coding-draft:${jobId}:${userId || 'anonymous'}`;
@@ -143,10 +143,10 @@ const HeroSection = styled(Paper)(({ theme }) => ({
 const SearchCard = styled(Paper)(({ theme }) => ({
   background: colors.surface,
   borderRadius: 20,
-  padding: theme.spacing(3),
-  marginBottom: theme.spacing(4),
-  boxShadow: `0 10px 40px ${colors.primary}10`,
-  border: `1px solid ${colors.accent}50`,
+  padding: theme.spacing(2, 3),
+  marginBottom: theme.spacing(3),
+  boxShadow: `0 4px 20px ${colors.primary}08`,
+  border: `1px solid ${colors.accent}30`,
   animation: `${fadeInUp} 0.6s ease-out 0.1s both`,
 }));
 
@@ -294,61 +294,6 @@ const CompanyLogo = styled(Box)(({ theme }) => ({
   boxShadow: `0 4px 12px ${alpha(colors.primary, 0.3)}`,
 }));
 
-const TECHIE_JOB_TYPE_OPTIONS = [
-  { value: 'fulltime', label: 'Full-Time' },
-  { value: 'parttime', label: 'Part-Time' },
-  { value: 'w2contract', label: 'W2 - Contract' },
-  { value: 'corp2corp', label: 'Corp-to-Corp' },
-  { value: 'unpaid_internship', label: 'Unpaid Internship' },
-  { value: 'paid_internship', label: 'Paid Internship' },
-  { value: 'freelance', label: 'Freelance' },
-] as const;
-
-const TECHIE_EXPERIENCE_OPTIONS = [
-  { value: 'college_fresh', label: 'College fresh grads' },
-  { value: '0_2', label: '0 to 2+ years' },
-  { value: '2_5', label: '2 to 5+ years' },
-  { value: '5_8', label: '5 to 8 years' },
-  { value: '8_10', label: '8 to 10 years' },
-  { value: '10_12', label: '10 to 12+' },
-  { value: '12_leadership', label: '12 to leadership' },
-] as const;
-
-const TECHIE_DATE_OPTIONS = [
-  { value: 'all', label: 'All Time' },
-  { value: 'last7', label: 'Last 7 Days' },
-  { value: 'last30', label: 'Last 30 Days' },
-  { value: 'last90', label: 'Last 90 Days' },
-] as const;
-
-const normalizeJobTypeForFilter = (value: string): string => {
-  const raw = (value || '').toLowerCase();
-  const compact = raw.replace(/[^a-z0-9]/g, '');
-  if (compact.includes('fulltime')) return 'fulltime';
-  if (compact.includes('parttime')) return 'parttime';
-  if (compact.includes('w2')) return 'w2contract';
-  if (compact.includes('corp2corp') || compact.includes('corptocorp')) return 'corp2corp';
-  if (compact.includes('unpaid') && compact.includes('intern')) return 'unpaid_internship';
-  if (compact.includes('paid') && compact.includes('intern')) return 'paid_internship';
-  if (compact.includes('freelance')) return 'freelance';
-  if (compact.includes('contract')) return 'contract';
-  if (compact.includes('internship')) return 'internship';
-  return compact;
-};
-
-const normalizeExperienceForFilter = (value: string): string => {
-  const raw = (value || '').toLowerCase();
-  const compact = raw.replace(/[^a-z0-9_]/g, '');
-  if (compact.includes('college') || compact.includes('fresh')) return 'college_fresh';
-  if (compact === 'entry' || compact === '0_2' || compact.includes('02')) return '0_2';
-  if (compact === 'mid' || compact === '2_5' || compact.includes('25')) return '2_5';
-  if (compact === 'senior' || compact === '5_8' || compact.includes('58')) return '5_8';
-  if (compact === '8_10' || compact.includes('810')) return '8_10';
-  if (compact === '10_12' || compact.includes('1012')) return '10_12';
-  if (compact === 'lead' || compact === '12_leadership' || compact.includes('12lead')) return '12_leadership';
-  return compact;
-};
-
 const getExperienceDisplay = (value: string): string => {
   const normalized = normalizeExperienceForFilter(value);
   const match = TECHIE_EXPERIENCE_OPTIONS.find((opt) => opt.value === normalized);
@@ -365,18 +310,12 @@ const getJobTypeDisplay = (value: string): string => {
 
 const JobListings: React.FC = () => {
   const navigate = useNavigate();
+  const { filters, clearFilters, hasActiveFilters } = useJobSearch();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [filteredJobs, setFilteredJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedJobs, setSavedJobs] = useState<Set<string>>(new Set());
-  const [filters, setFilters] = useState<JobFilters>({
-    search: '',
-    jobType: '',
-    experienceLevel: '',
-    location: '',
-    dateRange: 'all',
-  });
   const [appliedJobIds, setAppliedJobIds] = useState<Set<string>>(new Set());
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
     open: false,
@@ -461,7 +400,7 @@ const JobListings: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    applyFilters();
+    setFilteredJobs(applyJobFilters(jobs, filters));
   }, [jobs, filters]);
 
   const loadJobs = async () => {
@@ -475,74 +414,6 @@ const JobListings: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const applyFilters = () => {
-    let filtered = [...jobs];
-
-    if (filters.search) {
-      const query = filters.search.toLowerCase();
-      filtered = filtered.filter(
-        (job) =>
-          job.title.toLowerCase().includes(query) ||
-          job.companyName.toLowerCase().includes(query) ||
-          job.description.toLowerCase().includes(query) ||
-          job.requiredSkills.some((skill) => skill.toLowerCase().includes(query))
-      );
-    }
-
-    if (filters.jobType) {
-      filtered = filtered.filter((job) => {
-        const normalizedJobType = normalizeJobTypeForFilter(job.jobType);
-        if (filters.jobType === 'w2contract' || filters.jobType === 'corp2corp') {
-          return normalizedJobType === filters.jobType || normalizedJobType === 'contract';
-        }
-        if (filters.jobType === 'paid_internship' || filters.jobType === 'unpaid_internship') {
-          return normalizedJobType === filters.jobType || normalizedJobType === 'internship';
-        }
-        return normalizedJobType === filters.jobType;
-      });
-    }
-
-    if (filters.experienceLevel) {
-      filtered = filtered.filter((job) => {
-        const normalizedExp = normalizeExperienceForFilter(job.experienceLevel);
-        if (filters.experienceLevel === 'college_fresh') {
-          return normalizedExp === 'college_fresh' || normalizedExp === '0_2';
-        }
-        if (filters.experienceLevel === '0_2') {
-          return normalizedExp === '0_2' || normalizedExp === 'college_fresh';
-        }
-        if (filters.experienceLevel === '8_10') {
-          return normalizedExp === '8_10' || normalizedExp === '5_8';
-        }
-        if (filters.experienceLevel === '10_12') {
-          return normalizedExp === '10_12' || normalizedExp === '12_leadership';
-        }
-        return normalizedExp === filters.experienceLevel;
-      });
-    }
-
-    if (filters.location) {
-      const loc = filters.location.toLowerCase();
-      filtered = filtered.filter((job) => job.location.toLowerCase().includes(loc));
-    }
-
-    if (filters.dateRange && filters.dateRange !== 'all') {
-      const dayWindow = filters.dateRange === 'last7' ? 7 : filters.dateRange === 'last30' ? 30 : 90;
-      filtered = filtered.filter((job) => {
-        const postedTs = new Date(job.createdAt).getTime();
-        if (!Number.isFinite(postedTs)) return false;
-        const ageInDays = (Date.now() - postedTs) / (1000 * 60 * 60 * 24);
-        return ageInDays <= dayWindow;
-      });
-    }
-
-    setFilteredJobs(filtered);
-  };
-
-  const handleFilterChange = (field: keyof JobFilters, value: string) => {
-    setFilters((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleJobClick = (jobId: string) => {
@@ -570,7 +441,7 @@ const JobListings: React.FC = () => {
         }}
       >
         {/* Hero Section */}
-        <HeroSection elevation={0}>
+        {/* <HeroSection elevation={0}>
           <Box sx={{ position: 'relative', zIndex: 1 }}>
             <Typography
               variant="h3"
@@ -614,118 +485,18 @@ const JobListings: React.FC = () => {
               />
             </Box>
           </Box>
-        </HeroSection>
+        </HeroSection> */}
 
-        {/* Search & Filters */}
+        {/* Results summary */}
         <SearchCard elevation={0}>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={3}>
-              <TextField
-                fullWidth
-                placeholder="Search jobs, skills, companies..."
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon color="action" />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 3,
-                    bgcolor: 'grey.50',
-                  },
-                }}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Job Type</InputLabel>
-                <Select
-                  value={filters.jobType}
-                  onChange={(e) => handleFilterChange('jobType', e.target.value)}
-                  label="Job Type"
-                  sx={{ borderRadius: 3, bgcolor: 'grey.50' }}
-                >
-                  <MenuItem value="">All Types</MenuItem>
-                  {TECHIE_JOB_TYPE_OPTIONS.map(({ value, label }) => (
-                    <MenuItem key={value} value={value}>
-                      {label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Experience</InputLabel>
-                <Select
-                  value={filters.experienceLevel}
-                  onChange={(e) => handleFilterChange('experienceLevel', e.target.value)}
-                  label="Experience"
-                  sx={{ borderRadius: 3, bgcolor: 'grey.50' }}
-                >
-                  <MenuItem value="">All Levels</MenuItem>
-                  {TECHIE_EXPERIENCE_OPTIONS.map(({ value, label }) => (
-                    <MenuItem key={value} value={value}>
-                      {label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Date</InputLabel>
-                <Select
-                  value={filters.dateRange || 'all'}
-                  onChange={(e) => handleFilterChange('dateRange', e.target.value)}
-                  label="Date"
-                  sx={{ borderRadius: 3, bgcolor: 'grey.50' }}
-                >
-                  {TECHIE_DATE_OPTIONS.map(({ value, label }) => (
-                    <MenuItem key={value} value={value}>
-                      {label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <TextField
-                fullWidth
-                size="small"
-                placeholder="Location"
-                value={filters.location}
-                onChange={(e) => handleFilterChange('location', e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <LocationIcon color="action" fontSize="small" />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 3,
-                    bgcolor: 'grey.50',
-                  },
-                }}
-              />
-            </Grid>
-          </Grid>
-          
-          {/* Results Count */}
-          <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Typography variant="body2" color="text.secondary">
               Showing {filteredJobs.length} of {jobs.length} jobs
             </Typography>
-            {(filters.search || filters.jobType || filters.experienceLevel || filters.location || (filters.dateRange && filters.dateRange !== 'all')) && (
+            {hasActiveFilters && (
               <Button
                 size="small"
-                onClick={() => setFilters({ search: '', jobType: '', experienceLevel: '', location: '', dateRange: 'all' })}
+                onClick={clearFilters}
                 sx={{ textTransform: 'none' }}
               >
                 Clear filters
@@ -784,14 +555,14 @@ const JobListings: React.FC = () => {
               No jobs found
             </Typography>
             <Typography variant="body1" sx={{ color: colors.textLight, mb: 3, maxWidth: 400, mx: 'auto' }}>
-              {filters.search || filters.jobType || filters.experienceLevel || filters.location || (filters.dateRange && filters.dateRange !== 'all')
+              {hasActiveFilters
                 ? 'Try adjusting your filters to find more opportunities'
                 : 'Check back later for new job postings'}
             </Typography>
-            {(filters.search || filters.jobType || filters.experienceLevel || filters.location || (filters.dateRange && filters.dateRange !== 'all')) && (
+            {hasActiveFilters && (
               <Button
                 variant="outlined"
-                onClick={() => setFilters({ search: '', jobType: '', experienceLevel: '', location: '', dateRange: 'all' })}
+                onClick={clearFilters}
                 sx={{
                   color: colors.primary,
                   borderColor: colors.primary,

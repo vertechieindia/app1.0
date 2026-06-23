@@ -10,26 +10,30 @@
  * Stats (Connections, Followers, Following) are loaded from /unified-network/stats.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../services/apiClient';
 import { API_ENDPOINTS } from '../../config/api';
 import {
   Box, Container, Grid, Typography, Card, CardContent, Avatar, Button,
-  Tabs, Tab, Paper, List, ListItem, ListItemText, Badge, Divider, Chip,
+  List, ListItem, ListItemText, Badge, Divider,
   CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Snackbar, Alert,
 } from '@mui/material';
 import { styled, keyframes } from '@mui/material/styles';
 import {
-  People, PersonAdd, Groups, Forum, Event, TrendingUp, Send, Verified,
+  People, PersonAdd, Groups, Event, TrendingUp, Send,
   GroupAdd,
 } from '@mui/icons-material';
 import {
-  fetchUserRelationshipStates,
+  fetchUserRelationships,
   getConnectionErrorKind,
-  type ConnectionButtonState,
+  respondToConnectionRequest,
+  sendConnectionRequest,
+  type UserRelationship,
 } from '../../utils/networkConnectionUi';
+import ConnectionActionButtons from './ConnectionActionButtons';
+import ClickableProfileName from './ClickableProfileName';
 
 // ============================================
 // ANIMATIONS
@@ -86,17 +90,6 @@ export interface NetworkEvent {
 }
 
 // ============================================
-// TAB ROUTES
-// ============================================
-const tabRoutes = [
-  { path: '/techie/home/feed', label: 'Feed', icon: <Forum /> },
-  { path: '/techie/home/network', label: 'My Network', icon: <People /> },
-  { path: '/techie/home/groups', label: 'Groups', icon: <Groups /> },
-  { path: '/techie/home/events', label: 'Events', icon: <Event /> },
-  { path: '/techie/home/combinator', label: 'Combinator', icon: <TrendingUp /> },
-];
-
-// ============================================
 // STATS SHAPE
 // ============================================
 interface NetworkStatsState {
@@ -120,7 +113,6 @@ const SUGGESTIONS_PAGE_SIZE = 10;
 
 const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
-  const location = useLocation();
 
   const [stats, setStats] = useState<NetworkStatsState>({
     connections: 0,
@@ -137,9 +129,8 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [loadingMoreSuggestions, setLoadingMoreSuggestions] = useState(false);
   const [hasMoreSuggestions, setHasMoreSuggestions] = useState(false);
-  /** Per suggested user: Connect / loading / Pending / Connected */
-  const [connectionButtonState, setConnectionButtonState] = useState<Record<string, ConnectionButtonState>>({});
-  const connectInFlightRef = useRef<Set<string>>(new Set());
+  const [relationships, setRelationships] = useState<Record<string, UserRelationship>>({});
+  const [actionLoadingIds, setActionLoadingIds] = useState<Set<string>>(new Set());
   const [sidebarError, setSidebarError] = useState<string | null>(null);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmails, setInviteEmails] = useState('');
@@ -301,15 +292,8 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
       if (!raw) return;
       const meId = String(JSON.parse(raw).id || '');
       if (!meId) return;
-      const map = await fetchUserRelationshipStates(meId);
-      setConnectionButtonState((prev) => {
-        const next = { ...prev };
-        for (const [id, rel] of Object.entries(map)) {
-          if (next[id] === 'loading') continue;
-          next[id] = rel;
-        }
-        return next;
-      });
+      const map = await fetchUserRelationships(meId);
+      setRelationships(map);
     } catch (e) {
       console.error('NetworkLayout: relationship states', e);
     }
@@ -325,51 +309,83 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
     refreshRelationshipStates();
   }, [refreshRelationshipStates]);
 
-  // Determine active tab based on current route
-  const activeTab = tabRoutes.findIndex(route => location.pathname.startsWith(route.path));
-  const currentTab = activeTab >= 0 ? activeTab : 0;
-
-  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
-    navigate(tabRoutes[newValue].path);
-  };
-
   const handleConnect = async (userId: string) => {
     const id = String(userId);
-    if (connectInFlightRef.current.has(id)) return;
+    const current = relationships[id]?.state ?? 'connect';
+    if (current !== 'connect') return;
 
-    const current = connectionButtonState[id] ?? 'connect';
-    if (current === 'pending' || current === 'connected') {
-      if (current === 'pending') {
-        setSnackbar({ open: true, message: 'Connection request already pending', severity: 'info' });
-      }
-      return;
-    }
-    if (current === 'loading') return;
-
-    connectInFlightRef.current.add(id);
-    setConnectionButtonState((s) => ({ ...s, [id]: 'loading' }));
-
+    setActionLoadingIds((s) => new Set(s).add(id));
     try {
-      await api.post(API_ENDPOINTS.NETWORK.SEND_REQUEST, {
-        receiver_id: userId,
-        message: "Hi! I'd like to connect with you on VerTechie.",
-      });
-      setConnectionButtonState((s) => ({ ...s, [id]: 'pending' }));
+      await sendConnectionRequest(userId);
+      setRelationships((prev) => ({ ...prev, [id]: { state: 'pending_sent' } }));
       fetchStats();
     } catch (error: unknown) {
       const kind = getConnectionErrorKind(error);
       if (kind === 'already_pending') {
-        setConnectionButtonState((s) => ({ ...s, [id]: 'pending' }));
+        setRelationships((prev) => ({ ...prev, [id]: { state: 'pending_sent' } }));
         setSnackbar({ open: true, message: 'Connection request already pending', severity: 'info' });
       } else if (kind === 'already_connected') {
-        setConnectionButtonState((s) => ({ ...s, [id]: 'connected' }));
+        setRelationships((prev) => ({ ...prev, [id]: { state: 'connected' } }));
       } else {
-        setConnectionButtonState((s) => ({ ...s, [id]: 'connect' }));
         setSnackbar({ open: true, message: 'Failed to send connection request', severity: 'error' });
       }
     } finally {
-      connectInFlightRef.current.delete(id);
+      setActionLoadingIds((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
     }
+  };
+
+  const handleAccept = async (requestId: string, userId: string) => {
+    setActionLoadingIds((s) => new Set(s).add(String(userId)));
+    try {
+      const ok = await respondToConnectionRequest(requestId, 'accept');
+      if (ok) {
+        setRelationships((prev) => ({ ...prev, [String(userId)]: { state: 'connected' } }));
+        fetchStats();
+        refreshRelationshipStates();
+        setSnackbar({ open: true, message: 'Connection accepted', severity: 'success' });
+      } else {
+        setSnackbar({ open: true, message: 'Failed to accept request', severity: 'error' });
+      }
+    } finally {
+      setActionLoadingIds((s) => {
+        const n = new Set(s);
+        n.delete(String(userId));
+        return n;
+      });
+    }
+  };
+
+  const handleDecline = async (requestId: string, userId: string) => {
+    setActionLoadingIds((s) => new Set(s).add(String(userId)));
+    try {
+      const ok = await respondToConnectionRequest(requestId, 'decline');
+      if (ok) {
+        setRelationships((prev) => {
+          const next = { ...prev };
+          delete next[String(userId)];
+          return next;
+        });
+        fetchStats();
+        refreshRelationshipStates();
+        setSnackbar({ open: true, message: 'Request declined', severity: 'success' });
+      }
+    } finally {
+      setActionLoadingIds((s) => {
+        const n = new Set(s);
+        n.delete(String(userId));
+        return n;
+      });
+    }
+  };
+
+  const handleMessageUser = (userId: string, name?: string) => {
+    navigate('/techie/chat', {
+      state: { startChatUser: { id: userId, name: name || 'User' } },
+    });
   };
 
   const handleSendInvites = async () => {
@@ -536,38 +552,24 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
 
                 {!loadingSuggestions && (showAllSuggestions ? suggestions : suggestions.slice(0, SUGGESTIONS_PREVIEW_COUNT)).map(user => {
                   const uid = String(user.id);
-                  const st = connectionButtonState[uid] ?? 'connect';
-                  const label =
-                    st === 'loading' ? 'Sending...' : st === 'pending' ? 'Pending' : st === 'connected' ? 'Connected' : 'Connect';
                   return (
-                  <Box key={uid} sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <Avatar sx={{ bgcolor: 'primary.main', mr: 1.5 }}>
-                      {user.name.charAt(0)}
-                    </Avatar>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        {user.name}
-                        {user.is_verified && <Verified sx={{ fontSize: 14, color: 'primary.main' }} />}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" noWrap>{user.title}</Typography>
-                    </Box>
-                    <Button
-                      size="small"
-                      variant={st === 'connected' ? 'outlined' : 'contained'}
-                      color={st === 'connected' ? 'success' : 'primary'}
-                      disabled={st === 'loading' || st === 'pending' || st === 'connected'}
-                      onClick={() => handleConnect(user.id)}
-                      startIcon={
-                        st === 'loading' ? (
-                          <CircularProgress size={12} color="inherit" />
-                        ) : st === 'connect' ? (
-                          <PersonAdd fontSize="small" />
-                        ) : undefined
-                      }
-                      sx={{ minWidth: 108, flexShrink: 0, textTransform: 'none', fontWeight: 600 }}
-                    >
-                      {label}
-                    </Button>
+                  <Box key={uid} sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
+                    <ClickableProfileName
+                      userId={uid}
+                      name={user.name}
+                      title={user.title}
+                      isVerified={user.is_verified}
+                      avatarSize={40}
+                    />
+                    <ConnectionActionButtons
+                      userId={uid}
+                      relationship={relationships[uid]}
+                      loading={actionLoadingIds.has(uid)}
+                      onConnect={handleConnect}
+                      onAccept={handleAccept}
+                      onDecline={handleDecline}
+                      onMessage={(id) => handleMessageUser(id, user.name)}
+                    />
                   </Box>
                   );
                 })}
@@ -657,24 +659,6 @@ const NetworkLayout: React.FC<NetworkLayoutProps> = ({ children }) => {
 
           {/* ========== MAIN CONTENT ========== */}
           <Grid item xs={12} md={6}>
-            {/* Tabs */}
-            <Paper sx={{ borderRadius: 3, mb: 3, overflow: 'hidden' }}>
-              <Tabs
-                value={currentTab}
-                onChange={handleTabChange}
-                variant="fullWidth"
-                sx={{
-                  '& .MuiTab-root': { py: 2, fontWeight: 600 },
-                  '& .Mui-selected': { color: 'primary.main' },
-                }}
-              >
-                {tabRoutes.map((tab, index) => (
-                  <Tab key={index} icon={tab.icon} label={tab.label} iconPosition="start" />
-                ))}
-              </Tabs>
-            </Paper>
-
-            {/* Page Content */}
             {children}
           </Grid>
 

@@ -12,6 +12,9 @@ import { getRedirectPathForUser } from './utils/authRedirect';
 import './index.css';
 import { AUTH_MAIN_PADDING_BOTTOM_PX, AUTH_MAIN_PADDING_BOTTOM_COMPACT_PX } from './constants/layout';
 import IdleTimeoutProvider from './components/auth/IdleTimeoutProvider';
+import { JobSearchProvider } from './contexts/JobSearchContext';
+import { BlogSearchProvider } from './contexts/BlogSearchContext';
+import { MyInterviewsProvider } from './contexts/MyInterviewsContext';
 import FcmBootstrap from './components/chat/FcmBootstrap';
 import {
   RouteFallback,
@@ -107,6 +110,8 @@ import {
   ATSSchedulingPage,
   ATSCalendarPage,
   AnalyticsPage,
+  HelpCenter,
+  CustomerSupportDashboard,
   SMSPosts,
   SMSAlumni,
   SMSPrograms,
@@ -613,6 +618,18 @@ const AppRoutes: React.FC = () => {
               </ProtectedRoute>
             } />
 
+            {/* Customer Support Dashboard */}
+            <Route path="/vertechie/support" element={
+              <ProtectedRoute requiredRole="support">
+                <CustomerSupportDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/vertechie/support/tickets/:ticketId" element={
+              <ProtectedRoute requiredRole="support">
+                <CustomerSupportDashboard />
+              </ProtectedRoute>
+            } />
+
             {/* Legacy routes - redirect to new structure */}
             <Route path="/super-admin" element={
               <ProtectedRoute requiredRole="superadmin">
@@ -655,7 +672,11 @@ const AppRoutes: React.FC = () => {
             <Route path="/hr/profile" element={<ProfilePage />} />
             <Route path="/hr/saved" element={<HRDashboard />} />
             <Route path="/hr/settings" element={<HRDashboard />} />
-            <Route path="/hr/help" element={<HRDashboard />} />
+            <Route path="/hr/help" element={
+              <ProtectedRoute requiredRole="hr">
+                <HelpCenter />
+              </ProtectedRoute>
+            } />
             <Route path="/hr/create-job" element={<CreateJobPost />} />
             <Route path="/hr/job/:jobId/edit" element={<CreateJobPost />} />
             <Route path="/hr/job/:jobId/applicants" element={<ViewApplicants />} />
@@ -690,6 +711,18 @@ const AppRoutes: React.FC = () => {
             <Route path="/my-applications" element={
               <ProtectedRoute requiredRole="user">
                 <MyApplications />
+              </ProtectedRoute>
+            } />
+
+            {/* Help Center — all authenticated users */}
+            <Route path="/help" element={
+              <ProtectedRoute requiredRole="user">
+                <HelpCenter />
+              </ProtectedRoute>
+            } />
+            <Route path="/help/tickets/:ticketId" element={
+              <ProtectedRoute requiredRole="user">
+                <HelpCenter />
               </ProtectedRoute>
             } />
 
@@ -897,7 +930,7 @@ const AppRoutes: React.FC = () => {
             } />
             <Route path="/techie/help" element={
               <ProtectedRoute requiredRole="user">
-                <TechieDashboard />
+                <HelpCenter />
               </ProtectedRoute>
             } />
 
@@ -1204,9 +1237,15 @@ const App: React.FC = () => {
       <CssBaseline />
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', overflow: 'hidden' }}>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <JobSearchProvider>
+          <BlogSearchProvider>
+          <MyInterviewsProvider>
           <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', overflow: 'hidden' }}>
             <AppRoutes />
           </Box>
+          </MyInterviewsProvider>
+          </BlogSearchProvider>
+          </JobSearchProvider>
         </Router>
       </Box>
     </ThemeProvider>

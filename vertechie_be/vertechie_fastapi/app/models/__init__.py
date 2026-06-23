@@ -104,6 +104,18 @@ from app.models.community import (
 # Notification Models
 from app.models.notification import Notification, NotificationType
 
+# Help Center & Customer Support
+from app.models.support import (
+    FAQCategory,
+    FAQ,
+    FAQFeedback,
+    SupportTicket,
+    TicketMessage,
+    TicketStatus,
+    TicketType,
+    TicketPriority,
+)
+
 # Screening Models
 from app.models.screening import (
     SourcingRequest, ScreeningTask, ScreeningInvite,
@@ -195,6 +207,10 @@ __all__ = [
     
     # Notifications
     "Notification", "NotificationType",
+
+    # Help Center & Support
+    "FAQCategory", "FAQ", "FAQFeedback", "SupportTicket", "TicketMessage",
+    "TicketStatus", "TicketType", "TicketPriority",
 
     # Screening
     "SourcingRequest", "ScreeningTask",

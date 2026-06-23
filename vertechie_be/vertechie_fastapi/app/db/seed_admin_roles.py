@@ -11,6 +11,9 @@ from app.core.access_role_utils import (
     compute_permission_signature,
     generate_internal_name,
     sorted_unique_permission_codes,
+    slugify_admin_role_code,
+    normalize_role_name,
+    admin_role_code_for_role_name,
 )
 from app.core.role_mapping import default_permissions_for_role_type
 from app.models.user import RoleType, UserRole
@@ -43,6 +46,20 @@ async def ensure_default_admin_roles(db: AsyncSession) -> None:
             )
         )
         if result.scalar_one_or_none():
+            existing = (
+                await db.execute(
+                    select(UserRole).where(
+                        UserRole.role_type == role_type,
+                        UserRole.permission_signature == sig,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing:
+                label = normalize_role_name(_legacy_name)
+                existing.display_label = label
+                existing.admin_role_code = admin_role_code_for_role_name(
+                    label, role_type
+                )
             continue
         row = UserRole(
             name=generate_internal_name(),
@@ -50,7 +67,8 @@ async def ensure_default_admin_roles(db: AsyncSession) -> None:
             description=description,
             permissions=perms,
             permission_signature=sig,
-            display_label=build_display_label(role_type, perms),
+            display_label=normalize_role_name(_legacy_name),
+            admin_role_code=admin_role_code_for_role_name(_legacy_name, role_type),
             is_active=True,
         )
         db.add(row)

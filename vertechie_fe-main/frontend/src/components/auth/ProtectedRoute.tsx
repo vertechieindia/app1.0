@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 
-type UserRole = 'superadmin' | 'admin' | 'screening' | 'user' | 'hr' | 'techie';
+type UserRole = 'superadmin' | 'admin' | 'screening' | 'user' | 'hr' | 'techie' | 'support';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -126,6 +126,22 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole 
       case 'user':
         // Any authenticated user can access
         // Already authenticated at this point
+        break;
+
+      case 'support':
+        {
+          const roles = (userData.admin_roles || []).map((r) => String(r).toLowerCase());
+          const platformSupport = roles.includes('support_admin');
+          const groupSupport = userData.groups?.some((g) =>
+            (g.name || '').toLowerCase().includes('support'),
+          );
+          const accessRoleSupport = userData.roles?.some((r) =>
+            (r.name || '').toLowerCase().includes('support'),
+          );
+          if (!userData.is_superuser && !platformSupport && !groupSupport && !accessRoleSupport) {
+            return <Navigate to="/" replace />;
+          }
+        }
         break;
     }
   }

@@ -14,6 +14,7 @@ from sqlalchemy import select, or_, func
 from app.db.session import get_db
 from app.models.network import Connection, ConnectionRequest, Follow, BlockedUser, ConnectionStatus
 from app.models.user import User, UserProfile
+from app.models.notification import Notification, NotificationType
 from app.schemas.network import (
     ConnectionRequestCreate, ConnectionRequestResponse,
     ConnectionResponse, ConnectionRequestAction,
@@ -26,6 +27,35 @@ from app.core.config import settings
 from app.core.email import send_email
 
 router = APIRouter()
+
+
+def _user_display_name(user: User) -> str:
+    parts = [user.first_name or "", user.last_name or ""]
+    name = " ".join(p for p in parts if p).strip()
+    return name or user.email or "A user"
+
+
+async def _notify_connection(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    title: str,
+    message: str,
+    notification_type: NotificationType,
+    request_id: UUID,
+    link: str,
+) -> None:
+    db.add(
+        Notification(
+            user_id=user_id,
+            title=title,
+            message=message,
+            notification_type=notification_type,
+            link=link,
+            reference_id=request_id,
+            reference_type="connection_request",
+        )
+    )
 
 
 # ============= Connections =============
@@ -176,6 +206,19 @@ async def send_connection_request(
     )
     
     db.add(request)
+    await db.flush()
+
+    sender_name = _user_display_name(current_user)
+    await _notify_connection(
+        db,
+        user_id=request_in.receiver_id,
+        title="New connection request",
+        message=f"{sender_name} wants to connect with you on VerTechie.",
+        notification_type=NotificationType.CONNECTION_REQUEST,
+        request_id=request.id,
+        link="/techie/home/network#pending-requests",
+    )
+
     await db.commit()
     await db.refresh(request)
     
@@ -234,6 +277,19 @@ async def respond_to_request(
         sender_profile = result.scalar_one_or_none()
         if sender_profile:
             sender_profile.connections_count += 1
+
+        result = await db.execute(select(User).where(User.id == request.sender_id))
+        sender = result.scalar_one_or_none()
+        if sender:
+            await _notify_connection(
+                db,
+                user_id=request.sender_id,
+                title="Connection accepted",
+                message=f"{_user_display_name(current_user)} accepted your connection request.",
+                notification_type=NotificationType.CONNECTION_ACCEPTED,
+                request_id=request.id,
+                link=f"/techie/profile/{current_user.id}",
+            )
     
     elif action_in.action == "decline":
         request.status = ConnectionStatus.DECLINED

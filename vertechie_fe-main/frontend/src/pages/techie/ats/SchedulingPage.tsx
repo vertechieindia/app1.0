@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Paper, Card, CardContent, Button, IconButton, Chip, Grid,
   TextField, Dialog, DialogTitle, DialogContent, DialogActions, FormControl,
-  Select, MenuItem, Tooltip, List, ListItem, ListItemIcon, ListItemText,
+  Select, MenuItem, Tooltip, List, ListItem, ListItemText,
   ListItemAvatar, Avatar, Switch, FormControlLabel, CircularProgress, Alert,
   ToggleButton, ToggleButtonGroup, Snackbar, Divider,
 } from '@mui/material';
@@ -26,8 +26,6 @@ import VideocamIcon from '@mui/icons-material/Videocam';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import GoogleIcon from '@mui/icons-material/Google';
-import MicrosoftIcon from '@mui/icons-material/Microsoft';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
 import GroupsIcon from '@mui/icons-material/Groups';
 import PersonIcon from '@mui/icons-material/Person';
@@ -727,20 +725,6 @@ const SchedulingPage: React.FC = () => {
                 Create a scheduling link to define availability.
               </Typography>
             )}
-          </Paper>
-
-          {/* Connected Calendars */}
-          <Paper sx={{ p: 2, mb: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="subtitle1" fontWeight={600}>Connected Calendars</Typography>
-              <Button size="small" startIcon={<AddIcon />} disabled>Connect</Button>
-            </Box>
-            <List dense>
-              <ListItem>
-                <ListItemIcon><EventBusyIcon color="disabled" /></ListItemIcon>
-                <ListItemText primary="No connected calendars" secondary="Calendar connections are not configured yet." />
-              </ListItem>
-            </List>
           </Paper>
 
           {/* Upcoming Bookings */}

@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Card, CardContent, Avatar, Button, IconButton,
   TextField, Divider, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -24,6 +25,14 @@ import NetworkLayout from '../../components/network/NetworkLayout';
 import { api } from '../../services/apiClient';
 import { API_ENDPOINTS } from '../../config/api';
 import { communityService } from '../../services/communityService';
+import {
+  fetchUserRelationships,
+  getProfilePath,
+  sendConnectionRequest,
+  respondToConnectionRequest,
+  getConnectionErrorKind,
+  type UserRelationship,
+} from '../../utils/networkConnectionUi';
 
 // ============================================
 // STYLED COMPONENTS
@@ -169,6 +178,7 @@ const isValidHttpUrl = (value: string) => {
 // ============================================
 const NetworkFeed: React.FC = () => {
   const theme = useTheme();
+  const navigate = useNavigate();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -194,7 +204,7 @@ const NetworkFeed: React.FC = () => {
   const [postMenuAnchor, setPostMenuAnchor] = useState<null | HTMLElement>(null);
   const [postMenuPostId, setPostMenuPostId] = useState<string | null>(null);
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
-  const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set());
+  const [relationships, setRelationships] = useState<Record<string, UserRelationship>>({});
   const [trendingHashtags, setTrendingHashtags] = useState<string[]>([]);
   const currentUserId = getCurrentUserId();
 
@@ -288,20 +298,13 @@ const NetworkFeed: React.FC = () => {
   useEffect(() => {
     const loadRelationshipState = async () => {
       try {
-        const [following, connections] = await Promise.all([
+        const [following, rels] = await Promise.all([
           api.get<any[]>('/network/following'),
-          api.get<any[]>('/network/connections'),
+          currentUserId ? fetchUserRelationships(currentUserId) : Promise.resolve({}),
         ]);
         const nextFollowing = new Set((Array.isArray(following) ? following : []).map((f: any) => String(f.following_id)));
-        const nextConnected = new Set<string>();
-        (Array.isArray(connections) ? connections : []).forEach((c: any) => {
-          const a = String(c.user_id || '');
-          const b = String(c.connected_user_id || '');
-          if (a && a !== currentUserId) nextConnected.add(a);
-          if (b && b !== currentUserId) nextConnected.add(b);
-        });
         setFollowingIds(nextFollowing);
-        setConnectedIds(nextConnected);
+        setRelationships(rels);
       } catch (err) {
         console.error('Failed to load follow/connection state:', err);
       }
@@ -501,15 +504,41 @@ const NetworkFeed: React.FC = () => {
     const post = posts.find((p) => p.id === postMenuPostId);
     const targetUserId = String(post?.author?.id || '');
     if (!targetUserId || targetUserId === currentUserId) return;
+    const rel = relationships[targetUserId];
+    if (rel?.state === 'pending_received' && rel.requestId) {
+      const ok = await respondToConnectionRequest(rel.requestId, 'accept');
+      if (ok) {
+        setRelationships((prev) => ({ ...prev, [targetUserId]: { state: 'connected' } }));
+        setSnackbar({ open: true, message: 'Connection accepted', severity: 'success' });
+      }
+      closePostMenu();
+      return;
+    }
     try {
-      await api.post(`/unified-network/quick-connect/${targetUserId}`);
-      setConnectedIds((prev) => new Set(prev).add(targetUserId));
+      await sendConnectionRequest(targetUserId);
+      setRelationships((prev) => ({ ...prev, [targetUserId]: { state: 'pending_sent' } }));
       setSnackbar({ open: true, message: 'Connection request sent', severity: 'success' });
       closePostMenu();
-    } catch (err: any) {
-      const msg = err?.message || 'Failed to send connection request';
+    } catch (err: unknown) {
+      const kind = getConnectionErrorKind(err);
+      if (kind === 'already_connected') {
+        setRelationships((prev) => ({ ...prev, [targetUserId]: { state: 'connected' } }));
+      } else if (kind === 'already_pending') {
+        setRelationships((prev) => ({ ...prev, [targetUserId]: { state: 'pending_sent' } }));
+      }
+      const msg = err instanceof Error ? err.message : 'Failed to send connection request';
       setSnackbar({ open: true, message: msg, severity: 'error' });
     }
+  };
+
+  const handleViewProfileFromPost = () => {
+    if (!postMenuPostId) return;
+    const post = posts.find((p) => p.id === postMenuPostId);
+    const targetUserId = String(post?.author?.id || '');
+    if (targetUserId) {
+      navigate(getProfilePath(targetUserId));
+    }
+    closePostMenu();
   };
 
   // Toggle comments
@@ -854,11 +883,17 @@ const NetworkFeed: React.FC = () => {
           <CardContent>
             {/* Post Header */}
             <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2 }}>
-              <Avatar sx={{ bgcolor: 'primary.main', mr: 2 }}>
+              <Avatar
+                sx={{ bgcolor: 'primary.main', mr: 2, cursor: post.author.id ? 'pointer' : 'default' }}
+                onClick={() => post.author.id && navigate(getProfilePath(post.author.id))}
+              >
                 {post.author.name.charAt(0)}
               </Avatar>
-              <Box sx={{ flex: 1 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Box
+                sx={{ flex: 1, cursor: post.author.id ? 'pointer' : 'default' }}
+                onClick={() => post.author.id && navigate(getProfilePath(post.author.id))}
+              >
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5, '&:hover': { color: 'primary.main' } }}>
                   {post.author.name}
                   {post.author.is_verified && <Verified sx={{ fontSize: 16, color: 'primary.main' }} />}
                 </Typography>
@@ -1571,6 +1606,9 @@ const NetworkFeed: React.FC = () => {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
+        <MenuItem onClick={handleViewProfileFromPost} disabled={!postMenuPostId}>
+          <ListItemText primary="View profile" />
+        </MenuItem>
         <MenuItem
           onClick={handleFollowFromPost}
           disabled={!postMenuPostId || (() => {
@@ -1595,16 +1633,26 @@ const NetworkFeed: React.FC = () => {
           disabled={!postMenuPostId || (() => {
             const p = posts.find((x) => x.id === postMenuPostId);
             const id = String(p?.author?.id || '');
-            return !id || id === currentUserId || connectedIds.has(id);
+            const rel = id ? relationships[id] : undefined;
+            return !id || id === currentUserId || rel?.state === 'connected' || rel?.state === 'pending_sent';
           })()}
         >
           <ListItemText
-            primary="Connect"
+            primary={(() => {
+              const p = posts.find((x) => x.id === postMenuPostId);
+              const id = String(p?.author?.id || '');
+              const rel = id ? relationships[id] : undefined;
+              if (rel?.state === 'pending_received') return 'Accept connection';
+              return 'Connect';
+            })()}
             secondary={(() => {
               const p = posts.find((x) => x.id === postMenuPostId);
               const id = String(p?.author?.id || '');
               if (!id || id === currentUserId) return 'This is your post';
-              if (connectedIds.has(id)) return 'Already connected';
+              const rel = relationships[id];
+              if (rel?.state === 'connected') return 'Already connected';
+              if (rel?.state === 'pending_sent') return 'Request pending';
+              if (rel?.state === 'pending_received') return 'They invited you — tap to accept';
               return 'Send connection request';
             })()}
           />

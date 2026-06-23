@@ -274,6 +274,9 @@ const StyledTextField = styled(TextField)(({ theme }) => ({
   },
 }));
 
+/** Required on coding-question inputs so global paste blocking in main.tsx allows paste (Ctrl+V / right-click). */
+const CODING_PASTE_ALLOW = { 'data-allow-paste': 'true' as const };
+
 /** Languages shown to candidates in the coding assessment (values align with CodingTest page). */
 const CODING_LANGUAGE_OPTIONS: { value: string; label: string }[] = [
   { value: 'javascript', label: 'JavaScript' },
@@ -1018,6 +1021,7 @@ const CreateJobPost: React.FC = () => {
                   </Box>
                 </Box>
 
+                <Box {...CODING_PASTE_ALLOW}>
                 <Paper
                   elevation={0}
                   sx={{
@@ -1656,6 +1660,7 @@ const CreateJobPost: React.FC = () => {
                   >
                     Add Coding Question
                   </AddQuestionButton>
+                </Box>
                 </Box>
               </Grid>
 
