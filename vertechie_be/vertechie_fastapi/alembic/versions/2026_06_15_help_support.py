@@ -11,12 +11,27 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID
 
 revision: str = "2026_06_15_help_support"
 down_revision: Union[str, None] = "2026_06_22_staff_enum"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+
+def _ensure_enum(name: str, values: list[str]) -> None:
+    vals = ", ".join(f"'{v}'" for v in values)
+    op.execute(
+        sa.text(
+            f"""
+            DO $$ BEGIN
+                CREATE TYPE {name} AS ENUM ({vals});
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END $$;
+            """
+        )
+    )
 
 
 def _add_notification_enum_values() -> None:
@@ -48,19 +63,26 @@ def upgrade() -> None:
     insp = sa.inspect(conn)
     existing = set(insp.get_table_names())
 
-    ticket_status = sa.Enum(
+    _ensure_enum(
+        "ticketstatus",
+        ["open", "in_progress", "waiting_for_user", "resolved", "closed"],
+    )
+    _ensure_enum("tickettype", ["support", "feedback", "suggestion", "complaint"])
+    _ensure_enum("ticketpriority", ["low", "medium", "high", "urgent"])
+
+    ticket_status = postgresql.ENUM(
         "open", "in_progress", "waiting_for_user", "resolved", "closed",
         name="ticketstatus",
+        create_type=False,
     )
-    ticket_type = sa.Enum(
+    ticket_type = postgresql.ENUM(
         "support", "feedback", "suggestion", "complaint",
         name="tickettype",
+        create_type=False,
     )
-    ticket_priority = sa.Enum("low", "medium", "high", "urgent", name="ticketpriority")
-
-    ticket_status.create(conn, checkfirst=True)
-    ticket_type.create(conn, checkfirst=True)
-    ticket_priority.create(conn, checkfirst=True)
+    ticket_priority = postgresql.ENUM(
+        "low", "medium", "high", "urgent", name="ticketpriority", create_type=False
+    )
 
     if "faq_categories" not in existing:
         op.create_table(
